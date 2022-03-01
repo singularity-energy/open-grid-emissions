@@ -10,6 +10,7 @@ def db_path() -> str:
 def test_plants_from_ba(db_path):
     P = PUDL(db_path)
     assert "ISNE" in P.ba_list
-    plants, names = P.plants_from_ba("ISNE")
-    assert len(plants) == len(names)
-    assert "J C McNeil" in names
+    plants = P.plants_from_ba("ISNE")
+    assert "J C McNeil" in plants["plant_name_eia"].tolist()
+    # J C McNeil plant is in VT
+    assert plants[plants["plant_name_eia"] == "J C McNeil"]["state"].array == "VT"

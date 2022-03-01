@@ -37,14 +37,14 @@ class PUDL(object):
         sql = f"""
         SELECT
            plants.plant_id_eia,
-           plants.plant_name_eia
+           plants.plant_name_eia,
+           plants.state
         FROM
            plants_entity_eia AS plants
         WHERE
            plants.balancing_authority_code_eia == \"{ba}\"
         """
-        plants = pd.read_sql(sql, self.pudl_engine)
-        return plants["plant_id_eia"].tolist(), plants["plant_name_eia"].tolist()
+        return pd.read_sql(sql, self.pudl_engine)
 
 class HourlyEGrid(object):
     def __init__(self, year: int, BA: str):
