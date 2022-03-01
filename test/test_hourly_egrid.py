@@ -10,6 +10,6 @@ def db_path() -> str:
 def test_plants_from_ba(db_path):
     P = PUDL(db_path)
     assert "ISNE" in P.ba_list
-    plants = P.plants_from_ba("ISNE")
-    print(plants)
-    assert False
+    plants, names = P.plants_from_ba("ISNE")
+    assert len(plants) == len(names)
+    assert "J C McNeil" in names
