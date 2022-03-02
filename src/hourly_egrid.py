@@ -18,6 +18,11 @@ class PUDLConfig(NamedTuple):
     parquet_source: str
     pudl_source:str
 
+"""
+   default_config()->PUDLConfig
+Default config. Assumes working directory is top level hourly_egrid directory
+For other working directories, explicitly specify config when constructing PUDL()
+"""
 def default_config()->PUDLConfig:
     PARQUET_SOURCE = "data/pudl-*/pudl_data/parquet/epacems/year={}/state={}/*.parquet"
     PUDL_SOURCE = "data/pudl-v0.5.0-2021-11-14/pudl_data/sqlite/pudl.sqlite"
@@ -47,6 +52,8 @@ class PUDL(object):
                 plants.balancing_authority_code_eia
             FROM
                 plants_entity_eia AS plants
+            WHERE
+                plants.balancing_authority_code_eia IS NOT NULL
         """
         ba_list = pd.read_sql(sql, self.pudl_engine)
         self.ba_list = set(ba_list["balancing_authority_code_eia"])
@@ -107,19 +114,28 @@ class PUDL(object):
 """
    calc_hourly()
 
-Return a dataframe containing time, emissions for every hour in year
+Return a dataframe containing time, emissions, power, emission rate for every hour in year
 Only includes units that report to CEMS during the hours they report to CEMS
 
 """
 def calc_hourly(pudl:PUDL, ba:str, year:int) -> Series:
+    target_cols = ["co2_mass_tons", "gross_load_mw"] # CEMS data of interest, PUDL names
+
     # Get plants
     plants = pudl.plants_from_ba(ba)
-    # Get hourly data for every unit associated with each plant
+
+    # Get hourly data of interest for every unit associated with each plant
     hourly = pudl.hourly_from_plants(plants, year)
+    hourly = hourly.loc[:,target_cols+["operating_datetime_utc"]]
+    hourly = hourly.dropna() # To get cems-only rate, need both Co2 and load
+
     # Sum over all units reported in each hour
-    hours = Series(data=None, index=hourly.operating_datetime_utc.unique(), \
-    dtype=float64)
+    hours = DataFrame(data=None, columns=target_cols+["emission_rate_co2"],\
+    index=sorted(hourly.operating_datetime_utc.unique()), \
+    dtype=float)
     for hour in hours.index:
-        hours[hour] = sum(hourly.loc[hourly.operating_datetime_utc==hour,"co2_mass_tons"])
+        for col in target_cols:
+            hours.loc[hour,col] = sum(hourly.loc[hourly.operating_datetime_utc==hour,col])
+        hours.loc[hour,"emission_rate_co2"] = hours.loc[hour,"co2_mass_tons"]*2000/hours.loc[hour,"gross_load_mw"]
 
     return hours
