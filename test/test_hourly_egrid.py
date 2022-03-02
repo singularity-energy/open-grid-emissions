@@ -21,8 +21,3 @@ def test_hourly_from_plants(two_plants):
     P = PUDL()
     hourly = P.hourly_from_plants(two_plants, 2018)
     assert set(hourly.plant_id_eia.unique()) == set(two_plants.plant_id_eia)
-
-# ############## TODO need to make a small db where I know the right answers 
-# def test_sum_ba(hourly_egrid):
-#     hourly_egrid.calc_hourly()
-#     assert False
