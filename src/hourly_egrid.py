@@ -1,10 +1,28 @@
 import pandas as pd
-from pandas import DataFrame
+from pandas import DataFrame, Series
 import sqlalchemy as sa
+from sqlalchemy.engine import Engine
 import os
-from typing import List
+from typing import List, Set, NamedTuple
 import dask.dataframe as dd
 import numpy as np
+
+"""
+   PUDLConfig
+parquet_source: Path (full or relative) to partitioned parquet pudl db
+    (formattable with year and state)
+pudl_source: full path to sqlite pudl db, prefixed by sqlite://// for creation
+    of sqlalchemy engine connection
+"""
+class PUDLConfig(NamedTuple):
+    parquet_source: str
+    pudl_source:str
+
+def default_config()->PUDLConfig:
+    PARQUET_SOURCE = "data/pudl-*/pudl_data/parquet/epacems/year={}/state={}/*.parquet"
+    PUDL_SOURCE = "data/pudl-v0.5.0-2021-11-14/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:////"+os.getcwd()+"/"+PUDL_SOURCE
+    return PUDLConfig(PARQUET_SOURCE, pudl_db)
 
 """
     PUDL
@@ -13,13 +31,15 @@ Class for interacting with PUDL EIA data
 """
 class PUDL(object):
     # TODO allow configuration of data sources
-    PARQUET_SOURCE = "data/pudl-*/pudl_data/parquet/epacems/year={}/state={}/*.parquet"
-    PUDL_SOURCE = "data/pudl-v0.5.0-2021-11-14/pudl_data/sqlite/pudl.sqlite"
+    config:PUDLConfig
+    pudl_engine:Engine
+    ba_list:Set[str]
 
-    def __init__(self):
-        # Note: pudl_db needs to be full path to pudl .sqlite file
-        pudl_db = "sqlite:////"+os.getcwd()+"/"+self.PUDL_SOURCE
-        self.pudl_engine = sa.create_engine(pudl_db)
+
+    def __init__(self, config:PUDLConfig=default_config()):
+        self.config = config
+
+        self.pudl_engine = sa.create_engine(self.config.pudl_source)
 
         # Get distinct BAs so we can test against valid options later
         sql = """
@@ -54,6 +74,12 @@ class PUDL(object):
            plants_entity_eia AS plants
         WHERE
            plants.balancing_authority_code_eia == \"{ba}\"
+        AND
+           plants.plant_id_eia IS NOT NULL
+        AND
+           plants.plant_name_eia IS NOT NULL
+        AND
+           plants.state IS NOT NULL
         """
         return pd.read_sql(sql, self.pudl_engine)
 
@@ -63,11 +89,11 @@ class PUDL(object):
     Given a pandas dataset describing EIA ID, name, and state of plants
     (see plants_from_ba(.)), return CEMS data for all availible plants in year
     """
-    def hourly_from_plants(self, plants:DataFrame, year:int):
+    def hourly_from_plants(self, plants:DataFrame, year:int)->DataFrame:
         collected = DataFrame()
         # One state at a time
         for state in plants.state.unique():
-            state_dat = dd.read_parquet(self.PARQUET_SOURCE.format(year,state))
+            state_dat = dd.read_parquet(self.config.parquet_source.format(year,state))
             # Only select data that actually has either co2 or gross load
             state_dat = state_dat[np.logical_or(~np.isnan(state_dat["co2_mass_tons"]), \
             (state_dat["gross_load_mw"] > 0))]
@@ -77,19 +103,23 @@ class PUDL(object):
 
         return collected
 
+
 """
-   HourlyEGRID
+   calc_hourly()
 
-Class for holding higher-level logic around hourly calculations
+Return a dataframe containing time, emissions for every hour in year
+Only includes units that report to CEMS during the hours they report to CEMS
+
 """
-class HourlyEGrid(object):
-    def __init__(self, year: int, BA: str):
-        self.year = year
-        self.ba = BA
+def calc_hourly(pudl:PUDL, ba:str, year:int) -> Series:
+    # Get plants
+    plants = pudl.plants_from_ba(ba)
+    # Get hourly data for every unit associated with each plant
+    hourly = pudl.hourly_from_plants(plants, year)
+    # Sum over all units reported in each hour
+    hours = Series(data=None, index=hourly.operating_datetime_utc.unique(), \
+    dtype=float64)
+    for hour in hours.index:
+        hours[hour] = sum(hourly.loc[hourly.operating_datetime_utc==hour,"co2_mass_tons"])
 
-    def calc_hourly() -> List[float]:
-        # Get plants
-
-        # Get hourly data for every unit associated with each plant
-        # Sum over all units reported in each hour
-        return []
+    return hours
