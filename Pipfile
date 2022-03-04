@@ -4,9 +4,18 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+notebook = "*"
+ipykernel = "*"
+singularity-energy = "*"
+pandas = "*"
+openpyxl = "*"
+matplotlib = "*"
+sqlalchemy = "*"
+dask = "*"
 requests = "*"
 
 [dev-packages]
+pytest = "*"
 
 [requires]
 python_version = "3.10"
