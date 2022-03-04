@@ -12,6 +12,7 @@ openpyxl = "*"
 matplotlib = "*"
 sqlalchemy = "*"
 dask = "*"
+requests = "*"
 
 [dev-packages]
 pytest = "*"
