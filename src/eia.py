@@ -11,7 +11,7 @@ from dateutil.parser import parse as parse_dt
 
 class EIA:
     BASE_URL_CATEGORY = "https://api.eia.gov/category/?api_key={}&category_id={}"
-    BASE_URL_SERIES = "https://api.eia.gov/series/?api_key={}&series_id={}&start={}&end={}"
+    BASE_URL_SERIES = "https://api.eia.gov/series/?api_key={}&series_id={}"
     key:str
     regions:Dict[str,str]
 
@@ -56,7 +56,7 @@ class EIA:
             throw(AssertionError(f"Could not find series for region {eia_region_code}"))
 
         # Fetch time series data
-        url = self.BASE_URL_SERIES.format(self.key, series_id, f"{year}-01-01", f"{year}-12-30")
+        url = self.BASE_URL_SERIES.format(self.key, series_id)
         r = requests.get(url)
 
         # Turn dates and generation numbers into a time series
@@ -64,4 +64,7 @@ class EIA:
         index = [parse_dt(datajson["series"][0]["data"][i][0]) \
         for i in range(len(datajson["series"][0]["data"]))]
         data = [datajson["series"][0]["data"][i][1] for i in range(len(datajson["series"][0]["data"]))]
-        return Series(index=index, data=data)
+
+        toreturn = Series(index=index, data=data)
+        toreturn.sort_index(inplace=True)
+        return toreturn[f"{year}-01-01T00:00:00Z":f"{year}-12-30T23:59:59Z"]
