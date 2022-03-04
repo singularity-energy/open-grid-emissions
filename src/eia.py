@@ -33,7 +33,7 @@ class EIA:
 
     ## TODO pull out API key
     def __init__(self):
-        self.key = "xixW0K8zI3O28PO9IXn8IdULiBZjLLIYezWrcfqk"
+        self.key = os.getenv('EIA_API_KEY')
         # Use cwd to build path so running from any dir (examples or top level dir) works
         self.cache = os.getcwd().split("hourly-egrid")[0]+"/"+self.CACHE_PATH
         self.get_regions()

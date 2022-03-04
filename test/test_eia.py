@@ -10,9 +10,10 @@ from src.eia import EIA
 # File open mocking modeled on https://stackoverflow.com/questions/1289894/how-do-i-mock-an-open-used-in-a-with-statement-using-the-mock-framework-in-pyth
 @pytest.fixture
 @patch("builtins.open", new_callable=mock_open, read_data="BA1,BA2\r\nFirst.Name.1,Second.Name.2")
-def eia(mock_file):
+def eia(mock_file, monkeypatch):
+    monkeypatch.setenv("EIA_API_KEY", "fakepas")
     e = EIA()
-    e.key = ""
+    assert e.key == "fakepas"
     assert e.regions == {"BA1":"First.Name.1", "BA2":"Second.Name.2"}
     mock_file.assert_called_with(e.cache + e.REGION_F, "r")
     return e
@@ -28,7 +29,7 @@ Test caching: get First.Name.1, then get it again.
 """
 @responses.activate
 def test_get_series(eia,mock_response):
-    responses.add(responses.GET, eia.BASE_URL_SERIES.format("", "First.Name.1"), \
+    responses.add(responses.GET, eia.BASE_URL_SERIES.format("fakepas", "First.Name.1"), \
     json = mock_response)
     series = eia.get_net_generation("BA1",2022)
     assert len(series) == 10
