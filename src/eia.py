@@ -6,7 +6,7 @@ import requests
 import os
 from os.path import exists
 from typing import Dict
-import pandas
+import pandas as pd
 from pandas import Series
 from dateutil.parser import parse as parse_dt
 import csv
@@ -36,7 +36,7 @@ class EIA:
         self.key = "xixW0K8zI3O28PO9IXn8IdULiBZjLLIYezWrcfqk"
         # Use cwd to build path so running from any dir (examples or top level dir) works
         self.cache = os.getcwd().split("hourly-egrid")[0]+"/"+self.CACHE_PATH
-        #self.get_regions()
+        self.get_regions()
 
     """
         get_regions()
@@ -90,17 +90,27 @@ class EIA:
 
     """
         get_net_generation
+    Fetch a year of net generation
+    Time window is always one year for ease of interfacing with PUDL data analysis.
+    (could easily change this)
     """
     def get_net_generation(self, eia_region_code:str, year:int)->Series:
-        return
+        assert eia_region_code in self.regions.keys()
+        series_f = self.cache + self.regions[eia_region_code]
+        if not exists(series_f):
+            series = self._get_net_generation(eia_region_code)
+            series.to_csv(series_f)
+        else:
+            series = pd.read_csv(series_f, index_col=0, parse_dates=True)
+            series = series[series.columns[0]] # read_csv returns a DF, want series
+
+        return series[f"{year}-01-01T00:00:00Z":f"{year}-12-30T23:59:59Z"]
 
     """
         _get_net_generation
     Fetch a non-cached year of net generation for a region or BA.
-    Time window is always one year for ease of interfacing with PUDL data analysis.
     """
-    def _get_net_generation(self, eia_region_code:str, year:int)->Series:
-        assert eia_region_code in self.regions.keys()
+    def _get_net_generation(self, eia_region_code:str)->Series:
         series_id = self.regions[eia_region_code]
 
         # Fetch time series data
@@ -115,4 +125,4 @@ class EIA:
 
         toreturn = Series(index=index, data=data)
         toreturn.sort_index(inplace=True)
-        return toreturn[f"{year}-01-01T00:00:00Z":f"{year}-12-30T23:59:59Z"]
+        return toreturn
