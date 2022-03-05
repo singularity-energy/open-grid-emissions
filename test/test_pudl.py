@@ -1,7 +1,7 @@
 import pytest
 from pandas import DataFrame
 
-from src.hourly_egrid import PUDL
+from src.pudl import PUDL
 
 
 @pytest.fixture

@@ -13,6 +13,7 @@
 ####  If downloaded manually, the expected structure is:
 ####     hourly-egrid/data/pudl-v0.5.0-2021-11-14 contains unzipped pudl folder from zenodo
 ####     hourly-egrid/data/egrid contains egrid excel spreadsheets
+####     hourly-egrid/data/eia930/  empty dir to hold cached 930 data
 ####
 ##########################################
 ##########################################
@@ -25,8 +26,14 @@ if os.getcwd().split("/")[-1] != "hourly-egrid":
     print("You are not running this script in the top-level directory of the hourly egrid project.")
     throw(AssertionError)
 
-os.mkdir("data1")
-os.chdir("data1")
+os.mkdir("data")
+os.chdir("data")
+
+############### EIA-930 data ########################
+
+# This will be downloaded and cached as-needed, so for now just make directory
+os.mkdir("eia930")
+
 
 ############### PUDL data ###########################
 
