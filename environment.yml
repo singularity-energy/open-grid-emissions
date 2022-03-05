@@ -1,0 +1,22 @@
+name: hourly_egrid
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - dask
+  - ipykernel
+  - jupyter_client
+  - jupyter_core
+  - matplotlib
+  - notebook
+  - numpy
+  - openpyxl
+  - pandas
+  - pathlib
+  - plotly
+  - python >=3.10.0
+  - requests
+  - sqlalchemy
+  - statsmodels
+  - pip:
+    - singularity-energy
