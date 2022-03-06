@@ -1,14 +1,14 @@
 # Repo Structure
-hourly-egrid
-|- data: directory for local versions of downloaded files
-|   |- egrid
-|   |   |- egrid2019_static_tabes
-|- notebooks: jupyter notebooks for testing and running code
-|   |- data_pipeline.ipynb
-|- src: python code called by notebooks
-|   |- data_cleaning.py
-|   |- gross_to_net_generation.py
-|- test
+hourly-egrid  
+|- data: directory for local versions of downloaded files  
+|   |- egrid  
+|   |   |- egrid2019_static_tabes  
+|- notebooks: jupyter notebooks for testing and running code  
+|   |- data_pipeline.ipynb  
+|- src: python code called by notebooks  
+|   |- data_cleaning.py  
+|   |- gross_to_net_generation.py  
+|- test  
 
 
 # Installation
