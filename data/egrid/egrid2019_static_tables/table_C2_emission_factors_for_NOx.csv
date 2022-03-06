@@ -1,0 +1,240 @@
+Prime Mover,Primary Fuel Type,Boiler Firing Type (if applicable),Emission Factor,Emission Factor Numerator,Emission Factor Denominator
+ST,AB,N/A,1.2,lb,ton
+ST,AB,STOKER,1.2,lb,ton
+ST,BFG,N/A,0.0154,lb,mcf
+ST,BFG,TANGENTIAL,0.0154,lb,mcf
+ST,BFG,WALL,0.0154,lb,mcf
+ST,BIT,CYCLONE,33,lb,ton
+ST,BIT,DRY CYCLONE,33,lb,ton
+ST,BIT,DRY FLUIDIZED,5,lb,ton
+ST,BIT,DRY STOKER,11,lb,ton
+ST,BIT,DRY TANGENTIAL,10,lb,ton
+ST,BIT,DRY VERTICAL,12,lb,ton
+ST,BIT,DRY WALL,12,lb,ton
+ST,BIT,FLUIDIZED,5,lb,ton
+ST,BIT,N/A,12,lb,ton
+ST,BIT,OTHER,12,lb,ton
+ST,BIT,STOKER,11,lb,ton
+ST,BIT,TANGENTIAL,10,lb,ton
+ST,BIT,WALL,12,lb,ton
+ST,BIT,WET CYCLONE,33,lb,ton
+ST,BIT,WET FLUIDIZED,5,lb,ton
+ST,BIT,WET OTHER,31,lb,ton
+ST,BIT,WET TANGENTIAL,14,lb,ton
+ST,BIT,WET VERTICAL,31,lb,ton
+ST,BIT,WET WALL,31,lb,ton
+ST,BLQ,CYCLONE,1.5,lb,ton
+ST,BLQ,DRY FLUIDIZED,1.5,lb,ton
+ST,BLQ,DRY TANGENTIAL,1.5,lb,ton
+ST,BLQ,DRY WALL,1.5,lb,ton
+ST,BLQ,FLUIDIZED,1.5,lb,ton
+ST,BLQ,N/A,1.5,lb,ton
+ST,BLQ,OTHER,1.5,lb,ton
+ST,BLQ,TANGENTIAL,1.5,lb,ton
+ST,BLQ,WALL,1.5,lb,ton
+ST,COG,CYCLONE,0.0154,lb,mcf
+OT,COG,N/A,0.0154,lb,mcf
+ST,COG,N/A,0.0154,lb,mcf
+ST,COG,WALL,0.0154,lb,mcf
+CT,DFO,CC,5.124,lb,barrels
+GT,DFO,CT,5.124,lb,barrels
+ST,DFO,DRY TANGENTIAL,1.008,lb,barrels
+ST,DFO,DRY WALL,1.008,lb,barrels
+CT,DFO,N/A,5.124,lb,barrels
+ST,DFO,N/A,1.008,lb,barrels
+CA,DFO,N/A,5.124,lb,barrels
+CS,DFO,N/A,5.124,lb,barrels
+CT,DFO,N/A,5.124,lb,barrels
+GT,DFO,N/A,5.124,lb,barrels
+IC,DFO,N/A,18.6396,lb,barrels
+ST,DFO,N/A,1.008,lb,barrels
+ST,DFO,OTHER,1.008,lb,barrels
+ST,DFO,TANGENTIAL,1.008,lb,barrels
+ST,DFO,WALL,1.008,lb,barrels
+ST,DFO,WET TANGENTIAL,1.008,lb,barrels
+GT,JF,CT,4.9896,lb,barrels
+GT,JF,N/A,4.9896,lb,barrels
+IC,JF,N/A,18.144,lb,barrels
+ST,JF,N/A,1.008,lb,barrels
+GT,KER,CT,4.9896,lb,barrels
+GT,KER,N/A,4.9896,lb,barrels
+CA,LFG,N/A,0.087,lb,mcf
+CS,LFG,N/A,0.087,lb,mcf
+CT,LFG,N/A,0.087,lb,mcf
+GT,LFG,N/A,0.087,lb,mcf
+IC,LFG,N/A,0.725,lb,mcf
+ST,LFG,N/A,0.042,lb,mcf
+ST,LIG,DRY FLUIDIZED,3.6,lb,ton
+ST,LIG,DRY TANGENTIAL,7.1,lb,ton
+ST,LIG,DRY WALL,6.3,lb,ton
+ST,LIG,FLUIDIZED,3.6,lb,ton
+ST,LIG,N/A,6.3,lb,ton
+ST,LIG,TANGENTIAL,7.1,lb,ton
+ST,LIG,WET CYCLONE,15,lb,ton
+ST,LIG,WET FLUIDIZED,3.6,lb,ton
+ST,MSB,N/A,5,lb,ton
+ST,MSW,N/A,5,lb,ton
+ST,MSW,OTHER,5,lb,ton
+CT,NG,CC,0.32,lb,MMBtu
+CT,NG,CC,0.328,lb,mcf
+GT,NG,CT,0.328,lb,mcf
+ST,NG,CYCLONE,0.28,lb,mcf
+ST,NG,DRY CYCLONE,0.28,lb,mcf
+CA,NG,DRY DUCTBURNER,0.328,lb,mcf
+ST,NG,DRY DUCTBURNER,0.17,lb,mcf
+ST,NG,DRY STOKER,0.28,lb,mcf
+ST,NG,DRY TANGENTIAL,0.17,lb,mcf
+ST,NG,DRY VERTICAL,0.28,lb,mcf
+CA,NG,DRY WALL,0.328,lb,mcf
+ST,NG,DRY WALL,0.28,lb,mcf
+CA,NG,DUCTBURNER,0.328,lb,mcf
+CS,NG,DUCTBURNER,0.328,lb,mcf
+CT,NG,DUCTBURNER,0.328,lb,mcf
+ST,NG,DUCTBURNER,0.17,lb,mcf
+ST,NG,FLUIDIZED,0.28,lb,mcf
+CT,NG,N/A,0.328,lb,mcf
+ST,NG,N/A,0.17,lb,mcf
+CA,NG,N/A,0.32,lb,MMBtu
+CS,NG,N/A,0.32,lb,MMBtu
+CT,NG,N/A,0.32,lb,MMBtu
+GT,NG,N/A,0.32,lb,MMBtu
+IC,NG,N/A,2.768,lb,mcf
+ST,NG,N/A,0.17,lb,mcf
+ST,NG,OTHER,0.17,lb,mcf
+ST,NG,STOKER,0.28,lb,mcf
+GT,NG,TANGENTIAL,0.328,lb,mcf
+ST,NG,TANGENTIAL,0.17,lb,mcf
+ST,NG,WALL,0.28,lb,mcf
+ST,NG,WET CYCLONE,0.28,lb,mcf
+CA,OBG,N/A,0.3136,lb,mcf
+CS,OBG,N/A,0.3136,lb,mcf
+CT,OBG,N/A,0.3136,lb,mcf
+GT,OBG,N/A,0.3136,lb,mcf
+IC,OBG,N/A,2.64648,lb,mcf
+ST,OBG,N/A,0.11283,lb,mcf
+GT,OBL,N/A,4.7166,lb,barrels
+IC,OBL,N/A,17.1486,lb,barrels
+ST,OBS,N/A,2,lb,ton
+ST,OBS,STOKER,2,lb,ton
+GT,OG,CT,0.26382,lb,mcf
+ST,OG,CYCLONE,0.15282,lb,mcf
+ST,OG,DRY DUCTBURNER,0.15282,lb,mcf
+ST,OG,DRY TANGENTIAL,0.15282,lb,mcf
+ST,OG,DRY WALL,0.15282,lb,mcf
+CA,OG,DUCTBURNER,0.15282,lb,mcf
+ST,OG,DUCTBURNER,0.15282,lb,mcf
+ST,OG,N/A,0.15282,lb,mcf
+CA,OG,N/A,0.15282,lb,mcf
+GT,OG,N/A,0.26382,lb,mcf
+IC,OG,N/A,2.22641,lb,mcf
+ST,OG,N/A,0.15282,lb,mcf
+ST,OG,OTHER,0.15282,lb,mcf
+ST,OG,TANGENTIAL,0.15282,lb,mcf
+CA,OG,WALL,0.15282,lb,mcf
+ST,OG,WALL,0.15282,lb,mcf
+CT,OTH,CC,0.328,lb,mcf
+GT,OTH,CT,0.328,lb,mcf
+ST,OTH,CYCLONE,0.28,lb,mcf
+ST,OTH,DRY CYCLONE,0.28,lb,mcf
+CA,OTH,DRY DUCTBURNER,0.328,lb,mcf
+ST,OTH,DRY DUCTBURNER,0.17,lb,mcf
+ST,OTH,DRY STOKER,0.28,lb,mcf
+ST,OTH,DRY TANGENTIAL,0.17,lb,mcf
+ST,OTH,DRY VERTICAL,0.28,lb,mcf
+CA,OTH,DRY WALL,0.328,lb,mcf
+ST,OTH,DRY WALL,0.28,lb,mcf
+CA,OTH,DUCTBURNER,0.328,lb,mcf
+CS,OTH,DUCTBURNER,0.328,lb,mcf
+CT,OTH,DUCTBURNER,0.328,lb,mcf
+ST,OTH,DUCTBURNER,0.17,lb,mcf
+ST,OTH,FLUIDIZED,0.28,lb,mcf
+CT,OTH,N/A,0.328,lb,mcf
+ST,OTH,N/A,0.17,lb,mcf
+CA,OTH,N/A,0.328,lb,mcf
+CS,OTH,N/A,0.328,lb,mcf
+CT,OTH,N/A,0.328,lb,mcf
+GT,OTH,N/A,0.328,lb,mcf
+IC,OTH,N/A,2.768,lb,mcf
+OT,OTH,N/A,0.328,lb,mcf
+ST,OTH,OTHER,0.17,lb,mcf
+ST,OTH,STOKER,0.28,lb,mcf
+GT,OTH,TANGENTIAL,0.328,lb,mcf
+GT,OTH,TANGENTIAL,0.328,lb,mcf
+ST,OTH,TANGENTIAL,0.17,lb,mcf
+ST,OTH,WALL,0.28,lb,mcf
+ST,OTH,WET CYCLONE,0.28,lb,mcf
+ST,PC,DRY FLUIDIZED,5,lb,ton
+ST,PC,DRY WALL,21,lb,ton
+ST,PC,FLUIDIZED,5,lb,ton
+OT,PC,N/A,21,lb,ton
+ST,PC,N/A,21,lb,ton
+CA,PC,OTHER,21,lb,ton
+ST,PC,OTHER,21,lb,ton
+ST,PC,WET WALL,21,lb,ton
+CT,PG,CC,0.80336,lb,mcf
+GT,PG,N/A,0.80336,lb,mcf
+ST,PG,TANGENTIAL,0.52226,lb,mcf
+ST,PG,WALL,0.52226,lb,mcf
+ST,PRG,DRY WALL,0.28,lb,mcf
+ST,PRG,DUCTBURNER,0.17,lb,mcf
+ST,PRG,N/A,0.17,lb,mcf
+GT,PRG,N/A,0.17,lb,mcf
+ST,PRG,N/A,0.17,lb,mcf
+ST,PRG,OTHER,0.17,lb,mcf
+ST,PRG,TANGENTIAL,0.17,lb,mcf
+ST,PRG,WALL,0.28,lb,mcf
+ST,RC,DRY TANGENTIAL,10,lb,ton
+ST,RFO,DRY TANGENTIAL,1.344,lb,barrels
+ST,RFO,DRY WALL,1.974,lb,barrels
+CT,RFO,N/A,5.5314,lb,barrels
+CA,RFO,N/A,5.5314,lb,barrels
+CS,RFO,N/A,5.5314,lb,barrels
+GT,RFO,N/A,5.5314,lb,barrels
+IC,RFO,N/A,20.118,lb,barrels
+ST,RFO,N/A,1.974,lb,barrels
+ST,RFO,TANGENTIAL,1.344,lb,barrels
+ST,RFO,WALL,1.974,lb,barrels
+ST,RFO,WET WALL,1.974,lb,barrels
+ST,SGC,N/A,0.28,lb,mcf
+CA,SGP,N/A,0.28,lb,mcf
+CS,SGP,N/A,0.28,lb,mcf
+CT,SGP,N/A,0.28,lb,mcf
+ST,SUB,CYCLONE,17,lb,ton
+ST,SUB,DRY FLUIDIZED,5,lb,ton
+ST,SUB,DRY TANGENTIAL,7.2,lb,ton
+ST,SUB,DRY WALL,7.4,lb,ton
+ST,SUB,FLUIDIZED,5,lb,ton
+ST,SUB,N/A,5,lb,ton
+ST,SUB,STOKER,8.8,lb,ton
+ST,SUB,TANGENTIAL,7.2,lb,ton
+ST,SUB,WALL,,,
+ST,SUB,WET CYCLONE,17,lb,ton
+ST,SUB,WET FLUIDIZED,5,lb,ton
+ST,SUB,WET TANGENTIAL,7.2,lb,ton
+ST,SUB,WET WALL,24,lb,ton
+ST,TDF,STOKER,11,lb,ton
+ST,WC,DRY FLUIDIZED,3.6,lb,ton
+ST,WC,FLUIDIZED,3.6,lb,ton
+ST,WC,N/A,3.6,lb,ton
+ST,WDL,N/A,0.22806,lb,barrels
+ST,WDS,DRY FLUIDIZED,2,lb,ton
+ST,WDS,DRY STOKER,1.5,lb,ton
+ST,WDS,DRY TANGENTIAL,2.51,lb,ton
+ST,WDS,DRY WALL,2.51,lb,ton
+ST,WDS,FLUIDIZED,2,lb,ton
+OT,WDS,N/A,2,lb,ton
+ST,WDS,N/A,2,lb,ton
+OT,WDS,OTHER,2,lb,ton
+ST,WDS,OTHER,2,lb,ton
+ST,WDS,STOKER,1.5,lb,ton
+ST,WDS,TANGENTIAL,2.51,lb,ton
+ST,WDS,WALL,2.51,lb,ton
+ST,WDS,WET STOKER,1.5,lb,ton
+ST,WDS,WET TANGENTIAL,2.51,lb,ton
+ST,WO,DRY WALL,0.798,lb,barrels
+CA,WO,N/A,3.8724,lb,barrels
+CS,WO,N/A,3.8724,lb,barrels
+CT,WO,N/A,3.8724,lb,barrels
+GT,WO,N/A,3.8724,lb,barrels
+IC,WO,N/A,14.0784,lb,barrels
+ST,WO,N/A,0.798,lb,barrels

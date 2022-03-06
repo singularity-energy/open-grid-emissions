@@ -1,0 +1,12 @@
+Fuel Type,EIA Fuel Type Code,CO2,NOx,CH4,N2O
+Agricultural Byproducts,AB,x,,,
+Sulphite lyes (Black Liquor),BLQ,x,,,
+Digester Gas,DG,x,,,
+Landfill Gas,LFG,x,x,x,x
+Municipal Solid Waste -biomass component ,MSB,x,,,
+Other Biogas,OBG,x,,,
+Other Liquid Biofuels,OBL,x,,,
+Other Primary Solid Biomass,OBS,x,,,
+Sludge Waste,SLW,x,,,
+"Wood, Wood Waste Liquid",WDL,x,,,
+Wood and Wood Residuals,WDS,x,,,

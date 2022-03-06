@@ -5,18 +5,18 @@ channels:
 dependencies:
   - dask
   - ipykernel
-  - jupyter_client
-  - jupyter_core
   - matplotlib
   - notebook
   - numpy
   - openpyxl
   - pandas
   - pathlib
+  - pip
   - plotly
-  - python >=3.10.0
+  - python
   - requests
   - sqlalchemy
   - statsmodels
   - pip:
+    - pyarrow
     - singularity-energy
