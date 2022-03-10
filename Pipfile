@@ -13,6 +13,7 @@ matplotlib = "*"
 sqlalchemy = "*"
 dask = "*"
 requests = "*"
+statsmodels = "*"
 
 [dev-packages]
 pytest = "*"

@@ -3,7 +3,6 @@ import numpy as np
 import statsmodels.formula.api as smf
 from pathlib import Path
 
-
 def add_report_date(df, plant_entity):
     """
     Add a report date column to the cems data based on the plant's local timezone
@@ -65,7 +64,7 @@ def add_report_date(df, plant_entity):
     for tz in timezones:
         tz_mask = df['timezone'] == tz
         df.loc[tz_mask, 'report_date'] = datetime_utc[tz_mask].tz_convert(
-            tz_to_gmt[tz]).to_series(index=df[tz_mask].index).astype(str).str[:7]
+            tz_to_gmt.get(tz, tz)).to_series(index=df[tz_mask].index).astype(str).str[:7]
 
     # drop the operating_datetime_local column
     df = df.drop(columns=['timezone'])
@@ -75,8 +74,8 @@ def add_report_date(df, plant_entity):
 
 def monthly_fuel_types(cems_df, boiler_fuel_eia923, plant_entity):
     """
-    Assigns a fuel type to each EPA unitid. This takes a sequential filtering approach to 
-    associate the fuel type at the boiler level from EIA-923 to each EPA unit, as there is not 
+    Assigns a fuel type to each EPA unitid. This takes a sequential filtering approach to
+    associate the fuel type at the boiler level from EIA-923 to each EPA unit, as there is not
     a direct match between EPA units and EIA boilers or generators.
 
     Args:
@@ -129,6 +128,7 @@ def monthly_fuel_types(cems_df, boiler_fuel_eia923, plant_entity):
 
     # for the units with a 1:1 unitid to boiler_id match, match the boiler primary fuel to the unit primary fuel
     # could I create a mask, then merge the primary fuel?
+    # GP: this throws warnings because we assign to a copy, but it's merged later so still works.
     missing['primary_fuel'] = missing.apply(
         assign_boiler_fuel_type, axis=1, args=(unit_list, primary_fuel))
 
@@ -202,10 +202,10 @@ def primary_fuel_bf_eia923(boiler_fuel_eia923, fuel_thresh, level='boiler'):
     Determines the primary fuel of each boiler or each plant for each month and adds a new primary_fuel column
 
     Args:
-        boiler_fuel_eia923 (pd.DataFrame): a DataFrame of boiler_fuel_eia923 containing the following columns: 
+        boiler_fuel_eia923 (pd.DataFrame): a DataFrame of boiler_fuel_eia923 containing the following columns:
             - 'plant_id_eia'
             - 'boiler_id'
-            - 'epa_fuel_type'
+            - 'energy_source_code'
             - 'report_date'
             - 'fuel_consumed_units'
             - 'fuel_mmbtu_per_unit'
@@ -253,10 +253,10 @@ def fuel_proportions_bf_eia923(boiler_fuel_eia923, level='boiler'):
     Calculates the percentage of heat input from each fuel type for each boiler for each month.
 
     Args:
-        boiler_fuel_eia923 (pd.DataFrame): a DataFrame of boiler_fuel_eia923 containing the following columns: 
+        boiler_fuel_eia923 (pd.DataFrame): a DataFrame of boiler_fuel_eia923 containing the following columns:
             - 'plant_id_eia'
             - 'boiler_id'
-            - 'epa_fuel_type'
+            - 'energy_source_code'
             - 'report_date'
             - 'fuel_consumed_units'
             - 'fuel_mmbtu_per_unit'
@@ -272,7 +272,7 @@ def fuel_proportions_bf_eia923(boiler_fuel_eia923, level='boiler'):
         boiler_fuel_eia923 = boiler_fuel_eia923[['report_date',
                                                  'plant_id_eia',
                                                  'boiler_id',
-                                                 'epa_fuel_type',
+                                                 'energy_source_code',
                                                  'fuel_consumed_mmbtu']]
 
         # Set report_date as a DatetimeIndex
@@ -281,7 +281,7 @@ def fuel_proportions_bf_eia923(boiler_fuel_eia923, level='boiler'):
 
         # Group by report_date (monthly), plant_id_eia, boiler_id, and fuel_type
         bf_gb = boiler_fuel_eia923.groupby(
-            ['plant_id_eia', 'boiler_id', pd.Grouper(freq='M'), 'epa_fuel_type'])
+            ['plant_id_eia', 'boiler_id', pd.Grouper(freq='M'), 'energy_source_code'])
 
         # Add up all the MMBTU for each boiler & month. At this point each record
         # in the dataframe contains only information about a single fuel.
@@ -290,18 +290,18 @@ def fuel_proportions_bf_eia923(boiler_fuel_eia923, level='boiler'):
         # Simplfy the DF a little before we turn it into a pivot table.
         heat_df = heat_df.reset_index()
 
-        # Take the individual rows organized by epa_fuel_type, and turn them
+        # Take the individual rows organized by energy_source_code, and turn them
         # into columns, each with the total MMBTU for that fuel, month, and boiler.
         fuel_pivot = heat_df.pivot_table(
             index=['report_date', 'plant_id_eia', 'boiler_id'],
-            columns='epa_fuel_type',
+            columns='energy_source_code',
             values='fuel_consumed_mmbtu')
 
     elif level == 'plant':
         # drop fuel_consumed_units and fuel_mmbtu_per_unit columns
         boiler_fuel_eia923 = boiler_fuel_eia923[['report_date',
                                                  'plant_id_eia',
-                                                 'epa_fuel_type',
+                                                 'energy_source_code',
                                                  'fuel_consumed_mmbtu']]
 
         # Set report_date as a DatetimeIndex
@@ -310,7 +310,7 @@ def fuel_proportions_bf_eia923(boiler_fuel_eia923, level='boiler'):
 
         # Group by report_date (monthly), plant_id_eia, and fuel_type
         bf_gb = boiler_fuel_eia923.groupby(
-            ['plant_id_eia', pd.Grouper(freq='M'), 'epa_fuel_type'])
+            ['plant_id_eia', pd.Grouper(freq='M'), 'energy_source_code'])
 
         # Add up all the MMBTU for each boiler & month. At this point each record
         # in the dataframe contains only information about a single fuel.
@@ -319,11 +319,11 @@ def fuel_proportions_bf_eia923(boiler_fuel_eia923, level='boiler'):
         # Simplfy the DF a little before we turn it into a pivot table.
         heat_df = heat_df.reset_index()
 
-        # Take the individual rows organized by epa_fuel_type, and turn them
+        # Take the individual rows organized by energy_source_code, and turn them
         # into columns, each with the total MMBTU for that fuel, month, and boiler.
         fuel_pivot = heat_df.pivot_table(
             index=['report_date', 'plant_id_eia'],
-            columns='epa_fuel_type',
+            columns='energy_source_code',
             values='fuel_consumed_mmbtu')
 
     # Add a column that has the *total* heat content of all fuels:
@@ -451,7 +451,7 @@ def get_epa_eia_crosswalk():
                  'generator_id', 'boiler_id', 'energy_source_code'],
         dtype={'plant_id_epa': 'int32', 'plant_id_eia': 'int32'})'''
 
-    crosswalk = pd.read_csv('../data/epa/eia_epa_id_crosswalk.csv', usecols=[
+    crosswalk = pd.read_csv('../data/epa/epa_eia_crosswalk.csv', usecols=[
                             'CAMD_PLANT_ID', 'EIA_PLANT_ID', 'CAMD_UNIT_ID', 'EIA_GENERATOR_ID', 'EIA_BOILER_ID', 'EIA_FUEL_TYPE', 'CAMD_FUEL_TYPE'])
 
     # rename the columns
@@ -484,9 +484,9 @@ def get_epa_eia_crosswalk():
                       }
     crosswalk['epa_fuel_code'] = crosswalk['epa_fuel_name'].map(fuel_type_dict)
 
-    # fill missing values in the energy_source_code column with values from the epa_fuel_type column
+    # fill missing values in the energy_source_code column with values from the energy_source_code column
     crosswalk['energy_source_code'] = crosswalk['energy_source_code'].fillna(
-        crosswalk['epa_fuel_type'])
+        crosswalk['energy_source_code'])
 
     return crosswalk
 
@@ -557,14 +557,14 @@ def fuel_code_lookup(row, level, crosswalk):
 
         try:
             fuel_type = crosswalk.query('plant_id_eia == @plant_id_eia and unitid == @unitid')[
-                'fuel_type_eia'].iloc[0]
+                'energy_source_code'].iloc[0]
         except IndexError:
             fuel_type = 'unknown'
 
     elif level == 'plant':
         try:
             fuel_type = crosswalk.query('plant_id_eia == @plant_id_eia')[
-                'fuel_type_eia'].iloc[0]
+                'energy_source_code'].iloc[0]
         except IndexError:
             fuel_type = ''
 
@@ -572,17 +572,18 @@ def fuel_code_lookup(row, level, crosswalk):
 
 def fill_missing_co2(cems_df):
     """
-    This function uses fuel type data filled into cems_df by the monthly_fuel_types() function to fill in co2 data where missing.
+    This function uses fuel type data filled into cems_df by the monthly_fuel_types()
+    function to fill in co2 data where missing.
     To do this, it multiplies the heat_input_mmbtu by the emission factor for that fuel type
     """
 
     missing = cems_df[cems_df['co2_mass_tons'].isnull()]
     # get emission factors
     fuel_ef_per_mmbtu = get_emissions_factors(
-    )[['fuel_code', 'co2_tons_per_mmbtu']]
+    )[['energy_source_code', 'co2_tons_per_mmbtu']]
     # add emission factor to missing df
     missing = missing.merge(fuel_ef_per_mmbtu, how='left',
-                            left_on='primary_fuel', right_on='fuel_code')
+                            left_on='primary_fuel', right_on='energy_source_code')
     # calculate missing co2 data
     missing['co2_mass_tons'] = missing['heat_content_mmbtu'] * \
         missing['co2_tons_per_mmbtu']
@@ -606,11 +607,11 @@ def calculate_heat_input_weighted_ef(boiler_fuel_eia923, level):
     elif level == 'plant':
         fp_by_heat = fp_by_heat.set_index(
             ['plant_id_eia', 'report_date'])
-    
+
     #create a weighted emission factor
     fuel_ef_per_mmbtu = get_emissions_factors(
     )[['fuel_code', 'co2_tons_per_mmbtu']]
-    
+
     #get list of unique column names
     fuel_list = list(fp_by_heat.columns.unique())
 
@@ -620,7 +621,7 @@ def calculate_heat_input_weighted_ef(boiler_fuel_eia923, level):
             fp_by_heat[fuel] = fp_by_heat[fuel] * fuel_ef_per_mmbtu.loc[fuel_ef_per_mmbtu['fuel_code'] == fuel, 'co2_tons_per_mmbtu'].to_numpy()[0]
         except IndexError:
             fp_by_heat[fuel] = fp_by_heat[fuel] * 0
-            
+
     #calculate the weighted EF by summing across columns
     fp_by_heat['fuel_weighted_ef_tons_per_mmbtu'] = fp_by_heat.sum(axis=1)
 

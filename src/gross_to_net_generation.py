@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import statsmodels.formula.api as smf
 from pathlib import Path
-import data_cleaning
+import src.data_cleaning as data_cleaning
 
 def gross_to_net_ratios(cems_df, generators, plant_entity):
     """
@@ -45,7 +45,7 @@ def gross_to_net_ratios(cems_df, generators, plant_entity):
     #drop any observations from EIA-923 that are not in ["report_date", "plant_id_eia", "generator_id"] from reporting_units
     generators = generators.merge(reporting_units, how='inner', on=["report_date", "plant_id_eia", "generator_id"])
     generators= generators.drop_duplicates(subset=["report_date", "plant_id_eia", "generator_id"])
-  
+
     # aggregate EIA 293 data to plant level
     generators = generators[['plant_id_eia', 'report_date', 'net_generation_mwh']].groupby(
         ['plant_id_eia', 'report_date']).sum().reset_index()
