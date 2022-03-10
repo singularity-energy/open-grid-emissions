@@ -31,8 +31,3 @@ conda env create -f environment.yml
 
 EIA data access looks for an API key in environment variable EIA_API_KEY.
 You can sign up for an API key at https://www.eia.gov/opendata/register.php
-
-
-# Testing
-
-To test, run `pytest` from the top-level project directory. 
