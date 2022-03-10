@@ -1,0 +1,20 @@
+Fuel Code,Description,Fuel Category
+BIT,Bituminous coal,Coal
+LIG,Lignite coal,Coal
+SUB,Subbituminous coal,Coal
+RC,Refined coal,Coal
+WC,Waste coal,Coal
+SGC,Coal-derived synthetic gas,Coal
+COG,Coke oven gas,Coal
+NG,Natural gas,Gas
+BU,Butane gas,Gas
+DFO,Distillate fuel oil,Oil
+JF,Jet fuel,Oil
+KER,Kerosene,Oil
+PC,Petroleum coke,Oil
+RG,Refinery gas,Oil
+RFO,Residual fuel oil,Oil
+WO,Waste oil,Oil
+BFG,Blast furnace gas,Other fossil
+OG,Other gas,Other fossil
+TDF,Tire-derived fuel,Other fossil
