@@ -6,6 +6,7 @@ dependencies:
   - dask
   - ipykernel
   - matplotlib
+  - missingno
   - notebook
   - numpy
   - openpyxl

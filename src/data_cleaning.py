@@ -2,6 +2,27 @@ import pandas as pd
 import numpy as np
 import statsmodels.formula.api as smf
 from pathlib import Path
+from pandas import DataFrame
+
+def clean_eia_930(df:DataFrame):
+    """
+    Args:
+       df (pd.DataFrame): dataframe containing rows of EIA-930 in the format provided by balance
+       sheets.
+    Returns:
+       cleaned df with same format as input
+    """
+    ## Remove bad data (negative and zero fossil fuel generation)
+    fossil_cols = ["Net Generation (MW) from Coal",\
+                   "Net Generation (MW) from Natural Gas",\
+                   "Net Generation (MW) from All Petroleum Products"]
+    for col in fossil_cols:
+        df[df[col]<0] = np.nan
+
+    # TODO other forms of cleaning as needed
+
+    return df
+
 
 def add_report_date(df, plant_entity):
     """
