@@ -17,7 +17,7 @@ def clean_eia_930(df:DataFrame):
                    "Net Generation (MW) from Natural Gas",\
                    "Net Generation (MW) from All Petroleum Products"]
     for col in fossil_cols:
-        df[df[col]<=0] = np.nan
+        df[df[col]<0] = np.nan
 
     # TODO other forms of cleaning as needed
 
