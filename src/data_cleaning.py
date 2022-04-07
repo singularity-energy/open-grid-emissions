@@ -131,6 +131,8 @@ def get_epa_unit_fuel_types():
     # rename the columns
     fuel_types = fuel_types.rename(columns={'CAMD_PLANT_ID':'plant_id_epa','CAMD_UNIT_ID':'unitid','EIA_FUEL_TYPE':'fuel_type'})
 
+    return fuel_types
+
 def fill_cems_missing_co2(cems, year):
     """
     """
@@ -142,7 +144,7 @@ def fill_cems_missing_co2(cems, year):
 
     #### First round of filling using fuel types in PSDC
 
-    #create a new df with all observations with missing co2 data
+    # create a new df with all observations with missing co2 data
     missing_co2 = cems[cems['co2_mass_tons'].isnull()]
 
     # copy the index of the dataframe so that we can keep the original index after merging
