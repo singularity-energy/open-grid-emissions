@@ -1,5 +1,4 @@
 # NOTE: This code is modified from https://github.com/catalyst-cooperative/pudl/blob/main/src/pudl/analysis/allocate_net_gen.py
-# Add 
 
 """
 Allocate data from generation_fuel_eia923 table to generator level.
@@ -84,18 +83,20 @@ generation is not reported).
 
 """
 
-#import logging
-#import warnings
+import logging
+import warnings
 
 # Useful high-level external modules.
 import numpy as np
 import pandas as pd
+import sqlalchemy as sa
 
-import load_data
+import src.load_data as load_data
 #import pudl.helpers
 #from pudl.metadata.fields import apply_pudl_dtypes
+from typing import List
 
-#logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 IDX_GENS = ["plant_id_eia", "generator_id", "report_date"]
 """Id columns for generators."""
@@ -109,7 +110,7 @@ DATA_COLS = ["net_generation_mwh", "fuel_consumed_mmbtu"]
 """Data columns from generation_fuel_eia923 that are being allocated."""
 
 
-def allocate_gen_fuel_by_gen(pudl_out):
+def allocate_gen_fuel_by_gen(year):
     """
     Allocate gen fuel data columns to generators.
 
@@ -120,36 +121,54 @@ def allocate_gen_fuel_by_gen(pudl_out):
     of plant/generators.
 
     Args:
-        pudl_out (pudl.output.pudltabl.PudlTabl): An object used to create
-            the tables for EIA and FERC Form 1 analysis.
+        year: the single year (YYYY) selected for analysis
 
     Returns:
         pandas.DataFrame: table with columns ``IDX_GENS`` and ``DATA_COLS``.
         The ``DATA_COLS`` will be scaled to the level of the ``IDX_GENS``.
 
     """
+    pudl_db = 'sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite'
+    pudl_engine = sa.create_engine(pudl_db)
+    
+    # specify the date filter for retrieving data
+    year_filter = f"report_date >= '{year}-01-01' AND report_date <= '{year}-12-01'"
+
     # extract all of the tables from pudl_out early in the process and select
     # only the columns we need. this is for speed and clarity.
-    gf = pudl_out.gf_eia923().loc[
+    # gf contains the more complete generation and fuel data at the plant prime mover level
+    gf = load_data.load_pudl_table(f"SELECT * FROM generation_fuel_eia923 WHERE {year_filter}").loc[
         :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu"]
-    ]
+    ].pipe(apply_dtype)
+    # gen contrains more granular generation data at the generator level for a subset of generators
     gen = (
-        pudl_out.gen_original_eia923().loc[:, IDX_GENS + ["net_generation_mwh"]]
+        load_data.load_pudl_table(f"SELECT * FROM generation_eia923 WHERE {year_filter}").loc[:, IDX_GENS + ["net_generation_mwh"]]
         # removes 4 records with NaN generator_id as of pudl v0.5
         .dropna(subset=IDX_GENS)
-    )
-    gens = pudl_out.gens_eia860().loc[
+    ).pipe(apply_dtype)
+    # gens contains a complete list of all generators
+    gens = load_data.load_pudl_table(f"SELECT * FROM generators_eia860 WHERE {year_filter}").loc[
         :,
         IDX_GENS
         + [
-            "prime_mover_code",
             "capacity_mw",
-            "fuel_type_count",
             "operational_status",
             "retirement_date",
         ]
-        + list(pudl_out.gens_eia860().filter(like="energy_source_code")),
+        + list(load_data.load_pudl_table(f"SELECT * FROM generators_eia860 WHERE {year_filter}").filter(like="energy_source_code")),
     ]
+    # add the prime mover code to the gens df from generators entity
+    gens = gens.merge(load_data.load_pudl_table("generators_entity_eia").loc[:,["plant_id_eia", "generator_id","prime_mover_code"]],
+                      how='left', 
+                      on=["plant_id_eia", "generator_id"]).pipe(apply_dtype)
+    # add records for each month of the year
+    gens = create_monthly_gens_records(gens)
+
+    # if negative net generation is reported in gf or gen, replace with zero 
+    # otherwise the allocation will be negative
+    #gf.loc[gf['net_generation_mwh'] < 0, 'net_generation_mwh'] = 0
+    #gen.loc[gen['net_generation_mwh'] < 0, 'net_generation_mwh'] = 0
+    
 
     # do the allocation! (this function coordinates the bulk of the work in
     # this module)
@@ -158,15 +177,42 @@ def allocate_gen_fuel_by_gen(pudl_out):
     gen_allocated = agg_by_generator(gen_pm_fuel)
     _test_gen_fuel_allocation(gen, gen_allocated)
 
+    # add balancing authority and state data 
+    gen_allocated = gen_allocated.merge(plants_eia860(pudl_engine, 
+                                                      start_date=f"{year}-01-01", 
+                                                      end_date=f"{year}-12-31")[['plant_id_eia','balancing_authority_code_eia','state']],
+                                        how='left',
+                                        on='plant_id_eia')
     # make the output mirror the gen_original_eia923()
-    gen_allocated = pudl.output.eia923.denorm_generation_eia923(
+    """
+    gen_allocated = denorm_generation_eia923(
         g_df=gen_allocated,
-        pudl_engine=pudl_out.pudl_engine,
-        start_date=pudl_out.start_date,
-        end_date=pudl_out.end_date,
+        pudl_engine=pudl_engine,
+        start_date=f"{year}-01-01",
+        end_date=f"{year}-12-31",
     )
+    """
+
     return gen_allocated
 
+def create_monthly_gens_records(gens):
+    """
+    Creates a duplicate record for each month of the year in the gens file
+    """
+    # If we want to allocate net generation at the monthly level, we need to ensure that the gens file has monthly records
+    # to do this, we can duplicate the records in gens 11 times for each month, so that there is a record for each month of the year
+    # duplicate the entries for each month
+    gens_month = gens.copy()
+
+    month = 2
+    while month <= 12:
+        # add one month to the copied data each iteration
+        gens_month['report_date'] = gens_month['report_date'] + pd.DateOffset(months=1)
+        # concat this data to the gens file
+        gens = pd.concat([gens, gens_month], axis = 0)
+        month += 1
+
+    return gens
 
 def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, drop_interim_cols=True):
     """
@@ -198,7 +244,7 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, drop_interim_cols=True):
             columns which are used to generate the `net_generation_mwh` column
             (they are mostly the `frac` column and  net generataion reported in
             the original generation_eia923 and generation_fuel_eia923 tables)
-            that are useful for debugging. Default is False, which will drop
+            that are useful for debugging. Default is True, which will drop
             the columns.
 
     Returns:
@@ -225,7 +271,7 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, drop_interim_cols=True):
             fuel_consumed_mmbtu_gf_tbl=lambda x: x.fuel_consumed_mmbtu,
             fuel_consumed_mmbtu=lambda x: x.fuel_consumed_mmbtu * x.frac,
         )
-        .pipe(apply_pudl_dtypes, group="eia")
+        .pipe(apply_dtype)
         .dropna(how="all")
         .pipe(_test_gen_pm_fuel_output, gf=gf, gen=gen)
     )
@@ -255,7 +301,7 @@ def agg_by_generator(gen_pm_fuel):
         gen_pm_fuel.groupby(by=IDX_GENS)[data_cols]
         .sum(min_count=1)
         .reset_index()
-        .pipe(apply_pudl_dtypes, group="eia")
+        .pipe(apply_dtype)
     )
 
     return gen
@@ -285,7 +331,7 @@ def stack_generators(
         pd.DataFrame(gens.set_index(IDX_GENS)[esc].stack(level=0))
         .reset_index()
         .rename(columns={"level_3": cat_col, 0: stacked_col})
-        .pipe(apply_pudl_dtypes, "eia")
+        .pipe(apply_dtype)
     )
 
     # merge the stacked df back onto the gens table
@@ -334,7 +380,7 @@ def associate_generator_tables(gf, gen, gens):
             .reset_index(),
             on=IDX_FUEL,
         )
-        .pipe(apply_pudl_dtypes, "eia")
+        .pipe(apply_dtype)
         .pipe(_associate_unconnected_records)
         .pipe(_associate_energy_source_only, gf=gf)
     )
@@ -363,26 +409,12 @@ def remove_retired_generators(gen_assoc):
             `associate_generator_tables()`.
     """
     existing = gen_assoc.loc[(gen_assoc.operational_status == "existing")]
-    # keep the gens that retired mid-report-year that have generator
-    # specific data
+    # keep the gens for each month until they retire, if they have any data to report in that month
     retiring = gen_assoc.loc[
         (gen_assoc.operational_status == "retired")
-        & (gen_assoc.retirement_date.dt.year == gen_assoc.report_date.dt.year)
+        & (gen_assoc.report_date <= gen_assoc.retirement_date)
         & (gen_assoc.net_generation_mwh.notnull())
     ]
-
-    # check how many generators are retiring mid-year that don't have
-    # gen-specific data.
-    retiring_removing = gen_assoc.loc[
-        (gen_assoc.operational_status == "retired")
-        & (gen_assoc.retirement_date.dt.year == gen_assoc.report_date.dt.year)
-        & (gen_assoc.net_generation_mwh.isnull())
-    ]
-    logger.info(
-        f"Removing {len(retiring_removing.drop_duplicates(IDX_GENS))} "
-        "generators that retired mid-year out of "
-        f"{len(gen_assoc.drop_duplicates(IDX_GENS))}"
-    )
 
     gen_assoc_removed = pd.concat([existing, retiring])
     return gen_assoc_removed
@@ -486,7 +518,7 @@ def _associate_energy_source_only(gen_assoc, gf):
 
     gen_assoc = pd.merge(
         gen_assoc,
-        gf_missing_pm.pipe(apply_pudl_dtypes, "eia"),
+        gf_missing_pm.pipe(apply_dtype),
         how="outer",
         on=IDX_FUEL,
         indicator=True,
@@ -790,7 +822,8 @@ def _test_frac(gen_pm_fuel):
         warnings.warn(
             f"Ooopsies. You got {len(frac_test_bad)} records where the "
             "'frac' column isn't adding up to 1 for each 'IDX_PM_FUEL' "
-            "group. Check 'make_allocation_frac()'"
+            "group. Check 'calc_allocation_fraction()'\n"
+            f"{frac_test_bad}"
         )
     return frac_test_bad
 
@@ -875,9 +908,285 @@ def _test_gen_fuel_allocation(gen, gen_allocated, ratio=0.05):
     ]
     os_ratio = len(os_ratios) / len(gens_test)
     logger.info(
-        f"{os_ratio:.2%} of generator records are more that {ratio:.0%} off from the net generation table"
+        f"{os_ratio:.2%} of generator records are more than {ratio:.0%} off from the net generation table"
     )
     if ratio == 0.05 and os_ratio > 0.15:
         warnings.warn(
             f"Many generator records that have allocated net gen more than {ratio:.0%}"
         )
+
+
+def plants_eia860(pudl_engine, start_date=None, end_date=None):
+    """Pull all fields from the EIA Plants tables.
+    Args:
+        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
+            for the PUDL DB.
+        start_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+        end_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+    Returns:
+        pandas.DataFrame: A DataFrame containing all the fields of the EIA 860
+        Plants table.
+    """
+    pt = get_table_meta(pudl_engine)
+    # grab the entity table
+    plants_eia_tbl = pt["plants_entity_eia"]
+    plants_eia_select = sa.sql.select(plants_eia_tbl)
+    plants_eia_df = pd.read_sql(plants_eia_select, pudl_engine)
+
+    # grab the annual table select
+    plants_eia860_tbl = pt["plants_eia860"]
+    plants_eia860_select = sa.sql.select(plants_eia860_tbl)
+    if start_date is not None:
+        start_date = pd.to_datetime(start_date)
+        plants_eia860_select = plants_eia860_select.where(
+            plants_eia860_tbl.c.report_date >= start_date
+        )
+    if end_date is not None:
+        end_date = pd.to_datetime(end_date)
+        plants_eia860_select = plants_eia860_select.where(
+            plants_eia860_tbl.c.report_date <= end_date
+        )
+    plants_eia860_df = pd.read_sql(plants_eia860_select, pudl_engine).assign(
+        report_date=lambda x: pd.to_datetime(x.report_date)
+    )
+
+    # plant glue table
+    plants_g_eia_tbl = pt["plants_eia"]
+    plants_g_eia_select = sa.sql.select(
+        plants_g_eia_tbl.c.plant_id_eia,
+        plants_g_eia_tbl.c.plant_id_pudl,
+    )
+    plants_g_eia_df = pd.read_sql(plants_g_eia_select, pudl_engine)
+
+    out_df = pd.merge(plants_eia_df, plants_eia860_df, how="left", on=["plant_id_eia"])
+    out_df = pd.merge(out_df, plants_g_eia_df, how="left", on=["plant_id_eia"])
+
+    utils_eia_tbl = pt["utilities_eia"]
+    utils_eia_select = sa.sql.select(utils_eia_tbl)
+    utils_eia_df = pd.read_sql(utils_eia_select, pudl_engine)
+
+    out_df = (
+        pd.merge(out_df, utils_eia_df, how="left", on=["utility_id_eia"])
+        .dropna(subset=["report_date", "plant_id_eia"])
+        .pipe(apply_dtype)
+    )
+    return out_df
+
+
+def get_table_meta(pudl_engine):
+    """Grab the pudl sqlitie database table metadata."""
+    md = sa.MetaData()
+    md.reflect(pudl_engine)
+    return md.tables
+
+
+def utilities_eia860(pudl_engine, start_date=None, end_date=None):
+    """Pull all fields from the EIA860 Utilities table. NOTE: copied from pudl.output.eia860
+    Args:
+        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
+            for the PUDL DB.
+        start_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+        end_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+    Returns:
+        pandas.DataFrame: A DataFrame containing all the fields of the EIA 860
+        Utilities table.
+    """
+    pt = get_table_meta(pudl_engine)
+    # grab the entity table
+    utils_eia_tbl = pt["utilities_entity_eia"]
+    utils_eia_select = sa.sql.select(utils_eia_tbl)
+    utils_eia_df = pd.read_sql(utils_eia_select, pudl_engine)
+
+    # grab the annual eia entity table
+    utils_eia860_tbl = pt["utilities_eia860"]
+    utils_eia860_select = sa.sql.select(utils_eia860_tbl)
+
+    if start_date is not None:
+        start_date = pd.to_datetime(start_date)
+        utils_eia860_select = utils_eia860_select.where(
+            utils_eia860_tbl.c.report_date >= start_date
+        )
+    if end_date is not None:
+        end_date = pd.to_datetime(end_date)
+        utils_eia860_select = utils_eia860_select.where(
+            utils_eia860_tbl.c.report_date <= end_date
+        )
+    utils_eia860_df = pd.read_sql(utils_eia860_select, pudl_engine)
+
+    # grab the glue table for the utility_id_pudl
+    utils_g_eia_tbl = pt["utilities_eia"]
+    utils_g_eia_select = sa.sql.select(
+        utils_g_eia_tbl.c.utility_id_eia,
+        utils_g_eia_tbl.c.utility_id_pudl,
+    )
+    utils_g_eia_df = pd.read_sql(utils_g_eia_select, pudl_engine)
+
+    out_df = pd.merge(utils_eia_df, utils_eia860_df, how="left", on=["utility_id_eia"])
+    out_df = pd.merge(out_df, utils_g_eia_df, how="left", on=["utility_id_eia"])
+    out_df = (
+        out_df.assign(report_date=lambda x: pd.to_datetime(x.report_date))
+        .dropna(subset=["report_date", "utility_id_eia"])
+        .pipe(apply_dtype)
+    )
+    first_cols = [
+        "report_date",
+        "utility_id_eia",
+        "utility_id_pudl",
+        "utility_name_eia",
+    ]
+
+    out_df = organize_cols(out_df, first_cols)
+    return out_df
+
+
+def organize_cols(df, cols):
+    """
+    Organize columns into key ID & name fields & alphabetical data columns.
+    For readability, it's nice to group a few key columns at the beginning
+    of the dataframe (e.g. report_year or report_date, plant_id...) and then
+    put all the rest of the data columns in alphabetical order.
+    Args:
+        df: The DataFrame to be re-organized.
+        cols: The columns to put first, in their desired output ordering.
+    Returns:
+        pandas.DataFrame: A dataframe with the same columns as the input
+        DataFrame df, but with cols first, in the same order as they
+        were passed in, and the remaining columns sorted alphabetically.
+    """
+    # Generate a list of all the columns in the dataframe that are not
+    # included in cols
+    data_cols = sorted([c for c in df.columns.tolist() if c not in cols])
+    organized_cols = cols + data_cols
+    return df[organized_cols]
+
+
+def clean_merge_asof(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    left_on: str = "report_date",
+    right_on: str = "report_date",
+    by: List[str] = [],
+) -> pd.DataFrame:
+    """
+    Merge two dataframes having different ``report_date`` frequencies.
+    We often need to bring together data which is reported on a monthly basis, and
+    entity attributes that are reported on an annual basis.  The
+    :func:`pandas.merge_asof` is designed to do this, but requires that dataframes are
+    sorted by the merge keys (``left_on``, ``right_on``, and ``by`` here). We also need
+    to make sure that all merge keys have identical data types in the two dataframes
+    (e.g. ``plant_id_eia`` needs to be a nullable integer in both dataframes, not a
+    python int in one, and a nullable :func:`pandas.Int64Dtype` in the other).  Note
+    that :func:`pandas.merge_asof` performs a left merge, so the higher frequency
+    dataframe **must** be the left dataframe.
+    We also force both ``left_on`` and ``right_on`` to be a Datetime using
+    :func:`pandas.to_datetime` to allow merging dataframes having integer years with
+    those having datetime columns.
+    Because :func:`pandas.merge_asof` searches backwards for the first matching date,
+    this function only works if the less granular dataframe uses the convention of
+    reporting the first date in the time period for which it reports. E.g. annual
+    dataframes need to have January 1st as the date. This is what happens by defualt if
+    only a year or year-month are provided to :func:`pandas.to_datetime` as strings.
+    Args:
+        left: The higher frequency "data" dataframe. Typically monthly in our use
+            cases. E.g. ``generation_eia923``. Must contain ``report_date`` and any
+            columns specified in the ``by`` argument.
+        right: The lower frequency "attribute" dataframe. Typically annual in our uses
+            cases. E.g. ``generators_eia860``. Must contain ``report_date`` and any
+            columns specified in the ``by`` argument.
+        left_on: Column in ``left`` to merge on using merge_asof. Default is
+            ``report_date``. Must be convertible to a Datetime using
+            :func:`pandas.to_datetime`
+        right_on: Column in ``right`` to merge on using :func:`pd.merge_asof`.  Default
+            is ``report_date``. Must be convertible to a Datetime using
+            :func:`pandas.to_datetime`
+        by: Columns to merge on in addition to ``report_date``. Typically ID columns
+            like ``plant_id_eia``, ``generator_id`` or ``boiler_id``.
+    Returns:
+        Merged contents of left and right input dataframes.  Will be sorted by
+        ``left_on`` and any columns specified in ``by``. See documentation for
+        :func:`pandas.merge_asof` to understand how this kind of merge works.
+    Raises:
+        ValueError: if ``left_on`` or ``right_on`` columns are missing from their
+            respective input dataframes.
+        ValueError: if any of the labels referenced in ``by`` are missing from either
+            the left or right dataframes.
+    """
+    # Make sure we've got all the required inputs...
+    if left_on not in left.columns:
+        raise ValueError(f"Left dataframe has no column {left_on}.")
+    if right_on not in right.columns:
+        raise ValueError(f"Right dataframe has no {right_on}.")
+    missing_left_cols = [col for col in by if col not in left.columns]
+    if missing_left_cols:
+        raise ValueError(f"Left dataframe is missing {missing_left_cols}.")
+    missing_right_cols = [col for col in by if col not in right.columns]
+    if missing_right_cols:
+        raise ValueError(f"Left dataframe is missing {missing_right_cols}.")
+
+    def cleanup(df, on, by):
+        df = apply_dtype(df)
+        df.loc[:, on] = pd.to_datetime(df[on])
+        df = df.sort_values([on] + by)
+        return df
+
+    return pd.merge_asof(
+        cleanup(df=left, on=left_on, by=by),
+        cleanup(df=right, on=right_on, by=by),
+        left_on=left_on,
+        right_on=right_on,
+        by=by,
+        tolerance=pd.Timedelta("365 days"),  # Should never match across years.
+    )
+
+def boiler_generator_assn_eia860(pudl_engine, start_date=None, end_date=None):
+    """Pull all fields from the EIA 860 boiler generator association table. NOTE: Copied from pudl.output.eia860
+    Args:
+        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
+            for the PUDL DB.
+        start_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+        end_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+    Returns:
+        pandas.DataFrame: A DataFrame containing all the fields from the EIA
+        860 boiler generator association table.
+    """
+    pt = get_table_meta(pudl_engine)
+    bga_eia860_tbl = pt["boiler_generator_assn_eia860"]
+    bga_eia860_select = sa.sql.select(bga_eia860_tbl)
+
+    if start_date is not None:
+        start_date = pd.to_datetime(start_date)
+        bga_eia860_select = bga_eia860_select.where(
+            bga_eia860_tbl.c.report_date >= start_date
+        )
+    if end_date is not None:
+        end_date = pd.to_datetime(end_date)
+        bga_eia860_select = bga_eia860_select.where(
+            bga_eia860_tbl.c.report_date <= end_date
+        )
+    out_df = pd.read_sql(bga_eia860_select, pudl_engine).assign(
+        report_date=lambda x: pd.to_datetime(x.report_date)
+    )
+    return out_df
+
+def apply_dtype(df):
+    "converts columns to standardized dtype based on name"
+
+    # convert all columns with "date" in name to datetime dtype
+    df = df.astype({col: "datetime64[ns]" for col in df.columns if "date" in col})
+
+    # convert all columns with "plant_id" in name to integer dtype
+    df = df.astype({col: "Int64" for col in df.columns if "plant_id" in col})
+
+    return df
