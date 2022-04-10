@@ -1,0 +1,41 @@
+Fuel Type,energy_source_code,co2_tons_per_mmbtu,CH4 EF (lb CH4/mmBtu),N2O EF (lb N2O/mmBtu),Source
+Agricultural Byproducts,AB,0.13026,0.07055,0.00926,"(EPA, 2009)"
+Anthracite,ANT,0.11413,0.02425,0.00353,"(EPA, 2009)"
+Blast Furnace Gas,BFG,0.30239,0.00005,0.00022,"(EPA, 2009)"
+Bituminous,BIT,0.10296,0.02425,0.00353,"(EPA, 2009)"
+Sulphite lyes (Black Liquor),BLQ,0.11083,0.00698,0.00465,"(IPCC, 2007a)"
+Coke Oven Gas,COG,0.05164,0.00106,0.00022,"(EPA, 2009)"
+Distillate Fuel Oil (avg),DFO,0.08166,0.00661,0.00132,"(EPA, 2009)"
+Hydrogen,H,0,0,0,No EF
+Kerosene-Type Jet Fuel,JF,0.07961,0.00661,0.00132,"(EPA, 2009)"
+Kerosene,KER,0.08289,0.00661,0.00132,"(EPA, 2009)"
+Landfill Gas,LFG,0.0635,0.00233,0.00023,"(IPCC, 2007a)"
+Lignite,LIG,0.10622,0.02425,0.00353,"(EPA, 2009)"
+Municipal Solid Waste (Biomass),MSB,0.09998,0.07055,0.00926,"(EPA, 2009)"
+Municipal Solid Waste (Non-Biomass),MSN,0.09998,0.07055,0.00926,"(EPA, 2009)"
+Municipal Solid Waste (Biomass),MSW,0.09998,0.07055,0.00926,"(EPA, 2009)"
+Megawatt hours,MWH,0,0,0,No EF
+Pipeline (Weighted U.S. Average),NG,0.05844,0.0022,0.00022,"(EPA, 2009)"
+Nuclear,NUC,0,0,0,No EF
+Other Biogas,OBG,0.0635,0.00233,0.00023,"(IPCC, 2007a)"
+Other Liquid Biofuels,OBL,0.09257,0.00698,0.0014,"(IPCC, 2007a)"
+Other Primary Solid Biomass ,OBS,0.1163,0.06978,0.0093,"(IPCC, 2007a)"
+Other Gas,OG,0.05844,0.0022,0.00022,Use NG EF
+Petroleum Coke,PC,0.11289,0.00661,0.00132,"(EPA, 2009)"
+Propane,PG,0.06775,0.00661,0.00132,"(EPA, 2009)"
+Process Gas,PRG,0.05844,0.0022,0.00022,Use NG EF
+Purchased Steam,PUR,0,0,0,No EF
+Refined Coal,RC,0.10529,0.02425,0.00353,"(EPA, 2009)"
+Residual Fuel Oil (avg),RFO,0.08159,0.00661,0.00132,"(EPA, 2009)"
+Synthetic Gas - Petroleum Coke,SGP,0.05844,0.0022,0.00022,Use NG EF
+Sludge Waste,SLW,0.09257,0.00698,0.0014,Use OBL EF
+Subbituminous,SUB,0.10695,0.02425,0.00353,"(EPA, 2009)"
+Solar,SUN,0,0,0,No EF
+Tires,TDF,0.09477,0.07055,0.00926,"(EPA, 2009)"
+Water,WAT,0,0,0,No EF
+Waste Coal,WC,0.10529,0.02425,0.00353,"(EPA, 2009)"
+"Wood, Wood Waste Liquid",WDL,0.09257,0.00698,0.0014,Use OBL EF
+Wood and Wood Residuals,WDS,0.1034,0.07055,0.00926,"(EPA, 2009)"
+Waste Heat,WH,0,0,0,No EF
+Wind,WND,0,0,0,No EF
+Waste Oils ,WO,0.08525,0.06978,0.0093,"(IPCC, 2007a)"
