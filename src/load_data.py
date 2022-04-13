@@ -143,6 +143,12 @@ def load_cems_data(year):
     # calculate gross generation by multiplying gross_load_mw by operating_time_hours
     cems['gross_generation_mwh'] = cems['gross_load_mw'] * cems['operating_time_hours']
 
+    # NOTE: The co2 and heat content data are reported as rates (e.g. tons/hr) rather than absolutes
+    # Thus they need to be multiplied by operating_time_hours
+    # See https://github.com/catalyst-cooperative/pudl/issues/1581
+    cems['co2_mass_tons'] = cems['co2_mass_tons'] * cems['operating_time_hours']
+    cems['heat_content_mmbtu'] = cems['heat_content_mmbtu'] * cems['operating_time_hours']
+
     # add a unique unit id
     cems['cems_id'] = cems['plant_id_eia'].astype(str) + "_" + cems['unitid'].astype(str)
 
@@ -169,8 +175,8 @@ def load_pudl_table(sql_query):
 
     return table
 
-def load_emission_factors(year):
+def load_emission_factors():
     """
     Read in the table of emissions factors
     """
-    return pd.read_csv(f'../data/egrid/egrid{year}_static_tables/table_C1_emission_factors_for_CO2_CH4_N2O.csv')
+    return pd.read_csv('../data/egrid/egrid_static_tables/table_C1_emission_factors_for_CO2_CH4_N2O.csv')

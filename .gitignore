@@ -3,8 +3,7 @@ data/*
 !data/egrid/*
 !data/egrid/
 data/egrid/*
-!data/egrid/egrid2019_static_tables
-!data/egrid/egrid2020_static_tables
+!data/egrid/egrid_static_tables
 
 example/.ipynb_checkpoints/
 test/__pycache__/

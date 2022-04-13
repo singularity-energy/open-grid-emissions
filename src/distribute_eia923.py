@@ -92,6 +92,7 @@ import pandas as pd
 import sqlalchemy as sa
 
 import src.load_data as load_data
+import src.data_cleaning as data_cleaning
 #import pudl.helpers
 #from pudl.metadata.fields import apply_pudl_dtypes
 from typing import List
@@ -136,16 +137,23 @@ def allocate_gen_fuel_by_gen(year):
 
     # extract all of the tables from pudl_out early in the process and select
     # only the columns we need. this is for speed and clarity.
+    
     # gf contains the more complete generation and fuel data at the plant prime mover level
     gf = load_data.load_pudl_table(f"SELECT * FROM generation_fuel_eia923 WHERE {year_filter}").loc[
         :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu"]
     ].pipe(apply_dtype)
+    # remove non-grid connected plants
+    gf = data_cleaning.remove_non_grid_connected_plants(gf, year)
+    
     # gen contrains more granular generation data at the generator level for a subset of generators
     gen = (
         load_data.load_pudl_table(f"SELECT * FROM generation_eia923 WHERE {year_filter}").loc[:, IDX_GENS + ["net_generation_mwh"]]
         # removes 4 records with NaN generator_id as of pudl v0.5
         .dropna(subset=IDX_GENS)
     ).pipe(apply_dtype)
+    # remove non-grid connected plants
+    gen = data_cleaning.remove_non_grid_connected_plants(gen, year)
+    
     # gens contains a complete list of all generators
     gens = load_data.load_pudl_table(f"SELECT * FROM generators_eia860 WHERE {year_filter}").loc[
         :,
@@ -157,6 +165,10 @@ def allocate_gen_fuel_by_gen(year):
         ]
         + list(load_data.load_pudl_table(f"SELECT * FROM generators_eia860 WHERE {year_filter}").filter(like="energy_source_code")),
     ]
+    # remove non-grid connected plants
+    gens = data_cleaning.remove_non_grid_connected_plants(gens, year)
+    # get a list of fuel types for later
+    gen_primary_fuel = gens.copy()[['plant_id_eia','generator_id','energy_source_code_1']]
     # add the prime mover code to the gens df from generators entity
     gens = gens.merge(load_data.load_pudl_table("generators_entity_eia").loc[:,["plant_id_eia", "generator_id","prime_mover_code"]],
                       how='left', 
@@ -192,6 +204,8 @@ def allocate_gen_fuel_by_gen(year):
         end_date=f"{year}-12-31",
     )
     """
+    # add primary fuel data for each generator
+    gen_allocated = gen_allocated.merge(gen_primary_fuel, how='left', on=['plant_id_eia','generator_id'])
 
     return gen_allocated
 
@@ -258,6 +272,14 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, drop_interim_cols=True):
     gen_pm_fuel = prep_alloction_fraction(gen_assoc)
     gen_pm_fuel_frac = calc_allocation_fraction(gen_pm_fuel)
 
+    # NOTE: here might be a good place to calculate emissions by generator
+    # get emission factors
+    emission_factors = load_data.load_emission_factors()[['energy_source_code', 'co2_tons_per_mmbtu']]
+    # add emission factor to missing df
+    gen_pm_fuel_frac = gen_pm_fuel_frac.merge(emission_factors, how='left', on='energy_source_code')
+    # calculate missing co2 data
+    gen_pm_fuel_frac['co2_mass_tons'] = gen_pm_fuel_frac['fuel_consumed_mmbtu'] * gen_pm_fuel_frac['co2_tons_per_mmbtu']
+
     # do the allocating-ing!
     gen_pm_fuel_frac = (
         gen_pm_fuel_frac.assign(
@@ -270,6 +292,9 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, drop_interim_cols=True):
             # allocating fuel consumption based on the boiler_fuel_eia923 tbl
             fuel_consumed_mmbtu_gf_tbl=lambda x: x.fuel_consumed_mmbtu,
             fuel_consumed_mmbtu=lambda x: x.fuel_consumed_mmbtu * x.frac,
+            # NOTE: allocating emissions by fraction of net generation
+            # TODO: allocate by fraction of heat input
+            co2_mass_tons=lambda x: x.co2_mass_tons * x.frac,
         )
         .pipe(apply_dtype)
         .dropna(how="all")
@@ -283,6 +308,7 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, drop_interim_cols=True):
                 "energy_source_code_num",
                 "net_generation_mwh",
                 "fuel_consumed_mmbtu",
+                "co2_mass_tons",
             ]
         ]
     return gen_pm_fuel_frac
@@ -296,7 +322,7 @@ def agg_by_generator(gen_pm_fuel):
         gen_pm_fuel (pandas.DataFrame): result of
             `allocate_gen_fuel_by_gen_pm_fuel()`
     """
-    data_cols = ["net_generation_mwh", "fuel_consumed_mmbtu"]
+    data_cols = ["net_generation_mwh", "fuel_consumed_mmbtu","co2_mass_tons"]
     gen = (
         gen_pm_fuel.groupby(by=IDX_GENS)[data_cols]
         .sum(min_count=1)

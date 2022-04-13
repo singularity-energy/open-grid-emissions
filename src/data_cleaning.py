@@ -41,18 +41,17 @@ def crosswalk_epa_eia_plant_ids(cems):
 
     return cems
 
-def remove_non_grid_connected_plants(df, year):
+def remove_non_grid_connected_plants(df):
     """
     Removes any records from a dataframe associated with plants that are not connected to the electricity grid
     Inputs: 
         df: any pandas dataframe containing the column 'plant_id_eia'
-        year: integer year number that is being analyzed
     Returns:
         df: pandas dataframe with non-grid connected plants removed
     """
 
     # get the list of plant_id_eia from the static table
-    ngc_plants = list(pd.read_csv(f'../data/egrid/egrid{year}_static_tables/table_4-2_plants_not_connected_to_grid.csv')['Plant ID'])
+    ngc_plants = list(pd.read_csv('../data/egrid/egrid_static_tables/table_4-2_plants_not_connected_to_grid.csv')['Plant ID'])
     # remove these plants from the cems data
     df = df[~df['plant_id_eia'].isin(ngc_plants)]
 
@@ -129,9 +128,50 @@ def get_epa_unit_fuel_types():
     # remove any entries where there are multiple fuel types listed
     fuel_types = fuel_types[~fuel_types[['CAMD_PLANT_ID','CAMD_UNIT_ID']].duplicated(keep=False)]
     # rename the columns
-    fuel_types = fuel_types.rename(columns={'CAMD_PLANT_ID':'plant_id_epa','CAMD_UNIT_ID':'unitid','EIA_FUEL_TYPE':'fuel_type'})
+    fuel_types = fuel_types.rename(columns={'CAMD_PLANT_ID':'plant_id_epa','CAMD_UNIT_ID':'unitid','EIA_FUEL_TYPE':'energy_source_code'})
 
     return fuel_types
+
+def calculate_co2_from_heat_content(df):
+    """
+    Inputs:
+        df: pandas dataframe containing the following columns: ['plant_id_eia','heat_content_mmbtu','energy_source_code']
+    """
+    # check which column name is used for the heat content
+    if 'heat_content_mmbtu' in df.columns:
+        heat_column = 'heat_content_mmbtu' 
+    elif 'fuel_content_mmbtu' in df.columns:
+        heat_column = 'fuel_content_mmbtu' 
+
+    # get emission factors
+    emission_factors = load_data.load_emission_factors()[['energy_source_code', 'co2_tons_per_mmbtu']]
+
+    # add emission factor to  df
+    df = df.merge(emission_factors, how='left', on='energy_source_code')
+
+    # get geothermal data
+    geothermal_geotype = pd.read_csv('../data/egrid/egrid_static_tables/table_geothermal_geotype.csv')
+    # load geothermal efs
+    geothermal_efs = pd.read_csv('../data/egrid/egrid_static_tables/table_C6_geothermal_emission_factors.csv')[['geotype_code','co2_lb_per_mmbtu']]
+    # convert lb to ton
+    geothermal_efs['co2_tons_per_mmbtu_geo'] = geothermal_efs['co2_lb_per_mmbtu'] / 2000
+    # merge geothermal emissions factor into geothermal geotype data
+    geothermal_efs = geothermal_geotype.merge(geothermal_efs[['geotype_code','co2_tons_per_mmbtu_geo']], how='left', on='geotype_code')[['plant_id_eia','co2_tons_per_mmbtu_geo']]
+
+    # add geothermal emission factor to df
+    df = df.merge(geothermal_efs, how='left', on='plant_id_eia')
+
+    #update missing efs using the geothermal efs if available
+    df['co2_tons_per_mmbtu'] = df['co2_tons_per_mmbtu'].fillna(df['co2_tons_per_mmbtu_geo'])
+
+    # create a new column with the  co2 mass in tons
+    df['co2_mass_tons'] = df[heat_column] * df['co2_tons_per_mmbtu']
+
+    # drop intermediate columns
+    df = df.drop(columns=['co2_tons_per_mmbtu','co2_tons_per_mmbtu_geo'])
+
+    return df
+
 
 def fill_cems_missing_co2(cems, year):
     """
@@ -156,20 +196,15 @@ def fill_cems_missing_co2(cems, year):
     missing_co2 = missing_co2.merge(fuel_types, how='left', on=['plant_id_epa','unitid']).set_index(missing_index)
 
     # for rows that have a successful fuel code match, move to a temporary dataframe to hold the data
-    co2_to_fill = missing_co2.copy()[~missing_co2['fuel_type'].isna()]
+    co2_to_fill = missing_co2.copy()[~missing_co2['energy_source_code'].isna()]
     fill_index = co2_to_fill.index
 
     # remove these from the missing co2 dataframe. We'll need to apply a different method for these remaining plants
-    missing_co2 = missing_co2[missing_co2['fuel_type'].isna()]
+    missing_co2 = missing_co2[missing_co2['energy_source_code'].isna()]
     missing_index = missing_co2.index
 
-    # get emission factors
-    emission_factors = load_data.load_emission_factors(year)[['energy_source_code', 'co2_tons_per_mmbtu']]
-    # add emission factor to missing df
-    co2_to_fill = co2_to_fill.merge(emission_factors, how='left',
-                            left_on='fuel_type', right_on='energy_source_code').set_index(fill_index)
-    # calculate missing co2 data
-    co2_to_fill['co2_mass_tons'] = co2_to_fill['heat_content_mmbtu'] * co2_to_fill['co2_tons_per_mmbtu']
+    # calculate emissions based on fuel type
+    co2_to_fill = calculate_co2_from_heat_content(co2_to_fill).set_index(fill_index)
 
     # fill this data into the original cems data
     cems.update(co2_to_fill[['co2_mass_tons']])
@@ -193,6 +228,8 @@ def fill_cems_missing_co2(cems, year):
 
     missing_gf = missing_gf.fillna(1)
 
+    emission_factors = load_data.load_emission_factors()[['energy_source_code', 'co2_tons_per_mmbtu']]
+
     # merge in the emission factor
     missing_gf = missing_gf.reset_index().merge(emission_factors, how='left', on='energy_source_code')
 
@@ -211,6 +248,9 @@ def fill_cems_missing_co2(cems, year):
 
     # update in CEMS table
     cems.update(missing_co2[['co2_mass_tons']])
+
+    # add fuel type data to each CEMS observation
+    cems = cems.merge(fuel_types, how='left', on=['plant_id_epa','unitid'])
 
     return cems
 
@@ -306,7 +346,7 @@ def clean_cems(year):
     cems = load_data.load_cems_data(year)
 
     # remove non-grid connected plants
-    cems = remove_non_grid_connected_plants(cems, year)
+    cems = remove_non_grid_connected_plants(cems)
 
     # remove plants that only report steam generation and no electrical generation
     cems = remove_heating_only_plants(cems)
