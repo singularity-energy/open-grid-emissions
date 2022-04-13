@@ -142,8 +142,14 @@ def allocate_gen_fuel_by_gen(year):
     gf = load_data.load_pudl_table(f"SELECT * FROM generation_fuel_eia923 WHERE {year_filter}").loc[
         :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu"]
     ].pipe(apply_dtype)
+    # load the nuclear gf data
+    gf_nuc = load_data.load_pudl_table(f"SELECT * FROM generation_fuel_nuclear_eia923 WHERE {year_filter}").loc[
+        :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu"]
+    ].pipe(apply_dtype)
+    # concat the nuclear data with the main gf dataframe
+    gf = pd.concat([gf,gf_nuc], axis=0)
     # remove non-grid connected plants
-    gf = data_cleaning.remove_non_grid_connected_plants(gf, year)
+    gf = data_cleaning.remove_non_grid_connected_plants(gf)
     
     # gen contrains more granular generation data at the generator level for a subset of generators
     gen = (
@@ -152,7 +158,7 @@ def allocate_gen_fuel_by_gen(year):
         .dropna(subset=IDX_GENS)
     ).pipe(apply_dtype)
     # remove non-grid connected plants
-    gen = data_cleaning.remove_non_grid_connected_plants(gen, year)
+    gen = data_cleaning.remove_non_grid_connected_plants(gen)
     
     # gens contains a complete list of all generators
     gens = load_data.load_pudl_table(f"SELECT * FROM generators_eia860 WHERE {year_filter}").loc[
@@ -166,7 +172,7 @@ def allocate_gen_fuel_by_gen(year):
         + list(load_data.load_pudl_table(f"SELECT * FROM generators_eia860 WHERE {year_filter}").filter(like="energy_source_code")),
     ]
     # remove non-grid connected plants
-    gens = data_cleaning.remove_non_grid_connected_plants(gens, year)
+    gens = data_cleaning.remove_non_grid_connected_plants(gens)
     # get a list of fuel types for later
     gen_primary_fuel = gens.copy()[['plant_id_eia','generator_id','energy_source_code_1']]
     # add the prime mover code to the gens df from generators entity
@@ -190,11 +196,14 @@ def allocate_gen_fuel_by_gen(year):
     _test_gen_fuel_allocation(gen, gen_allocated)
 
     # add balancing authority and state data 
+    gen_allocated = data_cleaning.assign_ba_code_to_plant(gen_allocated, year)
+    """
     gen_allocated = gen_allocated.merge(plants_eia860(pudl_engine, 
                                                       start_date=f"{year}-01-01", 
                                                       end_date=f"{year}-12-31")[['plant_id_eia','balancing_authority_code_eia','state']],
                                         how='left',
                                         on='plant_id_eia')
+    """
     # make the output mirror the gen_original_eia923()
     """
     gen_allocated = denorm_generation_eia923(

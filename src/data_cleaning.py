@@ -3,8 +3,10 @@ import numpy as np
 import statsmodels.formula.api as smf
 from pathlib import Path
 from pandas import DataFrame
+import sqlalchemy as sa
 
 import src.load_data as load_data
+import src.distribute_eia923 as distribute_eia923
 
 def crosswalk_epa_eia_plant_ids(cems):
     """
@@ -337,6 +339,60 @@ def identify_emissions_data_source(cems, gen_fuel_allocated):
     gen_fuel_allocated['data_source'] = gen_fuel_allocated['data_source'].fillna('eia_only')
 
     return gen_fuel_allocated
+
+def assign_ba_code_to_plant(df, year):
+    """
+    Assigns a balancing authority code and state to each plant based on the plant id
+    Inputs:
+        df: a pandas dataframe containing a 'plant_id_eia' column
+        year: four digit year number for the data
+    Returns:
+        df with a new column for 'ba_code' and 'state'
+    """
+
+    pudl_db = 'sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite'
+    pudl_engine = sa.create_engine(pudl_db)
+
+    plant_ba = distribute_eia923.plants_eia860(pudl_engine, start_date=f"{year}-01-01", end_date=f"{year}-12-31")[['plant_id_eia','balancing_authority_code_eia','state','utility_name_eia','transmission_distribution_owner_name']]
+
+    # specify a ba code for certain utilities
+    # TODO: continue to update this list based on analysis with egrid data
+    utility_as_ba_code = {'Hawaiian Electric Co Inc':'HECO',
+                        'Avangrid Renewables Inc':'AVRN',
+                        'Chugach Electric Assn Inc':'CEA',
+                        'JEA':'JEA',
+                        'Tampa Electric Co':'TEC',
+                        'Louisville Gas & Electric Co':'LGEE',
+                        'Kentucky Utilities Co':'LGEE',
+                        'Puget Sound Energy Inc':'PSEI',
+                        'Anchorage Municipal Light and Power':'AMPL',
+                        'Sacramento Municipal Util Dist':'BANC',
+                        'Los Angeles Department of Water & Power':'LDWP',
+                        'Arizona Public Service Co':'AZPS',
+                        'Florida Power & Light Co':'FPL',
+                        'PUD No 1 of Chelan County':'CHPD',
+                        'Public Service Co of NM':'PNM',
+                        'Seminole Electric Cooperative Inc':'SEC',
+                        'South Carolina Electric&Gas Company':'SCEG',
+                        'Bonneville Power Administration':'BPAT',
+                        'Duke Energy Progress - (NC)':'CPLE'}
+
+    #fill missing BA codes first based on the utility name, then on the transmisison owner name
+    plant_ba['balancing_authority_code_eia'] = plant_ba['balancing_authority_code_eia'].fillna(plant_ba['utility_name_eia'].map(utility_as_ba_code))
+    plant_ba['balancing_authority_code_eia'] = plant_ba['balancing_authority_code_eia'].fillna(plant_ba['transmission_distribution_owner_name'].map(utility_as_ba_code))
+
+    # use this to explore plants without an assigned ba
+    #sorted(plant_ba[plant_ba['balancing_authority_code_eia'].isna()]['utility_name_eia'].unique().astype(str))
+
+    # rename the ba column
+    plant_ba = plant_ba.rename(columns={'balancing_authority_code_eia':'ba_code'})
+
+    # merge the ba code into the dataframe
+    df = df.merge(plant_ba[['plant_id_eia','ba_code','state']], how='left', on='plant_id_eia')
+
+    # if there are still any missing ba codes or 
+
+    return df
 
 def clean_cems(year):
     """
