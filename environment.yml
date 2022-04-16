@@ -18,6 +18,7 @@ dependencies:
   - requests
   - sqlalchemy
   - statsmodels
+  - tabulate
   - pip:
     - pyarrow
     - singularity-energy

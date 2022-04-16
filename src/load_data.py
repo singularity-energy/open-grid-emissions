@@ -159,7 +159,7 @@ def load_cems_data(year):
 
     return cems
 
-def load_pudl_table(sql_query):
+def load_pudl_table(table_name, year=None):
     """
     Loads a table from the PUDL SQL database.
     Inputs:
@@ -171,8 +171,13 @@ def load_pudl_table(sql_query):
     pudl_db = 'sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite'
     pudl_engine = sa.create_engine(pudl_db)
 
+    if year!=None:
+        sql_query = f"SELECT * FROM {table_name} WHERE report_date >= '{year}-01-01' AND report_date <= '{year}-12-01'"
+    else:
+        sql_query = table_name
+    
     table = pd.read_sql(sql_query, pudl_engine)
-
+    
     return table
 
 def load_emission_factors():

@@ -129,21 +129,22 @@ def allocate_gen_fuel_by_gen(year):
         The ``DATA_COLS`` will be scaled to the level of the ``IDX_GENS``.
 
     """
+    # LOAD THE DATA
+    ###############
+
     pudl_db = 'sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite'
     pudl_engine = sa.create_engine(pudl_db)
     
-    # specify the date filter for retrieving data
-    year_filter = f"report_date >= '{year}-01-01' AND report_date <= '{year}-12-01'"
 
     # extract all of the tables from pudl_out early in the process and select
     # only the columns we need. this is for speed and clarity.
     
     # gf contains the more complete generation and fuel data at the plant prime mover level
-    gf = load_data.load_pudl_table(f"SELECT * FROM generation_fuel_eia923 WHERE {year_filter}").loc[
+    gf = load_data.load_pudl_table("generation_fuel_eia923", year=year).loc[
         :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu"]
     ].pipe(apply_dtype)
     # load the nuclear gf data
-    gf_nuc = load_data.load_pudl_table(f"SELECT * FROM generation_fuel_nuclear_eia923 WHERE {year_filter}").loc[
+    gf_nuc = load_data.load_pudl_table("generation_fuel_nuclear_eia923", year=year).loc[
         :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu"]
     ].pipe(apply_dtype)
     # concat the nuclear data with the main gf dataframe
@@ -153,7 +154,7 @@ def allocate_gen_fuel_by_gen(year):
     
     # gen contrains more granular generation data at the generator level for a subset of generators
     gen = (
-        load_data.load_pudl_table(f"SELECT * FROM generation_eia923 WHERE {year_filter}").loc[:, IDX_GENS + ["net_generation_mwh"]]
+        load_data.load_pudl_table("generation_eia923", year=year).loc[:, IDX_GENS + ["net_generation_mwh"]]
         # removes 4 records with NaN generator_id as of pudl v0.5
         .dropna(subset=IDX_GENS)
     ).pipe(apply_dtype)
@@ -161,7 +162,7 @@ def allocate_gen_fuel_by_gen(year):
     gen = data_cleaning.remove_non_grid_connected_plants(gen)
     
     # gens contains a complete list of all generators
-    gens = load_data.load_pudl_table(f"SELECT * FROM generators_eia860 WHERE {year_filter}").loc[
+    gens = load_data.load_pudl_table("generators_eia860", year=year).loc[
         :,
         IDX_GENS
         + [
@@ -169,7 +170,7 @@ def allocate_gen_fuel_by_gen(year):
             "operational_status",
             "retirement_date",
         ]
-        + list(load_data.load_pudl_table(f"SELECT * FROM generators_eia860 WHERE {year_filter}").filter(like="energy_source_code")),
+        + list(load_data.load_pudl_table("generators_eia860", year=year).filter(like="energy_source_code")),
     ]
     # remove non-grid connected plants
     gens = data_cleaning.remove_non_grid_connected_plants(gens)
@@ -180,7 +181,7 @@ def allocate_gen_fuel_by_gen(year):
                       how='left', 
                       on=["plant_id_eia", "generator_id"]).pipe(apply_dtype)
     # add records for each month of the year
-    gens = create_monthly_gens_records(gens)
+    gens = create_monthly_gens_records(gens, year)
 
     # if negative net generation is reported in gf or gen, replace with zero 
     # otherwise the allocation will be negative
@@ -188,56 +189,60 @@ def allocate_gen_fuel_by_gen(year):
     #gen.loc[gen['net_generation_mwh'] < 0, 'net_generation_mwh'] = 0
     
 
-    # do the allocation! (this function coordinates the bulk of the work in
-    # this module)
-    gen_pm_fuel = allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens)
+    # do the allocation! 
+    ####################
+    # (this function coordinates the bulk of the work in this module)
+    gen_pm_fuel = allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, year)
+
     # aggregate the gen/pm/fuel records back to generator records
     gen_allocated = agg_by_generator(gen_pm_fuel)
     _test_gen_fuel_allocation(gen, gen_allocated)
 
+    # DO FINAL CLEANUP
+    ##################
+
     # add balancing authority and state data 
     gen_allocated = data_cleaning.assign_ba_code_to_plant(gen_allocated, year)
-    """
-    gen_allocated = gen_allocated.merge(plants_eia860(pudl_engine, 
-                                                      start_date=f"{year}-01-01", 
-                                                      end_date=f"{year}-12-31")[['plant_id_eia','balancing_authority_code_eia','state']],
-                                        how='left',
-                                        on='plant_id_eia')
-    """
-    # make the output mirror the gen_original_eia923()
-    """
-    gen_allocated = denorm_generation_eia923(
-        g_df=gen_allocated,
-        pudl_engine=pudl_engine,
-        start_date=f"{year}-01-01",
-        end_date=f"{year}-12-31",
-    )
-    """
+    
     # add primary fuel data for each generator
     gen_allocated = gen_allocated.merge(gen_primary_fuel, how='left', on=['plant_id_eia','generator_id'])
 
+    # fill any missing co2 values with zeros where appropriate
+    # for any clean fuels, replace missing co2 values with 0
+    clean_fuels = ['SUN','MWH','WND', 'WAT','WH','PUR','NUC']
+    gen_allocated.loc[gen_allocated['energy_source_code_1'].isin(clean_fuels), 'co2_mass_tons'] = gen_allocated.loc[gen_allocated['energy_source_code_1'].isin(clean_fuels), 'co2_mass_tons'].fillna(0)
+
+    # if there are any missing co2 records where both net generation and fuel content are zero, fill with zero
+    gen_allocated.loc[(gen_allocated['net_generation_mwh'] == 0) & (gen_allocated['fuel_consumed_mmbtu'] == 0) & (gen_allocated['co2_mass_tons'].isna()), 'co2_mass_tons'] = 0
+
     return gen_allocated
 
-def create_monthly_gens_records(gens):
+def create_monthly_gens_records(df, year):
     """
     Creates a duplicate record for each month of the year in the gens file
     """
     # If we want to allocate net generation at the monthly level, we need to ensure that the gens file has monthly records
     # to do this, we can duplicate the records in gens 11 times for each month, so that there is a record for each month of the year
     # duplicate the entries for each month
-    gens_month = gens.copy()
+    
+    if 'report_date' not in df.columns:
+        # create a report date column with the first month of the year
+        df['report_date'] = f'{year}-01-01'
+        df['report_date'] = pd.to_datetime(df['report_date'])
+
+    df_month = df.copy()
 
     month = 2
     while month <= 12:
         # add one month to the copied data each iteration
-        gens_month['report_date'] = gens_month['report_date'] + pd.DateOffset(months=1)
+        df_month['report_date'] = df_month['report_date'] + pd.DateOffset(months=1)
         # concat this data to the gens file
-        gens = pd.concat([gens, gens_month], axis = 0)
+        df = pd.concat([df, df_month], axis = 0)
         month += 1
 
-    return gens
+    return df
 
-def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, drop_interim_cols=True):
+def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, year, drop_interim_cols=True):
     """
     Proportionally allocate net gen from gen_fuel table to generators.
 
@@ -280,14 +285,18 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, drop_interim_cols=True):
     # to allocate net generation from the gf table for each `IDX_PM_FUEL` group
     gen_pm_fuel = prep_alloction_fraction(gen_assoc)
     gen_pm_fuel_frac = calc_allocation_fraction(gen_pm_fuel)
+    
 
     # NOTE: here might be a good place to calculate emissions by generator
-    # get emission factors
+    # drop any rows where all values are missing
+    gen_pm_fuel_frac = gen_pm_fuel_frac.dropna(how='all', axis=0)
+    gen_pm_fuel_frac = data_cleaning.calculate_co2_from_heat_content(gen_pm_fuel_frac, year)
+    """# get emission factors
     emission_factors = load_data.load_emission_factors()[['energy_source_code', 'co2_tons_per_mmbtu']]
     # add emission factor to missing df
     gen_pm_fuel_frac = gen_pm_fuel_frac.merge(emission_factors, how='left', on='energy_source_code')
     # calculate missing co2 data
-    gen_pm_fuel_frac['co2_mass_tons'] = gen_pm_fuel_frac['fuel_consumed_mmbtu'] * gen_pm_fuel_frac['co2_tons_per_mmbtu']
+    gen_pm_fuel_frac['co2_mass_tons'] = gen_pm_fuel_frac['fuel_consumed_mmbtu'] * gen_pm_fuel_frac['co2_tons_per_mmbtu']"""
 
     # do the allocating-ing!
     gen_pm_fuel_frac = (

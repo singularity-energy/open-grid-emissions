@@ -1,6 +1,18 @@
 --------------------------------------------------
 April 13, 2022
 --------------------------------------------------
+
+TODOs:
+- [x] in allocated EIA data, change "missing" co2 values to 0 for clean energy plants
+- [x] update geothermal emission factors
+- [ ] Allocate net generation for electricity production, not steam
+- [ ] Adjust data for CHP and biomass
+- [ ] clean fuel codes based on EPA static tables
+- [ ] move GTN functions to script
+
+--------------------------------------------------
+April 13, 2022
+--------------------------------------------------
  - Assign each plant to a balancing authority
  - Aggregate all calculated generation and emissions data from CEMS and EIA to the annual level for each plant
  - Developed functions to compare calculated totals to the reported eGRID totals
