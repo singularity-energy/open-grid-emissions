@@ -5,7 +5,7 @@ data/*
 data/egrid/*
 !data/egrid/egrid_static_tables
 
-CHANGELOG.md
+TODO.md
 
 example/.ipynb_checkpoints/
 test/__pycache__/
