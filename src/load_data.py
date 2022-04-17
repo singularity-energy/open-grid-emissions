@@ -3,8 +3,10 @@ import requests
 import tarfile
 import pandas as pd
 import sqlalchemy as sa
+import time
 
 import src.data_cleaning as data_cleaning
+import shutil
 
 
 def download_pudl_data(zenodo_url):
@@ -13,14 +15,11 @@ def download_pudl_data(zenodo_url):
     Inputs:
         zenodo_url: the url to the .tgz file hosted on zenodo
     """
-    zenodo_url = 'https://zenodo.org/record/5701406/files/pudl-v0.5.0-2021-11-14.tgz'
+
     # get the version number
     pudl_version = zenodo_url.split('/')[-1].replace('.tgz','')
 
-    # if the pudl data already exists, do not re-download
-    if os.path.exists(f'../data/pudl'):
-        print('PUDL data already downloaded')
-    else:
+    def download_pudl(zenodo_url, pudl_version):
         r = requests.get(zenodo_url, params={"download":"1"}, stream=True)
         # specify parameters for progress bar
         total_size_in_bytes= int(r.headers.get('content-length', 0))
@@ -38,12 +37,30 @@ def download_pudl_data(zenodo_url):
             tar.extractall('../data/')
 
         # rename the extracted directory to pudl so that we don't have to update this for future versions
-        os.rename(f'../data/{pudl_version}', 'pudl')
+        os.rename(f'../data/{pudl_version}', '../data/pudl')
+
+        # add a version file
+        with open('../data/pudl/pudl_version.txt', 'w+') as v:
+            v.write(pudl_version)
 
         # delete the downloaded tgz file
         os.remove("../data/pudl.tgz")
 
         print('PUDL download complete')
+
+    # if the pudl data already exists, do not re-download
+    if os.path.exists(f'../data/pudl'):
+        with open('../data/pudl/pudl_version.txt', 'r') as f:
+            existing_version = f.readlines()[0]
+        if pudl_version == existing_version:
+            print('PUDL data already downloaded')
+        else:
+            print('Downloading new version of pudl')
+            shutil.rmtree('../data/pudl')
+            download_pudl(zenodo_url, pudl_version)
+    else:
+        download_pudl(zenodo_url, pudl_version)
+        
 
 def download_egrid_files(egrid_files_to_download):
     """
@@ -143,6 +160,12 @@ def load_cems_data(year):
     # calculate gross generation by multiplying gross_load_mw by operating_time_hours
     cems['gross_generation_mwh'] = cems['gross_load_mw'] * cems['operating_time_hours']
 
+    # NOTE: The co2 and heat content data are reported as rates (e.g. tons/hr) rather than absolutes
+    # Thus they need to be multiplied by operating_time_hours
+    # See https://github.com/catalyst-cooperative/pudl/issues/1581
+    cems['co2_mass_tons'] = cems['co2_mass_tons'] * cems['operating_time_hours']
+    cems['heat_content_mmbtu'] = cems['heat_content_mmbtu'] * cems['operating_time_hours']
+
     # add a unique unit id
     cems['cems_id'] = cems['plant_id_eia'].astype(str) + "_" + cems['unitid'].astype(str)
 
@@ -153,7 +176,7 @@ def load_cems_data(year):
 
     return cems
 
-def load_pudl_table(sql_query):
+def load_pudl_table(table_name, year=None):
     """
     Loads a table from the PUDL SQL database.
     Inputs:
@@ -165,12 +188,17 @@ def load_pudl_table(sql_query):
     pudl_db = 'sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite'
     pudl_engine = sa.create_engine(pudl_db)
 
+    if year!=None:
+        sql_query = f"SELECT * FROM {table_name} WHERE report_date >= '{year}-01-01' AND report_date <= '{year}-12-01'"
+    else:
+        sql_query = table_name
+    
     table = pd.read_sql(sql_query, pudl_engine)
-
+    
     return table
 
-def load_emission_factors(year):
+def load_emission_factors():
     """
     Read in the table of emissions factors
     """
-    return pd.read_csv(f'../data/egrid/egrid{year}_static_tables/table_C1_emission_factors_for_CO2_CH4_N2O.csv')
+    return pd.read_csv('../data/egrid/egrid_static_tables/table_C1_emission_factors_for_CO2_CH4_N2O.csv')
