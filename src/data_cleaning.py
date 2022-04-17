@@ -55,6 +55,8 @@ def remove_non_grid_connected_plants(df):
     # get the list of plant_id_eia from the static table
     ngc_plants = list(pd.read_csv('../data/egrid/egrid_static_tables/table_4-2_plants_not_connected_to_grid.csv')['Plant ID'])
     # remove these plants from the cems data
+    num_plants = len(df[df['plant_id_eia'].isin(ngc_plants)]['plant_id_eia'].unique())
+    print(f"Removing {num_plants} plants that are not grid-connected")
     df = df[~df['plant_id_eia'].isin(ngc_plants)]
 
     return df
@@ -74,6 +76,8 @@ def remove_heating_only_plants(cems):
     steam_only_cems_plant_ids = list(cems_annual[(cems_annual['gross_load_mw'] == 0) & (cems_annual['steam_load_1000_lbs'] > 0)].index)
 
     # remove these plants from the cems data
+    num_plants = len(cems[cems['plant_id_eia'].isin(steam_only_cems_plant_ids)]['plant_id_eia'].unique())
+    print(f"Removing {num_plants} plants that only produce heat and no power")
     cems = cems[~cems['plant_id_eia'].isin(steam_only_cems_plant_ids)]
 
     return cems
@@ -380,10 +384,10 @@ def remove_cems_with_zero_monthly_emissions(cems):
     Returns:
         cems df with hourly observations for months when no emissions reported removed
     """
-    # calculate teh total emissions reported by each unit in each month
-    cems_with_zero_monthly_emissions = cems.groupby(['cems_id','report_date']).sum()[['co2_mass_tons']]
+    # calculate teh totals reported in each month
+    cems_with_zero_monthly_emissions = cems.groupby(['cems_id','report_date']).sum()[['co2_mass_tons','gross_generation_mwh','heat_content_mmbtu']]
     # identify unit-months where zero emissions reported
-    cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[cems_with_zero_monthly_emissions['co2_mass_tons'] == 0]
+    cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[cems_with_zero_monthly_emissions.sum(axis=1) == 0]
     # add a flag to these observations
     cems_with_zero_monthly_emissions['missing_data_flag'] = 'remove'
 
@@ -438,7 +442,7 @@ def assign_ba_code_to_plant(df, year):
     pudl_db = 'sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite'
     pudl_engine = sa.create_engine(pudl_db)
 
-    plant_ba = distribute_eia923.plants_eia860(pudl_engine, start_date=f"{year}-01-01", end_date=f"{year}-12-31")[['plant_id_eia','balancing_authority_code_eia','state','utility_name_eia','transmission_distribution_owner_name']]
+    plant_ba = distribute_eia923.plants_eia860(pudl_engine, start_date=f"{year}-01-01", end_date=f"{year}-12-31")[['plant_id_eia','balancing_authority_code_eia','balancing_authority_name_eia','state','utility_name_eia','transmission_distribution_owner_name']]
 
     # specify a ba code for certain utilities
     # TODO: continue to update this list based on analysis with egrid data
@@ -462,7 +466,8 @@ def assign_ba_code_to_plant(df, year):
                         'Bonneville Power Administration':'BPAT',
                         'Duke Energy Progress - (NC)':'CPLE'}
 
-    #fill missing BA codes first based on the utility name, then on the transmisison owner name
+    #fill missing BA codes first based on the BA name, then utility name, then on the transmisison owner name
+    plant_ba['balancing_authority_code_eia'] = plant_ba['balancing_authority_code_eia'].fillna(plant_ba['balancing_authority_name_eia'].map(utility_as_ba_code))
     plant_ba['balancing_authority_code_eia'] = plant_ba['balancing_authority_code_eia'].fillna(plant_ba['utility_name_eia'].map(utility_as_ba_code))
     plant_ba['balancing_authority_code_eia'] = plant_ba['balancing_authority_code_eia'].fillna(plant_ba['transmission_distribution_owner_name'].map(utility_as_ba_code))
 
@@ -472,10 +477,23 @@ def assign_ba_code_to_plant(df, year):
     # rename the ba column
     plant_ba = plant_ba.rename(columns={'balancing_authority_code_eia':'ba_code'})
 
+    # TODO: Remove this once the PUDL issue is fixed
+    # As of 4/16/22, there are currently a few incorrect BA assignments in the pudl tables (see https://github.com/catalyst-cooperative/pudl/issues/1584)
+    # thus, we will manually correct some of the BA codes based on data in the most recent EIA forms
+    manual_ba_corrections = {57698:'BANC',
+                             7966:'SWPP',
+                             6292:'None',
+                             7367:'None',
+                             55966:'None',
+                             6283:'None',
+                             57206:'None',
+                             10093:'None'} #TODO: Tesoro Hawaii has no BA assigned, but is connected to the HECO transmission grid - investigate further
+
+    plant_ba['ba_code'].update(plant_ba['plant_id_eia'].map(manual_ba_corrections))
+    plant_ba['ba_code'] = plant_ba['ba_code'].replace('None',np.NaN)
+
     # merge the ba code into the dataframe
     df = df.merge(plant_ba[['plant_id_eia','ba_code','state']], how='left', on='plant_id_eia')
-
-    # if there are still any missing ba codes or 
 
     return df
 

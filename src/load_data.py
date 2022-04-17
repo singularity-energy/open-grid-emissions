@@ -3,8 +3,10 @@ import requests
 import tarfile
 import pandas as pd
 import sqlalchemy as sa
+import time
 
 import src.data_cleaning as data_cleaning
+import shutil
 
 
 def download_pudl_data(zenodo_url):
@@ -13,14 +15,11 @@ def download_pudl_data(zenodo_url):
     Inputs:
         zenodo_url: the url to the .tgz file hosted on zenodo
     """
-    zenodo_url = 'https://zenodo.org/record/5701406/files/pudl-v0.5.0-2021-11-14.tgz'
+
     # get the version number
     pudl_version = zenodo_url.split('/')[-1].replace('.tgz','')
 
-    # if the pudl data already exists, do not re-download
-    if os.path.exists(f'../data/pudl'):
-        print('PUDL data already downloaded')
-    else:
+    def download_pudl(zenodo_url, pudl_version):
         r = requests.get(zenodo_url, params={"download":"1"}, stream=True)
         # specify parameters for progress bar
         total_size_in_bytes= int(r.headers.get('content-length', 0))
@@ -38,12 +37,30 @@ def download_pudl_data(zenodo_url):
             tar.extractall('../data/')
 
         # rename the extracted directory to pudl so that we don't have to update this for future versions
-        os.rename(f'../data/{pudl_version}', 'pudl')
+        os.rename(f'../data/{pudl_version}', '../data/pudl')
+
+        # add a version file
+        with open('../data/pudl/pudl_version.txt', 'w+') as v:
+            v.write(pudl_version)
 
         # delete the downloaded tgz file
         os.remove("../data/pudl.tgz")
 
         print('PUDL download complete')
+
+    # if the pudl data already exists, do not re-download
+    if os.path.exists(f'../data/pudl'):
+        with open('../data/pudl/pudl_version.txt', 'r') as f:
+            existing_version = f.readlines()[0]
+        if pudl_version == existing_version:
+            print('PUDL data already downloaded')
+        else:
+            print('Downloading new version of pudl')
+            shutil.rmtree('../data/pudl')
+            download_pudl(zenodo_url, pudl_version)
+    else:
+        download_pudl(zenodo_url, pudl_version)
+        
 
 def download_egrid_files(egrid_files_to_download):
     """
