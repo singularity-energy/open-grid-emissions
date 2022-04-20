@@ -168,6 +168,7 @@ def allocate_gen_fuel_by_gen(year):
         + [
             "capacity_mw",
             "operational_status",
+            "current_planned_operating_date",
             "retirement_date",
         ]
         + list(load_data.load_pudl_table("generators_eia860", year=year).filter(like="energy_source_code")),
@@ -183,7 +184,7 @@ def allocate_gen_fuel_by_gen(year):
     # add records for each month of the year
     gens = create_monthly_gens_records(gens, year)
     # remove retired generator months
-    gens = remove_retired_generators(gens)
+    #gens = remove_nonoperating_generators(gens)
     # TODO: some of the prime mover codes in generators_entity_eia860 are incorrect, so these need to be manually fixed for now
     gens = manually_fix_prime_movers(gens)
 
@@ -230,7 +231,7 @@ def manually_fix_prime_movers(df):
     """
 
     # fix cogeneration issues
-    plant_ids = [2465, 50150, 54268,54410]
+    plant_ids = [2465, 50150, 54268, 54410, 54262]
     for id in plant_ids:
         df.loc[(df['plant_id_eia'] == id) & (df['prime_mover_code'] == 'CT'), 'prime_mover_code'] = 'GT'
         df.loc[(df['plant_id_eia'] == id) & (df['prime_mover_code'] == 'CA'), 'prime_mover_code'] = 'ST'
@@ -242,6 +243,25 @@ def manually_fix_prime_movers(df):
     df.loc[(df['plant_id_eia'] == 10884), 'prime_mover_code'] = 'GT'
 
     df.loc[(df['plant_id_eia'] == 58946), 'prime_mover_code'] = 'IC'
+
+    df.loc[(df['plant_id_eia'] == 60610), 'prime_mover_code'] = 'OT'
+
+    df.loc[(df['plant_id_eia'] == 7854), 'prime_mover_code'] = 'IC'
+
+    df.loc[(df['plant_id_eia'] == 50628) & (df['generator_id'] == 'GEN1'), 'prime_mover_code'] = 'GT'
+    df.loc[(df['plant_id_eia'] == 50628) & (df['generator_id'] == 'GEN2'), 'prime_mover_code'] = 'ST'
+    df.loc[(df['plant_id_eia'] == 50628) & (df['generator_id'] == 'GEN3'), 'prime_mover_code'] = 'ST'
+
+    df.loc[(df['plant_id_eia'] == 55088) & ~(df['generator_id'] == 'ST1'), 'prime_mover_code'] = 'GT'
+
+    df.loc[(df['plant_id_eia'] == 52168) & (df['generator_id'] == 'GEN2'), 'prime_mover_code'] = 'ST'
+    df.loc[(df['plant_id_eia'] == 52168) & (df['generator_id'] == 'GEN3'), 'prime_mover_code'] = 'GT'
+    df.loc[(df['plant_id_eia'] == 52168) & (df['generator_id'] == 'GEN4'), 'prime_mover_code'] = 'GT'
+
+    df.loc[(df['plant_id_eia'] == 55096) & (df['generator_id'] == 'GT'), 'prime_mover_code'] = 'GT'
+    df.loc[(df['plant_id_eia'] == 55096) & (df['generator_id'] == 'ST'), 'prime_mover_code'] = 'ST'
+
+    df.loc[(df['plant_id_eia'] == 7887) & (df['generator_id'] == '4'), 'prime_mover_code'] = 'GT'
 
     return df
 
@@ -434,14 +454,17 @@ def associate_generator_tables(gf, gen, gens):
 
     gen_assoc = (
         pd.merge(stack_gens, gen, on=IDX_GENS, how="outer")
-        .pipe(remove_retired_generators)
+        .pipe(remove_nonoperating_generators)
         .merge(
             gf.groupby(by=IDX_PM_FUEL, as_index=False).sum(min_count=1),
             on=IDX_PM_FUEL,
             suffixes=("_g_tbl", "_gf_tbl"),
-            how="outer",
-        )
+            how="outer",)
+            
     )
+
+    # remove any months for proposed generators where no data is available
+    gen_assoc = gen_assoc[~((gen_assoc.operational_status == "proposed") & gen_assoc.net_generation_mwh_g_tbl.isna() &  (gen_assoc.net_generation_mwh_gf_tbl.isna()))]
 
     gen_assoc = (
         pd.merge(
@@ -459,7 +482,7 @@ def associate_generator_tables(gf, gen, gens):
     return gen_assoc
 
 
-def remove_retired_generators(gen_assoc):
+def remove_nonoperating_generators(gen_assoc):
     """
     Remove the retired generators.
 
@@ -484,11 +507,13 @@ def remove_retired_generators(gen_assoc):
     # keep the gens for each month until they retire, if they have any data to report in that month
     retiring = gen_assoc.loc[
         (gen_assoc.operational_status == "retired")
-        & (gen_assoc.report_date <= gen_assoc.retirement_date)
-        #& (gen_assoc.net_generation_mwh.notnull())
+        & ((gen_assoc.report_date <= gen_assoc.retirement_date))
+        #| (gen_assoc.net_generation_mwh_g_tbl.notnull())
+        #| (gen_assoc.net_generation_mwh_gf_tbl.notnull()))
     ]
+    new = gen_assoc.loc[(gen_assoc.operational_status == "proposed")]
 
-    gen_assoc_removed = pd.concat([existing, retiring])
+    gen_assoc_removed = pd.concat([existing, retiring, new])
     return gen_assoc_removed
 
 

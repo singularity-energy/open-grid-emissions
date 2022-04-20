@@ -54,9 +54,14 @@ def remove_non_grid_connected_plants(df):
 
     # get the list of plant_id_eia from the static table
     ngc_plants = list(pd.read_csv('../data/egrid/egrid_static_tables/table_4-2_plants_not_connected_to_grid.csv')['Plant ID'])
-    # remove these plants from the cems data
-    num_plants = len(df[df['plant_id_eia'].isin(ngc_plants)]['plant_id_eia'].unique())
+
+    num_plants = len(df[df['plant_id_eia'].isin(ngc_plants)]['plant_id_eia'].unique()) + len(df[df['plant_id_eia'].astype(str).str.contains(r'[8][8][0-9]{4}$')]['plant_id_eia'].unique())
     print(f"Removing {num_plants} plants that are not grid-connected")
+
+    # remove these plants from the data
+    # according to the egrid documentation, any plants that have an id of 88XXXX are not grid connected
+    df = df[~df['plant_id_eia'].astype(str).str.contains(r'[8][8][0-9]{4}$')]
+    
     df = df[~df['plant_id_eia'].isin(ngc_plants)]
 
     return df
