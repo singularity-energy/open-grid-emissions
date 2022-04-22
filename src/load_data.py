@@ -154,6 +154,9 @@ def load_cems_data(year):
     # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
     cems = cems.rename(columns={'plant_id_eia': 'plant_id_epa'})
 
+    # if the unitid has any leading zeros, remove them
+    cems['unitid'] = cems['unitid'].str.lstrip('0')
+
     # crosswalk the plant IDs and add a plant_id_eia column
     cems = data_cleaning.crosswalk_epa_eia_plant_ids(cems)
 

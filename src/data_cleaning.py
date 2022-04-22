@@ -20,6 +20,10 @@ def crosswalk_epa_eia_plant_ids(cems):
     # load the power sector data crosswalk
     psdc = pd.read_csv('../data/epa/epa_eia_crosswalk.csv', usecols=['CAMD_PLANT_ID','CAMD_UNIT_ID','CAMD_GENERATOR_ID','EIA_PLANT_ID','EIA_GENERATOR_ID','EIA_BOILER_ID','CAMD_FUEL_TYPE','EIA_FUEL_TYPE'])
 
+    # remove leading zeros from the generator id and unitid
+    psdc['EIA_GENERATOR_ID'] = psdc['EIA_GENERATOR_ID'].str.lstrip('0')
+    psdc['CAMD_UNIT_ID'] = psdc['CAMD_UNIT_ID'].str.lstrip('0')
+
     # create a table that matches EPA plant and unit IDs to an EIA plant ID
     plant_id_crosswalk = psdc[['CAMD_PLANT_ID','CAMD_UNIT_ID','EIA_PLANT_ID','EIA_GENERATOR_ID']].drop_duplicates()
 
@@ -417,11 +421,12 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
 
     return df
 
-def crosswalk_epa_unit_to_eia_generator_id(df):
+def crosswalk_epa_unit_to_eia_generator_id(df, unique_gen_match=False):
     """
     Crosswalks the EPA unitid to the EIA generator_id. NOTE: there may be multiple generators associated with each unit
     Inputs:
         df: pandas dataframe with the columns ['plant_id_eia','unitid']
+        unique_gen_match: T/F, whether to only keep where one or more units map to a single generator
     Returns:
         df with new column for 'generator_id' (May have duplicate records for each unitid)
     """
@@ -429,11 +434,12 @@ def crosswalk_epa_unit_to_eia_generator_id(df):
     # load the power sector data crosswalk
     psdc = pd.read_csv('../data/epa/epa_eia_crosswalk.csv', usecols=['CAMD_PLANT_ID','CAMD_UNIT_ID','CAMD_GENERATOR_ID','EIA_PLANT_ID','EIA_GENERATOR_ID','EIA_BOILER_ID','CAMD_FUEL_TYPE','EIA_FUEL_TYPE'])
 
+    # remove leading zeros from the generator id and unitid
+    psdc['EIA_GENERATOR_ID'] = psdc['EIA_GENERATOR_ID'].str.lstrip('0')
+    psdc['CAMD_UNIT_ID'] = psdc['CAMD_UNIT_ID'].str.lstrip('0')
+    
     # create a table that matches EPA plant and unit IDs to an EIA plant ID
     unit_generator_crosswalk = psdc[['EIA_PLANT_ID','CAMD_PLANT_ID','CAMD_UNIT_ID','EIA_GENERATOR_ID']].drop_duplicates()
-
-    # remove leading zeros from the generator id
-    unit_generator_crosswalk['EIA_GENERATOR_ID'] = unit_generator_crosswalk['EIA_GENERATOR_ID'].str.lstrip('0')
 
     # fill any missing eia plant ids with epa plant ids
     unit_generator_crosswalk['EIA_PLANT_ID'] = unit_generator_crosswalk['EIA_PLANT_ID'].fillna(unit_generator_crosswalk['CAMD_PLANT_ID'])
@@ -450,6 +456,9 @@ def crosswalk_epa_unit_to_eia_generator_id(df):
 
     # drop the plant_id_epa column
     unit_generator_crosswalk = unit_generator_crosswalk.drop(columns='plant_id_epa')
+
+    if unique_gen_match == True:
+        unit_generator_crosswalk = unit_generator_crosswalk.drop_duplicates(subset=['plant_id_eia','unitid'], keep=False)
 
     df = df.merge(unit_generator_crosswalk, how='left', on=['plant_id_eia','unitid'])
 
@@ -502,11 +511,24 @@ def identify_emissions_data_source(cems, gen_fuel_allocated):
     # create a dataframe containing all generator-months with data reported to cems
     generator_months_in_cems = cems_monthly[['plant_id_eia','generator_id','report_date']].drop_duplicates()
     generator_months_in_cems['data_source'] = 'cems'
-
+    
     # identify which generation and fuel data is not reported in cems
     gen_fuel_allocated = gen_fuel_allocated.merge(generator_months_in_cems, how='left', on=['plant_id_eia','generator_id','report_date'])
 
+    # identify all generators that report to cems in at least one month
+    generator_months_in_cems['plant_gen_id'] = generator_months_in_cems['plant_id_eia'].astype(str) + "_" + generator_months_in_cems['generator_id'].astype(str)
+    gens_in_cems = list(generator_months_in_cems['plant_gen_id'].unique())
+
+    # for all months where a generator that reports to cems does not report data, fill the data type as eia
+    # this prevents accidental identification of cems as the data source in the next step
+    gen_fuel_allocated['plant_gen_id'] = gen_fuel_allocated['plant_id_eia'].astype(str) + "_" + gen_fuel_allocated['generator_id'].astype(str)
+    gen_fuel_allocated.loc[(gen_fuel_allocated['plant_gen_id'].isin(gens_in_cems)) & (gen_fuel_allocated['data_source'].isna()), 'data_source'] = 'eia_only'
+
+    # drop the plant gen id column
+    gen_fuel_allocated = gen_fuel_allocated.drop(columns=['plant_gen_id'])
+
     # Step 2: Match based on amount of heat input reported in each source
+    ####################################################################
 
     # aggregate data by plant, month, and fuel type
     eia_plant_fuel = gen_fuel_allocated.groupby(['plant_id_eia','energy_source_code','report_date'], dropna=False).sum().reset_index().rename(columns={'fuel_consumed_mmbtu':'heat_content_mmbtu'})
@@ -734,15 +756,18 @@ def convert_gross_to_net_generation(cems, gen_fuel_allocated):
     # calculate the gtn
     monthly_gtn_ratio['gross_to_net_ratio'] = monthly_gtn_ratio['net_generation_mwh'] / monthly_gtn_ratio['gross_generation_mwh']
 
+    # only keep values where the monthly ratio is greater than zero
+    monthly_gtn_ratio.loc[(monthly_gtn_ratio['gross_to_net_ratio'] < 0), 'gross_to_net_ratio'] = np.NaN
+
     # Set up the regression analysis for missing values
 
-    # only keep values where the monthly ratio is between 50% and 150% of gross generation
-    gtn_regression = monthly_gtn_ratio.copy()[(monthly_gtn_ratio['gross_to_net_ratio'] <= 1.5) & (monthly_gtn_ratio['gross_to_net_ratio'] >= 0.5)]
+    # only keep values where there are not missing values
+    gtn_regression = monthly_gtn_ratio.copy()[~(monthly_gtn_ratio['gross_to_net_ratio'].isna())]
     # calculate the ratio for each plant and create a dataframe
     gtn_regression = gtn_regression.groupby('plant_id_eia').apply(model_gross_to_net)
     gtn_regression = pd.DataFrame(gtn_regression.tolist(), index=gtn_regression.index, columns=['gtn_linear', 'rsquared','rsquared_adj','observations']).reset_index()
-    # only keep the results with adjusted rsquared values greater than 0.80
-    gtn_regression = gtn_regression[gtn_regression['rsquared_adj'] >= 0.8]
+    # only keep the results with adjusted rsquared values greater than 0.70
+    gtn_regression = gtn_regression[gtn_regression['rsquared_adj'] >= 0.7]
 
     # merge in regression results
     monthly_gtn_ratio = monthly_gtn_ratio.merge(gtn_regression[['plant_id_eia','gtn_linear']], how='left', on='plant_id_eia')

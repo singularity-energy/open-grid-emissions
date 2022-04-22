@@ -191,10 +191,7 @@ def allocate_gen_fuel_by_gen(year):
     # the gen table is missing some generator ids. Let's fill this using the gens table, leaving a missing value for net generation
     gen = gen.merge(gens[['plant_id_eia','generator_id','report_date']], how='outer', on=['plant_id_eia','generator_id','report_date'])
 
-    # if negative net generation is reported in gf or gen, replace with zero 
-    # otherwise the allocation will be negative
-    #gf.loc[gf['net_generation_mwh'] < 0, 'net_generation_mwh'] = 0
-    #gen.loc[gen['net_generation_mwh'] < 0, 'net_generation_mwh'] = 0
+    
     
 
     # do the allocation! 
@@ -266,6 +263,9 @@ def manually_fix_prime_movers(df):
 
     df.loc[(df['plant_id_eia'] == 7887) & (df['generator_id'] == '4'), 'prime_mover_code'] = 'GT'
 
+    df.loc[(df['plant_id_eia'] == 6474) & (df['generator_id'] == 'GT1'), 'prime_mover_code'] = 'GT'
+    df.loc[(df['plant_id_eia'] == 6474) & (df['generator_id'] == 'GT2'), 'prime_mover_code'] = 'GT'
+
     return df
 
 
@@ -313,17 +313,10 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, year, drop_interim_cols=True
     gen_pm_fuel = prep_alloction_fraction(gen_assoc)
     gen_pm_fuel_frac = calc_allocation_fraction(gen_pm_fuel)
     
-
-    # NOTE: here might be a good place to calculate emissions by generator
+    # calculate emissions by generator based on fuel type
     # drop any rows where all values are missing
     gen_pm_fuel_frac = gen_pm_fuel_frac.dropna(how='all', axis=0)
     gen_pm_fuel_frac = data_cleaning.calculate_co2_from_heat_content(gen_pm_fuel_frac, year)
-    """# get emission factors
-    emission_factors = load_data.load_emission_factors()[['energy_source_code', 'co2_tons_per_mmbtu']]
-    # add emission factor to missing df
-    gen_pm_fuel_frac = gen_pm_fuel_frac.merge(emission_factors, how='left', on='energy_source_code')
-    # calculate missing co2 data
-    gen_pm_fuel_frac['co2_mass_tons'] = gen_pm_fuel_frac['fuel_consumed_mmbtu'] * gen_pm_fuel_frac['co2_tons_per_mmbtu']"""
 
     # do the allocating-ing!
     gen_pm_fuel_frac = (
