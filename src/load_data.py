@@ -202,3 +202,185 @@ def load_emission_factors():
     Read in the table of emissions factors
     """
     return pd.read_csv('../data/egrid/egrid_static_tables/table_C1_emission_factors_for_CO2_CH4_N2O.csv')
+
+def plants_eia860(pudl_engine, start_date=None, end_date=None):
+    """Pull all fields from the EIA Plants tables.
+    Args:
+        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
+            for the PUDL DB.
+        start_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+        end_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+    Returns:
+        pandas.DataFrame: A DataFrame containing all the fields of the EIA 860
+        Plants table.
+    """
+    pt = get_table_meta(pudl_engine)
+    # grab the entity table
+    plants_eia_tbl = pt["plants_entity_eia"]
+    plants_eia_select = sa.sql.select(plants_eia_tbl)
+    plants_eia_df = pd.read_sql(plants_eia_select, pudl_engine)
+
+    # grab the annual table select
+    plants_eia860_tbl = pt["plants_eia860"]
+    plants_eia860_select = sa.sql.select(plants_eia860_tbl)
+    if start_date is not None:
+        start_date = pd.to_datetime(start_date)
+        plants_eia860_select = plants_eia860_select.where(
+            plants_eia860_tbl.c.report_date >= start_date
+        )
+    if end_date is not None:
+        end_date = pd.to_datetime(end_date)
+        plants_eia860_select = plants_eia860_select.where(
+            plants_eia860_tbl.c.report_date <= end_date
+        )
+    plants_eia860_df = pd.read_sql(plants_eia860_select, pudl_engine).assign(
+        report_date=lambda x: pd.to_datetime(x.report_date)
+    )
+
+    # plant glue table
+    plants_g_eia_tbl = pt["plants_eia"]
+    plants_g_eia_select = sa.sql.select(
+        plants_g_eia_tbl.c.plant_id_eia,
+        plants_g_eia_tbl.c.plant_id_pudl,
+    )
+    plants_g_eia_df = pd.read_sql(plants_g_eia_select, pudl_engine)
+
+    out_df = pd.merge(plants_eia_df, plants_eia860_df, how="left", on=["plant_id_eia"])
+    out_df = pd.merge(out_df, plants_g_eia_df, how="left", on=["plant_id_eia"])
+
+    utils_eia_tbl = pt["utilities_eia"]
+    utils_eia_select = sa.sql.select(utils_eia_tbl)
+    utils_eia_df = pd.read_sql(utils_eia_select, pudl_engine)
+
+    out_df = (
+        pd.merge(out_df, utils_eia_df, how="left", on=["utility_id_eia"])
+        .dropna(subset=["report_date", "plant_id_eia"])
+        #.pipe(apply_dtype)
+    )
+    return out_df
+
+def utilities_eia860(pudl_engine, start_date=None, end_date=None):
+    """Pull all fields from the EIA860 Utilities table. NOTE: copied from pudl.output.eia860
+    Args:
+        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
+            for the PUDL DB.
+        start_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+        end_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+    Returns:
+        pandas.DataFrame: A DataFrame containing all the fields of the EIA 860
+        Utilities table.
+    """
+    pt = get_table_meta(pudl_engine)
+    # grab the entity table
+    utils_eia_tbl = pt["utilities_entity_eia"]
+    utils_eia_select = sa.sql.select(utils_eia_tbl)
+    utils_eia_df = pd.read_sql(utils_eia_select, pudl_engine)
+
+    # grab the annual eia entity table
+    utils_eia860_tbl = pt["utilities_eia860"]
+    utils_eia860_select = sa.sql.select(utils_eia860_tbl)
+
+    if start_date is not None:
+        start_date = pd.to_datetime(start_date)
+        utils_eia860_select = utils_eia860_select.where(
+            utils_eia860_tbl.c.report_date >= start_date
+        )
+    if end_date is not None:
+        end_date = pd.to_datetime(end_date)
+        utils_eia860_select = utils_eia860_select.where(
+            utils_eia860_tbl.c.report_date <= end_date
+        )
+    utils_eia860_df = pd.read_sql(utils_eia860_select, pudl_engine)
+
+    # grab the glue table for the utility_id_pudl
+    utils_g_eia_tbl = pt["utilities_eia"]
+    utils_g_eia_select = sa.sql.select(
+        utils_g_eia_tbl.c.utility_id_eia,
+        utils_g_eia_tbl.c.utility_id_pudl,
+    )
+    utils_g_eia_df = pd.read_sql(utils_g_eia_select, pudl_engine)
+
+    out_df = pd.merge(utils_eia_df, utils_eia860_df, how="left", on=["utility_id_eia"])
+    out_df = pd.merge(out_df, utils_g_eia_df, how="left", on=["utility_id_eia"])
+    out_df = (
+        out_df.assign(report_date=lambda x: pd.to_datetime(x.report_date))
+        .dropna(subset=["report_date", "utility_id_eia"])
+        #.pipe(apply_dtype)
+    )
+    first_cols = [
+        "report_date",
+        "utility_id_eia",
+        "utility_id_pudl",
+        "utility_name_eia",
+    ]
+
+    out_df = organize_cols(out_df, first_cols)
+    return out_df
+
+def boiler_generator_assn_eia860(pudl_engine, start_date=None, end_date=None):
+    """Pull all fields from the EIA 860 boiler generator association table. NOTE: Copied from pudl.output.eia860
+    Args:
+        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
+            for the PUDL DB.
+        start_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+        end_date (date-like): date-like object, including a string of the
+            form 'YYYY-MM-DD' which will be used to specify the date range of
+            records to be pulled.  Dates are inclusive.
+    Returns:
+        pandas.DataFrame: A DataFrame containing all the fields from the EIA
+        860 boiler generator association table.
+    """
+    pt = get_table_meta(pudl_engine)
+    bga_eia860_tbl = pt["boiler_generator_assn_eia860"]
+    bga_eia860_select = sa.sql.select(bga_eia860_tbl)
+
+    if start_date is not None:
+        start_date = pd.to_datetime(start_date)
+        bga_eia860_select = bga_eia860_select.where(
+            bga_eia860_tbl.c.report_date >= start_date
+        )
+    if end_date is not None:
+        end_date = pd.to_datetime(end_date)
+        bga_eia860_select = bga_eia860_select.where(
+            bga_eia860_tbl.c.report_date <= end_date
+        )
+    out_df = pd.read_sql(bga_eia860_select, pudl_engine).assign(
+        report_date=lambda x: pd.to_datetime(x.report_date)
+    )
+    return out_df
+
+def organize_cols(df, cols):
+    """
+    Organize columns into key ID & name fields & alphabetical data columns.
+    For readability, it's nice to group a few key columns at the beginning
+    of the dataframe (e.g. report_year or report_date, plant_id...) and then
+    put all the rest of the data columns in alphabetical order.
+    Args:
+        df: The DataFrame to be re-organized.
+        cols: The columns to put first, in their desired output ordering.
+    Returns:
+        pandas.DataFrame: A dataframe with the same columns as the input
+        DataFrame df, but with cols first, in the same order as they
+        were passed in, and the remaining columns sorted alphabetically.
+    """
+    # Generate a list of all the columns in the dataframe that are not
+    # included in cols
+    data_cols = sorted([c for c in df.columns.tolist() if c not in cols])
+    organized_cols = cols + data_cols
+    return df[organized_cols]
+
+def get_table_meta(pudl_engine):
+    """Grab the pudl sqlitie database table metadata."""
+    md = sa.MetaData()
+    md.reflect(pudl_engine)
+    return md.tables
