@@ -7,6 +7,7 @@ import time
 
 import src.data_cleaning as data_cleaning
 import shutil
+import gzip
 
 
 def download_pudl_data(zenodo_url):
@@ -61,6 +62,43 @@ def download_pudl_data(zenodo_url):
     else:
         download_pudl(zenodo_url, pudl_version)
         
+"""
+    download_chalendar_files
+Download raw and cleaned files. Eventually we'll do our own processing to get our own version of chalendar, 
+but still will be useful to use this raw file and compare to this cleaned file. 
+
+TODO: download functions share a lot of code, could refactor 
+"""
+def download_chalendar_files():
+    # if there is not yet a directory for egrid, make it
+    if not os.path.exists('../data/eia930'):
+        os.mkdir('../data/eia930')
+    # if there is not a directory for chalendar-formatted files, make it
+    if not os.path.exists('../data/eia930/chalendar'):
+        os.mkdir('../data/eia930/chalendar')
+
+    # download the cleaned and raw files
+    urls = ["https://gridemissions.s3.us-east-2.amazonaws.com/EBA_elec.csv.gz",\
+        "https://gridemissions.s3.us-east-2.amazonaws.com/EBA_raw.csv.gz"]
+    for url in urls:
+        filename = url.split("/")[-1].replace(".gz","")
+        # if the file already exists, do not re-download it
+        if os.path.exists(f'../data/eia930/chalendar/{filename}'):
+            print(f'{filename} already downloaded')
+        else:
+            r = requests.get(url, stream=True)
+            
+            with open(f'../data/eia930/chalendar/{filename}.gz', 'wb') as fd:
+                for chunk in r.iter_content(chunk_size=1024):
+                    fd.write(chunk)
+
+            # Unzip 
+            with gzip.open(f'../data/eia930/chalendar/{filename}.gz', 'rb') as f_in:
+                with open(f'../data/eia930/chalendar/{filename}', 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            os.remove(f'../data/eia930/chalendar/{filename}.gz')
+
+            
 
 def download_egrid_files(egrid_files_to_download):
     """
