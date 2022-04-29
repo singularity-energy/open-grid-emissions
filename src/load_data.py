@@ -152,7 +152,9 @@ def load_cems_data(year):
     cems = pd.read_parquet(cems_path, columns=cems_columns)
 
     # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
-    cems = cems.rename(columns={'plant_id_eia': 'plant_id_epa'})
+    # rename the heat content column to use the convention used in the EIA data
+    cems = cems.rename(columns={'plant_id_eia': 'plant_id_epa',
+                                'heat_content_mmbtu':'fuel_consumed_mmbtu'})
 
     # if the unitid has any leading zeros, remove them
     cems['unitid'] = cems['unitid'].str.lstrip('0')
@@ -167,14 +169,14 @@ def load_cems_data(year):
     # Thus they need to be multiplied by operating_time_hours
     # See https://github.com/catalyst-cooperative/pudl/issues/1581
     cems['co2_mass_tons'] = cems['co2_mass_tons'] * cems['operating_time_hours']
-    cems['heat_content_mmbtu'] = cems['heat_content_mmbtu'] * cems['operating_time_hours']
+    cems['fuel_consumed_mmbtu'] = cems['fuel_consumed_mmbtu'] * cems['operating_time_hours']
 
     # add a unique unit id
     cems['cems_id'] = cems['plant_id_eia'].astype(str) + "_" + cems['unitid'].astype(str)
 
     # re-order columns
     cems = cems[['plant_id_eia', 'unitid', 'cems_id',  'operating_datetime_utc',
-    'operating_time_hours', 'gross_load_mw', 'gross_generation_mwh', 'steam_load_1000_lbs','heat_content_mmbtu',
+    'operating_time_hours', 'gross_load_mw', 'gross_generation_mwh', 'steam_load_1000_lbs','fuel_consumed_mmbtu',
     'co2_mass_tons', 'co2_mass_measurement_code', 'plant_id_epa','unit_id_epa']]
 
     return cems

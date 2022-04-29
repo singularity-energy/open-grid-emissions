@@ -112,7 +112,7 @@ def determine_cems_reporting_status(cems):
         cems: pandas dataframe with additional column added for cems_reporting_category
     """
     # sum CEMS data by month for each unit
-    cems_monthly = cems.groupby(['cems_id','report_date']).sum()[['operating_time_hours','gross_load_mw','steam_load_1000_lbs','co2_mass_tons','heat_content_mmbtu']].reset_index()
+    cems_monthly = cems.groupby(['cems_id','report_date']).sum()[['operating_time_hours','gross_load_mw','steam_load_1000_lbs','co2_mass_tons','fuel_consumed_mmbtu']].reset_index()
 
     # identify all of the plants that report to CEMS in all 12 months
     full_year_reporters = cems_monthly.groupby(['cems_id']).count().query('report_date == 12').reset_index()
@@ -259,18 +259,16 @@ def calculate_geothermal_emission_factors(year):
 
     return geo_efs
 
-def calculate_co2_from_heat_content(df, year):
+def calculate_co2_from_fuel_consumption(df, year):
     """
     Inputs:
-        df: pandas dataframe containing the following columns: ['plant_id_eia', 'report_date,'heat_content_mmbtu','energy_source_code']
+        df: pandas dataframe containing the following columns: ['plant_id_eia', 'report_date,'fuel_consumed_mmbtu','energy_source_code']
     """
     # check which column name is used for the heat content
-    if 'heat_content_mmbtu' in df.columns:
-        heat_column = 'heat_content_mmbtu' 
+    if 'fuel_consumed_mmbtu' in df.columns:
+        heat_column = 'fuel_consumed_mmbtu' 
     elif 'fuel_content_mmbtu' in df.columns:
         heat_column = 'fuel_content_mmbtu' 
-    elif 'fuel_consumed_mmbtu' in df.columns:
-        heat_column = 'fuel_consumed_mmbtu' 
 
     # get emission factors
     emission_factors = load_data.load_emission_factors()[['energy_source_code', 'co2_tons_per_mmbtu']]
@@ -315,7 +313,7 @@ def fill_cems_missing_co2(cems, year):
     cems['co2_mass_tons'] = cems['co2_mass_tons'].fillna(0)
 
     # replace 0 reported CO2 values with missing values, if there was reported heat input
-    cems.loc[(cems['co2_mass_tons'] == 0) & (cems['heat_content_mmbtu'] > 0), 'co2_mass_tons'] = np.NaN
+    cems.loc[(cems['co2_mass_tons'] == 0) & (cems['fuel_consumed_mmbtu'] > 0), 'co2_mass_tons'] = np.NaN
 
     #### First round of filling using fuel types in PSDC
 
@@ -331,7 +329,7 @@ def fill_cems_missing_co2(cems, year):
     missing_index = missing_co2.index
 
     # calculate emissions based on fuel type
-    co2_to_fill = calculate_co2_from_heat_content(co2_to_fill, year).set_index(fill_index)
+    co2_to_fill = calculate_co2_from_fuel_consumption(co2_to_fill, year).set_index(fill_index)
 
     # fill this data into the original cems data
     cems.update(co2_to_fill[['co2_mass_tons']])
@@ -371,7 +369,7 @@ def fill_cems_missing_co2(cems, year):
     missing_co2 = missing_co2.merge(missing_gf, how='left', on=['plant_id_eia','report_date']).set_index(missing_index)
 
     # calculate missing co2 data
-    missing_co2['co2_mass_tons'] = missing_co2['heat_content_mmbtu'] * missing_co2['weighted_ef']
+    missing_co2['co2_mass_tons'] = missing_co2['fuel_consumed_mmbtu'] * missing_co2['weighted_ef']
 
     # update in CEMS table
     cems.update(missing_co2[['co2_mass_tons']])
@@ -474,7 +472,7 @@ def remove_cems_with_zero_monthly_data(cems):
         cems df with hourly observations for months when no emissions reported removed
     """
     # calculate teh totals reported in each month
-    cems_with_zero_monthly_emissions = cems.groupby(['cems_id','report_date']).sum()[['co2_mass_tons','gross_generation_mwh','heat_content_mmbtu']]
+    cems_with_zero_monthly_emissions = cems.groupby(['cems_id','report_date']).sum()[['co2_mass_tons','gross_generation_mwh','fuel_consumed_mmbtu']]
     # identify unit-months where zero emissions reported
     cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[cems_with_zero_monthly_emissions.sum(axis=1) == 0]
     # add a flag to these observations
@@ -500,13 +498,13 @@ def identify_emissions_data_source(cems, gen_fuel_allocated):
     ##############################################
 
     # aggregate cems data to plant-unit-month
-    cems_monthly = cems.groupby(['plant_id_eia','unitid','report_date']).sum()[['gross_generation_mwh','co2_mass_tons','heat_content_mmbtu']].reset_index()
+    cems_monthly = cems.groupby(['plant_id_eia','unitid','report_date']).sum()[['gross_generation_mwh','co2_mass_tons','fuel_consumed_mmbtu']].reset_index()
 
     # crosswalk this data with each generator id
     cems_monthly = crosswalk_epa_unit_to_eia_generator_id(cems_monthly)
 
     #rename the columns
-    #cems_monthly = cems_monthly.rename(columns={'gross_generation_mwh':'cems_gross_generation_mwh','heat_content_mmbtu':'cems_fuel_consumed_mmbtu','co2_mass_tons':'cems_co2_mass_tons'})
+    #cems_monthly = cems_monthly.rename(columns={'gross_generation_mwh':'cems_gross_generation_mwh','fuel_consumed_mmbtu':'cems_fuel_consumed_mmbtu','co2_mass_tons':'cems_co2_mass_tons'})
 
     # create a dataframe containing all generator-months with data reported to cems
     generator_months_in_cems = cems_monthly[['plant_id_eia','generator_id','report_date']].drop_duplicates()
@@ -531,21 +529,21 @@ def identify_emissions_data_source(cems, gen_fuel_allocated):
     ####################################################################
 
     # aggregate data by plant, month, and fuel type
-    eia_plant_fuel = gen_fuel_allocated.groupby(['plant_id_eia','energy_source_code','report_date'], dropna=False).sum().reset_index().rename(columns={'fuel_consumed_mmbtu':'heat_content_mmbtu'})
-    cems_plant_fuel = cems.groupby(['plant_id_eia','energy_source_code','report_date'], dropna=False).sum()[['gross_generation_mwh','heat_content_mmbtu','co2_mass_tons']].reset_index()
+    eia_plant_fuel = gen_fuel_allocated.groupby(['plant_id_eia','energy_source_code','report_date'], dropna=False).sum().reset_index()
+    cems_plant_fuel = cems.groupby(['plant_id_eia','energy_source_code','report_date'], dropna=False).sum()[['gross_generation_mwh','fuel_consumed_mmbtu','co2_mass_tons']].reset_index()
 
     # merge the data together so that we can compare heat input reported by the two sources
-    columns_to_match = ['plant_id_eia','energy_source_code','report_date','heat_content_mmbtu']
+    columns_to_match = ['plant_id_eia','energy_source_code','report_date','fuel_consumed_mmbtu']
     fuel_comparison = eia_plant_fuel[columns_to_match].merge(cems_plant_fuel[columns_to_match], how='left', on=['plant_id_eia','energy_source_code','report_date'], suffixes=('_eia','_cems'))
 
     # if the heat input reported in cems is >= 90% of the heat input reported in EIA, mark CEMS as the data source, even if we dont have a direct unit to generator match
-    fuel_comparison = fuel_comparison[fuel_comparison['heat_content_mmbtu_cems'] >= (fuel_comparison['heat_content_mmbtu_eia'] * 0.9)]
+    fuel_comparison = fuel_comparison[fuel_comparison['fuel_consumed_mmbtu_cems'] >= (fuel_comparison['fuel_consumed_mmbtu_eia'] * 0.9)]
 
     # create a data source column
     fuel_comparison['data_source_fuel'] = 'cems'
 
     # drop heat content columns
-    fuel_comparison = fuel_comparison.drop(columns=['heat_content_mmbtu_eia','heat_content_mmbtu_cems'])
+    fuel_comparison = fuel_comparison.drop(columns=['fuel_consumed_mmbtu_eia','fuel_consumed_mmbtu_cems'])
 
     # merge this information back into gen_fuel_allocated based on matching plant month fuel
     gen_fuel_allocated = gen_fuel_allocated.merge(fuel_comparison, how='left', on=['plant_id_eia','energy_source_code','report_date'])
@@ -686,6 +684,11 @@ def clean_cems(year):
     # fill in missing hourly emissions data using the fuel type and heat input
     cems = fill_cems_missing_co2(cems, year)
 
+    # remove any observations from cems where zero operation is reported for an entire month
+    # although this data could be considered to be accurately reported, let's remove it so that we can double check against the eia data
+    # TODO: check if any of these observations are from geothermal generators
+    cems = remove_cems_with_zero_monthly_data(cems)
+
     # identify any remaining missing values
     # TODO: Try to identify fuel types
     still_missing_co2_data = list(cems[cems['co2_mass_tons'].isnull()]['cems_id'].unique())
@@ -808,20 +811,20 @@ def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
     Unless we match on units using the crosswalk, we should not use this to impute data
     """
     # calculate total values for each plant-month in CEMS and EIA
-    cems_monthly = cems.groupby(['plant_id_eia','report_date']).sum()[['gross_load_mw','gross_generation_mwh','steam_load_1000_lbs','heat_content_mmbtu','co2_mass_tons']].reset_index()
+    cems_monthly = cems.groupby(['plant_id_eia','report_date']).sum()[['gross_load_mw','gross_generation_mwh','steam_load_1000_lbs','fuel_consumed_mmbtu','co2_mass_tons']].reset_index()
     eia_monthly = gen_fuel_allocated.groupby(['plant_id_eia','report_date']).sum().reset_index()
 
     # identify all plant months that report no generation but have heat input and have no steam production
-    missing_generation = cems_monthly[(cems_monthly['gross_generation_mwh'] == 0) & (cems_monthly['heat_content_mmbtu'] > 0) & (cems_monthly['steam_load_1000_lbs'] == 0)]
+    missing_generation = cems_monthly[(cems_monthly['gross_generation_mwh'] == 0) & (cems_monthly['fuel_consumed_mmbtu'] > 0) & (cems_monthly['steam_load_1000_lbs'] == 0)]
     # merge in the EIA net generation data
-    missing_generation = missing_generation.merge(eia_monthly[['plant_id_eia','report_date','net_generation_mwh','fuel_consumed_mmbtu','fuel_consumed_for_electricity_mmbtu']], how='left', on=['plant_id_eia','report_date'])
+    missing_generation = missing_generation.merge(eia_monthly[['plant_id_eia','report_date','net_generation_mwh','fuel_consumed_mmbtu','fuel_consumed_for_electricity_mmbtu']], how='left', on=['plant_id_eia','report_date'], suffixes=('_cems','_eia'))
 
     # only keep plant-months where zero gross generation was reported, but EIA reports positive net generation
     # ignore negative net generation for now
     missing_generation = missing_generation[missing_generation['net_generation_mwh'] > 0]
 
     # scale the EIA-reported heat input by the heat input reported in CEMS
-    missing_generation['heat_scaling_factor'] = missing_generation['heat_content_mmbtu'] / missing_generation['fuel_consumed_mmbtu']
+    missing_generation['heat_scaling_factor'] = missing_generation['fuel_consumed_mmbtu_cems'] / missing_generation['fuel_consumed_mmbtu_eia']
 
     # calculate a heat rate for steam
     #missing_generation['steam_heat_rate_mmbtu_per_klb'] = (missing_generation['fuel_consumed_mmbtu'] - missing_generation['fuel_consumed_for_electricity_mmbtu']) / missing_generation['steam_load_1000_lbs'] * missing_generation['heat_scaling_factor']
@@ -843,21 +846,21 @@ def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
     cems_ng_imputation = cems_ng_imputation.merge(missing_generation[['plant_id_eia','report_date','heat_to_netgen_mwh_per_mmbtu']], how='left', on=['plant_id_eia','report_date'])
 
     # calculate hourly heat content for electricity
-    #cems_ng_imputation['heat_content_for_electricity_mmbtu'] = cems_ng_imputation['heat_content_mmbtu'] - (cems_ng_imputation['steam_load_1000_lbs'].fillna(0) * cems_ng_imputation['steam_heat_rate_mmbtu_per_klb'])
+    #cems_ng_imputation['heat_content_for_electricity_mmbtu'] = cems_ng_imputation['fuel_consumed_mmbtu'] - (cems_ng_imputation['steam_load_1000_lbs'].fillna(0) * cems_ng_imputation['steam_heat_rate_mmbtu_per_klb'])
 
     # convert heat input to net generation
     #cems_ng_imputation['net_generation_mwh'] = cems_ng_imputation['heat_content_for_electricity_mmbtu'] * cems_ng_imputation['heat_to_netgen_mwh_per_mmbtu']
-    cems_ng_imputation['net_generation_mwh'] = cems_ng_imputation['heat_content_mmbtu'] * cems_ng_imputation['heat_to_netgen_mwh_per_mmbtu']
+    cems_ng_imputation['net_generation_mwh'] = cems_ng_imputation['fuel_consumed_mmbtu'] * cems_ng_imputation['heat_to_netgen_mwh_per_mmbtu']
 
     # drop intermediate columns
     #cems_ng_imputation = cems_ng_imputation.drop(columns=['steam_heat_rate_mmbtu_per_klb','heat_to_netgen_mwh_per_mmbtu'])
     cems_ng_imputation = cems_ng_imputation.drop(columns=['heat_to_netgen_mwh_per_mmbtu'])
 
     # if there are missing values where heat content is also zero, fill with zero
-    cems_ng_imputation.loc[cems_ng_imputation['heat_content_mmbtu'] == 0, 'net_generation_mwh'] = cems_ng_imputation.loc[cems_ng_imputation['heat_content_mmbtu'] == 0, 'net_generation_mwh'].fillna(0)
+    cems_ng_imputation.loc[cems_ng_imputation['fuel_consumed_mmbtu'] == 0, 'net_generation_mwh'] = cems_ng_imputation.loc[cems_ng_imputation['fuel_consumed_mmbtu'] == 0, 'net_generation_mwh'].fillna(0)
 
     # change the net gen method
-    cems_ng_imputation['net_gen_method'] = 'imputed_from_heat_content'
+    cems_ng_imputation['net_gen_method'] = 'imputed_from_fuel_consumption'
     cems_ng_imputation.loc[cems_ng_imputation['net_generation_mwh'].isna(),'net_gen_method'] = np.NaN
 
     # add the original index and update
@@ -1473,7 +1476,7 @@ def fill_missing_co2(cems_df, year):
     missing = missing.merge(fuel_ef_per_mmbtu, how='left',
                             left_on='primary_fuel', right_on='energy_source_code')
     # calculate missing co2 data
-    missing['co2_mass_tons'] = missing['heat_content_mmbtu'] * \
+    missing['co2_mass_tons'] = missing['fuel_consumed_mmbtu'] * \
         missing['co2_tons_per_mmbtu']
 
     return missing
@@ -1554,3 +1557,142 @@ def map_fuel_code_to_eia930_category():
                         'WDL': 'other', # changed from waste to other
                         'SGP': 'other'} # changed from gas to other
     return fuel_code_dict_930
+
+def ba_timezone(ba, format):
+    """
+    Retrieves the UTC Offset (for standard time) for each balancing area.
+    """
+
+    
+    offset_dict = {'AEC': 6,
+                'AECI': 6,
+                'AMPL':9,
+                'AVA': 8,
+                'AVRN': 8,
+                'AZPS': 7,
+                'BANC': 8,
+                'BPAT': 8,
+                'BPA': 8,
+                'CEA':9,
+                'CHPD': 8,
+                'CISO': 8,
+                'CAISO': 8,
+                'CPLE': 5,
+                'CPLW': 5,
+                'DEAA': 7,
+                'DOPD': 8,
+                'DUK': 5,
+                'EEI': 6,
+                'EPE': 7,
+                'ERCO': 6,
+                'FMPP': 5,
+                'FPC': 5,
+                'FPL': 5,
+                'GCPD': 8,
+                'GRID': 8,
+                'GRIF': 7,
+                'GRIS':6,
+                'GVL': 5,
+                'GWA': 7,
+                'HECO':10,
+                'HGMA': 7,
+                'HST': 5,
+                'IID': 8,
+                'IPCO': 8,
+                'ISNE': 5,
+                'ISONE': 5,
+                'JEA': 5,
+                'LDWP': 8,
+                'LGEE': 5,
+                'MISO': 5,
+                'NBSO':4,
+                'NEVP': 8,
+                'NSB': 5,
+                'NWMT': 7,
+                'NYIS': 5,
+                'NYISO': 5,
+                'OVEC':5,
+                'PACE': 7,
+                'PACW': 8,
+                'PGE': 8,
+                'PJM': 5,
+                'PNM': 7,
+                'PSCO': 7,
+                'PSEI': 8,
+                'SC': 5,
+                'SCEG': 5,
+                'SCL': 8,
+                'SEC': 5,
+                'SEPA': 6,
+                'SOCO': 6,
+                'SPA': 6,
+                'SRP': 7,
+                'SWPP': 6,
+                'SPP': 6,
+                'TAL': 5,
+                'TEC': 5,
+                'TEPC': 7,
+                'TIDC': 8,
+                'TPWR': 8,
+                'TVA': 6,
+                'WACM': 7,
+                'WALC': 7,
+                'WAUW': 7,
+                'WWA': 7,
+                'YAD': 5,
+                'EIA.CISO': 8,
+                'EIA.ISNE': 5,
+                'EIA.PJM': 5,
+                'EIA.NYIS': 5,
+                'EIA.SWPP': 6,
+                'EIA.MISO': 5,
+                'EIA.BPAT': 8,}
+
+    
+    offset = offset_dict[ba]
+
+    if format == 'ISO':
+        timezone = f'-0{offset}:00'
+    elif format == 'GMT':
+        timezone = f'Etc/GMT+{offset}'
+
+    return timezone
+
+def distribute_monthly_eia_data_to_hourly(monthly_eia_data_to_distribute, hourly_profiles, energy_source_groups):
+    """
+    Uses monthly-level EIA data and assigns an hourly profile
+    Inputs: 
+        monthly_eia_data_to_distribute: a dataframe that contains monthly total net generation, fuel consumption, and co2 data, along with columns for report_date and ba_code
+    """
+
+    # assign a fuel group to each energy source code in the dataframe
+    monthly_eia_ba_fuel = monthly_eia_data_to_distribute.merge(energy_source_groups[['energy_source_code','fuel_category']], how='left', on='energy_source_code')
+
+    # calculate totals by BA, Fuel Group, and Month
+    monthly_eia_ba_fuel = monthly_eia_ba_fuel.groupby(['ba_code','fuel_category','report_date']).sum()[['net_generation_mwh','fuel_consumed_mmbtu','co2_mass_tons']].reset_index()
+
+    # calculate the total monthly net generation profile by BA and fuel group
+    monthly_profile_total = hourly_profiles.groupby(['ba_code','fuel_category','report_date']).sum().reset_index()
+
+    # merge the total monthly profile into the monthly totals
+    monthly_eia_ba_fuel = monthly_eia_ba_fuel.merge(monthly_profile_total, how='left', on=['ba_code','fuel_category','report_date'])
+
+    # calculate how much net generation, fuel, and co2 should be assigned to each unit of net generation in the profile
+    for col in ['net_generation_mwh','fuel_consumed_mmbtu','co2_mass_tons']:
+        monthly_eia_ba_fuel[col] = monthly_eia_ba_fuel[col] / monthly_eia_ba_fuel['profile']
+
+    # drop the profile column and merge the hourly generation, fuel, and co2 factors back into the profile timeseries data
+    monthly_eia_ba_fuel = monthly_eia_ba_fuel.drop(columns='profile')
+    hourly_eia_data = hourly_profiles.merge(monthly_eia_ba_fuel, how='left', on=['ba_code','fuel_category','report_date'])
+
+    # multiply each factor by the profile to calculate the hourly shape
+    for col in ['net_generation_mwh','fuel_consumed_mmbtu','co2_mass_tons']:
+        hourly_eia_data[col] = hourly_eia_data[col] * hourly_eia_data['profile']
+
+    # add a UTC timestamp column to match the CEMS data
+    hourly_eia_data['operating_datetime_utc'] = pd.to_datetime(hourly_eia_data['datetime_local'], utc=True)
+
+    # create a column identifying the source of the data
+    hourly_eia_data['data_source'] = 'EIA'
+
+    return hourly_eia_data
