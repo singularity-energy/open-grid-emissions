@@ -16,6 +16,7 @@ requests = "*"
 statsmodels = "*"
 plotly = "*"
 missingno = "*"
+tabulate = "*"
 
 [dev-packages]
 pytest = "*"
