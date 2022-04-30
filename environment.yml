@@ -29,5 +29,6 @@ dependencies:
   - sqlite # used for pudl
 
   - pip:
-    - --editable ../pudl
+    #- --editable ../pudl #NOTE: this is for Greg's use for development
+    - git+git://github.com/grgmiller/pudl.git@allocate_fuel#egg=catalystcoop.pudl
 
