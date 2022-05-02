@@ -1,4 +1,3 @@
-# NOTE: This code is modified from https://github.com/catalyst-cooperative/pudl/blob/main/src/pudl/analysis/allocate_net_gen.py
 
 """
 Allocate data from generation_fuel_eia923 table to generator level.
@@ -93,6 +92,7 @@ import sqlalchemy as sa
 
 import src.load_data as load_data
 import src.data_cleaning as data_cleaning
+
 #import pudl.helpers
 #from pudl.metadata.fields import apply_pudl_dtypes
 from typing import List
@@ -107,7 +107,7 @@ IDX_PM_FUEL = ["plant_id_eia", "prime_mover_code", "energy_source_code", "report
 
 IDX_FUEL = ["report_date", "plant_id_eia", "energy_source_code"]
 
-DATA_COLS = ["net_generation_mwh", "fuel_consumed_mmbtu"]
+DATA_COLS = ["net_generation_mwh", "fuel_consumed_mmbtu","fuel_consumed_for_electricity_mmbtu"]
 """Data columns from generation_fuel_eia923 that are being allocated."""
 
 
@@ -141,11 +141,11 @@ def allocate_gen_fuel_by_gen(year):
     
     # gf contains the more complete generation and fuel data at the plant prime mover level
     gf = load_data.load_pudl_table("generation_fuel_eia923", year=year).loc[
-        :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu"]
+        :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu","fuel_consumed_for_electricity_mmbtu"]
     ].pipe(apply_dtype)
     # load the nuclear gf data
     gf_nuc = load_data.load_pudl_table("generation_fuel_nuclear_eia923", year=year).loc[
-        :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu"]
+        :, IDX_PM_FUEL + ["net_generation_mwh", "fuel_consumed_mmbtu","fuel_consumed_for_electricity_mmbtu"]
     ].pipe(apply_dtype)
     # concat the nuclear data with the main gf dataframe
     gf = pd.concat([gf,gf_nuc], axis=0)
@@ -168,6 +168,7 @@ def allocate_gen_fuel_by_gen(year):
         + [
             "capacity_mw",
             "operational_status",
+            "current_planned_operating_date",
             "retirement_date",
         ]
         + list(load_data.load_pudl_table("generators_eia860", year=year).filter(like="energy_source_code")),
@@ -181,19 +182,16 @@ def allocate_gen_fuel_by_gen(year):
                         how='left', 
                         on=["plant_id_eia", "generator_id"]).pipe(apply_dtype)
     # add records for each month of the year
-    gens = create_monthly_gens_records(gens, year)
+    gens = data_cleaning.create_monthly_gens_records(gens, year)
     # remove retired generator months
-    gens = remove_retired_generators(gens)
+    #gens = remove_nonoperating_generators(gens)
     # TODO: some of the prime mover codes in generators_entity_eia860 are incorrect, so these need to be manually fixed for now
     gens = manually_fix_prime_movers(gens)
 
     # the gen table is missing some generator ids. Let's fill this using the gens table, leaving a missing value for net generation
     gen = gen.merge(gens[['plant_id_eia','generator_id','report_date']], how='outer', on=['plant_id_eia','generator_id','report_date'])
 
-    # if negative net generation is reported in gf or gen, replace with zero 
-    # otherwise the allocation will be negative
-    #gf.loc[gf['net_generation_mwh'] < 0, 'net_generation_mwh'] = 0
-    #gen.loc[gen['net_generation_mwh'] < 0, 'net_generation_mwh'] = 0
+    
     
 
     # do the allocation! 
@@ -222,6 +220,9 @@ def allocate_gen_fuel_by_gen(year):
     # if there are any missing co2 records where both net generation and fuel content are zero, fill with zero
     gen_allocated.loc[(gen_allocated['net_generation_mwh'] == 0) & (gen_allocated['fuel_consumed_mmbtu'] == 0) & (gen_allocated['co2_mass_tons'].isna()), 'co2_mass_tons'] = 0
 
+    # rename the energy source code column
+    gen_allocated = gen_allocated.rename(columns={'energy_source_code_1':'energy_source_code'})
+
     return gen_allocated
 
 def manually_fix_prime_movers(df):
@@ -230,7 +231,7 @@ def manually_fix_prime_movers(df):
     """
 
     # fix cogeneration issues
-    plant_ids = [2465, 50150, 54268,54410]
+    plant_ids = [2465, 50150, 54268, 54410, 54262]
     for id in plant_ids:
         df.loc[(df['plant_id_eia'] == id) & (df['prime_mover_code'] == 'CT'), 'prime_mover_code'] = 'GT'
         df.loc[(df['plant_id_eia'] == id) & (df['prime_mover_code'] == 'CA'), 'prime_mover_code'] = 'ST'
@@ -243,32 +244,30 @@ def manually_fix_prime_movers(df):
 
     df.loc[(df['plant_id_eia'] == 58946), 'prime_mover_code'] = 'IC'
 
-    return df
+    df.loc[(df['plant_id_eia'] == 60610), 'prime_mover_code'] = 'OT'
 
-def create_monthly_gens_records(df, year):
-    """
-    Creates a duplicate record for each month of the year in the gens file
-    """
-    # If we want to allocate net generation at the monthly level, we need to ensure that the gens file has monthly records
-    # to do this, we can duplicate the records in gens 11 times for each month, so that there is a record for each month of the year
-    # duplicate the entries for each month
-    
-    if 'report_date' not in df.columns:
-        # create a report date column with the first month of the year
-        df['report_date'] = f'{year}-01-01'
-        df['report_date'] = pd.to_datetime(df['report_date'])
+    df.loc[(df['plant_id_eia'] == 7854), 'prime_mover_code'] = 'IC'
 
-    df_month = df.copy()
+    df.loc[(df['plant_id_eia'] == 50628) & (df['generator_id'] == 'GEN1'), 'prime_mover_code'] = 'GT'
+    df.loc[(df['plant_id_eia'] == 50628) & (df['generator_id'] == 'GEN2'), 'prime_mover_code'] = 'ST'
+    df.loc[(df['plant_id_eia'] == 50628) & (df['generator_id'] == 'GEN3'), 'prime_mover_code'] = 'ST'
 
-    month = 2
-    while month <= 12:
-        # add one month to the copied data each iteration
-        df_month['report_date'] = df_month['report_date'] + pd.DateOffset(months=1)
-        # concat this data to the gens file
-        df = pd.concat([df, df_month], axis = 0)
-        month += 1
+    df.loc[(df['plant_id_eia'] == 55088) & ~(df['generator_id'] == 'ST1'), 'prime_mover_code'] = 'GT'
+
+    df.loc[(df['plant_id_eia'] == 52168) & (df['generator_id'] == 'GEN2'), 'prime_mover_code'] = 'ST'
+    df.loc[(df['plant_id_eia'] == 52168) & (df['generator_id'] == 'GEN3'), 'prime_mover_code'] = 'GT'
+    df.loc[(df['plant_id_eia'] == 52168) & (df['generator_id'] == 'GEN4'), 'prime_mover_code'] = 'GT'
+
+    df.loc[(df['plant_id_eia'] == 55096) & (df['generator_id'] == 'GT'), 'prime_mover_code'] = 'GT'
+    df.loc[(df['plant_id_eia'] == 55096) & (df['generator_id'] == 'ST'), 'prime_mover_code'] = 'ST'
+
+    df.loc[(df['plant_id_eia'] == 7887) & (df['generator_id'] == '4'), 'prime_mover_code'] = 'GT'
+
+    df.loc[(df['plant_id_eia'] == 6474) & (df['generator_id'] == 'GT1'), 'prime_mover_code'] = 'GT'
+    df.loc[(df['plant_id_eia'] == 6474) & (df['generator_id'] == 'GT2'), 'prime_mover_code'] = 'GT'
 
     return df
+
 
 def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, year, drop_interim_cols=True):
     """
@@ -314,17 +313,10 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, year, drop_interim_cols=True
     gen_pm_fuel = prep_alloction_fraction(gen_assoc)
     gen_pm_fuel_frac = calc_allocation_fraction(gen_pm_fuel)
     
-
-    # NOTE: here might be a good place to calculate emissions by generator
+    # calculate emissions by generator based on fuel type
     # drop any rows where all values are missing
     gen_pm_fuel_frac = gen_pm_fuel_frac.dropna(how='all', axis=0)
     gen_pm_fuel_frac = data_cleaning.calculate_co2_from_heat_content(gen_pm_fuel_frac, year)
-    """# get emission factors
-    emission_factors = load_data.load_emission_factors()[['energy_source_code', 'co2_tons_per_mmbtu']]
-    # add emission factor to missing df
-    gen_pm_fuel_frac = gen_pm_fuel_frac.merge(emission_factors, how='left', on='energy_source_code')
-    # calculate missing co2 data
-    gen_pm_fuel_frac['co2_mass_tons'] = gen_pm_fuel_frac['fuel_consumed_mmbtu'] * gen_pm_fuel_frac['co2_tons_per_mmbtu']"""
 
     # do the allocating-ing!
     gen_pm_fuel_frac = (
@@ -338,6 +330,8 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, year, drop_interim_cols=True
             # allocating fuel consumption based on the boiler_fuel_eia923 tbl
             fuel_consumed_mmbtu_gf_tbl=lambda x: x.fuel_consumed_mmbtu,
             fuel_consumed_mmbtu=lambda x: x.fuel_consumed_mmbtu * x.frac,
+            fuel_consumed_for_electricity_mmbtu_gf_tbl=lambda x: x.fuel_consumed_for_electricity_mmbtu,
+            fuel_consumed_for_electricity_mmbtu=lambda x: x.fuel_consumed_for_electricity_mmbtu * x.frac,
             # NOTE: allocating emissions by fraction of net generation
             # TODO: allocate by fraction of heat input
             co2_mass_tons=lambda x: x.co2_mass_tons * x.frac,
@@ -354,6 +348,7 @@ def allocate_gen_fuel_by_gen_pm_fuel(gf, gen, gens, year, drop_interim_cols=True
                 "energy_source_code_num",
                 "net_generation_mwh",
                 "fuel_consumed_mmbtu",
+                "fuel_consumed_for_electricity_mmbtu",
                 "co2_mass_tons",
             ]
         ]
@@ -368,7 +363,7 @@ def agg_by_generator(gen_pm_fuel):
         gen_pm_fuel (pandas.DataFrame): result of
             `allocate_gen_fuel_by_gen_pm_fuel()`
     """
-    data_cols = ["net_generation_mwh", "fuel_consumed_mmbtu","co2_mass_tons"]
+    data_cols = ["net_generation_mwh", "fuel_consumed_mmbtu","fuel_consumed_for_electricity_mmbtu","co2_mass_tons"]
     gen = (
         gen_pm_fuel.groupby(by=IDX_GENS)[data_cols]
         .sum(min_count=1)
@@ -434,14 +429,17 @@ def associate_generator_tables(gf, gen, gens):
 
     gen_assoc = (
         pd.merge(stack_gens, gen, on=IDX_GENS, how="outer")
-        .pipe(remove_retired_generators)
+        .pipe(remove_nonoperating_generators)
         .merge(
             gf.groupby(by=IDX_PM_FUEL, as_index=False).sum(min_count=1),
             on=IDX_PM_FUEL,
             suffixes=("_g_tbl", "_gf_tbl"),
-            how="outer",
-        )
+            how="outer",)
+            
     )
+
+    # remove any months for proposed generators where no data is available
+    gen_assoc = gen_assoc[~((gen_assoc.operational_status == "proposed") & gen_assoc.net_generation_mwh_g_tbl.isna() &  (gen_assoc.net_generation_mwh_gf_tbl.isna()))]
 
     gen_assoc = (
         pd.merge(
@@ -455,11 +453,12 @@ def associate_generator_tables(gf, gen, gens):
         .pipe(apply_dtype)
         .pipe(_associate_unconnected_records)
         .pipe(_associate_energy_source_only, gf=gf)
+        .pipe(data_cleaning.update_energy_source_codes)
     )
     return gen_assoc
 
 
-def remove_retired_generators(gen_assoc):
+def remove_nonoperating_generators(gen_assoc):
     """
     Remove the retired generators.
 
@@ -484,11 +483,13 @@ def remove_retired_generators(gen_assoc):
     # keep the gens for each month until they retire, if they have any data to report in that month
     retiring = gen_assoc.loc[
         (gen_assoc.operational_status == "retired")
-        & (gen_assoc.report_date <= gen_assoc.retirement_date)
-        #& (gen_assoc.net_generation_mwh.notnull())
+        & ((gen_assoc.report_date <= gen_assoc.retirement_date))
+        #| (gen_assoc.net_generation_mwh_g_tbl.notnull())
+        #| (gen_assoc.net_generation_mwh_gf_tbl.notnull()))
     ]
+    new = gen_assoc.loc[(gen_assoc.operational_status == "proposed")]
 
-    gen_assoc_removed = pd.concat([existing, retiring])
+    gen_assoc_removed = pd.concat([existing, retiring, new])
     return gen_assoc_removed
 
 
@@ -532,7 +533,7 @@ def _associate_unconnected_records(eia_generators_merged):
         pd.merge(
             eia_generators_connected,
             eia_generators_unconnected[
-                idx_pm + ["net_generation_mwh_gf_tbl", "fuel_consumed_mmbtu"]
+                idx_pm + ["net_generation_mwh_gf_tbl", "fuel_consumed_mmbtu","fuel_consumed_for_electricity_mmbtu"]
             ],
             on=idx_pm,
             suffixes=("", "_unconnected"),
@@ -556,11 +557,19 @@ def _associate_unconnected_records(eia_generators_merged):
                 + x.fuel_consumed_mmbtu_unconnected.fillna(0),
                 np.nan,
             ),
+            fuel_consumed_for_electricity_mmbtu=lambda x: np.where(
+                x.fuel_consumed_for_electricity_mmbtu.notnull()
+                | x.fuel_consumed_for_electricity_mmbtu_unconnected.notnull(),
+                x.fuel_consumed_for_electricity_mmbtu.fillna(0)
+                + x.fuel_consumed_for_electricity_mmbtu_unconnected.fillna(0),
+                np.nan,
+            ),
         )  # we no longer need these _unconnected columns
         .drop(
             columns=[
                 "net_generation_mwh_gf_tbl_unconnected",
                 "fuel_consumed_mmbtu_unconnected",
+                "fuel_consumed_for_electricity_mmbtu_unconnected",
             ]
         )
     )
@@ -634,7 +643,7 @@ def _associate_energy_source_only_wo_matching_energy_source(gen_assoc):
             (
                 gen_assoc[gen_assoc._merge == "right_only"]
                 .groupby(idx_plant)[
-                    ["net_generation_mwh_fuel", "fuel_consumed_mmbtu_fuel"]
+                    ["net_generation_mwh_fuel", "fuel_consumed_mmbtu_fuel","fuel_consumed_for_electricity_mmbtu_fuel"]
                 ]
                 .sum(min_count=1)
             ),
@@ -650,6 +659,10 @@ def _associate_energy_source_only_wo_matching_energy_source(gen_assoc):
             fuel_consumed_mmbtu=lambda x: x.fuel_consumed_mmbtu.fillna(
                 x.fuel_consumed_mmbtu_fuel
                 + x.fuel_consumed_mmbtu_fuel_missing_pm.fillna(0)
+            ),
+            fuel_consumed_for_electricity_mmbtu=lambda x: x.fuel_consumed_for_electricity_mmbtu.fillna(
+                x.fuel_consumed_for_electricity_mmbtu_fuel
+                + x.fuel_consumed_for_electricity_mmbtu_fuel_missing_pm.fillna(0)
             ),
         )
         .drop(columns=["_merge"])
@@ -780,9 +793,11 @@ def calc_allocation_fraction(gen_pm_fuel, drop_interim_cols=True):
     # tables don't always match perfectly
     all_gen = all_gen.assign(
         frac_net_gen=lambda x: x.net_generation_mwh_g_tbl
-        / x.net_generation_mwh_g_tbl_pm_fuel,
-        frac=lambda x: x.frac_net_gen,
-    )
+        / x.net_generation_mwh_g_tbl_pm_fuel)
+    # if any values are both zero, replace the nan with 1
+    all_gen.loc[(all_gen.net_generation_mwh_g_tbl == 0) & (all_gen.net_generation_mwh_g_tbl_pm_fuel == 0), 'frac_net_gen'] = 1
+    all_gen = all_gen.assign(frac=lambda x: x.frac_net_gen)
+
     # _ = _test_frac(all_gen)
 
     # a brief explaination of the equations below
@@ -803,7 +818,14 @@ def calc_allocation_fraction(gen_pm_fuel, drop_interim_cols=True):
         # for records within these mix groups that do have net gen in the
         # generation table..
         frac_net_gen=lambda x: x.net_generation_mwh_g_tbl
-        / x.net_generation_mwh_g_tbl_pm_fuel,  # generator based net gen from gen table
+        / x.net_generation_mwh_g_tbl_pm_fuel)  # generator based net gen from gen table
+    
+    # if any values are both zero, replace the nan with 1
+    # TODO: make sure this is not messing up any calculations
+    some_gen.loc[(some_gen.net_generation_mwh_g_tbl_pm_fuel == 0) & (some_gen.net_generation_mwh_gf_tbl == 0), 'frac_from_g_tbl'] = 1
+    some_gen.loc[(some_gen.net_generation_mwh_g_tbl == 0) & (some_gen.net_generation_mwh_g_tbl_pm_fuel == 0), 'frac_net_gen'] = 1
+    
+    some_gen = some_gen.assign(    
         frac_gen=lambda x: x.frac_net_gen * x.frac_from_g_tbl,
         # fraction of generation that does not show up in the generation table
         frac_missing_from_g_tbl=lambda x: 1 - x.frac_from_g_tbl,
@@ -858,6 +880,7 @@ def calc_allocation_fraction(gen_pm_fuel, drop_interim_cols=True):
                 "net_generation_mwh_g_tbl",
                 "capacity_mw",
                 "fuel_consumed_mmbtu",
+                "fuel_consumed_for_electricity_mmbtu"
             ]
         ]
     return gen_pm_fuel_ratio
@@ -866,7 +889,7 @@ def calc_allocation_fraction(gen_pm_fuel, drop_interim_cols=True):
 def _test_frac(gen_pm_fuel):
     # test! Check if each of the IDX_PM_FUEL groups frac's add up to 1
     ratio_test_pm_fuel = (
-        gen_pm_fuel.groupby(IDX_PM_FUEL)[["frac", "net_generation_mwh_g_tbl"]]
+        gen_pm_fuel.groupby(IDX_PM_FUEL)[["frac", "net_generation_mwh_g_tbl","net_generation_mwh_gf_tbl"]]
         .sum(min_count=1)
         .reset_index()
     )
@@ -897,6 +920,9 @@ def _test_frac(gen_pm_fuel):
             "group. Check 'calc_allocation_fraction()'\n"
             f"{frac_test_bad}"
         )
+
+    # export this to CSV so that we can investigate
+    frac_test_bad.to_csv('../data/temp/frac_test_bad.csv')
     return frac_test_bad
 
 
@@ -947,6 +973,7 @@ def _test_gen_pm_fuel_output(gen_pm_fuel, gf, gen):
     # remove the junk/corrective plants
     fuel_net_gen = gf[gf.plant_id_eia != "99999"].net_generation_mwh.sum()
     fuel_consumed = gf[gf.plant_id_eia != "99999"].fuel_consumed_mmbtu.sum()
+    fuel_consumed_for_electricity = gf[gf.plant_id_eia != "99999"].fuel_consumed_for_electricity_mmbtu.sum()
     logger.info(
         "gen v fuel table net gen diff:      "
         f"{(gen.net_generation_mwh.sum())/fuel_net_gen:.1%}"
@@ -958,6 +985,10 @@ def _test_gen_pm_fuel_output(gen_pm_fuel, gf, gen):
     logger.info(
         "new v fuel table fuel (mmbtu) diff: "
         f"{(gen_pm_fuel_test.fuel_consumed_mmbtu.sum())/fuel_consumed:.1%}"
+    )
+    logger.info(
+        "new v fuel table fuel for electricty (mmbtu) diff: "
+        f"{(gen_pm_fuel_test.fuel_consumed_for_electricity_mmbtu.sum())/fuel_consumed_for_electricity:.1%}"
     )
 
     gen_pm_fuel_test = gen_pm_fuel_test.drop(
@@ -987,157 +1018,6 @@ def _test_gen_fuel_allocation(gen, gen_allocated, ratio=0.05):
             f"Many generator records that have allocated net gen more than {ratio:.0%}"
         )
 
-
-def plants_eia860(pudl_engine, start_date=None, end_date=None):
-    """Pull all fields from the EIA Plants tables.
-    Args:
-        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
-            for the PUDL DB.
-        start_date (date-like): date-like object, including a string of the
-            form 'YYYY-MM-DD' which will be used to specify the date range of
-            records to be pulled.  Dates are inclusive.
-        end_date (date-like): date-like object, including a string of the
-            form 'YYYY-MM-DD' which will be used to specify the date range of
-            records to be pulled.  Dates are inclusive.
-    Returns:
-        pandas.DataFrame: A DataFrame containing all the fields of the EIA 860
-        Plants table.
-    """
-    pt = get_table_meta(pudl_engine)
-    # grab the entity table
-    plants_eia_tbl = pt["plants_entity_eia"]
-    plants_eia_select = sa.sql.select(plants_eia_tbl)
-    plants_eia_df = pd.read_sql(plants_eia_select, pudl_engine)
-
-    # grab the annual table select
-    plants_eia860_tbl = pt["plants_eia860"]
-    plants_eia860_select = sa.sql.select(plants_eia860_tbl)
-    if start_date is not None:
-        start_date = pd.to_datetime(start_date)
-        plants_eia860_select = plants_eia860_select.where(
-            plants_eia860_tbl.c.report_date >= start_date
-        )
-    if end_date is not None:
-        end_date = pd.to_datetime(end_date)
-        plants_eia860_select = plants_eia860_select.where(
-            plants_eia860_tbl.c.report_date <= end_date
-        )
-    plants_eia860_df = pd.read_sql(plants_eia860_select, pudl_engine).assign(
-        report_date=lambda x: pd.to_datetime(x.report_date)
-    )
-
-    # plant glue table
-    plants_g_eia_tbl = pt["plants_eia"]
-    plants_g_eia_select = sa.sql.select(
-        plants_g_eia_tbl.c.plant_id_eia,
-        plants_g_eia_tbl.c.plant_id_pudl,
-    )
-    plants_g_eia_df = pd.read_sql(plants_g_eia_select, pudl_engine)
-
-    out_df = pd.merge(plants_eia_df, plants_eia860_df, how="left", on=["plant_id_eia"])
-    out_df = pd.merge(out_df, plants_g_eia_df, how="left", on=["plant_id_eia"])
-
-    utils_eia_tbl = pt["utilities_eia"]
-    utils_eia_select = sa.sql.select(utils_eia_tbl)
-    utils_eia_df = pd.read_sql(utils_eia_select, pudl_engine)
-
-    out_df = (
-        pd.merge(out_df, utils_eia_df, how="left", on=["utility_id_eia"])
-        .dropna(subset=["report_date", "plant_id_eia"])
-        .pipe(apply_dtype)
-    )
-    return out_df
-
-
-def get_table_meta(pudl_engine):
-    """Grab the pudl sqlitie database table metadata."""
-    md = sa.MetaData()
-    md.reflect(pudl_engine)
-    return md.tables
-
-
-def utilities_eia860(pudl_engine, start_date=None, end_date=None):
-    """Pull all fields from the EIA860 Utilities table. NOTE: copied from pudl.output.eia860
-    Args:
-        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
-            for the PUDL DB.
-        start_date (date-like): date-like object, including a string of the
-            form 'YYYY-MM-DD' which will be used to specify the date range of
-            records to be pulled.  Dates are inclusive.
-        end_date (date-like): date-like object, including a string of the
-            form 'YYYY-MM-DD' which will be used to specify the date range of
-            records to be pulled.  Dates are inclusive.
-    Returns:
-        pandas.DataFrame: A DataFrame containing all the fields of the EIA 860
-        Utilities table.
-    """
-    pt = get_table_meta(pudl_engine)
-    # grab the entity table
-    utils_eia_tbl = pt["utilities_entity_eia"]
-    utils_eia_select = sa.sql.select(utils_eia_tbl)
-    utils_eia_df = pd.read_sql(utils_eia_select, pudl_engine)
-
-    # grab the annual eia entity table
-    utils_eia860_tbl = pt["utilities_eia860"]
-    utils_eia860_select = sa.sql.select(utils_eia860_tbl)
-
-    if start_date is not None:
-        start_date = pd.to_datetime(start_date)
-        utils_eia860_select = utils_eia860_select.where(
-            utils_eia860_tbl.c.report_date >= start_date
-        )
-    if end_date is not None:
-        end_date = pd.to_datetime(end_date)
-        utils_eia860_select = utils_eia860_select.where(
-            utils_eia860_tbl.c.report_date <= end_date
-        )
-    utils_eia860_df = pd.read_sql(utils_eia860_select, pudl_engine)
-
-    # grab the glue table for the utility_id_pudl
-    utils_g_eia_tbl = pt["utilities_eia"]
-    utils_g_eia_select = sa.sql.select(
-        utils_g_eia_tbl.c.utility_id_eia,
-        utils_g_eia_tbl.c.utility_id_pudl,
-    )
-    utils_g_eia_df = pd.read_sql(utils_g_eia_select, pudl_engine)
-
-    out_df = pd.merge(utils_eia_df, utils_eia860_df, how="left", on=["utility_id_eia"])
-    out_df = pd.merge(out_df, utils_g_eia_df, how="left", on=["utility_id_eia"])
-    out_df = (
-        out_df.assign(report_date=lambda x: pd.to_datetime(x.report_date))
-        .dropna(subset=["report_date", "utility_id_eia"])
-        .pipe(apply_dtype)
-    )
-    first_cols = [
-        "report_date",
-        "utility_id_eia",
-        "utility_id_pudl",
-        "utility_name_eia",
-    ]
-
-    out_df = organize_cols(out_df, first_cols)
-    return out_df
-
-
-def organize_cols(df, cols):
-    """
-    Organize columns into key ID & name fields & alphabetical data columns.
-    For readability, it's nice to group a few key columns at the beginning
-    of the dataframe (e.g. report_year or report_date, plant_id...) and then
-    put all the rest of the data columns in alphabetical order.
-    Args:
-        df: The DataFrame to be re-organized.
-        cols: The columns to put first, in their desired output ordering.
-    Returns:
-        pandas.DataFrame: A dataframe with the same columns as the input
-        DataFrame df, but with cols first, in the same order as they
-        were passed in, and the remaining columns sorted alphabetically.
-    """
-    # Generate a list of all the columns in the dataframe that are not
-    # included in cols
-    data_cols = sorted([c for c in df.columns.tolist() if c not in cols])
-    organized_cols = cols + data_cols
-    return df[organized_cols]
 
 
 def clean_merge_asof(
@@ -1217,40 +1097,6 @@ def clean_merge_asof(
         by=by,
         tolerance=pd.Timedelta("365 days"),  # Should never match across years.
     )
-
-def boiler_generator_assn_eia860(pudl_engine, start_date=None, end_date=None):
-    """Pull all fields from the EIA 860 boiler generator association table. NOTE: Copied from pudl.output.eia860
-    Args:
-        pudl_engine (sqlalchemy.engine.Engine): SQLAlchemy connection engine
-            for the PUDL DB.
-        start_date (date-like): date-like object, including a string of the
-            form 'YYYY-MM-DD' which will be used to specify the date range of
-            records to be pulled.  Dates are inclusive.
-        end_date (date-like): date-like object, including a string of the
-            form 'YYYY-MM-DD' which will be used to specify the date range of
-            records to be pulled.  Dates are inclusive.
-    Returns:
-        pandas.DataFrame: A DataFrame containing all the fields from the EIA
-        860 boiler generator association table.
-    """
-    pt = get_table_meta(pudl_engine)
-    bga_eia860_tbl = pt["boiler_generator_assn_eia860"]
-    bga_eia860_select = sa.sql.select(bga_eia860_tbl)
-
-    if start_date is not None:
-        start_date = pd.to_datetime(start_date)
-        bga_eia860_select = bga_eia860_select.where(
-            bga_eia860_tbl.c.report_date >= start_date
-        )
-    if end_date is not None:
-        end_date = pd.to_datetime(end_date)
-        bga_eia860_select = bga_eia860_select.where(
-            bga_eia860_tbl.c.report_date <= end_date
-        )
-    out_df = pd.read_sql(bga_eia860_select, pudl_engine).assign(
-        report_date=lambda x: pd.to_datetime(x.report_date)
-    )
-    return out_df
 
 def apply_dtype(df):
     "converts columns to standardized dtype based on name"
