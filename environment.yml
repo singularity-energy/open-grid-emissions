@@ -14,11 +14,20 @@ dependencies:
   - pathlib
   - pip
   - plotly
+  - pyarrow
   - python
   - requests
   - sqlalchemy
   - statsmodels
   - tabulate
+
+
+  - setuptools # used for pudl
+  - geopandas # used for pudl
+  - pygeos  # used for pudl
+  - python-snappy # used for pudl
+  - sqlite # used for pudl
+
   - pip:
-    - pyarrow
-    - singularity-energy
+    #- --editable ../pudl #NOTE: this is for Greg's use for development
+    - git+https://github.com/grgmiller/pudl.git@allocate_fuel#egg=catalystcoop.pudl
