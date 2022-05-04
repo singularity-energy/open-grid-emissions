@@ -1332,3 +1332,20 @@ def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
     df = df.merge(plant_voltage[['plant_id_eia','distribution_flag']], how='left', on='plant_id_eia')
 
     return df
+
+def assign_fuel_category_to_ESC(df, fuel_category_name, esc_column='energy_source_code'):
+    """
+    Assigns a fuel category to each energy source code in a dataframe.
+    Args:
+        df: pandas dataframe with column name that matches fuel_category_name and contains energy source codes
+        fuel_category_name: name of the column in energy_source_groups.csv that contains the desired category mapping
+        esc_column: name of the column in df that contains the energy source codes to assign a category to
+    Returns:
+        df with additional column for fuel category
+    """
+    # load the fuel category table
+    energy_source_groups = pd.read_csv('../data/manual/energy_source_groups.csv')[['energy_source_code',fuel_category_name]].rename(columns={'energy_source_code':esc_column, fuel_category_name:'fuel_category'})
+    # assign a fuel category to the monthly eia data
+    df = df.merge(energy_source_groups[[esc_column,'fuel_category']], how='left', on=esc_column)
+
+    return df
