@@ -63,7 +63,7 @@ def remove_plants(df,
         distribution_connected_plants: if True, remove plants that are connected to the distribution grid (not yet implemented)
     """
     if non_grid_connected:
-        remove_non_grid_connected_plants(df)
+        df = remove_non_grid_connected_plants(df)
     if len(remove_states) > 0:
         plant_states = load_data.initialize_pudl_out().plants_eia860().loc[:, ['plant_id_eia','state']]
         plants_in_states_to_remove = list(plant_states[plant_states['state'].isin(remove_states)].plant_id_eia.unique())
@@ -91,11 +91,11 @@ def remove_non_grid_connected_plants(df):
     num_plants = len(df[df['plant_id_eia'].isin(ngc_plants)]['plant_id_eia'].unique()) + len(df[(df['plant_id_eia'] >= 880000) & (df['plant_id_eia'] < 890000)]['plant_id_eia'].unique())
     print(f"Removing {num_plants} plants that are not grid-connected")
 
+    df = df[~df['plant_id_eia'].isin(ngc_plants)]
+
     # according to the egrid documentation, any plants that have an id of 88XXXX are not grid connected
     # only keep plants that dont have an id of 88XXXX
     df = df[(df['plant_id_eia'] < 880000) | (df['plant_id_eia'] >= 890000)]
-    
-    df = df[~df['plant_id_eia'].isin(ngc_plants)]
 
     return df
 
@@ -176,6 +176,9 @@ def get_epa_unit_fuel_types():
                             'Tire Derived Fuel':'TDF'}
     fuel_types['CAMD_FUEL_TYPE'] = fuel_types['CAMD_FUEL_TYPE'].replace(camd_to_eia_fuel_type)
 
+    # remove leading zeros from the generator id and unitid
+    fuel_types['CAMD_UNIT_ID'] = fuel_types['CAMD_UNIT_ID'].str.lstrip('0')
+
     # use the camd fuel type to fill missing EIA fuel type values
     fuel_types['EIA_FUEL_TYPE'] = fuel_types['EIA_FUEL_TYPE'].fillna(fuel_types['CAMD_FUEL_TYPE'])
 
@@ -187,6 +190,8 @@ def get_epa_unit_fuel_types():
     fuel_types = fuel_types[~fuel_types[['CAMD_PLANT_ID','CAMD_UNIT_ID']].duplicated(keep=False)]
     # rename the columns
     fuel_types = fuel_types.rename(columns={'CAMD_PLANT_ID':'plant_id_epa','CAMD_UNIT_ID':'unitid','EIA_FUEL_TYPE':'energy_source_code'})
+
+    # TODO: Load manual table and get energy source code from EIA-860 gen table
 
     return fuel_types
 
@@ -608,26 +613,62 @@ def assign_ba_code_to_plant(df, year):
     plant_ba['balancing_authority_code_eia'] = plant_ba['balancing_authority_code_eia'].astype(object)
 
     # specify a ba code for certain utilities
-    # TODO: continue to update this list based on analysis with egrid data
-    utility_as_ba_code = {'Hawaiian Electric Co Inc':'HECO',
-                        'Avangrid Renewables Inc':'AVRN',
-                        'Chugach Electric Assn Inc':'CEA',
-                        'JEA':'JEA',
-                        'Tampa Electric Co':'TEC',
-                        'Louisville Gas & Electric Co':'LGEE',
-                        'Kentucky Utilities Co':'LGEE',
-                        'Puget Sound Energy Inc':'PSEI',
-                        'Anchorage Municipal Light and Power':'AMPL',
-                        'Sacramento Municipal Util Dist':'BANC',
-                        'Los Angeles Department of Water & Power':'LDWP',
-                        'Arizona Public Service Co':'AZPS',
-                        'Florida Power & Light Co':'FPL',
-                        'PUD No 1 of Chelan County':'CHPD',
-                        'Public Service Co of NM':'PNM',
-                        'Seminole Electric Cooperative Inc':'SEC',
-                        'South Carolina Electric&Gas Company':'SCEG',
-                        'Bonneville Power Administration':'BPAT',
-                        'Duke Energy Progress - (NC)':'CPLE'}
+    utility_as_ba_code = {'Anchorage Municipal Light and Power':'AMPL',
+                          'Arizona Public Service Co':'AZPS',
+                          'Associated Electric Coop, Inc':'AECI',
+                          'Avista Corp':'AVA',
+                          'Avangrid Renewables Inc':'AVRN',
+                          'Bonneville Power Administration':'BPAT',
+                          'Bonneville Power Admin':'BPAT',
+                          'Chugach Electric Assn Inc':'CEA',
+                          'Duke Energy Carolinas, LLC':'DUK',
+                          'Duke Energy Florida, Inc':'FPC',
+                          'Duke Energy Florida, LLC':'FPC',
+                          'Duke Energy Progress - (NC)':'CPLE',
+                          'El Paso Electric Co':'EPE',
+                          'Florida Power & Light Co':'FPL',
+                          'Florida Power &amp; Light Co':'FPL',
+                          'Gainesville Regional Utilities':'GVL',
+                          'Hawaiian Electric Co Inc':'HECO',
+                          'Hawaii Electric Light Co Inc':'HECO',
+                          'City of Homestead - (FL)':'HST',
+                          'Imperial Irrigation District':'IID',
+                          'JEA':'JEA',
+                          'Kentucky Utilities Co':'LGEE',
+                          'Los Angeles Department of Water & Power':'LDWP',
+                          'Louisville Gas & Electric Co':'LGEE',
+                          'Nevada Power Co':'NEVP',
+                          'New Smyrna Beach City of':'NSB',
+                          'NorthWestern Corporation':'NWMT',
+                          'NorthWestern Energy':'NWMT',
+                          'NorthWestern Energy - (SD)':'NWMT',
+                          'NorthWestern Energy LLC - (MT)':'NWMT',
+                          'Ohio Valley Electric Corp':'OVEC',
+                          'Portland General Electric Co':'PGE',
+                          'Portland General Electric Company':'PGE',
+                          'PowerSouth Energy Cooperative':'AEC',
+                          'Public Service Co of Colorado':'PSCO',
+                          'Public Service Co of NM':'PNM',
+                          'PUD No 1 of Chelan County':'CHPD',
+                          'PUD No 1 of Douglas County':'DOPD',
+                          'PUD No 2 of Grant County':'GCPD',
+                          'Puget Sound Energy Inc':'PSEI',
+                          'Sacramento Municipal Util Dist':'BANC',
+                          'Salt River Project':'SRP',
+                          'Seminole Electric Cooperative Inc':'SEC',
+                          'South Carolina Electric&Gas Company':'SCEG',
+                          'South Carolina Electric & Gas Co':'SCEG',
+                          'South Carolina Electric &amp; Gas Co':'SCEG',
+                          'South Carolina Electric&amp;Gas Company':'SCEG',
+                          'South Carolina Public Service Authority':'SC',
+                          'South Carolina Public Service Auth':'SC',
+                          'Southwestern Power Administration':'SPA',
+                          'Tacoma City of':'TPWR',
+                          'Tampa Electric Co':'TEC',
+                          'Tennessee Valley Authority':'TVA',
+                          'Tucson Electric Power Co':'TEPC',
+                          'Turlock Irrigation District':'TIDC'}
+
 
     #fill missing BA codes first based on the BA name, then utility name, then on the transmisison owner name
     plant_ba['balancing_authority_code_eia'] = plant_ba['balancing_authority_code_eia'].fillna(plant_ba['balancing_authority_name_eia'].map(utility_as_ba_code))
@@ -655,8 +696,17 @@ def assign_ba_code_to_plant(df, year):
     plant_ba['ba_code'].update(plant_ba['plant_id_eia'].map(manual_ba_corrections))
     plant_ba['ba_code'] = plant_ba['ba_code'].replace('None',np.NaN)
 
+    # add a physical ba code based on the owner of the transmission system
+    plant_ba['ba_code_physical'] = plant_ba['ba_code']
+    plant_ba['ba_code_physical'].update(plant_ba['transmission_distribution_owner_name'].map(utility_as_ba_code))
+
+    # update based on mapping table when ambiguous
+    physical_ba = pd.read_csv('../data/manual/physical_ba.csv')
+    plant_ba = plant_ba.merge(physical_ba, how='left', on=['ba_code','transmission_distribution_owner_name'], suffixes=('','_map'))
+    plant_ba['ba_code_physical'].update(plant_ba['ba_code_physical_map'])
+
     # merge the ba code into the dataframe
-    df = df.merge(plant_ba.loc[:,['plant_id_eia','ba_code','state']], how='left', on='plant_id_eia')
+    df = df.merge(plant_ba.loc[:,['plant_id_eia','ba_code','ba_code_physical','state']], how='left', on='plant_id_eia')
 
     return df
 
@@ -1259,3 +1309,43 @@ def create_primary_fuel_table(gen_fuel_allocated):
     primary_fuel_table = gen_primary_fuel.merge(plant_primary_fuel, how='left', on='plant_id_eia')
 
     return primary_fuel_table
+
+def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
+    """
+    Identifies which plant_id_eia are "distribution grid connected" based on a voltage threshold.
+
+    The distribution grid is generally considered to operate at 60-69kV and below.
+    Thus, any plants that have a grid voltage under this threshold will be flagged as distribution connected.
+    Args:
+        df: pandas dataframe with a column for plant_id_eia
+        voltage_threshold_kv: the voltage (kV) under which a plant will be considered to be a distribution asset
+    Returns:
+        df: with additional binary column `distribution_flag`
+    """
+    # load the EIA-860 data
+    pudl_out = load_data.initialize_pudl_out(year=year)
+
+    plant_voltage = pudl_out.plants_eia860().loc[:,['plant_id_eia','grid_voltage_kv']]
+
+    plant_voltage = plant_voltage.assign(distribution_flag=lambda x: np.where(x.grid_voltage_kv <= voltage_threshold_kv, True, False))
+
+    df = df.merge(plant_voltage[['plant_id_eia','distribution_flag']], how='left', on='plant_id_eia')
+
+    return df
+
+def assign_fuel_category_to_ESC(df, fuel_category_name, esc_column='energy_source_code'):
+    """
+    Assigns a fuel category to each energy source code in a dataframe.
+    Args:
+        df: pandas dataframe with column name that matches fuel_category_name and contains energy source codes
+        fuel_category_name: name of the column in energy_source_groups.csv that contains the desired category mapping
+        esc_column: name of the column in df that contains the energy source codes to assign a category to
+    Returns:
+        df with additional column for fuel category
+    """
+    # load the fuel category table
+    energy_source_groups = pd.read_csv('../data/manual/energy_source_groups.csv')[['energy_source_code',fuel_category_name]].rename(columns={'energy_source_code':esc_column, fuel_category_name:'fuel_category'})
+    # assign a fuel category to the monthly eia data
+    df = df.merge(energy_source_groups[[esc_column,'fuel_category']], how='left', on=esc_column)
+
+    return df

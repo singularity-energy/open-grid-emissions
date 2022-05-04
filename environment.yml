@@ -4,6 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - dask
+  - flake8 # linter
   - ipykernel
   - matplotlib
   - missingno
@@ -29,5 +30,5 @@ dependencies:
   - sqlite # used for pudl
 
   - pip:
-    #- --editable ../pudl #NOTE: this is for Greg's use for development
-    - git+https://github.com/grgmiller/pudl.git@allocate_fuel#egg=catalystcoop.pudl
+    - --editable ../pudl #NOTE: this is for Greg's use for development
+    #- git+https://github.com/grgmiller/pudl.git@allocate_fuel#egg=catalystcoop.pudl
