@@ -18,7 +18,7 @@ def gross_to_net_ratios(cems_df, generators, plant_entity):
     reporting_units = data_cleaning.add_report_date(cems_df, plant_entity)[["report_date", "plant_id_eia", "unitid"]].drop_duplicates()
 
     #load the EPA-EIA crosswalk data
-    crosswalk = data_cleaning.get_epa_eia_crosswalk()[['plant_id_eia','generator_id', 'unitid']]
+    crosswalk = load_data.load_epa_eia_crosswalk()[['plant_id_eia','generator_id', 'unitid']]
 
     # merge the generator_id into the reporting units list, keeping duplicate matches if multiple generators are associated with a single unit
     reporting_units = reporting_units.merge(crosswalk, how='left', on=['plant_id_eia', 'unitid'])

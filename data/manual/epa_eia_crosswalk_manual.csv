@@ -1,0 +1,34 @@
+plant_id_epa,unitid,plant_id_eia,generator_id,notes
+568,BHB5,568,501,matched based on net generation
+568,BHB5,568,502,matched based on net generation
+50240,1,50240,GEN1,
+50240,2,50240,GEN1,
+50240,3,50240,GEN1,
+50240,5,50240,GEN1,
+50240,7,50240,GEN1,
+50240,1,50240,GEN2,
+50240,2,50240,GEN2,
+50240,3,50240,GEN2,
+50240,5,50240,GEN2,
+50240,7,50240,GEN2,
+61242,CT1,61242,VP-1,guess
+61242,CT2,61242,VP-2,guess
+61028,CT1,61028,CTG1,string match
+61028,CT2,61028,CTG2,string match
+59882,J4,59882,4,
+59882,J5,59882,5,
+1599,3,1599,3,exact match
+55486,CTG01,55486,CTG01,exact match
+55486,CTG02,55486,CTG02,exact match
+7288,1,7288,SHER,matches CAMD generator ID
+676,MGT2,676,GT2,matched based on generator id code
+60589,CT-1,60589,GEN1,visual match
+60589,CT-2,60589,GEN2,visual match
+57185,U001,57185,U001,visual match
+57185,U002,57185,U002,visual match
+2706,CT5,2706,CT5,visual match
+2706,CT7,2706,CT7,visual match
+2398,1101,2398,1101,visual match
+2398,1201,2398,1201,visual match
+2398,1301,2398,1301,visual match
+2398,1401,2398,1401,visual match
