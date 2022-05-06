@@ -68,16 +68,14 @@ def download_pudl_data(zenodo_url):
         download_pudl(zenodo_url, pudl_version)
 
 
-"""
-    download_chalendar_files
-Download raw and cleaned files. Eventually we'll do our own processing to get our own version of chalendar, 
-but still will be useful to use this raw file and compare to this cleaned file. 
-
-TODO: download functions share a lot of code, could refactor 
-"""
-
-
 def download_chalendar_files():
+    """
+    download_chalendar_files
+    Download raw and cleaned files. Eventually we'll do our own processing to get our own version of chalendar, 
+    but still will be useful to use this raw file and compare to this cleaned file. 
+
+    TODO: download functions share a lot of code, could refactor 
+    """
     # if there is not yet a directory for egrid, make it
     if not os.path.exists("../data/eia930"):
         os.mkdir("../data/eia930")
@@ -380,7 +378,9 @@ def load_epa_eia_crosswalk(year):
     crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # change the id to an int
-    crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].astype(int)
+    # NOTE: because of NA values, the column is a float, and cannot be 
+    # converted to int unless the NAs are removed
+    #crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].astype(int)
 
     # rename the columns
     crosswalk = crosswalk.rename(
@@ -424,7 +424,7 @@ def load_epa_eia_crosswalk(year):
     ).drop(columns=["notes"])
 
     # merge the energy source code from EIA-860
-    pudl_out = initialize_pudl_out(year=2020)
+    pudl_out = initialize_pudl_out(year=year)
     crosswalk_manual = crosswalk_manual.merge(
         pudl_out.gens_eia860()[
             ["plant_id_eia", "generator_id", "energy_source_code_1"]

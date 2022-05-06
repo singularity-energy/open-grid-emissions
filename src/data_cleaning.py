@@ -27,7 +27,7 @@ def crosswalk_epa_eia_plant_ids(cems, year):
 
     # only keep plant ids where the two are different
     plant_id_crosswalk = plant_id_crosswalk[
-        plant_id_crosswalk["CAMD_PLANT_ID"] != plant_id_crosswalk["EIA_PLANT_ID"]
+        plant_id_crosswalk["plant_id_epa"] != plant_id_crosswalk["plant_id_eia"]
     ].dropna()
 
     # match plant_id_eia on plant_id_epa and unitid
