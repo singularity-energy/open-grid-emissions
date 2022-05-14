@@ -3,7 +3,6 @@ import requests
 import tarfile
 import pandas as pd
 import sqlalchemy as sa
-import time
 
 import src.data_cleaning as data_cleaning
 import shutil
@@ -55,7 +54,7 @@ def download_pudl_data(zenodo_url):
         print("PUDL download complete")
 
     # if the pudl data already exists, do not re-download
-    if os.path.exists(f"../data/pudl"):
+    if os.path.exists("../data/pudl"):
         with open("../data/pudl/pudl_version.txt", "r") as f:
             existing_version = f.readlines()[0]
         if pudl_version == existing_version:
@@ -71,10 +70,10 @@ def download_pudl_data(zenodo_url):
 def download_chalendar_files():
     """
     download_chalendar_files
-    Download raw and cleaned files. Eventually we'll do our own processing to get our own version of chalendar, 
-    but still will be useful to use this raw file and compare to this cleaned file. 
+    Download raw and cleaned files. Eventually we'll do our own processing to get our own version of chalendar,
+    but still will be useful to use this raw file and compare to this cleaned file.
 
-    TODO: download functions share a lot of code, could refactor 
+    TODO: download functions share a lot of code, could refactor
     """
     # if there is not yet a directory for egrid, make it
     if not os.path.exists("../data/eia930"):
@@ -110,7 +109,7 @@ def download_chalendar_files():
 def download_egrid_files(egrid_files_to_download):
     """
     Downloads the egrid excel files
-    Inputs: 
+    Inputs:
         egrid_files_to_download: a list of urls for the egrid excel files that you want to download
     """
     # if there is not yet a directory for egrid, make it
@@ -279,7 +278,7 @@ def load_pudl_table(table_name, year=None):
     pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
 
-    if year != None:
+    if year is not None:
         sql_query = f"SELECT * FROM {table_name} WHERE report_date >= '{year}-01-01' AND report_date <= '{year}-12-01'"
     else:
         sql_query = table_name
@@ -313,7 +312,7 @@ def initialize_pudl_out(year=None):
 
 
 def create_flat_eia930_placeholder_profiles(
-    monthly_eia_data_to_distribute, energy_source_groups
+    monthly_eia_data_to_distribute, energy_source_groups, year
 ):
     # For now, create a synthetic flat profile for each resource for now until we have shapes to distribute to from EIA-930
 
@@ -332,7 +331,7 @@ def create_flat_eia930_placeholder_profiles(
                     start=f"{year}-01-01 00:00:00",
                     end=f"{year}-12-31 23:00:00",
                     freq="H",
-                    tz=data_cleaning.ba_timezone(ba=ba, format="GMT"),
+                    tz=data_cleaning.ba_timezone(ba=ba, type="local"),
                     name="datetime_local",
                 ),
                 columns=["ba_code", "fuel_category", "profile"],
@@ -345,6 +344,7 @@ def create_flat_eia930_placeholder_profiles(
             hourly_profiles.append(df_temp)
 
     hourly_profiles = pd.concat(hourly_profiles, axis=0, ignore_index=True)
+
 
 def load_epa_eia_crosswalk(year):
     """
@@ -378,9 +378,9 @@ def load_epa_eia_crosswalk(year):
     crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # change the id to an int
-    # NOTE: because of NA values, the column is a float, and cannot be 
+    # NOTE: because of NA values, the column is a float, and cannot be
     # converted to int unless the NAs are removed
-    #crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].astype(int)
+    # crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].astype(int)
 
     # rename the columns
     crosswalk = crosswalk.rename(
@@ -418,6 +418,11 @@ def load_epa_eia_crosswalk(year):
         crosswalk["energy_source_code_epa"]
     )
 
+    # **** manual adjustments ****
+    # The EPA's crosswalk document incorrectly maps plant_id_epa 55248 to plant_id_eia 55248
+    # the correct plant_id_eia is 2847
+    crosswalk.loc[crosswalk["plant_id_epa"] == 55248, "plant_id_eia"] = 2847
+
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
         "../data/manual/epa_eia_crosswalk_manual.csv", dtype={"generator_id": str}
@@ -434,12 +439,6 @@ def load_epa_eia_crosswalk(year):
     ).rename(columns={"energy_source_code_1": "energy_source_code_eia"})
 
     # concat this data with the main table
-    crosswalk = pd.concat(
-        [
-            crosswalk,
-            crosswalk_manual,
-        ],
-        axis=0,
-    )
+    crosswalk = pd.concat([crosswalk, crosswalk_manual], axis=0,)
 
     return crosswalk

@@ -6,9 +6,6 @@ data/egrid/*
 !data/egrid/egrid_static_tables
 !data/manual/
 
-TODO.md
-NOTES.md
-
 example/.ipynb_checkpoints/
 test/__pycache__/
 src/__pycache__/

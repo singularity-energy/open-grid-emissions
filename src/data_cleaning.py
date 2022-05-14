@@ -8,6 +8,8 @@ import warnings
 
 import src.load_data as load_data
 
+import pudl.analysis.allocate_net_gen as allocate_gen_fuel
+
 
 def crosswalk_epa_eia_plant_ids(cems, year):
     """
@@ -220,20 +222,24 @@ def get_epa_unit_fuel_types(year):
     """
     Loads the energy source code assigned to each CAMD unit in the EPA-EIA crosswalk.
 
-    If the EIA fuel type is missing, uses the CAMD fuel type to fill. 
+    If the EIA fuel type is missing, uses the CAMD fuel type to fill.
     """
     # get a unique list of plant unit fuels
-    fuel_types = load_data.load_epa_eia_crosswalk(year)["plant_id_epa", "unitid",  "energy_source_code_eia"].drop_duplicates()
-    
+    fuel_types = load_data.load_epa_eia_crosswalk(year)[
+        ["plant_id_epa", "unitid", "energy_source_code_eia"]
+    ].drop_duplicates()
+
     fuel_types = fuel_types.dropna(subset="energy_source_code_eia")
 
     # remove any entries where there are multiple fuel types listed
     fuel_types = fuel_types[
         ~fuel_types[["plant_id_epa", "unitid"]].duplicated(keep=False)
     ]
-    
+
     # rename the column
-    fuel_types = fuel_types.rename(columns={'energy_source_code_eia':'energy_source_code'})
+    fuel_types = fuel_types.rename(
+        columns={"energy_source_code_eia": "energy_source_code"}
+    )
 
     return fuel_types
 
@@ -1432,51 +1438,17 @@ def add_report_date(df):
     # get list of unique timezones
     timezones = list(df["timezone"].unique())
 
-    # convert timezones to GMT equivalent so that we don't have to deal with daylight saving
-    # according to https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-    # however need to do GMT+ rather than GMT- according to https://github.com/pandas-dev/pandas/issues/21509
-    tz_to_gmt = {
-        "America/New_York": "Etc/GMT+5",
-        "America/Denver": "Etc/GMT+7",
-        "America/North_Dakota/New_Salem": "Etc/GMT+6",
-        "America/Chicago": "Etc/GMT+6",
-        "America/Los_Angeles": "Etc/GMT+8",
-        "America/Indiana/Indianapolis": "Etc/GMT+5",
-        "America/Phoenix": "Etc/GMT+7",
-        "America/Kentucky/Louisville": "Etc/GMT+5",
-        "America/Detroit": "Etc/GMT+5",
-        "America/Indiana/Tell_City": "Etc/GMT+6",
-        "US/Central": "Etc/GMT+6",
-        "America/Anchorage": "Etc/GMT+9",
-        "Pacific/Honolulu": "Etc/GMT+10",
-        "US/Eastern": "Etc/GMT+5",
-        "America/Boise": "Etc/GMT+7",
-        "America/Sitka": "Etc/GMT+9",
-        "US/Pacific": "Etc/GMT+8",
-        "US/Mountain": "Etc/GMT+7",
-        "US/Arizona": "Etc/GMT+7",
-        "America/Juneau": "Etc/GMT+9",
-        "America/Indiana/Vincennes": "Etc/GMT+5",
-        "America/Nome": "Etc/GMT+9",
-        "America/North_Dakota/Beulah": "Etc/GMT+6",
-        "America/Indiana/Petersburg": "Etc/GMT+5",
-        "US/Alaska": "Etc/GMT+9",
-        "US/Hawaii": "Etc/GMT+10",
-        "America/North_Dakota/Center": "Etc/GMT+6",
-        "America/Menominee": "Etc/GMT+6",
-    }
-
     # convert UTC to the local timezone
     for tz in timezones:
-        tz_mask = df["timezone"] == tz
+        tz_mask = df["timezone"] == tz  # find all rows where the tz matches
         df.loc[tz_mask, "report_date"] = (
             datetime_utc[tz_mask]
-            .tz_convert(tz_to_gmt.get(tz, tz))
-            .to_series(index=df[tz_mask].index)
+            .tz_convert(tz)  # convert to local time
+            .to_series(index=df[tz_mask].index)  # convert to a series
+            .dt.to_period("M")
+            .dt.to_timestamp()  # convert to a YYYY-MM-01 stamp
         )
 
-    # convert report date to datetime in format YYYY-MM-01
-    df["report_date"] = df["report_date"].astype(str).str[:7]
     df["report_date"] = pd.to_datetime(df["report_date"])
 
     # drop the operating_datetime_local column
@@ -1485,172 +1457,44 @@ def add_report_date(df):
     return df
 
 
-def map_fuel_code_to_eia930_category():
+def ba_timezone(ba, type):
     """
-    NOTE: still need to double check this 
-    """
-    fuel_code_dict_930 = {
-        "DFO": "oil",
-        "WND": "wind",
-        "WAT": "hydro",
-        "NG": "natgas",  # changed natural gas from gas to natgas
-        "BIT": "coal",
-        "SUB": "coal",
-        "LIG": "coal",
-        "PG": "other",  # changed process gas from gas to other
-        "RC": "coal",
-        "AB": "other",  # changed agricultural byproduct from waste to other
-        "WDS": "other",  # changed from waste to other
-        "RFO": "oil",
-        "LFG": "other",  # changed landfill gas from waste to other
-        "PC": "coal",
-        "SUN": "solar",
-        "OBG": "other",  # changed other biobgas from waste to other
-        "GEO": "other",  # geothermal
-        "MWH": "other",  # batteries / energy storage - there is a change this also includes pumped storage hydro
-        "OG": "other",  # changed other gas from gas to other
-        "WO": "oil",
-        "JF": "oil",
-        "KER": "oil",
-        "OTH": "other",
-        "WC": "coal",
-        "SGC": "other",  # changed from gas to other
-        "OBS": "other",  # changed from waste to other
-        "TDF": "other",  # changed from waste to other
-        "BFG": "other",  # changed from gas to other
-        "MSB": "other",  # changed from waste to other
-        "MSN": "other",  # changed from waste to other
-        "SC": "coal",
-        "BLQ": "other",  # changed from waste to other
-        "WH": "other",
-        "OBL": "other",  # changed from waste to other
-        "SLW": "other",  # changed from waste to other
-        "PUR": "other",
-        "WDL": "other",  # changed from waste to other
-        "SGP": "other",
-    }  # changed from gas to other
-    return fuel_code_dict_930
-
-
-def ba_timezone(ba, format):
-    """
-    Retrieves the UTC Offset (for standard time) for each balancing area.
+    Retrieves the UTC Offset (for standard time) for a single balancing area.
+    Args:
+        ba: string containing the ba_code
+        type: either 'reporting_eia930' or 'local'. Reporting will return the TZ used by the BA when reporting to EIA-930, local will return the actual local tz
     """
 
-    offset_dict = {
-        "AEC": 6,
-        "AECI": 6,
-        "AESO": 7,  # Alberta, Canada
-        "AMPL": 9,
-        "AVA": 8,
-        "AVRN": 8,
-        "AZPS": 7,
-        "BANC": 8,
-        "BCHA": 8,  # British Columbia, Canada
-        "BPAT": 8,
-        "BPA": 8,
-        "CEA": 9,
-        "CHPD": 8,
-        "CISO": 8,
-        "CAISO": 8,
-        "CPLE": 5,
-        "CPLW": 5,
-        "DEAA": 7,
-        "DOPD": 8,
-        "DUK": 5,
-        "EEI": 6,
-        "EPE": 7,
-        "ERCO": 6,
-        "FMPP": 5,
-        "FPC": 5,
-        "FPL": 5,
-        "GCPD": 8,
-        "GRID": 8,
-        "GRIF": 7,
-        "GRIS": 6,
-        "GRMA": 7,
-        "GVL": 5,
-        "GWA": 7,
-        "HECO": 10,
-        "HGMA": 7,
-        "HST": 5,
-        "IID": 8,
-        "IPCO": 8,
-        "ISNE": 5,
-        "ISONE": 5,
-        "JEA": 5,
-        "LDWP": 8,
-        "LGEE": 5,
-        "MISO": 5,
-        "NBSO": 4,  # New Brunswick, Canada
-        "NEVP": 8,
-        "NSB": 5,
-        "NWMT": 7,
-        "NYIS": 5,
-        "NYISO": 5,
-        "OVEC": 5,
-        "PACE": 7,
-        "PACW": 8,
-        "PGE": 8,
-        "PJM": 5,
-        "PNM": 7,
-        "PSCO": 7,
-        "PSEI": 8,
-        "SC": 5,
-        "SCEG": 5,
-        "SCL": 8,
-        "SEC": 5,
-        "SEPA": 6,
-        "SOCO": 6,
-        "SPA": 6,
-        "SRP": 7,
-        "SWPP": 6,
-        "SPP": 6,
-        "TAL": 5,
-        "TEC": 5,
-        "TEPC": 7,
-        "TIDC": 8,
-        "TPWR": 8,
-        "TVA": 6,
-        "WACM": 7,
-        "WALC": 7,
-        "WAUW": 7,
-        "WWA": 7,
-        "YAD": 5,
-        "EIA.CISO": 8,
-        "EIA.ISNE": 5,
-        "EIA.PJM": 5,
-        "EIA.NYIS": 5,
-        "EIA.SWPP": 6,
-        "EIA.MISO": 5,
-        "EIA.BPAT": 8,
-    }
+    tz = pd.read_csv(
+        "../data/manual/ba_reference.csv", usecols=["ba_code", f"timezone_{type}"]
+    )
+    tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"].item()
 
-    offset = offset_dict[ba]
-
-    if format == "ISO":
-        timezone = f"-0{offset}:00"
-    elif format == "GMT":
-        timezone = f"Etc/GMT+{offset}"
-
-    return timezone
+    return tz
 
 
 def distribute_monthly_eia_data_to_hourly(
-    monthly_eia_data_to_distribute, hourly_profiles
+    monthly_eia_data_to_distribute, hourly_profiles, profile_column_name
 ):
     """
     Uses monthly-level EIA data and assigns an hourly profile
     Inputs: 
         monthly_eia_data_to_distribute: a dataframe that contains monthly total net generation, fuel consumption, and co2 data, along with columns for report_date and ba_code
     """
+    columns_to_shape = [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_tons",
+        "co2_mass_tons_adjusted",
+    ]
 
     # calculate totals by BA, Fuel Group, and Month
     monthly_eia_ba_fuel = (
         monthly_eia_data_to_distribute.groupby(
             ["ba_code", "fuel_category", "report_date"]
         )
-        .sum()[["net_generation_mwh", "fuel_consumed_mmbtu", "co2_mass_tons"]]
+        .sum()[columns_to_shape]
         .reset_index()
     )
 
@@ -1669,21 +1513,21 @@ def distribute_monthly_eia_data_to_hourly(
     )
 
     # calculate how much net generation, fuel, and co2 should be assigned to each unit of net generation in the profile
-    for col in ["net_generation_mwh", "fuel_consumed_mmbtu", "co2_mass_tons"]:
+    for col in columns_to_shape:
         monthly_eia_ba_fuel[col] = (
-            monthly_eia_ba_fuel[col] / monthly_eia_ba_fuel["net_generation_mwh_930"]
+            monthly_eia_ba_fuel[col] / monthly_eia_ba_fuel[profile_column_name]
         )
 
     # drop the profile column and merge the hourly generation, fuel, and co2 factors back into the profile timeseries data
-    monthly_eia_ba_fuel = monthly_eia_ba_fuel.drop(columns="net_generation_mwh_930")
+    monthly_eia_ba_fuel = monthly_eia_ba_fuel.drop(columns=profile_column_name)
     hourly_eia_data = hourly_profiles.merge(
         monthly_eia_ba_fuel, how="left", on=["ba_code", "fuel_category", "report_date"]
     )
 
     # multiply each factor by the profile to calculate the hourly shape
-    for col in ["net_generation_mwh", "fuel_consumed_mmbtu", "co2_mass_tons"]:
+    for col in columns_to_shape:
         hourly_eia_data[col] = (
-            hourly_eia_data[col] * hourly_eia_data["net_generation_mwh_930"]
+            hourly_eia_data[col] * hourly_eia_data[profile_column_name]
         )
 
     # create a column identifying the source of the data
@@ -1789,3 +1633,46 @@ def assign_fuel_category_to_ESC(
     )
 
     return df
+
+
+def clean_eia923(year):
+    """
+    This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
+    """
+    # Distribute net generation and heat input data reported by the three different EIA-923 tables
+
+    pudl_out = load_data.initialize_pudl_out(year=2020)
+
+    # allocate net generation and heat input to each generator-fuel grouping
+    gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
+        pudl_out, drop_interim_cols=True
+    )
+
+    # create a table that identifies the primary fuel of each generator and plant
+    primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated)
+
+    # calculate co2 emissions for each generator-fuel based on allocated fuel consumption
+    gen_fuel_allocated = calculate_co2_from_fuel_consumption(gen_fuel_allocated, year)
+
+    # aggregate the allocated data to the generator level
+    gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
+        gen_fuel_allocated,
+        sum_cols=[
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+            "co2_mass_tons",
+            "co2_mass_tons_adjusted",
+        ],
+    )
+
+    # remove any plants that we don't want in the data
+    gen_fuel_allocated = remove_plants(
+        gen_fuel_allocated,
+        non_grid_connected=True,
+        remove_states=["PR"],
+        steam_only_plants=False,
+        distribution_connected_plants=False,
+    )
+
+    return gen_fuel_allocated, primary_fuel_table
