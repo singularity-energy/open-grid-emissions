@@ -1,5 +1,17 @@
 
 -------------------------------------------------------------------------------
+Branch car-342-clean-cems-and-eia923
+-------------------------------------------------------------------------------
+Respond to validation checks that are failing.
+
+## EIA-923 data
+- there were certain plant months for which co2 emissions were not calculated. Most of these have a fuel code of "OTH" which has no default emisisons rate. WE manually updated these plant fuel codes to OG, since they are refinery plants
+- Fixed the function for identifying geothermal emissions factor. Now defaults to using a generator-specific emissions factor
+
+## Gross to net generation
+- Updating the subplant id crosswalk with planned operating dates and retirement dates for each generator, so that we can figure out when a subplant is missing data rather than the composition of the subplant changing.
+
+-------------------------------------------------------------------------------
 PR 2022-05-14
 -------------------------------------------------------------------------------
 ### `calculate_residual_net_generation.ipynb`

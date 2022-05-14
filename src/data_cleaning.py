@@ -248,17 +248,93 @@ def update_energy_source_codes(df):
     """
     Manually update fuel source codes
     """
-    # refinery with energy source = OTH
+    # refinery with energy source = OTH, change to OG
     df.loc[
-        (df["plant_id_eia"] == 50626) & (df["generator_id"] == "GEN1"),
+        (df["plant_id_eia"] == 50626) & (df["energy_source_code"] == 'OTH'),
         "energy_source_code",
     ] = "OG"
     df.loc[
-        (df["plant_id_eia"] == 56139) & (df["generator_id"] == "NPCG"),
+        (df["plant_id_eia"] == 56139) & (df["energy_source_code"] == 'OTH'),
+        "energy_source_code",
+    ] = "OG"
+    df.loc[
+        (df["plant_id_eia"] == 59073) & (df["energy_source_code"] == 'OTH'),
         "energy_source_code",
     ] = "OG"
 
     return df
+
+
+def identify_geothermal_generator_geotype(year):
+    """Identifies whether each geothermal generator is binary, flash, or dry steam"""
+    pudl_out = load_data.initialize_pudl_out(year)
+
+    geothermal_geotype = pudl_out.gens_eia860()
+    geothermal_geotype = geothermal_geotype.loc[
+        geothermal_geotype["energy_source_code_1"] == "GEO",
+        [
+            "plant_id_eia",
+            "generator_id",
+            "utility_id_eia",
+            "prime_mover_code",
+            "capacity_mw",
+            "nameplate_power_factor",
+        ],
+    ]
+
+    # default steam turbines to flash steam b/c flash is more common than steam according to EIA
+    # Source: https://www.eia.gov/energyexplained/geothermal/geothermal-power-plants.php
+    geo_map = {"BT": "B", "ST": "F"}
+    geothermal_geotype["geotype_code"] = geothermal_geotype["prime_mover_code"].map(
+        geo_map
+    )
+
+    # According to the NREL Geothermal report (https://www.nrel.gov/docs/fy21osti/78291.pdf)
+    # The Geysers Complex in California contains the only "Dry Steam" (geotype S) plants in the country
+    # The Geysers has utility_id_eia = 7160
+    geothermal_geotype.loc[
+        (geothermal_geotype["utility_id_eia"] == 7160)
+        & (geothermal_geotype["geotype_code"] == "F"),
+        "geotype_code",
+    ] = "S"
+
+    # calculate what fraction of the plant's nameplate capcity each generator is responsible for
+    # assume that missing power factor is 100%
+    geothermal_geotype["nameplate_power_factor"] = geothermal_geotype[
+        "nameplate_power_factor"
+    ].fillna(1)
+    # calculate adjusted nameplate capacity based on power factor
+    geothermal_geotype["pf_adjusted_capacity"] = (
+        geothermal_geotype["capacity_mw"] * geothermal_geotype["nameplate_power_factor"]
+    )
+    # sum adjusted capacity by plant and merge back into generator-level data
+    total_plant_capacity = (
+        geothermal_geotype.groupby("plant_id_eia")["pf_adjusted_capacity"]
+        .sum()
+        .reset_index()
+        .rename(columns={"pf_adjusted_capacity": "plant_capacity_total"})
+    )
+    geothermal_geotype = geothermal_geotype.merge(
+        total_plant_capacity, how="left", on="plant_id_eia"
+    )
+    # calculate the fraction
+    geothermal_geotype["plant_frac"] = (
+        geothermal_geotype["pf_adjusted_capacity"]
+        / geothermal_geotype["plant_capacity_total"]
+    )
+    # drop intermediate columns
+    geothermal_geotype = geothermal_geotype.drop(
+        columns=[
+            "prime_mover_code",
+            "utility_id_eia",
+            "capacity_mw",
+            "nameplate_power_factor",
+            "pf_adjusted_capacity",
+            "plant_capacity_total",
+        ]
+    )
+
+    return geothermal_geotype
 
 
 def calculate_geothermal_emission_factors(year):
@@ -267,102 +343,6 @@ def calculate_geothermal_emission_factors(year):
     Calculates a weighted average EF for each plant-month based on the fraction 
     of fuel consumed from each type of prime mover (steam, binary, flash)
     """
-    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
-    pudl_engine = sa.create_engine(pudl_db)
-
-    # load the eia generation fuel data
-    generation_fuel_eia923 = pd.read_sql(
-        f"SELECT * FROM generation_fuel_eia923 WHERE report_date >= '{year}-01-01' AND report_date <= '{year}-12-01'",
-        pudl_engine,
-    )
-
-    # create a dataframe of total heat input by prime mover for each geothermal plant
-    geo_in_eia = (
-        generation_fuel_eia923[generation_fuel_eia923["energy_source_code"] == "GEO"]
-        .groupby(["plant_id_eia", "prime_mover_code", "report_date"])
-        .sum()["fuel_consumed_mmbtu"]
-        .reset_index()
-    )
-    # remove prime movers for which there was no heat input
-    geo_in_eia = geo_in_eia[geo_in_eia["fuel_consumed_mmbtu"] > 0]
-
-    # merge in the EPA's assigned Geotype
-    geothermal_geotype = pd.read_csv(
-        "../data/egrid/egrid_static_tables/table_geothermal_geotype.csv"
-    )
-    geo_in_eia = geo_in_eia.merge(
-        geothermal_geotype[["plant_id_eia", "geotype_code"]],
-        how="left",
-        on="plant_id_eia",
-    )
-
-    # identify plants with multiple prime mover types
-    multi_type_plants = (
-        geo_in_eia.groupby(["plant_id_eia", "prime_mover_code"])
-        .count()
-        .reset_index()
-        .groupby("plant_id_eia")
-        .count()["prime_mover_code"]
-    )
-    multi_type_plants = multi_type_plants[multi_type_plants > 1]
-    multi_type_plants = list(multi_type_plants.index)
-
-    # update the geotype codes for plants with multiple types
-    # for plants identified as flash steam that also have a binary component, update to binary
-    geo_in_eia.loc[
-        (geo_in_eia["plant_id_eia"].isin(multi_type_plants))
-        & (geo_in_eia["geotype_code"] == "F")
-        & (geo_in_eia["prime_mover_code"] == "BT"),
-        "geotype_code",
-    ] = "B"
-    # for plants identified as binary that also have a steam component, update to flash (it seems that all other multi-types are F/B combinatioms)
-    geo_in_eia.loc[
-        (geo_in_eia["plant_id_eia"].isin(multi_type_plants))
-        & (geo_in_eia["geotype_code"] == "B")
-        & (geo_in_eia["prime_mover_code"] == "ST"),
-        "geotype_code",
-    ] = "F"
-
-    # if EPA assigned a plant as flash or steam, but EIA identified it as binary, re-assign as binary
-    geo_in_eia.loc[
-        (geo_in_eia["prime_mover_code"] == "BT")
-        & (geo_in_eia["geotype_code"].isin(["F", "S"])),
-        "geotype_code",
-    ] = "B"
-
-    # if EPA assigned a plant as binary, but EIA identified it as a steam turbine, re-assign as flash
-    # we use flash instead of steam, b/c flash is more common than steam according to EIA
-    # Source: https://www.eia.gov/energyexplained/geothermal/geothermal-power-plants.php
-    geo_in_eia.loc[
-        (geo_in_eia["prime_mover_code"] == "ST")
-        & (geo_in_eia["geotype_code"].isin(["B"])),
-        "geotype_code",
-    ] = "F"
-
-    # where plants are missing a geotype code, assign based on the EIA-identified prime mover
-    geo_in_eia.loc[
-        (geo_in_eia["geotype_code"].isna()) & (geo_in_eia["prime_mover_code"] == "BT"),
-        "geotype_code",
-    ] = "B"
-    geo_in_eia.loc[
-        (geo_in_eia["geotype_code"].isna()) & (geo_in_eia["prime_mover_code"] == "ST"),
-        "geotype_code",
-    ] = "F"
-
-    # calculate the fraction of heat input from each prime mover in each month
-    fuel_frac = (
-        geo_in_eia.set_index(["plant_id_eia", "report_date", "geotype_code"])[
-            ["fuel_consumed_mmbtu"]
-        ]
-        / geo_in_eia.groupby(["plant_id_eia", "report_date"]).sum()
-    ).reset_index()
-    fuel_frac = fuel_frac.rename(columns={"fuel_consumed_mmbtu": "fuel_frac"})
-    geo_in_eia = geo_in_eia.merge(
-        fuel_frac, how="left", on=["plant_id_eia", "report_date", "geotype_code"]
-    )
-
-    # calculate a weighted average emission factor for each plant
-
     # load geothermal efs
     geothermal_efs = pd.read_csv(
         "../data/egrid/egrid_static_tables/table_C6_geothermal_emission_factors.csv"
@@ -370,46 +350,11 @@ def calculate_geothermal_emission_factors(year):
     # convert lb to ton
     geothermal_efs["co2_tons_per_mmbtu"] = geothermal_efs["co2_lb_per_mmbtu"] / 2000
     geothermal_efs = geothermal_efs[["geotype_code", "co2_tons_per_mmbtu"]]
+    
+    geothermal_geotypes = identify_geothermal_generator_geotype(year)
+    
     # merge in the emission factor
-    geo_in_eia = geo_in_eia.merge(geothermal_efs, how="left", on="geotype_code")
-    # multiply the emission factor by the fraction
-    geo_in_eia["co2_tons_per_mmbtu"] = (
-        geo_in_eia["fuel_frac"] * geo_in_eia["co2_tons_per_mmbtu"]
-    )
-
-    # groupby plant and month to get the weighted emission factor
-    geo_in_eia = (
-        geo_in_eia.groupby(["plant_id_eia", "report_date"])
-        .sum()["co2_tons_per_mmbtu"]
-        .reset_index()
-    )
-
-    # if there are any plants missing from our list, add them back in
-
-    # identify the plants that are in the epa geotype table but not the EIA-derived one
-    epa_geo_plants = list(geothermal_geotype.plant_id_eia.unique())
-    plants_from_eia = list(geo_in_eia.plant_id_eia.unique())
-    missing_plants = list(set(epa_geo_plants) - set(plants_from_eia))
-
-    # create a dataframe with the geotype of all misisng plants
-    missing_plants = geothermal_geotype.loc[
-        geothermal_geotype["plant_id_eia"].isin(missing_plants),
-        ["plant_id_eia", "geotype_code"],
-    ]
-
-    # merge in the efs
-    missing_plants = missing_plants.merge(geothermal_efs, how="left", on="geotype_code")
-
-    # drop the geotype code
-    missing_plants = missing_plants.drop(columns=["geotype_code"])
-
-    # create a record for each month of the year
-    missing_plants = create_monthly_gens_records(missing_plants, year)
-
-    # concat the missing plants to the other dataframe
-    geo_efs = pd.concat([geo_in_eia, missing_plants], axis=0)
-
-    geo_efs["report_date"] = pd.to_datetime(geo_efs["report_date"])
+    geo_efs = geothermal_geotypes.merge(geothermal_efs, how="left", on="geotype_code")
 
     return geo_efs
 
@@ -432,8 +377,24 @@ def calculate_co2_from_fuel_consumption(df, year):
         columns={"co2_tons_per_mmbtu": "co2_tons_per_mmbtu_geo"}
     )
 
-    # add geothermal emission factor to df
-    df = df.merge(geothermal_efs, how="left", on=["plant_id_eia", "report_date"])
+    # if there is a merge key for generator id, merge in the geothermal EFs on generator id
+    if 'generator_id' in list(df.columns):
+        # add geothermal emission factor to df
+        df = df.merge(geothermal_efs, how="left", on=["plant_id_eia", "generator_id"])
+    # otherwise, aggregate EF to plant level and merge
+    else:
+        # multiply the emission factor by the fraction
+        geothermal_efs["co2_tons_per_mmbtu_geo"] = (
+            geothermal_efs["plant_frac"] * geothermal_efs["co2_tons_per_mmbtu_geo"]
+        )
+        # groupby plant to get the weighted emission factor
+        geothermal_efs = (
+            geothermal_efs.groupby("plant_id_eia")
+            .sum()["co2_tons_per_mmbtu_geo"]
+            .reset_index()
+        )
+        # add geothermal emission factor to df
+        df = df.merge(geothermal_efs, how="left", on=["plant_id_eia"])
 
     # update missing efs using the geothermal efs if available
     df["co2_tons_per_mmbtu"] = df["co2_tons_per_mmbtu"].fillna(
@@ -1648,22 +1609,21 @@ def clean_eia923(year):
         pudl_out, drop_interim_cols=True
     )
 
+    # manually update energy source code when OTH
+    gen_fuel_allocated = update_energy_source_codes(gen_fuel_allocated)
+
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated)
 
     # calculate co2 emissions for each generator-fuel based on allocated fuel consumption
     gen_fuel_allocated = calculate_co2_from_fuel_consumption(gen_fuel_allocated, year)
 
+    data_columns = ['net_generation_mwh','fuel_consumed_mmbtu','fuel_consumed_for_electricity_mmbtu','co2_mass_tons','co2_mass_tons_adjusted']
+    
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
         gen_fuel_allocated,
-        sum_cols=[
-            "net_generation_mwh",
-            "fuel_consumed_mmbtu",
-            "fuel_consumed_for_electricity_mmbtu",
-            "co2_mass_tons",
-            "co2_mass_tons_adjusted",
-        ],
+        sum_cols=data_columns,
     )
 
     # remove any plants that we don't want in the data
@@ -1674,5 +1634,8 @@ def clean_eia923(year):
         steam_only_plants=False,
         distribution_connected_plants=False,
     )
+
+    # round all values to the nearest tenth of a unit
+    gen_fuel_allocated.loc[:,data_columns] = gen_fuel_allocated.loc[:,data_columns].round(1)
 
     return gen_fuel_allocated, primary_fuel_table

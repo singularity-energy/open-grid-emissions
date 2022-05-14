@@ -108,3 +108,9 @@ def test_for_missing_energy_source_code(df):
         print(f'Warning: There are {len(missing_esc_test)} records where there is a missing energy source code. Check `missing_esc_test` for complete list')
 
     return missing_esc_test
+
+def test_for_zero_data(df, columns_to_test):
+    zero_data_test = df[(~df[columns_to_test].isnull().all(axis=1)) &(df[columns_to_test].sum(axis=1) == 0)]
+    if not zero_data_test.empty:
+        print(f'Warning: There are {len(zero_data_test)} records where all operating data are zero. Check `zero_data_test` for complete list')
+    return zero_data_test

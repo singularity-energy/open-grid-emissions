@@ -104,19 +104,6 @@ def identify_subplants(start_year, end_year, gen_fuel_allocated):
     # change the plant id to an int
     filtered_crosswalk['EIA_PLANT_ID'] = filtered_crosswalk['EIA_PLANT_ID'].astype(int)
 
-    # filter out generators that are retired
-    """
-    # load the generator retirement date
-    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
-    pudl_engine = sa.create_engine(pudl_db)
-    pudl_out = pudl.output.pudltabl.PudlTabl(pudl_engine, freq="MS", start_date=f"{start_year}-01-01", end_date=f"{end_year}-12-31")
-    generator_retirement_date =  pudl_out.gens_eia860().loc[:,['plant_id_eia','generator_id','retirement_date']]
-    # add the retirement date to the crosswalk
-    filtered_crosswalk = filtered_crosswalk.merge(generator_retirement_date, how='left', left_on=['EIA_PLANT_ID','EIA_GENERATOR_ID'], right_on=['plant_id_eia','generator_id'])
-    filtered_crosswalk = filtered_crosswalk.drop(columns=['plant_id_eia_y','generator_id']).rename(columns={'plant_id_eia_x':'plant_id_eia'})
-    # only keep data for plants that have not already retired before the start year
-    filtered_crosswalk = filtered_crosswalk[~(filtered_crosswalk['retirement_date'].dt.year < start_year)]
-    """
     # filter to generators that exist in the EIA data
     # get a list of unique generators in the EIA-923 data
     unique_eia_ids = gen_fuel_allocated[['plant_id_eia','generator_id']].drop_duplicates()
@@ -141,6 +128,25 @@ def identify_subplants(start_year, end_year, gen_fuel_allocated):
         )
     # change the eia plant id to int
     crosswalk_with_subplant_ids['plant_id_eia'] = crosswalk_with_subplant_ids['plant_id_eia'].astype(int)
+
+    # change the order of the columns
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids[['plant_id_epa','unitid','plant_id_eia','generator_id','subplant_id']]
+
+    # add proposed operating dates and retirements to the subplant id crosswalk
+    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_engine = sa.create_engine(pudl_db)
+    # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
+    pudl_out_status = pudl.output.pudltabl.PudlTabl(pudl_engine, freq="MS", start_date=f"{start_year-1}-01-01", end_date=f"{end_year}-12-31")
+    generator_status =  pudl_out_status.gens_eia860().loc[:,['plant_id_eia','generator_id','report_date','operational_status','current_planned_operating_date','retirement_date']]
+    # only keep values that have a planned operating date or retirement date
+    generator_status = generator_status[(~generator_status['current_planned_operating_date'].isna()) | (~generator_status['retirement_date'].isna())]
+    # drop any duplicate entries
+    generator_status = generator_status.sort_values(by=['plant_id_eia','generator_id','report_date']).drop_duplicates(subset=['plant_id_eia','generator_id','current_planned_operating_date','retirement_date'], keep='last')
+    # for any generators that have different retirement or planned dates reported in different years, keep the most recent value
+    generator_status = generator_status.sort_values(by=['plant_id_eia','generator_id','report_date']).drop_duplicates(subset=['plant_id_eia','generator_id'], keep='last')
+
+    # merge the dates into the crosswalk
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.merge(generator_status[['plant_id_eia','generator_id','current_planned_operating_date','retirement_date']], how='left', on=['plant_id_eia','generator_id'])
 
     return crosswalk_with_subplant_ids
 
