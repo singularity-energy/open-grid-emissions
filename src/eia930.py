@@ -54,13 +54,13 @@ def load_chalendar(fname: str, year: int = 2020):
     return reformat_chalendar(raw)
 
 
-def load_chalendar_for_pipeline(year):
+def load_chalendar_for_pipeline(cleaned_data_filepath,year):
     """
     Loads and formats cleaned hourly net generation data
     for use in the data pipeline
     """
     # read the data, only keeping net generation columns
-    data = pd.read_csv('../data/eia930/chalendar/EBA_elec.csv',
+    data = pd.read_csv(cleaned_data_filepath,
                        index_col=0, parse_dates=True).filter(like='-ALL.NG.')
 
     # name the index
@@ -94,7 +94,7 @@ def load_chalendar_for_pipeline(year):
     for ba in list(data['ba_code'].unique()):
         data.loc[data.ba_code == ba, 'datetime_local'] = \
             data.loc[data.ba_code == ba, 'datetime_utc'].\
-            dt.tz_convert(data_cleaning.ba_timezone(ba, 'GMT'))
+            dt.tz_convert(data_cleaning.ba_timezone(ba=ba, type='local'))
 
     # create a report date column
     data['report_date'] = data['datetime_local'].astype(str).str[:7]

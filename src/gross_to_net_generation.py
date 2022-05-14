@@ -3,6 +3,146 @@ import numpy as np
 import statsmodels.formula.api as smf
 from pathlib import Path
 import src.data_cleaning as data_cleaning
+import sqlalchemy as sa
+
+import pudl.analysis.epa_crosswalk as epa_crosswalk
+import pudl.output.pudltabl
+
+
+def load_cems_gross_generation(start_year, end_year):
+    """Loads hourly CEMS gross generation data for multiple years."""
+    cems_all = []
+
+    for year in range(start_year, end_year + 1):
+        print(f'loading {year}')
+        # specify the path to the CEMS data
+        cems_path = f"../data/pudl/pudl_data/parquet/epacems/year={year}"
+
+        # specify the columns to use from the CEMS database
+        cems_columns = [
+            "plant_id_eia",
+            "unitid",
+            "operating_datetime_utc",
+            "operating_time_hours",
+            "gross_load_mw"]
+
+        # load the CEMS data
+        cems = pd.read_parquet(cems_path, columns=cems_columns)
+
+        # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
+        # rename the heat content column to use the convention used in the EIA data
+        cems = cems.rename(columns={"plant_id_eia": "plant_id_epa",})
+
+        # if the unitid has any leading zeros, remove them
+        cems["unitid"] = cems["unitid"].str.lstrip("0")
+
+        # crosswalk the plant IDs and add a plant_id_eia column
+        cems = data_cleaning.crosswalk_epa_eia_plant_ids(cems, year)
+
+        # fill any missing values for operating time or steam load with zero
+        cems["operating_time_hours"] = cems["operating_time_hours"].fillna(0)
+
+        # calculate gross generation by multiplying gross_load_mw by operating_time_hours
+        cems["gross_generation_mwh"] = cems["gross_load_mw"] * cems["operating_time_hours"]
+
+        cems_all.append(cems)
+
+    cems = pd.concat(cems_all, axis=0)
+
+    # separate out data that only has zeros reported
+    # this will help speed up calculations and allow us to add this data back later
+    #cems_zero_hours = cems[cems['gross_load_mw'] == 0]
+    #cems = cems[cems['gross_load_mw'] > 0]
+
+    # add a report date
+    print('adding report date')
+    cems = data_cleaning.add_report_date(cems)
+
+    return cems  #, cems_zero_hours
+
+def identify_subplants(start_year, end_year, gen_fuel_allocated):
+    """
+    Groups units and generators into unique subplant groups.
+
+    This function consists of three primary parts:
+    1. Identify a list of all unique plant-units that exist in the CEMS data
+        for the years in question. This will be used to filter the crosswalk.
+    2. Load the EPA-EIA crosswalk and filter it based on the units that exist
+        in the CEMS data for the years in question
+    3. Use graph analysis to identify distinct groupings of EPA units and EIA
+        generators based on 1:1, 1:m, m:1, or m:m relationships.
+    
+    """
+
+    # get a list of unique keys from epacems
+    ids_all = []
+    for year in range(start_year, end_year + 1):
+        # specify the path to the CEMS data
+        cems_path = f"../data/pudl/pudl_data/parquet/epacems/year={year}"
+
+        # specify the columns to use from the CEMS database
+        cems_columns = [
+            "plant_id_eia",
+            "unitid",
+            'unit_id_epa']
+
+        # load the CEMS data
+        ids = pd.read_parquet(cems_path, columns=cems_columns)
+
+        ids = ids[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
+
+        ids_all.append(ids)
+
+    ids = pd.concat(ids_all, axis=0)
+
+    ids = ids[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
+
+    # load the crosswalk and filter it by the data that actually exists in cems
+    crosswalk = pudl.output.epacems.epa_crosswalk()
+    filtered_crosswalk = epa_crosswalk.filter_crosswalk(crosswalk, ids)[['plant_id_eia','unitid','unit_id_epa','CAMD_PLANT_ID','CAMD_UNIT_ID','CAMD_GENERATOR_ID','EIA_PLANT_ID','EIA_GENERATOR_ID']]
+
+    # change the plant id to an int
+    filtered_crosswalk['EIA_PLANT_ID'] = filtered_crosswalk['EIA_PLANT_ID'].astype(int)
+
+    # filter out generators that are retired
+    """
+    # load the generator retirement date
+    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_engine = sa.create_engine(pudl_db)
+    pudl_out = pudl.output.pudltabl.PudlTabl(pudl_engine, freq="MS", start_date=f"{start_year}-01-01", end_date=f"{end_year}-12-31")
+    generator_retirement_date =  pudl_out.gens_eia860().loc[:,['plant_id_eia','generator_id','retirement_date']]
+    # add the retirement date to the crosswalk
+    filtered_crosswalk = filtered_crosswalk.merge(generator_retirement_date, how='left', left_on=['EIA_PLANT_ID','EIA_GENERATOR_ID'], right_on=['plant_id_eia','generator_id'])
+    filtered_crosswalk = filtered_crosswalk.drop(columns=['plant_id_eia_y','generator_id']).rename(columns={'plant_id_eia_x':'plant_id_eia'})
+    # only keep data for plants that have not already retired before the start year
+    filtered_crosswalk = filtered_crosswalk[~(filtered_crosswalk['retirement_date'].dt.year < start_year)]
+    """
+    # filter to generators that exist in the EIA data
+    # get a list of unique generators in the EIA-923 data
+    unique_eia_ids = gen_fuel_allocated[['plant_id_eia','generator_id']].drop_duplicates()
+    filtered_crosswalk = unique_eia_ids.merge(
+            filtered_crosswalk,
+            left_on=["plant_id_eia", "generator_id"],
+            right_on=["EIA_PLANT_ID", "EIA_GENERATOR_ID"],
+            how="inner",
+            suffixes=("_actual",None)
+        ).drop(columns=['plant_id_eia_actual','generator_id'])
+
+    crosswalk_with_subplant_ids = epa_crosswalk.make_subplant_ids(filtered_crosswalk)
+    # fix the column names
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.drop(columns=['plant_id_eia','unitid','unit_id_epa','CAMD_GENERATOR_ID'])
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.rename(
+            columns={
+                "CAMD_PLANT_ID": "plant_id_epa",
+                "EIA_PLANT_ID": "plant_id_eia",
+                "CAMD_UNIT_ID": "unitid",
+                "EIA_GENERATOR_ID": "generator_id",
+            }
+        )
+    # change the eia plant id to int
+    crosswalk_with_subplant_ids['plant_id_eia'] = crosswalk_with_subplant_ids['plant_id_eia'].astype(int)
+
+    return crosswalk_with_subplant_ids
 
 def gross_to_net_ratios(cems_df, generators, plant_entity):
     """
@@ -18,7 +158,7 @@ def gross_to_net_ratios(cems_df, generators, plant_entity):
     reporting_units = data_cleaning.add_report_date(cems_df, plant_entity)[["report_date", "plant_id_eia", "unitid"]].drop_duplicates()
 
     #load the EPA-EIA crosswalk data
-    crosswalk = data_cleaning.get_epa_eia_crosswalk()[['plant_id_eia','generator_id', 'unitid']]
+    crosswalk = load_data.load_epa_eia_crosswalk()[['plant_id_eia','generator_id', 'unitid']]
 
     # merge the generator_id into the reporting units list, keeping duplicate matches if multiple generators are associated with a single unit
     reporting_units = reporting_units.merge(crosswalk, how='left', on=['plant_id_eia', 'unitid'])
