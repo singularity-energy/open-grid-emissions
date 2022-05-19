@@ -65,7 +65,7 @@ def test_for_negative_values(df, columns_to_test):
 def test_for_missing_fuel(df, generation_column):
     missing_fuel_test = df[(df[generation_column] > 0) & ((df['fuel_consumed_for_electricity_mmbtu'].isnull()) | (df['fuel_consumed_for_electricity_mmbtu'] == 0))]
     if not missing_fuel_test.empty:
-        print(f'Warning: There are {len(missing_fuel_test)} records where net generation is positive but no fuel consumption is reported. Check `missing_fuel_test` for complete list')
+        print(f'Warning: There are {len(missing_fuel_test)} records where {generation_column} is positive but no fuel consumption is reported. Check `missing_fuel_test` for complete list')
 
     return missing_fuel_test
 
@@ -102,6 +102,7 @@ def test_for_outlier_heat_rates(df):
         if not heat_rate_test.empty:
             print(f'    Warning: {len(heat_rate_test)} of {len(generators)} {fuel_type} records have heat rate > {outlier_threshold.round(2)} mmbtu/MWh (median = {heat_rate_stats["50%"].round(2)})')
 
+
 def test_for_missing_energy_source_code(df):
     missing_esc_test = df[df['energy_source_code'].isna()]
     if not missing_esc_test.empty:
@@ -109,8 +110,9 @@ def test_for_missing_energy_source_code(df):
 
     return missing_esc_test
 
+
 def test_for_zero_data(df, columns_to_test):
-    zero_data_test = df[(~df[columns_to_test].isnull().all(axis=1)) &(df[columns_to_test].sum(axis=1) == 0)]
+    zero_data_test = df[(~df[columns_to_test].isnull().all(axis=1)) & (df[columns_to_test].sum(axis=1) == 0)]
     if not zero_data_test.empty:
         print(f'Warning: There are {len(zero_data_test)} records where all operating data are zero. Check `zero_data_test` for complete list')
     return zero_data_test

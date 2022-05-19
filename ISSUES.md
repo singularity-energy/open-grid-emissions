@@ -1,12 +1,13 @@
+Generate subplant crosswalk and GTN regression and save locally
 
 ## General data cleaning
-- [ ] Update `identify_emissions_data_source` to match on subplant - ensure that all active units are reporting
+- [-] Update `identify_emissions_data_source` to match on subplant - ensure that all active units are reporting
 - [x] Convert UTC to local timezone using TZ name rather than GMT offset to account for DST
-- [ ] Move all manual update dictionaries to csv tables
-- [ ] Instead of creating manual crosswalk, fork the PDSC repo and make changes that can be committed
 - [ ] Figure out what to do with retired BAs
 - [ ] Figure out what to do with energy storage
 - [ ] Remove steam-only plants from CEMS (or plants that have no generation)
+- [ ] Move all manual update dictionaries to csv tables
+- [ ] Instead of creating manual crosswalk, fork the PDSC repo and make changes that can be committed
 
 ## Gross to net generation conversion
 Data pipeline
