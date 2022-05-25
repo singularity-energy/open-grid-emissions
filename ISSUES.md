@@ -1,8 +1,5 @@
-Generate subplant crosswalk and GTN regression and save locally
-
 ## General data cleaning
-- [-] Update `identify_emissions_data_source` to match on subplant - ensure that all active units are reporting
-- [x] Convert UTC to local timezone using TZ name rather than GMT offset to account for DST
+- [ ] fix issue where subplant id is NA - maybe assign 0?
 - [ ] Figure out what to do with retired BAs
 - [ ] Figure out what to do with energy storage
 - [ ] Remove steam-only plants from CEMS (or plants that have no generation)
@@ -10,36 +7,28 @@ Generate subplant crosswalk and GTN regression and save locally
 - [ ] Instead of creating manual crosswalk, fork the PDSC repo and make changes that can be committed
 
 ## Gross to net generation conversion
-Data pipeline
-- [ ] Integrate subplant id crosswalk into data pipeline
-- [ ] Implement hierarchy of methods for converting gross to net
+- [ ] Filter out regression values if slope > 1?
+- [ ] if regression intercept is positive, re-run regression forcing intercept through zero
+- [ ] Add method to deal with negative GTN ratios
+- [ ] Improve method for assumed values in GTN conversion (identigy similar plant types)
 - [ ] Look into whether imputation of missing gross generation is needed
    - very small amount of emissions
    - if filling, need to match on unit, rather than plant (57075 - Ivanpah)
-- [ ] Fix imputation of missing hourly gross generation in CEMS
-Multi-year regression
-- [ ] When dividing by number of units, ensure that all are reporting data
-- [ ] Figure out how to deal with units that retire over time
-- [ ] Look into combined cycle units (GTN > 1)
-Validation
-- [ ] Compare totals to actual values at monthly and annual level
-- [ ] Compare methods for calculating net generation
+- [ ] Look into combined cycle units (GTN > 1) to see if this is working correctly
 
 ## Emissions data
-- [ ] ID plants missing from egrid that have near-zero data
+- [ ] Implement biomass adjustments
 - [ ] Finish identifying cems_ids with missing fuel codes
 - [ ] Update fuel type assignment in CEMS to use monthly and/or weighed average EFs for filling
-- [ ] clean fuel codes based on EPA static tables
-- [ ] Implement biomass adjustments
-- [ ] Assign geothermal emission factor based on unit/generator/subplant instead of plant
+- [-] clean "other" fuel codes based on EPA static tables
+- [ ] ID plants missing from egrid that have near-zero data
 
 ## EIA-923 Data Cleaning
 - [ ] Allocate 99999 data from EIA 923
 - [ ] Check performance of allocation when net generation is negative
 
 ## EIA-930 data
-- [ ] Need to check that all timestamps in cleaned chalendar data have been converted to hour starting timestamps (instead of hour ending) to ensure compatibility with hourly CEMS data (which uses hour beginning timestamps)
-- [ ] In `gridemissions/src/gridemissions/clean.py`, lines 92-100, chalendar currently assigns a static flat profile to geothermal and biomass emissions. These lines should be removed for now. We can add flat profiles for these fuel types in the main data pipeline.
+- [-] In `gridemissions/src/gridemissions/clean.py`, lines 92-100, chalendar currently assigns a static flat profile to geothermal and biomass emissions. These lines should be removed for now. We can add flat profiles for these fuel types in the main data pipeline.
 
 ## Distributing EIA-923 to Hourly
 - [ ] Distribute data at plant level instead of BA-fuel level
@@ -54,14 +43,14 @@ For plants with negative net generation
 - [ ] Filter known issues from egrid validation metrics
 - [ ] Ensure proper BA sorting
 - [ ] Put validation functions inside functions
+- [ ] Add prime mover code to EIA-923 allocation output so that we can validate incorrect PM
 
 ## Documentation
-- [ ] Write up gross to net generation calculation / explanation
-- [ ] Draft document proposing hierarchy for residual profiles and risks for each fuel type
+- [-] Write up gross to net generation calculation / explanation
+- [-] Draft document proposing hierarchy for residual profiles and risks for each fuel type
 - [ ] Draft documentation of updated fuel/net gen allocation methodology
 
 ## Gross to Net Regression (long-run issues / low priority)
-- [ ] Increase to 5 years of data
 Look into other regressors
 - [ ] Investigate annual fixed effects
 - [ ] Determine if/when major change in equipment (repower, new environmental controls)

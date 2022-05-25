@@ -1,12 +1,85 @@
 import pandas as pd
 import numpy as np
 import statsmodels.formula.api as smf
+import os
 from pathlib import Path
 import src.data_cleaning as data_cleaning
 import sqlalchemy as sa
+import warnings
 
 import pudl.analysis.epa_crosswalk as epa_crosswalk
+import pudl.analysis.allocate_net_gen as allocate_gen_fuel
 import pudl.output.pudltabl
+
+
+def identify_subplants_and_gtn_conversions(year, number_of_years):
+    """This is the coordinating function for loading and calculating subplant IDs, GTN regressions, and GTN ratios."""
+    start_year = year - (number_of_years - 1)
+    end_year = year
+
+    # TODO: move the following code to a separate function so that it does not hold these dataframes in memory after calculation
+
+    # load 5 years of monthly data from CEMS and EIA-923
+    cems_monthly, gen_fuel_allocated = load_monthly_gross_and_net_generation(
+        start_year, end_year
+    )
+
+    # add subplant ids to the data
+    cems_monthly, gen_fuel_allocated = generate_subplant_ids(
+        start_year, end_year, cems_monthly, gen_fuel_allocated
+    )
+
+    # perform regression at subplant level
+    gross_to_net_regression(
+        gross_gen_data=cems_monthly,
+        net_gen_data=gen_fuel_allocated,
+        agg_level="subplant",
+    )
+
+    # perform regression at plant level
+    gross_to_net_regression(
+        gross_gen_data=cems_monthly, net_gen_data=gen_fuel_allocated, agg_level="plant"
+    )
+
+    # calculate monthly ratios at subplant level
+    gross_to_net_ratio(
+        gross_gen_data=cems_monthly,
+        net_gen_data=gen_fuel_allocated,
+        agg_level="subplant",
+    )
+
+    # calculate monthly ratios at plant level
+    gross_to_net_ratio(
+        gross_gen_data=cems_monthly, net_gen_data=gen_fuel_allocated, agg_level="plant"
+    )
+
+
+def load_monthly_gross_and_net_generation(start_year, end_year):
+    # load cems data
+    cems_monthly = load_cems_gross_generation(start_year, end_year)
+
+    # load and clean EIA data
+    # create pudl_out
+    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_engine = sa.create_engine(pudl_db)
+    pudl_out = pudl.output.pudltabl.PudlTabl(
+        pudl_engine,
+        freq="MS",
+        start_date=f"{start_year}-01-01",
+        end_date=f"{end_year}-12-31",
+    )
+
+    # allocate net generation and heat input to each generator-fuel grouping
+    print("Allocating EIA-923 generation data")
+    gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
+        pudl_out, drop_interim_cols=True
+    )
+    # aggregate the allocated data to the generator level
+    gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
+        gen_fuel_allocated, sum_cols=["net_generation_mwh"]
+    )
+
+    return cems_monthly, gen_fuel_allocated
 
 
 def load_cems_gross_generation(start_year, end_year):
@@ -14,7 +87,7 @@ def load_cems_gross_generation(start_year, end_year):
     cems_all = []
 
     for year in range(start_year, end_year + 1):
-        print(f'loading {year}')
+        print(f"loading {year} CEMS data")
         # specify the path to the CEMS data
         cems_path = f"../data/pudl/pudl_data/parquet/epacems/year={year}"
 
@@ -24,10 +97,15 @@ def load_cems_gross_generation(start_year, end_year):
             "unitid",
             "operating_datetime_utc",
             "operating_time_hours",
-            "gross_load_mw"]
+            "gross_load_mw",
+        ]
 
         # load the CEMS data
         cems = pd.read_parquet(cems_path, columns=cems_columns)
+
+        # only keep positive gross generation values
+        # this will help speed up calculations and allow us to add this data back later
+        cems = cems[cems["gross_load_mw"] > 0]
 
         # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
         # rename the heat content column to use the convention used in the EIA data
@@ -43,24 +121,26 @@ def load_cems_gross_generation(start_year, end_year):
         cems["operating_time_hours"] = cems["operating_time_hours"].fillna(0)
 
         # calculate gross generation by multiplying gross_load_mw by operating_time_hours
-        cems["gross_generation_mwh"] = cems["gross_load_mw"] * cems["operating_time_hours"]
+        cems["gross_generation_mwh"] = (
+            cems["gross_load_mw"] * cems["operating_time_hours"]
+        )
+
+        # add a report date
+        cems = data_cleaning.add_report_date(cems)
+
+        cems = cems[["plant_id_eia", "unitid", "report_date", "gross_generation_mwh"]]
+
+        # group data by plant, unit, month
+        cems = cems.groupby(["plant_id_eia", "unitid", "report_date"]).sum()
 
         cems_all.append(cems)
 
-    cems = pd.concat(cems_all, axis=0)
+    cems = pd.concat(cems_all, axis=0).reset_index()
 
-    # separate out data that only has zeros reported
-    # this will help speed up calculations and allow us to add this data back later
-    #cems_zero_hours = cems[cems['gross_load_mw'] == 0]
-    #cems = cems[cems['gross_load_mw'] > 0]
+    return cems
 
-    # add a report date
-    print('adding report date')
-    cems = data_cleaning.add_report_date(cems)
 
-    return cems  #, cems_zero_hours
-
-def identify_subplants(start_year, end_year, gen_fuel_allocated):
+def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated):
     """
     Groups units and generators into unique subplant groups.
 
@@ -71,191 +151,347 @@ def identify_subplants(start_year, end_year, gen_fuel_allocated):
         in the CEMS data for the years in question
     3. Use graph analysis to identify distinct groupings of EPA units and EIA
         generators based on 1:1, 1:m, m:1, or m:m relationships.
+
+    Returns:
+        exports the subplant crosswalk to a csv file
+        cems_monthly and gen_fuel_allocated with subplant_id added
     
     """
 
-    # get a list of unique keys from epacems
-    ids_all = []
-    for year in range(start_year, end_year + 1):
-        # specify the path to the CEMS data
-        cems_path = f"../data/pudl/pudl_data/parquet/epacems/year={year}"
-
-        # specify the columns to use from the CEMS database
-        cems_columns = [
-            "plant_id_eia",
-            "unitid",
-            'unit_id_epa']
-
-        # load the CEMS data
-        ids = pd.read_parquet(cems_path, columns=cems_columns)
-
-        ids = ids[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
-
-        ids_all.append(ids)
-
-    ids = pd.concat(ids_all, axis=0)
-
-    ids = ids[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
+    ids = cems_monthly[["plant_id_eia", "unitid"]].drop_duplicates()
 
     # load the crosswalk and filter it by the data that actually exists in cems
     crosswalk = pudl.output.epacems.epa_crosswalk()
-    filtered_crosswalk = epa_crosswalk.filter_crosswalk(crosswalk, ids)[['plant_id_eia','unitid','unit_id_epa','CAMD_PLANT_ID','CAMD_UNIT_ID','CAMD_GENERATOR_ID','EIA_PLANT_ID','EIA_GENERATOR_ID']]
+    filtered_crosswalk = epa_crosswalk.filter_crosswalk(crosswalk, ids)[
+        [
+            "plant_id_eia",
+            "unitid",
+            "CAMD_PLANT_ID",
+            "CAMD_UNIT_ID",
+            "CAMD_GENERATOR_ID",
+            "EIA_PLANT_ID",
+            "EIA_GENERATOR_ID",
+        ]
+    ]
 
     # change the plant id to an int
-    filtered_crosswalk['EIA_PLANT_ID'] = filtered_crosswalk['EIA_PLANT_ID'].astype(int)
+    filtered_crosswalk["EIA_PLANT_ID"] = filtered_crosswalk["EIA_PLANT_ID"].astype(int)
 
     # filter to generators that exist in the EIA data
     # get a list of unique generators in the EIA-923 data
-    unique_eia_ids = gen_fuel_allocated[['plant_id_eia','generator_id']].drop_duplicates()
+    unique_eia_ids = gen_fuel_allocated[
+        ["plant_id_eia", "generator_id"]
+    ].drop_duplicates()
     filtered_crosswalk = unique_eia_ids.merge(
-            filtered_crosswalk,
-            left_on=["plant_id_eia", "generator_id"],
-            right_on=["EIA_PLANT_ID", "EIA_GENERATOR_ID"],
-            how="inner",
-            suffixes=("_actual",None)
-        ).drop(columns=['plant_id_eia_actual','generator_id'])
+        filtered_crosswalk,
+        left_on=["plant_id_eia", "generator_id"],
+        right_on=["EIA_PLANT_ID", "EIA_GENERATOR_ID"],
+        how="inner",
+        suffixes=("_actual", None),
+    ).drop(columns=["plant_id_eia_actual", "generator_id"])
 
     crosswalk_with_subplant_ids = epa_crosswalk.make_subplant_ids(filtered_crosswalk)
     # fix the column names
-    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.drop(columns=['plant_id_eia','unitid','unit_id_epa','CAMD_GENERATOR_ID'])
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.drop(
+        columns=["plant_id_eia", "unitid", "CAMD_GENERATOR_ID"]
+    )
     crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.rename(
-            columns={
-                "CAMD_PLANT_ID": "plant_id_epa",
-                "EIA_PLANT_ID": "plant_id_eia",
-                "CAMD_UNIT_ID": "unitid",
-                "EIA_GENERATOR_ID": "generator_id",
-            }
-        )
+        columns={
+            "CAMD_PLANT_ID": "plant_id_epa",
+            "EIA_PLANT_ID": "plant_id_eia",
+            "CAMD_UNIT_ID": "unitid",
+            "EIA_GENERATOR_ID": "generator_id",
+        }
+    )
     # change the eia plant id to int
-    crosswalk_with_subplant_ids['plant_id_eia'] = crosswalk_with_subplant_ids['plant_id_eia'].astype(int)
+    crosswalk_with_subplant_ids["plant_id_eia"] = crosswalk_with_subplant_ids[
+        "plant_id_eia"
+    ].astype(int)
 
     # change the order of the columns
-    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids[['plant_id_epa','unitid','plant_id_eia','generator_id','subplant_id']]
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids[
+        ["plant_id_epa", "unitid", "plant_id_eia", "generator_id", "subplant_id"]
+    ]
 
     # add proposed operating dates and retirements to the subplant id crosswalk
     pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
     # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
-    pudl_out_status = pudl.output.pudltabl.PudlTabl(pudl_engine, freq="MS", start_date=f"{start_year-1}-01-01", end_date=f"{end_year}-12-31")
-    generator_status =  pudl_out_status.gens_eia860().loc[:,['plant_id_eia','generator_id','report_date','operational_status','current_planned_operating_date','retirement_date']]
+    pudl_out_status = pudl.output.pudltabl.PudlTabl(
+        pudl_engine,
+        freq="MS",
+        start_date=f"{start_year-1}-01-01",
+        end_date=f"{end_year}-12-31",
+    )
+    generator_status = pudl_out_status.gens_eia860().loc[
+        :,
+        [
+            "plant_id_eia",
+            "generator_id",
+            "report_date",
+            "operational_status",
+            "current_planned_operating_date",
+            "retirement_date",
+        ],
+    ]
     # only keep values that have a planned operating date or retirement date
-    generator_status = generator_status[(~generator_status['current_planned_operating_date'].isna()) | (~generator_status['retirement_date'].isna())]
+    generator_status = generator_status[
+        (~generator_status["current_planned_operating_date"].isna())
+        | (~generator_status["retirement_date"].isna())
+    ]
     # drop any duplicate entries
-    generator_status = generator_status.sort_values(by=['plant_id_eia','generator_id','report_date']).drop_duplicates(subset=['plant_id_eia','generator_id','current_planned_operating_date','retirement_date'], keep='last')
+    generator_status = generator_status.sort_values(
+        by=["plant_id_eia", "generator_id", "report_date"]
+    ).drop_duplicates(
+        subset=[
+            "plant_id_eia",
+            "generator_id",
+            "current_planned_operating_date",
+            "retirement_date",
+        ],
+        keep="last",
+    )
     # for any generators that have different retirement or planned dates reported in different years, keep the most recent value
-    generator_status = generator_status.sort_values(by=['plant_id_eia','generator_id','report_date']).drop_duplicates(subset=['plant_id_eia','generator_id'], keep='last')
+    generator_status = generator_status.sort_values(
+        by=["plant_id_eia", "generator_id", "report_date"]
+    ).drop_duplicates(subset=["plant_id_eia", "generator_id"], keep="last")
 
     # merge the dates into the crosswalk
-    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.merge(generator_status[['plant_id_eia','generator_id','current_planned_operating_date','retirement_date']], how='left', on=['plant_id_eia','generator_id'])
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.merge(
+        generator_status[
+            [
+                "plant_id_eia",
+                "generator_id",
+                "current_planned_operating_date",
+                "retirement_date",
+            ]
+        ],
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+    )
 
-    return crosswalk_with_subplant_ids
+    if not os.path.exists("../data/output/subplant_crosswalk"):
+        os.mkdir("../data/output/subplant_crosswalk")
 
-def gross_to_net_ratios(cems_df, generators, plant_entity):
+    # export the crosswalk to csv
+    crosswalk_with_subplant_ids.to_csv(
+        "../data/output/subplant_crosswalk/subplant_crosswalk.csv", index=False
+    )
+
+    # merge the subplant ids into each dataframe
+    gen_fuel_allocated = gen_fuel_allocated.merge(
+        crosswalk_with_subplant_ids[["plant_id_eia", "generator_id", "subplant_id"]],
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+    )
+    cems_monthly = cems_monthly.merge(
+        crosswalk_with_subplant_ids[["plant_id_eia", "unitid", "subplant_id"]],
+        how="left",
+        on=["plant_id_eia", "unitid"],
+    )
+
+    return cems_monthly, gen_fuel_allocated
+
+
+def combine_gross_and_net_generation_data(gross_gen_data, net_gen_data, agg_level):
+    if agg_level == "plant":
+        plant_aggregation_columns = ["plant_id_eia"]
+    elif agg_level == "subplant":
+        plant_aggregation_columns = ["plant_id_eia", "subplant_id"]
+    else:
+        raise ValueError("agg_level must be either 'plant' or 'subplant'")
+
+    groupby_columns = plant_aggregation_columns + ["report_date"]
+
+    # aggregate the data and merge it together
+    net_gen = (
+        net_gen_data.groupby(groupby_columns)
+        .sum(min_count=1)["net_generation_mwh"]
+        .reset_index()
+    )
+    gross_gen = (
+        gross_gen_data.groupby(groupby_columns)
+        .sum()["gross_generation_mwh"]
+        .reset_index()
+    )
+    gen_data = gross_gen.merge(net_gen, how="outer", on=groupby_columns)
+
+    return gen_data, plant_aggregation_columns
+
+
+def gross_to_net_regression(gross_gen_data, net_gen_data, agg_level):
     """
-    Calculates a monthly gross to net generation ratio (net generation / gross generation) that can be used to convert gross generation to net generation
-
-    Args:
-        arg
-    Returns:
-        output
+    Regresses net generation on gross generation at either the plant or subplant level.
     """
 
-    # add a monthly report data to the cems data and get a list of unit_ids that reported to CEMS in each month
-    reporting_units = data_cleaning.add_report_date(cems_df, plant_entity)[["report_date", "plant_id_eia", "unitid"]].drop_duplicates()
+    gen_data, plant_aggregation_columns = combine_gross_and_net_generation_data(
+        gross_gen_data, net_gen_data, agg_level
+    )
 
-    #load the EPA-EIA crosswalk data
-    crosswalk = load_data.load_epa_eia_crosswalk()[['plant_id_eia','generator_id', 'unitid']]
+    # calculate the hourly average generation values
+    gen_data["hours_in_month"] = gen_data["report_date"].dt.daysinmonth * 24
+    gen_data["gross_generation_mw"] = (
+        gen_data["gross_generation_mwh"] / gen_data["hours_in_month"]
+    )
+    gen_data["net_generation_mw"] = (
+        gen_data["net_generation_mwh"] / gen_data["hours_in_month"]
+    )
 
-    # merge the generator_id into the reporting units list, keeping duplicate matches if multiple generators are associated with a single unit
-    reporting_units = reporting_units.merge(crosswalk, how='left', on=['plant_id_eia', 'unitid'])
+    # calculate the ratio for each plant and create a dataframe
+    gtn_regression = (
+        gen_data.dropna().groupby(plant_aggregation_columns).apply(model_gross_to_net)
+    )
+    gtn_regression = pd.DataFrame(
+        gtn_regression.tolist(),
+        index=gtn_regression.index,
+        columns=["slope", "intercept", "rsquared", "rsquared_adj", "observations"],
+    ).reset_index()
 
-    # only keep the columns we need for grouping the data
-    cems_df = cems_df[['plant_id_eia',
-                       'operating_datetime_utc', 'gross_generation_mwh']]
+    if not os.path.exists("../data/output/gross_to_net"):
+        os.mkdir("../data/output/gross_to_net")
 
-    # set the datetimeindex
-    cems_df = cems_df.set_index(pd.DatetimeIndex(
-        cems_df['operating_datetime_utc']))
+    gtn_regression.to_csv(
+        f"../data/output/gross_to_net/{agg_level}_gross_to_net_regression.csv",
+        index=False,
+    )
 
-    # create a report date column to match the eia_923 data
-    cems_df = data_cleaning.add_report_date(cems_df, plant_entity)
 
-    # sum the cems data by plant and month
-    cems_df = cems_df.groupby(
-        ['plant_id_eia', 'report_date']).sum().reset_index() #['plant_id_eia', pd.Grouper(freq='M')]).sum().reset_index()
+def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level):
 
-    # re-format the report date column in EIA-923 from YYYY-MM-DD to YYYY-MM
-    generators['report_date'] = (pd.to_datetime(
-        generators['report_date'], format='%Y-%m-%d')).dt.strftime('%Y-%m')
+    if agg_level == "plant":
+        plant_aggregation_columns = ["plant_id_eia"]
+    elif agg_level == "subplant":
+        plant_aggregation_columns = ["plant_id_eia", "subplant_id"]
+    else:
+        raise ValueError("agg_level must be either 'plant' or 'subplant'")
 
-    #drop any observations from EIA-923 that are not in ["report_date", "plant_id_eia", "generator_id"] from reporting_units
-    generators = generators.merge(reporting_units, how='inner', on=["report_date", "plant_id_eia", "generator_id"])
-    generators= generators.drop_duplicates(subset=["report_date", "plant_id_eia", "generator_id"])
+    groupby_columns = plant_aggregation_columns + ["report_date"]
 
-    # aggregate EIA 293 data to plant level
-    generators = generators[['plant_id_eia', 'report_date', 'net_generation_mwh']].groupby(
-        ['plant_id_eia', 'report_date']).sum().reset_index()
+    gen_data = gross_gen_data.merge(
+        net_gen_data, how="outer", on=["plant_id_eia", "subplant_id", "report_date"]
+    )
 
-    # merge the net generation data into the cems data
-    cems_df = cems_df.merge(generators, how='left', on=[
-                            'plant_id_eia', 'report_date'])
-    cems_df['plant_id_eia'] = cems_df['plant_id_eia'].astype(int)
+    # identify any rows where gross or net generation are missing
+    incomplete_data = gen_data[
+        gen_data[["gross_generation_mwh", "net_generation_mwh"]].isnull().any(axis=1)
+    ]
 
-    # create a new dataframe to hold the gross-to-net ratios, and delete any observations with missing data
-    gtn_regression = cems_df.copy().dropna(how='any', axis=0)
-    gtn_regression = gtn_regression.groupby(
-        'plant_id_eia').apply(model_gross_to_net)
-    gtn_regression = pd.DataFrame(gtn_regression.tolist(
-    ), index=gtn_regression.index, columns=['gtn_linear', 'rsquared']).reset_index()
+    # load the activation and retirement dates into the data
+    subplant_crosswalk = pd.read_csv(
+        f"../data/output/subplant_crosswalk/subplant_crosswalk.csv"
+    )
+    incomplete_data = incomplete_data.merge(
+        subplant_crosswalk,
+        how="left",
+        on=(["plant_id_eia", "subplant_id", "unitid", "generator_id"]),
+    ).drop(columns="plant_id_epa")
 
-    # only keep the results with rsquared values greater than 0.90
-    gtn_regression = gtn_regression[gtn_regression['rsquared'] >= 0.9]
-    gtn_regression = gtn_regression[['plant_id_eia', 'gtn_linear']]
+    # drop any of these rows where the retirement date is before the report date (only applies if net generation missing)
+    incomplete_data = incomplete_data[
+        ~(incomplete_data["retirement_date"] < incomplete_data["report_date"])
+    ]
 
-    # get month-by-month gross-to-net ratio
-    cems_df['gtn_ratio'] = cems_df['net_generation_mwh'] / \
-        cems_df['gross_generation_mwh']
+    # drop any of these rows where the report date is before the planned operating date
+    incomplete_data = incomplete_data[
+        ~(
+            incomplete_data["report_date"]
+            < incomplete_data["current_planned_operating_date"]
+        )
+    ]
 
-    # trim values that are outliers
-    cems_df.loc[cems_df['gtn_ratio'] > 1.5, 'gtn_ratio'] = np.NaN
-    cems_df.loc[cems_df['gtn_ratio'] < 0.5, 'gtn_ratio'] = np.NaN
+    # get a list of unique subplant ids and report dates - this identifies where we have missing data we shouldn't calculate a ratio for
+    incomplete_data = incomplete_data.drop_duplicates(subset=groupby_columns)[
+        groupby_columns
+    ]
 
-    # merge in regression results
-    cems_df = cems_df.merge(gtn_regression, how='left', on='plant_id_eia')
+    # only keep gen data that is not incomplete
+    gtn_ratio = gen_data.merge(
+        incomplete_data, how="outer", on=groupby_columns, indicator="source"
+    )
+    gtn_ratio = gtn_ratio[gtn_ratio["source"] == "left_only"].drop(columns="source")
 
-    # fill missing values using the ratio from the regression results
-    cems_df['gtn_ratio'] = cems_df['gtn_ratio'].fillna(cems_df['gtn_linear'])
+    # group data by aggregation columns
+    gtn_ratio = gtn_ratio.groupby(groupby_columns).sum().reset_index()
 
-    gtn_ratios = cems_df[['plant_id_eia', 'report_date', 'gtn_ratio']]
+    # calculate gross to net ratios for the remaining data
+    gtn_ratio["gtn_ratio"] = (
+        gtn_ratio["net_generation_mwh"] / gtn_ratio["gross_generation_mwh"]
+    )
 
-    gtn_fill_values = gtn_ratios[['plant_id_eia', 'gtn_ratio']].groupby(['plant_id_eia']).mean().rename(columns={'gtn_ratio':'gtn_fill'})
+    gtn_ratio = gtn_ratio[groupby_columns + ["gtn_ratio"]]
 
-    return gtn_ratios, gtn_fill_values
+    if not os.path.exists("../data/output/gross_to_net"):
+        os.mkdir("../data/output/gross_to_net")
+
+    gtn_ratio.to_csv(
+        f"../data/output/gross_to_net/{agg_level}_gross_to_net_ratio.csv", index=False
+    )
+
 
 def model_gross_to_net(df):
     """
-    Description
+    Performs a linear regression model of monthly gross to net generation.
+
+    Performs recursive outlier removal up to two times if the absolute value of 
+    the studentizes residual > 3
 
     Args:
-        arg
+        df: dataframe containing all values of gross and net generation that should be regressed
     Returns:
-        output
+        various model parameters
     """
-    # get a linear model for the data points
-    model = smf.ols('net_generation_mwh ~ gross_generation_mwh', data=df).fit()
 
-    # find and remove any outliers
-    try:
+    def model_data(df):
+        # get a linear model for the data points
+        model = smf.ols("net_generation_mw ~ gross_generation_mw", data=df).fit()
         outliers = model.outlier_test()
-        corrected = df[~df.index.isin(
-            outliers[outliers['bonf(p)'] < 0.5].index)]
 
-        # get a linear model of the corrected data
-        model = smf.ols(
-            'net_generation_mwh ~ gross_generation_mwh', data=corrected).fit()
-    except ValueError:
-        pass
-    slope = model.params[1]
-    rsquared = model.rsquared
+        return model, outliers
 
-    return slope, rsquared
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+
+        # if a model is not able to be created with the first iteration, skip this data
+        try:
+            # get a linear model for the data points
+            model, outliers = model_data(df)
+
+            # find and remove outliers recursively up to two times
+            if abs(outliers["student_resid"]).max() > 3:
+                # remove any outlier values
+                df = df[
+                    ~df.index.isin(outliers[abs(outliers["student_resid"]) > 3].index)
+                ]
+
+                # get a linear model of the corrected data
+                try:
+                    model, outliers = model_data(df)
+                except ValueError:
+                    pass
+
+                # perform this removal one more time in case any outliers were masked by the first outlier(s)
+                if abs(outliers["student_resid"]).max() > 3:
+                    # remove any outlier values
+                    df = df[
+                        ~df.index.isin(
+                            outliers[abs(outliers["student_resid"]) > 3].index
+                        )
+                    ]
+                    # get a linear model for the data points
+                    try:
+                        model, outliers = model_data(df)
+                    except ValueError:
+                        pass
+
+            # get outputs of final adjusted model
+            slope = model.params[1]
+            intercept = model.params[0]
+            rsquared = model.rsquared
+            rsquared_adj = model.rsquared_adj
+            number_observations = model.nobs
+
+            return slope, intercept, rsquared, rsquared_adj, number_observations
+
+        except ValueError:
+            pass
+

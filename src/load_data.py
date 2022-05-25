@@ -442,3 +442,70 @@ def load_epa_eia_crosswalk(year):
     crosswalk = pd.concat([crosswalk, crosswalk_manual], axis=0,)
 
     return crosswalk
+
+
+def load_gross_to_net_data(
+    level, conversion_type, threshold_column, lower_threshold, upper_threshold
+):
+    """
+    Loads gross-to-net generation conversion factors calculated in `gross_to_net_generation`.
+
+    If you wanted to load subplant regression results with an adjusted r2 greater than 0.9, you would specify:
+        level = 'subplant'
+        conversion_type = 'regression'
+        threshold_column = 'rsqaured_adjusted'
+        lower_threshold = 0.9
+        upper_threshold = None
+
+    Args:
+        level: Aggregation level, either 'plant' or 'subplant'
+        conversion_type: which data to load, either 'regression' or 'ratio'
+        threshold_column: name of the column to be used to filter values
+        lower_threshold: the value below which in threshold_column the conversion factors should be removed
+        upper_threshold: the value above which in threshold_column the conversion factors should be removed
+    Returns:
+        gtn_data: pandas dataframe containing revevant keys and conversion factors
+    """
+    gtn_data = pd.read_csv(
+        f"../data/output/gross_to_net/{level}_gross_to_net_{conversion_type}.csv"
+    )
+
+    # filter the data based on the upper and lower thresholds, if specified
+    if lower_threshold is not None:
+        gtn_data = gtn_data[gtn_data[threshold_column] >= lower_threshold]
+
+    if upper_threshold is not None:
+        gtn_data = gtn_data[gtn_data[threshold_column] <= upper_threshold]
+
+    # if loading regression data, add a count of units in each subplant to the regression results
+    if conversion_type == "regression":
+        subplant_crosswalk = pd.read_csv(
+            "../data/output/subplant_crosswalk/subplant_crosswalk.csv"
+        )
+        subplant_crosswalk = subplant_crosswalk[
+            ["plant_id_eia", "unitid", "subplant_id"]
+        ].drop_duplicates()
+
+        if level == "plant":
+            groupby_columns = ["plant_id_eia"]
+        elif level == "subplant":
+            groupby_columns = ["plant_id_eia", "subplant_id"]
+        subplant_crosswalk = (
+            subplant_crosswalk.groupby(groupby_columns)
+            .count()
+            .reset_index()
+            .rename(columns={"unitid": f"units_in_{level}"})
+        )
+
+        gtn_data = gtn_data.merge(
+            subplant_crosswalk, how="left", on=groupby_columns, validate="many_to_one"
+        )
+
+        # divide the intercept by the number of units in each subplant to evenly distribute this to each unit
+        gtn_data["intercept"] = gtn_data["intercept"] / gtn_data[f"units_in_{level}"]
+
+    # make sure the report date column is a datetime if loading ratios
+    if conversion_type == "ratio":
+        gtn_data["report_date"] = pd.to_datetime(gtn_data["report_date"])
+
+    return gtn_data
