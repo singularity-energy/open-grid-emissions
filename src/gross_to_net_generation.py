@@ -98,6 +98,7 @@ def load_cems_gross_generation(start_year, end_year):
         cems_columns = [
             "plant_id_eia",
             "unitid",
+            "unit_id_epa",
             "operating_datetime_utc",
             "operating_time_hours",
             "gross_load_mw",
@@ -131,10 +132,10 @@ def load_cems_gross_generation(start_year, end_year):
         # add a report date
         cems = data_cleaning.add_report_date(cems)
 
-        cems = cems[["plant_id_eia", "unitid", "report_date", "gross_generation_mwh"]]
+        cems = cems[["plant_id_eia", "unitid","unit_id_epa", "report_date", "gross_generation_mwh"]]
 
         # group data by plant, unit, month
-        cems = cems.groupby(["plant_id_eia", "unitid", "report_date"]).sum()
+        cems = cems.groupby(["plant_id_eia", "unitid", "unit_id_epa", "report_date"]).sum()
 
         cems_all.append(cems)
 
@@ -204,7 +205,7 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
     
     """
 
-    ids = cems_monthly[["plant_id_eia", "unitid"]].drop_duplicates()
+    ids = cems_monthly[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
 
     # load the crosswalk and filter it by the data that actually exists in cems
     crosswalk = pudl.output.epacems.epa_crosswalk()
