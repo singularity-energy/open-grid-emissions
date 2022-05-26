@@ -1,3 +1,42 @@
+-------------------------------------------------------------------------------
+Branch car-342-clean-cems-and-eia923
+-------------------------------------------------------------------------------
+## General
+- Respond to validation checks that are failing.
+- Clean up the `test_distribute_923.ipynb` notebook to remove cells that we no longer are using for testing. Keeping this notebook for now becuase it is still useful for loading and exploring EIA tables from PUDL
+- Improve power sector data crosswalk with additional manual matches
+
+## EIA-923 data
+- there were certain plant months for which co2 emissions were not calculated. Most of these have a fuel code of "OTH" which has no default emisisons rate. WE manually updated these plant fuel codes to OG, since they are refinery plants
+- Fixed the function for identifying geothermal emissions factor. Now defaults to using a generator-specific emissions factor
+
+## Crosswalking EIA and CEMS at the subplant level
+Being able to match data reported in CEMS to data reported in EIA-923 is important for two reasons:
+ - it allows us to identify generation and emissions data that is missing from CEMS and needs to be allocated to an hourly profile
+ - it allows us to compare gross generation reported in CEMS to net generation reported in EIA-923, and then calculate the relationship between the two so that hourly gross generation in CEMS can be converted to hourly net generation.
+
+However, performing this matchup is challenging for two reasons:
+ - EIA and EPA do not always use the same plant ID code for the same plant
+ - EPA reports data at the "unit" level, while EIA reports data at the "generator" level, which can be related to each other in 1:1, 1:m, m:1, or m:m relationships.
+
+These challenges can be partially overcome using the EPA's power system data crosswalk, which identifies most of these relationships between plant IDs, generators, and units. When comparing data between the two datasets, we want to ensure that we are comparing the same sources of data. When units and generators have a 1:1 relationship, this is straightforward. However, when there are m:m relationships, this becomes more challenging. Thus, we create new subplant IDs, which identify distinct clusters of these unit-generator relationships.
+
+Besides identifying these subplant clusters, we also want to identify if we have complete data for each cluster when we are comparing it, for example when calculating a gross to net generation ratio. For example, if we have a plant with units A, B, and C that are related to generators 1 and 2 in a m:m relationship, we want to ensure that we have data for all three units and both generators before comparing the data. For example, if we are missing data from unit C in a certain month, we would want to not use this month's data for calculating a gross to net ratio since the data is incomplete. However, sometimes certain units or generators in a subplant cluster retire over time. So if the reason that we were missing data from unit C in that month was because that unit retired in the previous month, we would now consider the remaining units and generators to be the complete subplant, so we should use that data. 
+
+This process has now been integrated into the main data pipeline, using five years of historical data.
+
+We have replaced `data_cleaning.identify_emissions_data_source()` with `data_cleaning.identify_hourly_data_source()` which now does this matching at the subplant level.
+
+## Gross to net generation conversion
+- Integrates the multi-year regressions of gross to net generation into the main data pipeline. 
+- Improves the speed and memory use requirements of loading multiple years of data by aggregating the hourly data to monthly upon loading.
+- Implements a hierarchical approach to converting hourly gross generation in CEMS to net generation, which uses the following approaches, in order:
+    - subplant ratio
+    - subplant regression
+    - plant ratio
+    - plant regression
+
+
 
 -------------------------------------------------------------------------------
 PR 2022-05-14
