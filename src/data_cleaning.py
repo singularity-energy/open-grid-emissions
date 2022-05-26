@@ -1261,25 +1261,25 @@ def convert_gross_to_net_generation(cems):
         ["plant_id_eia", "subplant_id", "report_date"]
     ].drop_duplicates()
     gtn_conversion = gtn_conversion.merge(
-        gtn_reg_subplant[["plant_id_eia", "subplant_id", "slope", "intercept"]],
-        how="left",
-        on=["plant_id_eia", "subplant_id"],
-    )
-    gtn_conversion = gtn_conversion.merge(
-        gtn_reg_plant[["plant_id_eia", "slope", "intercept"]],
-        how="left",
-        on=["plant_id_eia"],
-        suffixes=("_subplant", "_plant"),
-    )
-    gtn_conversion = gtn_conversion.merge(
         gtn_ratio_subplant,
         how="left",
         on=["plant_id_eia", "subplant_id", "report_date"],
     )
     gtn_conversion = gtn_conversion.merge(
+        gtn_reg_subplant[["plant_id_eia", "subplant_id", "slope", "intercept"]],
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+    )
+    gtn_conversion = gtn_conversion.merge(
         gtn_ratio_plant,
         how="left",
         on=["plant_id_eia", "report_date"],
+        suffixes=("_subplant", "_plant"),
+    )
+    gtn_conversion = gtn_conversion.merge(
+        gtn_reg_plant[["plant_id_eia", "slope", "intercept"]],
+        how="left",
+        on=["plant_id_eia"],
         suffixes=("_subplant", "_plant"),
     )
 
@@ -1288,7 +1288,18 @@ def convert_gross_to_net_generation(cems):
     gtn_conversion["gtn_constant"] = np.NaN
     gtn_conversion["gtn_method"] = np.NaN
 
-    # First, fill values with subplant regression
+    # First, fill values with subplant ratio
+    values_to_fill = gtn_conversion[
+        gtn_conversion["gtn_ratio"].isna()
+        & ~gtn_conversion["gtn_ratio_subplant"].isna()
+    ].index
+    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
+        values_to_fill, "gtn_ratio_subplant"
+    ]
+    gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
+    gtn_conversion.loc[values_to_fill, "gtn_method"] = "subplant_ratio"
+
+    # Second, fill values with subplant regression
     values_to_fill = gtn_conversion[
         gtn_conversion["gtn_ratio"].isna() & ~gtn_conversion["slope_subplant"].isna()
     ].index
@@ -1300,7 +1311,17 @@ def convert_gross_to_net_generation(cems):
     ]
     gtn_conversion.loc[values_to_fill, "gtn_method"] = "subplant_regression"
 
-    # then, fill values with plant regression
+    # Third, fill values with plant ratio
+    values_to_fill = gtn_conversion[
+        gtn_conversion["gtn_ratio"].isna() & ~gtn_conversion["gtn_ratio_plant"].isna()
+    ].index
+    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
+        values_to_fill, "gtn_ratio_plant"
+    ]
+    gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
+    gtn_conversion.loc[values_to_fill, "gtn_method"] = "plant_ratio"
+
+    # Finally, fill values with plant regression
     values_to_fill = gtn_conversion[
         gtn_conversion["gtn_ratio"].isna() & ~gtn_conversion["slope_plant"].isna()
     ].index
@@ -1311,27 +1332,6 @@ def convert_gross_to_net_generation(cems):
         values_to_fill, "intercept_plant"
     ]
     gtn_conversion.loc[values_to_fill, "gtn_method"] = "plant_regression"
-
-    # then, fill values with subplant ratio
-    values_to_fill = gtn_conversion[
-        gtn_conversion["gtn_ratio"].isna()
-        & ~gtn_conversion["gtn_ratio_subplant"].isna()
-    ].index
-    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
-        values_to_fill, "gtn_ratio_subplant"
-    ]
-    gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
-    gtn_conversion.loc[values_to_fill, "gtn_method"] = "subplant_ratio"
-
-    # then, fill values with plant ratio
-    values_to_fill = gtn_conversion[
-        gtn_conversion["gtn_ratio"].isna() & ~gtn_conversion["gtn_ratio_plant"].isna()
-    ].index
-    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
-        values_to_fill, "gtn_ratio_plant"
-    ]
-    gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
-    gtn_conversion.loc[values_to_fill, "gtn_method"] = "plant_ratio"
 
     # for any remaining values, use an assumed value of 85%
     # TODO: identify assumed GTN ratio based on prime mover and fuel type of subplant

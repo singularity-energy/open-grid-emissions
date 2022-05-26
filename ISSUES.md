@@ -1,5 +1,32 @@
+# HIGH PRIORITY
+
 ## General data cleaning
-- [ ] fix issue where subplant id is NA - maybe assign 0?
+- [-] fix issue where subplant id is NA - maybe assign 0?
+
+## Gross to net generation conversion
+- [ ] Add method to deal with negative GTN ratios
+
+## Emissions data
+- [ ] Implement biomass adjustments
+
+## EIA-923 Data Cleaning
+- [ ] Allocate 99999 data from EIA 923
+- [ ] Check performance of allocation when net generation is negative
+
+## Distributing EIA-923 to Hourly
+- [ ] Develop method for partial_cems plants
+- [ ] Distribute data at plant level instead of BA-fuel level
+- [ ] Assign flat profile to Geothermal and biomass generation
+- [ ] Identify BAs where "Other" category includes a single fuel type
+- [ ] Assign a profile to missing wind and solar data if none provided in 930
+For plants with negative net generation
+ - [ ] If no fuel consumption, assign a flat profile
+ - [ ] If fuel consumption, adjust hourly profile
+
+# LOWER PRIORITY
+
+## General data cleaning
+- [ ] For heat rate validation test, group by fuel and PM
 - [ ] Figure out what to do with retired BAs
 - [ ] Figure out what to do with energy storage
 - [ ] Remove steam-only plants from CEMS (or plants that have no generation)
@@ -9,7 +36,6 @@
 ## Gross to net generation conversion
 - [ ] Filter out regression values if slope > 1?
 - [ ] if regression intercept is positive, re-run regression forcing intercept through zero
-- [ ] Add method to deal with negative GTN ratios
 - [ ] Improve method for assumed values in GTN conversion (identigy similar plant types)
 - [ ] Look into whether imputation of missing gross generation is needed
    - very small amount of emissions
@@ -17,27 +43,10 @@
 - [ ] Look into combined cycle units (GTN > 1) to see if this is working correctly
 
 ## Emissions data
-- [ ] Implement biomass adjustments
 - [ ] Finish identifying cems_ids with missing fuel codes
 - [ ] Update fuel type assignment in CEMS to use monthly and/or weighed average EFs for filling
 - [-] clean "other" fuel codes based on EPA static tables
 - [ ] ID plants missing from egrid that have near-zero data
-
-## EIA-923 Data Cleaning
-- [ ] Allocate 99999 data from EIA 923
-- [ ] Check performance of allocation when net generation is negative
-
-## EIA-930 data
-- [-] In `gridemissions/src/gridemissions/clean.py`, lines 92-100, chalendar currently assigns a static flat profile to geothermal and biomass emissions. These lines should be removed for now. We can add flat profiles for these fuel types in the main data pipeline.
-
-## Distributing EIA-923 to Hourly
-- [ ] Distribute data at plant level instead of BA-fuel level
-- [ ] Assign flat profile to Geothermal and biomass generation
-- [ ] Identify BAs where "Other" category includes a single fuel type
-- [ ] Assign a profile to missing wind and solar data if none provided in 930
-For plants with negative net generation
- - [ ] If no fuel consumption, assign a flat profile
- - [ ] If fuel consumption, adjust hourly profile
 
 ## Validation
 - [ ] Filter known issues from egrid validation metrics

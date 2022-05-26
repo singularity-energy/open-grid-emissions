@@ -1,3 +1,4 @@
+from audioop import cross
 import pandas as pd
 import numpy as np
 import statsmodels.formula.api as smf
@@ -25,10 +26,12 @@ def identify_subplants_and_gtn_conversions(year, number_of_years):
     )
 
     # add subplant ids to the data
+    print("Creating subplant IDs")
     cems_monthly, gen_fuel_allocated = generate_subplant_ids(
         start_year, end_year, cems_monthly, gen_fuel_allocated
     )
 
+    print("Calculating Gross to Net regressions and ratios")
     # perform regression at subplant level
     gross_to_net_regression(
         gross_gen_data=cems_monthly,
@@ -103,9 +106,9 @@ def load_cems_gross_generation(start_year, end_year):
         # load the CEMS data
         cems = pd.read_parquet(cems_path, columns=cems_columns)
 
-        # only keep positive gross generation values
+        # only keep values when the plant was operating
         # this will help speed up calculations and allow us to add this data back later
-        cems = cems[cems["gross_load_mw"] > 0]
+        cems = cems[(cems["gross_load_mw"] > 0) | (cems["operating_time_hours"] > 0)]
 
         # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
         # rename the heat content column to use the convention used in the EIA data
@@ -140,6 +143,49 @@ def load_cems_gross_generation(start_year, end_year):
     return cems
 
 
+def manual_crosswalk_updates(crosswalk):
+    # load manual matches
+    crosswalk_manual = pd.read_csv("../data/manual/epa_eia_crosswalk_manual.csv").drop(
+        columns=["notes"]
+    )
+    crosswalk_manual = crosswalk_manual.rename(
+        columns={
+            "plant_id_epa": "CAMD_PLANT_ID",
+            "unitid": "CAMD_UNIT_ID",
+            "plant_id_eia": "EIA_PLANT_ID",
+            "generator_id": "EIA_GENERATOR_ID",
+        }
+    )
+
+    # The EPA's crosswalk document incorrectly maps plant_id_epa 55248 to plant_id_eia 55248
+    # the correct plant_id_eia is 2847
+    crosswalk.loc[crosswalk["CAMD_PLANT_ID"] == 55248, "EIA_PLANT_ID"] = 2847
+
+    # move missing crosswalk matches to a different dataframe
+    unmatched = crosswalk.copy()[crosswalk["EIA_GENERATOR_ID"].isna()]
+    crosswalk = crosswalk[~crosswalk["EIA_GENERATOR_ID"].isna()]
+
+    # append the manual data to the crosswalk
+    crosswalk = pd.concat([crosswalk, crosswalk_manual], axis=0)
+
+    # filter the list of unmatched generators to those that were not in our manual list
+    unmatched = unmatched.merge(
+        crosswalk_manual,
+        how="outer",
+        on=["CAMD_PLANT_ID", "CAMD_UNIT_ID"],
+        indicator="source",
+        suffixes=(None, "_manual"),
+    )
+    unmatched = unmatched[unmatched["source"] == "left_only"].drop(
+        columns=["EIA_PLANT_ID_manual", "EIA_GENERATOR_ID_manual", "source"]
+    )
+
+    # add these back to the crosswalk
+    crosswalk = pd.concat([crosswalk, unmatched], axis=0)
+
+    return crosswalk
+
+
 def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated):
     """
     Groups units and generators into unique subplant groups.
@@ -162,6 +208,11 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
 
     # load the crosswalk and filter it by the data that actually exists in cems
     crosswalk = pudl.output.epacems.epa_crosswalk()
+
+    # update the crosswalk with manual matches
+    crosswalk = manual_crosswalk_updates(crosswalk)
+
+    # filter the crosswalk to drop any units that don't exist in CEMS
     filtered_crosswalk = epa_crosswalk.filter_crosswalk(crosswalk, ids)[
         [
             "plant_id_eia",

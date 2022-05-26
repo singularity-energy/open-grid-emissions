@@ -1,10 +1,10 @@
-
 -------------------------------------------------------------------------------
 Branch car-342-clean-cems-and-eia923
 -------------------------------------------------------------------------------
 ## General
 - Respond to validation checks that are failing.
 - Clean up the `test_distribute_923.ipynb` notebook to remove cells that we no longer are using for testing. Keeping this notebook for now becuase it is still useful for loading and exploring EIA tables from PUDL
+- Improve power sector data crosswalk with additional manual matches
 
 ## EIA-923 data
 - there were certain plant months for which co2 emissions were not calculated. Most of these have a fuel code of "OTH" which has no default emisisons rate. WE manually updated these plant fuel codes to OG, since they are refinery plants
@@ -31,10 +31,10 @@ We have replaced `data_cleaning.identify_emissions_data_source()` with `data_cle
 - Integrates the multi-year regressions of gross to net generation into the main data pipeline. 
 - Improves the speed and memory use requirements of loading multiple years of data by aggregating the hourly data to monthly upon loading.
 - Implements a hierarchical approach to converting hourly gross generation in CEMS to net generation, which uses the following approaches, in order:
-    - subplant regression
-    - plant regression
     - subplant ratio
+    - subplant regression
     - plant ratio
+    - plant regression
 
 
 
