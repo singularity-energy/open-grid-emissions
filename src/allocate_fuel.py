@@ -580,9 +580,7 @@ def _associate_energy_source_only_wo_matching_energy_source(gen_assoc):
             ),
         )
         .drop(
-            columns=[
-                "_merge",  # 'fuel_consumed_mmbtu_fuel', 'net_generation_mwh_fuel'
-            ]
+            columns=["_merge",]  # 'fuel_consumed_mmbtu_fuel', 'net_generation_mwh_fuel'
         )
     )
     return gen_assoc_w_unassociated
@@ -824,11 +822,7 @@ def _test_frac(gen_pm_fuel):
         ratio_test_pm_fuel, ratio_test_fuel, on=IDX_FUEL, suffixes=("", "_fuel")
     ).assign(
         frac_pm_fuel=lambda x: x.frac,
-        frac=lambda x: np.where(
-            x.frac_pm_fuel.notnull(),
-            x.frac_pm_fuel,
-            x.frac_fuel,
-        ),
+        frac=lambda x: np.where(x.frac_pm_fuel.notnull(), x.frac_pm_fuel, x.frac_fuel,),
     )
 
     frac_test_bad = frac_test[~np.isclose(frac_test.frac, 1) & frac_test.frac.notnull()]
