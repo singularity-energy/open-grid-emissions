@@ -67,6 +67,26 @@ def download_pudl_data(zenodo_url):
         download_pudl(zenodo_url, pudl_version)
 
 
+def download_updated_pudl_database(download=False):
+    """
+    Downloaded the updated `pudl.sqlite` file from datasette.
+
+    This is temporary until a new version of the data is published on zenodo
+    """
+    if download is True:
+        print("Downloading updated pudl.sqlite from Datasette...")
+        # remove the existing file from zenodo
+        os.remove("../data/pudl/pudl_data/sqlite/pudl.sqlite")
+
+        r = requests.get("https://data.catalyst.coop/pudl.db", stream=True)
+        with open("../data/pudl/pudl_data/sqlite/pudl.sqlite", "wb") as fd:
+            for chunk in r.iter_content(chunk_size=1024 * 1024):
+                fd.write(chunk)
+
+    else:
+        pass
+
+
 def download_chalendar_files():
     """
     download_chalendar_files

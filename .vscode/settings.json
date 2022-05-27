@@ -2,5 +2,7 @@
     "python.linting.flake8Enabled": true,
     "python.linting.enabled": true,
     "python.formatting.provider": "black",
-    "editor.rulers": [80]
+    "editor.rulers": [
+        88
+    ]
 }

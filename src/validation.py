@@ -249,6 +249,6 @@ def test_gtn_results(df):
     gtn_test = df[df["net_generation_mwh"] > df["gross_generation_mwh"]]
     if not gtn_test.empty:
         print(
-            f"Warning: There are {len(gtn_test)} records where net generation > gross generation. See `gtn_test` for details"
+            f"Warning: There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
         )
     return gtn_test

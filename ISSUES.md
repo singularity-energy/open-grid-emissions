@@ -1,15 +1,17 @@
 # HIGH PRIORITY
 
 ## General data cleaning
-- [-] fix issue where subplant id is NA - maybe assign 0?
+- [-] fix issue where subplant id is NA: The subplant id is only created for generators that have a corresponding unit in CEMS - so all clean generators would not have a subplant ID. Thus, we should not use subplants 
 
 ## Gross to net generation conversion
 - [ ] Add method to deal with negative GTN ratios
+- [ ] Fix issue where net generation > gross generation
 
 ## Emissions data
 - [ ] Implement biomass adjustments
 
 ## EIA-923 Data Cleaning
+- [ ] Many generators are missing prime mover codes, which is one of the primary keys used to allocate generation and fuel. These are missing because the PUDL 860 table used to treat a prime mover as a static attribute, so if it changed over time, it became NA. This has been fixed in the PUDL dev branch (https://github.com/catalyst-cooperative/pudl/issues/1585) but there is not yet a sqlite dataset that can be downloaded from zenodo with this updated data
 - [ ] Allocate 99999 data from EIA 923
 - [ ] Check performance of allocation when net generation is negative
 
