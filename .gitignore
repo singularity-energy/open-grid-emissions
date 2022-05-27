@@ -17,3 +17,6 @@ notebooks/.ipynb_checkpoints
 
 # Mac junk
 .DS_Store
+
+# Don't track output files.
+output/

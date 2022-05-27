@@ -297,6 +297,31 @@ def load_emission_factors():
     )
 
 
+def load_emission_factors_nox():
+    """Read in the NOx emission factors from eGRID Table C2."""
+    return pd.read_csv(
+        "../data/egrid/egrid_static_tables/table_C2_emission_factors_for_NOx.csv"
+    )
+
+
+def load_emission_factors_so2():
+    """
+    Read in the SO2 emission factors from eGRID Table C3.
+
+    The SO2 emission rate depends on the sulfur content of fuel, so it is
+    reported in Table C3 as a formula like `123*S`.
+    """
+    df = pd.read_csv( "../data/egrid/egrid_static_tables/table_C3_emission_factors_for_SO2.csv")
+
+    # Add a boolean column that reports whether the emission factor is a formula or value.
+    df['multiply_by_sulfur_content'] = df['Emission Factor'].str.contains('*', regex=False).astype(int)
+
+    # Extract the numeric coefficient from the emission factor.
+    df['emission_factor_coeff'] = df['Emission Factor'].str.replace('*S', '', regex=False).astype(float)
+
+    return df
+
+
 def initialize_pudl_out(year=None):
     pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)

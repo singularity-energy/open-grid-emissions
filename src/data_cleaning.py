@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import statsmodels.formula.api as smf
-from pathlib import Path
 from pandas import DataFrame
 import sqlalchemy as sa
 import warnings
@@ -451,6 +450,92 @@ def calculate_co2_from_fuel_consumption(df, year):
 
     # drop intermediate columns
     df = df.drop(columns=["co2_tons_per_mmbtu", "co2_tons_per_mmbtu_geo"])
+
+    return df
+
+
+def calculate_nox_from_fuel_consumption(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate NOx emissions from fuel consumption data.
+
+    Inputs:
+        df: Should contain the following columns:
+            [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
+    
+    If the `fuel_consumed_for_electricity_units` column is available, we also
+    compute the adjusted emissions.
+    """
+    emission_factors = load_data.load_emission_factors_nox()[
+        ["Prime Mover", "Primary Fuel Type", "Emission Factor"]]
+
+    # Add the emission factors to 'df' as a column. Note the the columns names are different.
+    df = df.merge(emission_factors, how="left",
+                  left_on=["energy_source_code", "prime_mover_code"], 
+                  right_on=["Primary Fuel Type", "Prime Mover"])
+    df = df.rename(columns={"Emission Factor": "nox_lbs_per_unit", "B": "c"})
+
+    # Create a new column with the NOx mass in lbs. Note that the NOx emission
+    # rate numerator units are reported in 'lbs' already.
+    df["nox_mass_lbs"] = df["fuel_consumed_units"] * df["nox_lbs_per_unit"]
+
+    # If there is a column for electricity-related fuel consumption, add an adjusted NOx column.
+    if "fuel_consumed_for_electricity_units" in df.columns:
+        df["nox_mass_lbs_adjusted"] = (df["fuel_consumed_for_electricity_units"] * df["nox_lbs_per_unit"])
+
+    # Drop intermediate columns.
+    df = df.drop(columns=["nox_lbs_per_unit"])
+
+    return df
+
+
+def calculate_so2_from_fuel_consumption(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate SO2 emissions from fuel consumption data and fuel sulfur content.
+
+    Inputs:
+        df: Should contain the following columns:
+            [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
+    
+    If the `fuel_consumed_for_electricity_units` column is available, we also
+    compute the adjusted emissions.
+    """
+    emission_factors = load_data.load_emission_factors_so2()[
+        ["Prime Mover", "Primary Fuel Type", "emission_factor_coeff", "multiply_by_sulfur_content"]]
+
+    boiler_fuel_923 = load_data.load_pudl_table('boiler_fuel_eia923')[
+        ["plant_id_eia", "report_date", "energy_source_code", "sulfur_content_pct"]]
+
+    # Compute average sulfur contents for each energy_source_code to use as a default.
+    mean_sulfur_content_pct = boiler_fuel_923.groupby(["energy_source_code"]).mean()
+
+    default_sulfur_each_row = mean_sulfur_content_pct.loc[boiler_fuel_923.energy_source_code]["sulfur_content_pct"]
+
+    # Need to have aligned indices for fillna to work.
+    default_sulfur_each_row.index = boiler_fuel_923.index
+    boiler_fuel_923["sulfur_content_pct"] = boiler_fuel_923["sulfur_content_pct"].fillna(default_sulfur_each_row)
+
+    # Add the emission factors to 'df' as a column. Note the the columns names are different.
+    df = df.merge(emission_factors, how="left",
+                  left_on=["energy_source_code", "prime_mover_code"], 
+                  right_on=["Primary Fuel Type", "Prime Mover"])
+
+    # Add the sulfur content to 'df'.
+    df = df.merge(boiler_fuel_923, how="left",
+                  left_on=["plant_id_eia", "report_date", "energy_source_code"],
+                  right_on=["plant_id_eia", "report_date", "energy_source_code"])
+
+    df["so2_lbs_per_unit"] = df["multiply_by_sulfur_content"] * df["sulfur_content_pct"] * df["emission_factor_coeff"]
+
+    # Create a new column with the SO2 mass in lbs. Note that the SO2 emission
+    # rate numerator units are reported in 'lbs' already.
+    df["so2_mass_lbs"] = df["fuel_consumed_units"] * df["so2_lbs_per_unit"]
+
+    # If there is a column for electricity-related fuel consumption, add an adjusted SO2 column.
+    if "fuel_consumed_for_electricity_units" in df.columns:
+        df["so2_mass_lbs_adjusted"] = (df["fuel_consumed_for_electricity_units"] * df["so2_lbs_per_unit"])
+
+    # Drop intermediate columns.
+    df = df.drop(columns=["so2_lbs_per_unit", "sulfur_content_pct", "multiply_by_sulfur_content", "emission_factor_coeff"])
 
     return df
 
@@ -1635,12 +1720,11 @@ def assign_fuel_category_to_ESC(
     return df
 
 
-def clean_eia923(year):
+def clean_eia923(year, include_nox=False, include_so2=False, include_co2e=False):
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
     # Distribute net generation and heat input data reported by the three different EIA-923 tables
-
     pudl_out = load_data.initialize_pudl_out(year=2020)
 
     # allocate net generation and heat input to each generator-fuel grouping
@@ -1653,6 +1737,12 @@ def clean_eia923(year):
 
     # calculate co2 emissions for each generator-fuel based on allocated fuel consumption
     gen_fuel_allocated = calculate_co2_from_fuel_consumption(gen_fuel_allocated, year)
+
+    if include_nox:
+        gen_fuel_allocated = calculate_nox_from_fuel_consumption(gen_fuel_allocated)
+
+    if include_so2:
+        gen_fuel_allocated = calculate_so2_from_fuel_consumption(gen_fuel_allocated)
 
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
