@@ -1,3 +1,70 @@
+CHANGELOG
+
+-------------------------------------------------------------------------------
+# Branch grgmiller/car-342-clean-cems-and-eia923 (PR 2022-05-28) 
+-------------------------------------------------------------------------------
+
+Closes #20, partially addresses #17
+
+## Repository Organization
+- Moves all validation functions from the `data_pipeline.ipynb` to a separate notebook `data_validation.ipynb`. `data_pipeline` now exports all relevant intermediate files as csvs, that are then read into `data_validation`
+- Reorganizes the `data` directory:
+    - `data/downloads` contains all files that are downloaded by functions in `load_data`
+    - `data/manual` contains all manually-created files, including the egrid static tables
+    - `data/outputs` contains intermediate outputs from the data pipeline... any files created by our code that are not final results
+    - `data/results` contains all final output files that will be published
+- NOTE: results have not yet been generated/tested
+
+## EIA-923 cleaning
+- Many generators were missing prime mover codes, which is one of the primary keys used to allocate generation and fuel. These are missing because the PUDL 860 table used to treat a prime mover as a static attribute, so if it changed over time, it became NA. This has been fixed in the PUDL dev branch (https://github.com/catalyst-cooperative/pudl/issues/1585) and in Datasette, but not in the zenodo archive. Thus, we are temporarily adding the function `load_data.download_updated_pudl_database(download=True)` which replaces the zenodo version of `pudl.sqlite` with the Datasette version of the file.
+
+## Emissions
+- Adds calculations for N2O, CH4, NOx, and SO2 emissions in addition to CO2 emissions
+- There is still some data cleaning that needs to be implemented for these new emissions, but the pipeline for these is substantially complete
+- We are not yet implementing calculations of CO2e emissions, because there are a variety of GWPs that can be used to convert CO2, CH4, and N2O to CO2e
+- there were certain plant months for which co2 emissions were not calculated. Most of these have a fuel code of "OTH" which has no default emisisons rate. We manually updated these plant fuel codes to OG, since they are refinery plants
+- Fixed the function for identifying geothermal emissions factor. Now defaults to using a generator-specific emissions factor
+
+## Emissions adjustments
+- Adjust emissions for biomass. There are now three different columns related to emissions:
+    - `co2_mass_tons`: total co2 emissions
+    - `co2_mass_tons_for_electricity`: `co2_mass_tons` adjusted for CHP
+    - `co2_mass_tons_adjusted`: `co2_mass_tons_for_electricity` adjusted for biomass
+- Fixes issue where all MSW generation was assigned the MSW fuel code, instead of the MSB and MSN codes, which have different emission rates
+- Updates the CHP allocation method to align with the method used in eGRID
+
+
+## Crosswalking EIA and CEMS at the subplant level
+Being able to match data reported in CEMS to data reported in EIA-923 is important for two reasons:
+ - it allows us to identify generation and emissions data that is missing from CEMS and needs to be allocated to an hourly profile
+ - it allows us to compare gross generation reported in CEMS to net generation reported in EIA-923, and then calculate the relationship between the two so that hourly gross generation in CEMS can be converted to hourly net generation.
+
+However, performing this matchup is challenging for two reasons:
+ - EIA and EPA do not always use the same plant ID code for the same plant
+ - EPA reports data at the "unit" level, while EIA reports data at the "generator" level, which can be related to each other in 1:1, 1:m, m:1, or m:m relationships.
+
+These challenges can be partially overcome using the EPA's power system data crosswalk, which identifies most of these relationships between plant IDs, generators, and units. When comparing data between the two datasets, we want to ensure that we are comparing the same sources of data. When units and generators have a 1:1 relationship, this is straightforward. However, when there are m:m relationships, this becomes more challenging. Thus, we create new subplant IDs, which identify distinct clusters of these unit-generator relationships.
+
+Besides identifying these subplant clusters, we also want to identify if we have complete data for each cluster when we are comparing it, for example when calculating a gross to net generation ratio. For example, if we have a plant with units A, B, and C that are related to generators 1 and 2 in a m:m relationship, we want to ensure that we have data for all three units and both generators before comparing the data. For example, if we are missing data from unit C in a certain month, we would want to not use this month's data for calculating a gross to net ratio since the data is incomplete. However, sometimes certain units or generators in a subplant cluster retire over time. So if the reason that we were missing data from unit C in that month was because that unit retired in the previous month, we would now consider the remaining units and generators to be the complete subplant, so we should use that data. 
+
+This process has now been integrated into the main data pipeline, using five years of historical data.
+
+We have replaced `data_cleaning.identify_emissions_data_source()` with `data_cleaning.identify_hourly_data_source()` which now does this matching at the subplant level.
+
+## Gross to net generation conversion
+- Integrates the multi-year regressions of gross to net generation into the main data pipeline. 
+- Improves the speed and memory use requirements of loading multiple years of data by aggregating the hourly data to monthly upon loading.
+- If the regression leads to an intecept > 0 (implying house loads are adding generation), re-calculate the regression, forcing the intercept through zero.
+- Implements a hierarchical approach to converting hourly gross generation in CEMS to net generation, which uses the following approaches, in order:
+    - subplant ratio
+    - subplant regression
+    - plant ratio
+    - plant regression
+
+## Other
+- Respond to validation checks that are failing.
+- Clean up the `test_distribute_923.ipynb` notebook to remove cells that we no longer are using for testing. Keeping this notebook for now becuase it is still useful for loading and exploring EIA tables from PUDL
+- Improve power sector data crosswalk with additional manual matches
 
 -------------------------------------------------------------------------------
 PR 2022-05-14
