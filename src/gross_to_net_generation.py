@@ -63,7 +63,7 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
 
     # load and clean EIA data
     # create pudl_out
-    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:///../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
     pudl_out = pudl.output.pudltabl.PudlTabl(
         pudl_engine,
@@ -92,7 +92,7 @@ def load_cems_gross_generation(start_year, end_year):
     for year in range(start_year, end_year + 1):
         print(f"loading {year} CEMS data")
         # specify the path to the CEMS data
-        cems_path = f"../data/pudl/pudl_data/parquet/epacems/year={year}"
+        cems_path = f"../data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
 
         # specify the columns to use from the CEMS database
         cems_columns = [
@@ -132,10 +132,20 @@ def load_cems_gross_generation(start_year, end_year):
         # add a report date
         cems = data_cleaning.add_report_date(cems)
 
-        cems = cems[["plant_id_eia", "unitid","unit_id_epa", "report_date", "gross_generation_mwh"]]
+        cems = cems[
+            [
+                "plant_id_eia",
+                "unitid",
+                "unit_id_epa",
+                "report_date",
+                "gross_generation_mwh",
+            ]
+        ]
 
         # group data by plant, unit, month
-        cems = cems.groupby(["plant_id_eia", "unitid", "unit_id_epa", "report_date"]).sum()
+        cems = cems.groupby(
+            ["plant_id_eia", "unitid", "unit_id_epa", "report_date"]
+        ).sum()
 
         cems_all.append(cems)
 
@@ -266,7 +276,7 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
     ]
 
     # add proposed operating dates and retirements to the subplant id crosswalk
-    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:///../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
     # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
     pudl_out_status = pudl.output.pudltabl.PudlTabl(
@@ -322,12 +332,12 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
         on=["plant_id_eia", "generator_id"],
     )
 
-    if not os.path.exists("../data/output/subplant_crosswalk"):
-        os.mkdir("../data/output/subplant_crosswalk")
+    if not os.path.exists("../data/outputs/subplant_crosswalk"):
+        os.mkdir("../data/outputs/subplant_crosswalk")
 
     # export the crosswalk to csv
     crosswalk_with_subplant_ids.to_csv(
-        "../data/output/subplant_crosswalk/subplant_crosswalk.csv", index=False
+        "../data/outputs/subplant_crosswalk.csv", index=False
     )
 
     # merge the subplant ids into each dataframe
@@ -399,11 +409,11 @@ def gross_to_net_regression(gross_gen_data, net_gen_data, agg_level):
         columns=["slope", "intercept", "rsquared", "rsquared_adj", "observations"],
     ).reset_index()
 
-    if not os.path.exists("../data/output/gross_to_net"):
-        os.mkdir("../data/output/gross_to_net")
+    if not os.path.exists("../data/outputs/gross_to_net"):
+        os.mkdir("../data/outputs/gross_to_net")
 
     gtn_regression.to_csv(
-        f"../data/output/gross_to_net/{agg_level}_gross_to_net_regression.csv",
+        f"../data/outputs/gross_to_net/{agg_level}_gross_to_net_regression.csv",
         index=False,
     )
 
@@ -430,7 +440,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level):
 
     # load the activation and retirement dates into the data
     subplant_crosswalk = pd.read_csv(
-        f"../data/output/subplant_crosswalk/subplant_crosswalk.csv"
+        f"../data/outputs/subplant_crosswalk.csv"
     )
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,
@@ -472,11 +482,11 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level):
 
     gtn_ratio = gtn_ratio[groupby_columns + ["gtn_ratio"]]
 
-    if not os.path.exists("../data/output/gross_to_net"):
-        os.mkdir("../data/output/gross_to_net")
+    if not os.path.exists("../data/outputs/gross_to_net"):
+        os.mkdir("../data/outputs/gross_to_net")
 
     gtn_ratio.to_csv(
-        f"../data/output/gross_to_net/{agg_level}_gross_to_net_ratio.csv", index=False
+        f"../data/outputs/gross_to_net/{agg_level}_gross_to_net_ratio.csv", index=False
     )
 
 
@@ -509,6 +519,8 @@ def model_gross_to_net(df):
             model, outliers = model_data(df)
 
             # find and remove outliers recursively up to two times
+            # the first time removes any obvious outliers
+            # the second time removes any outliers that may have been masked by the first outliers
             if abs(outliers["student_resid"]).max() > 3:
                 # remove any outlier values
                 df = df[
@@ -541,6 +553,20 @@ def model_gross_to_net(df):
             rsquared = model.rsquared
             rsquared_adj = model.rsquared_adj
             number_observations = model.nobs
+
+            # if the intercept is positive, it may result in calculated net generation being larger than gross generation
+            # thus, in this case, we will re-run the regression, forcing the intercept through zero
+            if intercept > 0:
+                # get a linear model for the data points, forcing the intercept through zero
+                model = smf.ols(
+                    "net_generation_mw ~ gross_generation_mw - 1", data=df
+                ).fit()
+                # get outputs of final adjusted model
+                slope = model.params[0]
+                intercept = 0
+                rsquared = model.rsquared
+                rsquared_adj = model.rsquared_adj
+                number_observations = model.nobs
 
             return slope, intercept, rsquared, rsquared_adj, number_observations
 

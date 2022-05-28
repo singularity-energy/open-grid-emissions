@@ -5,7 +5,7 @@ import numpy as np
 def load_egrid_plant_file(year):
     # load plant level data from egrid
     egrid_plant = pd.read_excel(
-        f"../data/egrid/egrid{year}_data.xlsx",
+        f"../data/downloads/egrid/egrid{year}_data.xlsx",
         sheet_name=f"PLNT{str(year)[-2:]}",
         header=1,
         usecols=[
@@ -37,24 +37,28 @@ def load_egrid_plant_file(year):
             "PNAME": "plant_name",
             "UNHTIT": "fuel_consumed_mmbtu",
             "PLHTIANT": "fuel_consumed_for_electricity_mmbtu",
-            "UNCO2": "co2_mass_tons",
-            "PLCO2AN": "co2_mass_tons_adjusted",
+            "UNCO2": "co2_mass_lb", # this is actually in tons, but we are converting in the next step
+            "PLCO2AN": "co2_mass_lb_adjusted", # this is actually in tons, but we are converting in the next step
         }
     )
+
+    # convert co2 mass tons to lb
+    egrid_plant['co2_mass_lb'] = egrid_plant['co2_mass_lb'] * 2000
+    egrid_plant['co2_mass_lb_adjusted'] = egrid_plant['co2_mass_lb_adjusted'] * 2000
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
     clean_fuels = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
     egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_tons_adjusted"
+        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb_adjusted"
     ] = egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_tons_adjusted"
+        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb_adjusted"
     ].fillna(
         0
     )
     egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_tons"
+        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb"
     ] = egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_tons"
+        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb"
     ].fillna(
         0
     )
@@ -70,8 +74,8 @@ def load_egrid_plant_file(year):
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
-            "co2_mass_tons",
-            "co2_mass_tons_adjusted",
+            "co2_mass_lb",
+            "co2_mass_lb_adjusted",
         ]
     ]
 
@@ -84,8 +88,8 @@ def load_egrid_plant_file(year):
                     "net_generation_mwh",
                     "fuel_consumed_mmbtu",
                     "fuel_consumed_for_electricity_mmbtu",
-                    "co2_mass_tons",
-                    "co2_mass_tons_adjusted",
+                    "co2_mass_lb",
+                    "co2_mass_lb_adjusted",
                 ]
             ].sum(axis=1)
             == 0
@@ -109,7 +113,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        "../data/egrid/egrid_static_tables/2020/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv"
+        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv"
     )
     id_map = dict(
         zip(
@@ -164,7 +168,7 @@ def test_chp_allocation(df):
 
 def test_for_missing_co2(df):
     missing_co2_test = df[
-        df["co2_mass_tons"].isna() & ~df["fuel_consumed_mmbtu"].isna()
+        df["co2_mass_lb"].isna() & ~df["fuel_consumed_mmbtu"].isna()
     ]
     if not missing_co2_test.empty:
         print(

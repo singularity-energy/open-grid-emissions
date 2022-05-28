@@ -9,6 +9,14 @@ Branch car-342-clean-cems-and-eia923
 ## EIA-923 data
 - there were certain plant months for which co2 emissions were not calculated. Most of these have a fuel code of "OTH" which has no default emisisons rate. WE manually updated these plant fuel codes to OG, since they are refinery plants
 - Fixed the function for identifying geothermal emissions factor. Now defaults to using a generator-specific emissions factor
+- Many generators were missing prime mover codes, which is one of the primary keys used to allocate generation and fuel. These are missing because the PUDL 860 table used to treat a prime mover as a static attribute, so if it changed over time, it became NA. This has been fixed in the PUDL dev branch (https://github.com/catalyst-cooperative/pudl/issues/1585) and in Datasette, but not in the zenodo archive. Thus, we are temporarily adding the function `load_data.download_updated_pudl_database(download=True)` which replaces the zenodo version of `pudl.sqlite` with the Datasette version of the file.
+
+## Emissions adjustments
+- Fixes issue where all MSW generation was assigned the MSW fuel code, instead of the MSB and MSN codes, which have different emission rates
+- Adjust emissions for biomass. There are now three different columns related to emissions:
+    - `co2_mass_tons`: total co2 emissions
+    - `co2_mass_tons_for_electricity`: `co2_mass_tons` adjusted for CHP
+    - `co2_mass_tons_adjusted`: `co2_mass_tons_for_electricity` adjusted for biomass
 
 ## Crosswalking EIA and CEMS at the subplant level
 Being able to match data reported in CEMS to data reported in EIA-923 is important for two reasons:

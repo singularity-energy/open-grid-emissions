@@ -1,17 +1,33 @@
 # HIGH PRIORITY
 
+## Short-term priorities
+
+- [ ] Output final files
+- [ ] Split functions related to hourly distribution to separate file (starting at data cleaning / identify hourly data source)
+- [ ] Insert placeholder for consumption-based emissions calculations
+- [ ] Partial cems calculation method
+- [ ] Test gross to net emissions ordering using residual 
+- [x] Rename and clean up data outputs
+- [x] Draft output file structure
+- [x] Calculate CH4, N2O, and CO2e emissions
+- [x] Output intermediate files
+- [x] Move validation to separate notebook
+
+
 ## General data cleaning
-- [-] fix issue where subplant id is NA: The subplant id is only created for generators that have a corresponding unit in CEMS - so all clean generators would not have a subplant ID. Thus, we should not use subplants 
+- [-] When subplant ID is NA in CEMS, make sure it is correctly merging with the EIA data
+- [ ] Export intermediate files 
+- [ ] Check MSW codes - make sure this was done correctly
+- [ ] Identify and remove hourly values in CEMS that appear to be outliers
 
 ## Gross to net generation conversion
+- [ ] Create annual residual metric to evaluate what order I should do methods in
 - [ ] Add method to deal with negative GTN ratios
-- [ ] Fix issue where net generation > gross generation
-
-## Emissions data
-- [ ] Implement biomass adjustments
+- [ ] Revise assumption for assumed GTN value
+- [-] Fix issue where net generation > gross generation
 
 ## EIA-923 Data Cleaning
-- [ ] Many generators are missing prime mover codes, which is one of the primary keys used to allocate generation and fuel. These are missing because the PUDL 860 table used to treat a prime mover as a static attribute, so if it changed over time, it became NA. This has been fixed in the PUDL dev branch (https://github.com/catalyst-cooperative/pudl/issues/1585) but there is not yet a sqlite dataset that can be downloaded from zenodo with this updated data
+
 - [ ] Allocate 99999 data from EIA 923
 - [ ] Check performance of allocation when net generation is negative
 
@@ -29,6 +45,7 @@ For plants with negative net generation
 
 ## General data cleaning
 - [ ] For heat rate validation test, group by fuel and PM
+- [ ] Remove `cems_id` column in favor of outer merges
 - [ ] Figure out what to do with retired BAs
 - [ ] Figure out what to do with energy storage
 - [ ] Remove steam-only plants from CEMS (or plants that have no generation)
