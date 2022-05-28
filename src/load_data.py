@@ -120,8 +120,12 @@ def download_chalendar_files():
                     fd.write(chunk)
 
             # Unzip
-            with gzip.open(f"../data/downloads/eia930/chalendar/{filename}.gz", "rb") as f_in:
-                with open(f"../data/downloads/eia930/chalendar/{filename}", "wb") as f_out:
+            with gzip.open(
+                f"../data/downloads/eia930/chalendar/{filename}.gz", "rb"
+            ) as f_in:
+                with open(
+                    f"../data/downloads/eia930/chalendar/{filename}", "wb"
+                ) as f_out:
                     shutil.copyfileobj(f_in, f_out)
             os.remove(f"../data/downloads/eia930/chalendar/{filename}.gz")
 
@@ -163,7 +167,9 @@ def download_eia930_data(years_to_download):
     # download the egrid files
     for year in years_to_download:
         for period in ["Jan_Jun", "Jul_Dec"]:
-            if os.path.exists(f"../data/downloads/eia930/EIA930_BALANCE_{year}_{period}.csv"):
+            if os.path.exists(
+                f"../data/downloads/eia930/EIA930_BALANCE_{year}_{period}.csv"
+            ):
                 print(f"{year}_{period} data already downloaded")
             else:
                 print(f"downloading {year}_{period} data")
@@ -260,7 +266,7 @@ def load_cems_data(year):
     )
 
     # convert co2 mass in tons to lb
-    cems['co2_mass_lb'] = cems["co2_mass_tons"] * 2000
+    cems["co2_mass_lb"] = cems["co2_mass_tons"] * 2000
 
     # add a unique unit id
     cems["cems_id"] = (
@@ -324,19 +330,49 @@ def load_emission_factors():
     efs["co2_tons_per_mmbtu"] = efs["co2_tons_per_mmbtu"] * 2000
 
     # rename the columns
-    efs = efs.rename(
-        columns={
-            "co2_tons_per_mmbtu": "co2_lb_per_mmbtu",
-            "CH4 EF (lb CH4/mmBtu)": "ch4_lb_per_mmbtu",
-            "N2O EF (lb N2O/mmBtu)": "n2o_lb_per_mmbtu",
-        }
-    )
+    efs = efs.rename(columns={"co2_tons_per_mmbtu": "co2_lb_per_mmbtu"})
 
     return efs
 
 
+def load_emission_factors_nox():
+    """Read in the NOx emission factors from eGRID Table C2."""
+    return pd.read_csv(
+        "../data/manual/egrid_static_tables/table_C2_emission_factors_for_NOx.csv"
+    )
+
+
+def load_emission_factors_so2():
+    """
+    Read in the SO2 emission factors from eGRID Table C3.
+
+    The SO2 emission rate depends on the sulfur content of fuel, so it is
+    reported in Table C3 as a formula like `123*S`.
+    """
+    df = pd.read_csv(
+        "../data/manual/egrid_static_tables/table_C3_emission_factors_for_SO2.csv"
+    )
+
+    # Add a boolean column that reports whether the emission factor is a formula or value.
+    df["multiply_by_sulfur_content"] = (
+        df["Emission Factor"].str.contains("*", regex=False).astype(int)
+    )
+
+    # Extract the numeric coefficient from the emission factor.
+    df["emission_factor_coeff"] = (
+        df["Emission Factor"].str.replace("*S", "", regex=False).astype(float)
+    )
+
+    return df
+
+
 def initialize_pudl_out(year=None):
-    pudl_db = "sqlite:///../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
+    """
+    Initializes a `pudl_out` object used to create tables for EIA and FERC Form 1 analysis.
+
+    If `year` is set to `None`, all years of data are returned.
+    """
+    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
 
     if year is None:
@@ -344,7 +380,10 @@ def initialize_pudl_out(year=None):
     else:
 
         pudl_out = pudl.output.pudltabl.PudlTabl(
-            pudl_engine, freq="MS", start_date=f"{year}-01-01", end_date=f"{year}-12-31"
+            pudl_engine,
+            freq="MS",
+            start_date=f"{year}-01-01",
+            end_date=f"{year}-12-31",
         )
     return pudl_out
 
@@ -517,9 +556,7 @@ def load_gross_to_net_data(
 
     # if loading regression data, add a count of units in each subplant to the regression results
     if conversion_type == "regression":
-        subplant_crosswalk = pd.read_csv(
-            "../data/outputs/subplant_crosswalk.csv"
-        )
+        subplant_crosswalk = pd.read_csv("../data/outputs/subplant_crosswalk.csv")
         subplant_crosswalk = subplant_crosswalk[
             ["plant_id_eia", "unitid", "subplant_id"]
         ].drop_duplicates()

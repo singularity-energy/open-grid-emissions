@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import statsmodels.formula.api as smf
-from pathlib import Path
 from pandas import DataFrame
 import sqlalchemy as sa
 import warnings
@@ -89,9 +88,9 @@ def clean_eia923(year):
     ].round(1)
 
     # add subplant id
-    subplant_crosswalk = pd.read_csv(
-        "../data/outputs/subplant_crosswalk.csv"
-    )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+    subplant_crosswalk = pd.read_csv("../data/outputs/subplant_crosswalk.csv")[
+        ["plant_id_eia", "generator_id", "subplant_id"]
+    ].drop_duplicates()
     gen_fuel_allocated = gen_fuel_allocated.merge(
         subplant_crosswalk, how="left", on=["plant_id_eia", "generator_id"]
     )
@@ -126,6 +125,7 @@ def update_energy_source_codes(df):
     ] = "OG"
 
     return df
+
 
 def create_primary_fuel_table(gen_fuel_allocated):
     """
@@ -170,6 +170,7 @@ def create_primary_fuel_table(gen_fuel_allocated):
     )
 
     return primary_fuel_table
+
 
 def calculate_emissions_from_fuel_consumption(
     df, year, emissions_to_calc=["co2", "ch4", "n2o"]
@@ -270,6 +271,7 @@ def calculate_geothermal_emission_factors(year):
 
     return geo_efs
 
+
 def identify_geothermal_generator_geotype(year):
     """Identifies whether each geothermal generator is binary, flash, or dry steam"""
     pudl_out = load_data.initialize_pudl_out(year)
@@ -342,8 +344,6 @@ def identify_geothermal_generator_geotype(year):
     return geothermal_geotype
 
 
-
-
 def adjust_emissions_for_biomass(df):
     """Creates a new adjusted co2 emissions column that sets any biomass emissions to zero."""
     # create a column for adjusted biomass emissions, setting these emissions to zero
@@ -374,6 +374,7 @@ def adjust_emissions_for_biomass(df):
         df.loc[df["energy_source_code"] == "LFG", "n2o_mass_lb_adjusted"] = 0
 
     return df
+
 
 def remove_plants(
     df,
@@ -507,9 +508,9 @@ def clean_cems(year):
     )
 
     # add subplant id
-    subplant_crosswalk = pd.read_csv(
-        "../data/outputs/subplant_crosswalk.csv"
-    )[["plant_id_eia", "unitid", "subplant_id"]].drop_duplicates()
+    subplant_crosswalk = pd.read_csv("../data/outputs/subplant_crosswalk.csv")[
+        ["plant_id_eia", "unitid", "subplant_id"]
+    ].drop_duplicates()
     cems = cems.merge(subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"])
 
     return cems
@@ -579,6 +580,7 @@ def add_report_date(df):
 
     return df
 
+
 def crosswalk_epa_eia_plant_ids(cems, year):
     """
     Adds a column to the CEMS data that matches the EPA plant ID to the EIA plant ID
@@ -610,7 +612,6 @@ def crosswalk_epa_eia_plant_ids(cems, year):
     cems["plant_id_eia"] = cems["plant_id_eia"].astype(int)
 
     return cems
-
 
 
 def assign_fuel_type_to_cems(cems, year):
@@ -651,6 +652,7 @@ def get_epa_unit_fuel_types(year):
     )
 
     return fuel_types
+
 
 def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     """
@@ -709,6 +711,211 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     df = df.drop(columns=["energy_source_code_single"])
 
     return df
+
+
+def calculate_co2e_from_fuel_consumption(df, year):
+    """
+    Calculate CO2e emissions from fuel consumption data.
+
+    Inputs:
+        df: Should contain the following columns:
+            [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
+    
+    If the `fuel_consumed_for_electricity_units` column is available, we also
+    compute the adjusted emissions.
+    """
+    emission_factors = load_data.load_emission_factors()[
+        [
+            "energy_source_code",
+            "co2_tons_per_mmbtu",
+            "ch4_lbs_per_mmbtu",
+            "n2o_lbs_per_mmbtu",
+        ]
+    ]
+
+    df = df.merge(emission_factors, how="left", on="energy_source_code")
+
+    geothermal_efs = calculate_geothermal_emission_factors(year).rename(
+        columns={"co2_tons_per_mmbtu": "co2_tons_per_mmbtu_geo"}
+    )
+
+    # add geothermal emission factor to df
+    df = df.merge(geothermal_efs, how="left", on=["plant_id_eia", "report_date"])
+
+    # update missing efs using the geothermal efs if available
+    df["co2_tons_per_mmbtu"] = df["co2_tons_per_mmbtu"].fillna(
+        df["co2_tons_per_mmbtu_geo"]
+    )
+
+    # eGRID was updated to use AR4 in 2018
+    if year < 2018:
+        gwp_100_ch4 = 23.0
+        gwp_100_n2o = 296.0
+    else:
+        gwp_100_ch4 = 25.0
+        gwp_100_n2o = 298.0
+
+    # Compute CO2-eq mass using the same GWP factors as eGRID.
+    df["co2e_mass_tons"] = df["fuel_consumed_mmbtu"] * (
+        df["co2_tons_per_mmbtu"]
+        + gwp_100_ch4 * df["ch4_lbs_per_mmbtu"] / 2000
+        + gwp_100_n2o * df["n2o_lbs_per_mmbtu"] / 2000
+    )
+
+    # if there is a column for fuel_consumed for electricity, add an adjusted co2 column
+    if "fuel_consumed_for_electricity_mmbtu" in df.columns:
+        df["co2e_mass_tons_adjusted"] = df["fuel_consumed_for_electricity_mmbtu"] * (
+            df["co2_tons_per_mmbtu"]
+            + gwp_100_ch4 * df["ch4_lbs_per_mmbtu"] / 2000
+            + gwp_100_n2o * df["n2o_lbs_per_mmbtu"] / 2000
+        )
+
+    # drop intermediate columns
+    df = df.drop(
+        columns=[
+            "co2_tons_per_mmbtu",
+            "ch4_lbs_per_mmbtu",
+            "n2o_lbs_per_mmbtu",
+            "co2_tons_per_mmbtu_geo",
+        ]
+    )
+
+    return df
+
+
+def calculate_nox_from_fuel_consumption(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate NOx emissions from fuel consumption data.
+
+    Inputs:
+        df: Should contain the following columns:
+            [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
+    
+    If the `fuel_consumed_for_electricity_units` column is available, we also
+    compute the adjusted emissions.
+    """
+    emission_factors = load_data.load_emission_factors_nox()[
+        ["Prime Mover", "Primary Fuel Type", "Emission Factor"]
+    ]
+
+    # Add the emission factors to 'df' as a column. Note the the columns names are different.
+    df = df.merge(
+        emission_factors,
+        how="left",
+        left_on=["energy_source_code", "prime_mover_code"],
+        right_on=["Primary Fuel Type", "Prime Mover"],
+    )
+    df = df.rename(columns={"Emission Factor": "nox_lbs_per_unit", "B": "c"})
+
+    # Create a new column with the NOx mass in lbs. Note that the NOx emission
+    # rate numerator units are reported in 'lbs' already.
+    df["nox_mass_lbs"] = df["fuel_consumed_units"] * df["nox_lbs_per_unit"]
+
+    # If there is a column for electricity-related fuel consumption, add an adjusted NOx column.
+    if "fuel_consumed_for_electricity_units" in df.columns:
+        df["nox_mass_lbs_adjusted"] = (
+            df["fuel_consumed_for_electricity_units"] * df["nox_lbs_per_unit"]
+        )
+
+    # Drop intermediate columns.
+    df = df.drop(columns=["nox_lbs_per_unit"])
+
+    return df
+
+
+def calculate_so2_from_fuel_consumption(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate SO2 emissions from fuel consumption data and fuel sulfur content.
+
+    Inputs:
+        df: Should contain the following columns:
+            [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
+    
+    If the `fuel_consumed_for_electricity_units` column is available, we also
+    compute the adjusted emissions.
+    """
+    emission_factors = load_data.load_emission_factors_so2()[
+        [
+            "Prime Mover",
+            "Primary Fuel Type",
+            "emission_factor_coeff",
+            "multiply_by_sulfur_content",
+        ]
+    ]
+
+    boiler_fuel_923 = load_data.load_pudl_table("boiler_fuel_eia923")[
+        ["plant_id_eia", "report_date", "energy_source_code", "sulfur_content_pct"]
+    ]
+
+    # Compute average sulfur contents for each energy_source_code to use as a default.
+    mean_sulfur_content_pct = boiler_fuel_923.groupby(["energy_source_code"]).mean()
+
+    default_sulfur_each_row = mean_sulfur_content_pct.loc[
+        boiler_fuel_923.energy_source_code
+    ]["sulfur_content_pct"]
+
+    # Need to have aligned indices for fillna to work.
+    default_sulfur_each_row.index = boiler_fuel_923.index
+    boiler_fuel_923["sulfur_content_pct"] = boiler_fuel_923[
+        "sulfur_content_pct"
+    ].fillna(default_sulfur_each_row)
+
+    # Add the emission factors to 'df' as a column. Note the the columns names are different.
+    df = df.merge(
+        emission_factors,
+        how="left",
+        left_on=["energy_source_code", "prime_mover_code"],
+        right_on=["Primary Fuel Type", "Prime Mover"],
+    )
+
+    # Add the sulfur content to 'df'.
+    df = df.merge(
+        boiler_fuel_923,
+        how="left",
+        on=["plant_id_eia", "report_date", "energy_source_code"],
+    )
+
+    df["so2_lbs_per_unit"] = (
+        df["multiply_by_sulfur_content"]
+        * df["sulfur_content_pct"]
+        * df["emission_factor_coeff"]
+    )
+
+    # Create a new column with the SO2 mass in lbs. Note that the SO2 emission
+    # rate numerator units are reported in 'lbs' already.
+    df["so2_mass_lbs"] = df["fuel_consumed_units"] * df["so2_lbs_per_unit"]
+
+    # If there is a column for electricity-related fuel consumption, add an adjusted SO2 column.
+    if "fuel_consumed_for_electricity_units" in df.columns:
+        df["so2_mass_lbs_adjusted"] = (
+            df["fuel_consumed_for_electricity_units"] * df["so2_lbs_per_unit"]
+        )
+
+    # Drop intermediate columns.
+    df = df.drop(
+        columns=[
+            "so2_lbs_per_unit",
+            "sulfur_content_pct",
+            "multiply_by_sulfur_content",
+            "emission_factor_coeff",
+        ]
+    )
+
+    return df
+
+
+def assign_fuel_type_to_cems(cems, year):
+    "Assigns a fuel type to each observation in CEMS"
+
+    fuel_types = get_epa_unit_fuel_types(year)
+
+    # merge in the reported fuel type
+    cems = cems.merge(fuel_types, how="left", on=["plant_id_epa", "unitid"])
+
+    # TODO: fill fuel codes for plants that only have a single fossil type identified in EIA
+    cems = fill_missing_fuel_for_single_fuel_plant_months(cems, year)
+
+    return cems
 
 
 def fill_cems_missing_co2(cems, year):
@@ -896,7 +1103,6 @@ def adjust_cems_for_CHP(cems, drop_interim_columns=True):
         cems = cems.drop(columns=["heat_output_mmbtu", "frac_electricity"])
 
     return cems
-
 
 
 def identify_hourly_data_source(eia923_allocated, cems, year):
@@ -1148,8 +1354,6 @@ def assign_ba_code_to_plant(df, year):
     )
 
     return df
-
-
 
 
 def convert_gross_to_net_generation(cems):
@@ -1438,7 +1642,6 @@ def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
     return cems
 
 
-
 def ba_timezone(ba, type):
     """
     Retrieves the UTC Offset (for standard time) for a single balancing area.
@@ -1516,9 +1719,6 @@ def distribute_monthly_eia_data_to_hourly(
     hourly_eia_data["data_source"] = "EIA"
 
     return hourly_eia_data
-
-
-
 
 
 def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
