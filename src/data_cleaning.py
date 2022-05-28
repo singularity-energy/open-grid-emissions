@@ -1,3 +1,4 @@
+from multiprocessing.sharedctypes import Value
 import pandas as pd
 import numpy as np
 import statsmodels.formula.api as smf
@@ -713,7 +714,10 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     return df
 
 
-def calculate_co2e_from_fuel_consumption(df, year):
+def calculate_co2e_from_fuel_consumption(df,
+                                         ipcc_version='AR5',
+                                         gwp_horizon=100,
+                                         gwp_ccf=False):
     """
     Calculate CO2e emissions from fuel consumption data.
 
@@ -724,61 +728,33 @@ def calculate_co2e_from_fuel_consumption(df, year):
     If the `fuel_consumed_for_electricity_units` column is available, we also
     compute the adjusted emissions.
     """
-    emission_factors = load_data.load_emission_factors()[
-        [
-            "energy_source_code",
-            "co2_tons_per_mmbtu",
-            "ch4_lbs_per_mmbtu",
-            "n2o_lbs_per_mmbtu",
-        ]
-    ]
+    df_gwp = load_data.load_ipcc_gwp()
 
-    df = df.merge(emission_factors, how="left", on="energy_source_code")
+    if ipcc_version not in ("SAR", "TAR", "AR4", "AR5"):
+        raise ValueError('Unsupported option for `ipcc_version`.')
+    if gwp_horizon not in (20, 100):
+        raise ValueError('Only 20-year and 100-year global warming potentials are supported.')
+    if gwp_ccf and ipcc_version not in ('AR5'):
+        raise ValueError('Climate carbon feedback (CCF) is only available for AR5.')
 
-    geothermal_efs = calculate_geothermal_emission_factors(year).rename(
-        columns={"co2_tons_per_mmbtu": "co2_tons_per_mmbtu_geo"}
-    )
+    if gwp_ccf:
+        ipcc_version += 'f'
 
-    # add geothermal emission factor to df
-    df = df.merge(geothermal_efs, how="left", on=["plant_id_eia", "report_date"])
+    ch4_gwp_factor = df_gwp[df['ipcc_version'] == ipcc_version][f'ch4_{gwp_horizon}_year']
+    n2o_gwp_factor = df_gwp[df['ipcc_version'] == ipcc_version][f'n2o_{gwp_horizon}_year']
 
-    # update missing efs using the geothermal efs if available
-    df["co2_tons_per_mmbtu"] = df["co2_tons_per_mmbtu"].fillna(
-        df["co2_tons_per_mmbtu_geo"]
-    )
-
-    # eGRID was updated to use AR4 in 2018
-    if year < 2018:
-        gwp_100_ch4 = 23.0
-        gwp_100_n2o = 296.0
-    else:
-        gwp_100_ch4 = 25.0
-        gwp_100_n2o = 298.0
-
-    # Compute CO2-eq mass using the same GWP factors as eGRID.
-    df["co2e_mass_tons"] = df["fuel_consumed_mmbtu"] * (
-        df["co2_tons_per_mmbtu"]
-        + gwp_100_ch4 * df["ch4_lbs_per_mmbtu"] / 2000
-        + gwp_100_n2o * df["n2o_lbs_per_mmbtu"] / 2000
-    )
-
-    # if there is a column for fuel_consumed for electricity, add an adjusted co2 column
-    if "fuel_consumed_for_electricity_mmbtu" in df.columns:
-        df["co2e_mass_tons_adjusted"] = df["fuel_consumed_for_electricity_mmbtu"] * (
-            df["co2_tons_per_mmbtu"]
-            + gwp_100_ch4 * df["ch4_lbs_per_mmbtu"] / 2000
-            + gwp_100_n2o * df["n2o_lbs_per_mmbtu"] / 2000
-        )
-
-    # drop intermediate columns
-    df = df.drop(
-        columns=[
-            "co2_tons_per_mmbtu",
-            "ch4_lbs_per_mmbtu",
-            "n2o_lbs_per_mmbtu",
-            "co2_tons_per_mmbtu_geo",
-        ]
-    )
+    df['co2_eq_mass_lbs'] = df['co2_mass_lb'] + \
+                            ch4_gwp_factor * df['ch4_mass_lb'] + \
+                            n2o_gwp_factor * df['n2o_mass_lb']
+    
+    if 'co2_mass_lb_adjusted' in df:
+        df['co2_eq_mass_lb_adjusted'] = df['co2_mass_lb_adjusted'] + \
+                                        ch4_gwp_factor * df['ch4_mass_lb_adjusted'] + \
+                                        n2o_gwp_factor * df['n2o_mass_lb_adjusted']
+    if 'co2_mass_lb_for_electricity' in df:
+        df['co2_eq_mass_lb_for_electricity'] = df['co2_mass_lb_for_electricity'] + \
+                                               ch4_gwp_factor * df['ch4_mass_lb_for_electricity'] + \
+                                               n2o_gwp_factor * df['n2o_mass_lb_for_electricity']
 
     return df
 
