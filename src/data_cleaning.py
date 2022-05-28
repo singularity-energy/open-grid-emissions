@@ -1771,12 +1771,15 @@ def assign_fuel_category_to_ESC(
     return df
 
 
-def clean_eia923(year, include_nox=False, include_so2=False, include_co2e=False):
+def clean_eia923(year,
+                 include_nox=False,
+                 include_so2=False,
+                 include_co2e=False):
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
     # Distribute net generation and heat input data reported by the three different EIA-923 tables
-    pudl_out = load_data.initialize_pudl_out(year=2020)
+    pudl_out = load_data.initialize_pudl_out(year)
 
     # allocate net generation and heat input to each generator-fuel grouping
     gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(

@@ -323,6 +323,11 @@ def load_emission_factors_so2():
 
 
 def initialize_pudl_out(year=None):
+    """
+    Initializes a `pudl_out` object used to create tables for EIA and FERC Form 1 analysis.
+
+    If `year` is set to `None`, all years of data are returned.
+    """
     pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
 
@@ -331,7 +336,7 @@ def initialize_pudl_out(year=None):
     else:
 
         pudl_out = pudl.output.pudltabl.PudlTabl(
-            pudl_engine, freq="MS", start_date=f"{year}-01-01", end_date=f"{year}-12-31"
+            pudl_engine, freq="MS", start_date=f"{year}-01-01", end_date=f"{year}-12-31", fill_tech_desc=False
         )
     return pudl_out
 
