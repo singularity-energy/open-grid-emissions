@@ -454,6 +454,58 @@ def calculate_co2_from_fuel_consumption(df, year):
     return df
 
 
+def calculate_co2e_from_fuel_consumption(df, year):
+    """
+    Calculate CO2e emissions from fuel consumption data.
+
+    Inputs:
+        df: Should contain the following columns:
+            [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
+    
+    If the `fuel_consumed_for_electricity_units` column is available, we also
+    compute the adjusted emissions.
+    """
+    emission_factors = load_data.load_emission_factors()[
+        ["energy_source_code", "co2_tons_per_mmbtu", "ch4_lbs_per_mmbtu", "n2o_lbs_per_mmbtu"]]
+
+    df = df.merge(emission_factors, how="left", on="energy_source_code")
+
+    geothermal_efs = calculate_geothermal_emission_factors(year).rename(
+        columns={"co2_tons_per_mmbtu": "co2_tons_per_mmbtu_geo"})
+
+    # add geothermal emission factor to df
+    df = df.merge(geothermal_efs, how="left", on=["plant_id_eia", "report_date"])
+
+    # update missing efs using the geothermal efs if available
+    df["co2_tons_per_mmbtu"] = df["co2_tons_per_mmbtu"].fillna(df["co2_tons_per_mmbtu_geo"])
+
+    # eGRID was updated to use AR4 in 2018
+    if year < 2018:
+        gwp_100_ch4 = 23.0
+        gwp_100_n2o = 296.0
+    else:
+        gwp_100_ch4 = 25.0
+        gwp_100_n2o = 298.0
+
+    # Compute CO2-eq mass using the same GWP factors as eGRID.
+    df["co2e_mass_tons"] = df["fuel_consumed_mmbtu"] * \
+        (df["co2_tons_per_mmbtu"] + \
+         gwp_100_ch4 * df["ch4_lbs_per_mmbtu"] / 2000 + \
+         gwp_100_n2o * df["n2o_lbs_per_mmbtu"] / 2000)
+
+    # if there is a column for fuel_consumed for electricity, add an adjusted co2 column
+    if "fuel_consumed_for_electricity_mmbtu" in df.columns:
+        df["co2e_mass_tons_adjusted"] = df["fuel_consumed_for_electricity_mmbtu"] * \
+            (df["co2_tons_per_mmbtu"] + \
+            gwp_100_ch4 * df["ch4_lbs_per_mmbtu"] / 2000 + \
+            gwp_100_n2o * df["n2o_lbs_per_mmbtu"] / 2000)
+
+    # drop intermediate columns
+    df = df.drop(columns=["co2_tons_per_mmbtu", "ch4_lbs_per_mmbtu", "n2o_lbs_per_mmbtu", "co2_tons_per_mmbtu_geo"])
+
+    return df
+
+
 def calculate_nox_from_fuel_consumption(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate NOx emissions from fuel consumption data.
@@ -521,8 +573,7 @@ def calculate_so2_from_fuel_consumption(df: pd.DataFrame) -> pd.DataFrame:
 
     # Add the sulfur content to 'df'.
     df = df.merge(boiler_fuel_923, how="left",
-                  left_on=["plant_id_eia", "report_date", "energy_source_code"],
-                  right_on=["plant_id_eia", "report_date", "energy_source_code"])
+                  on=["plant_id_eia", "report_date", "energy_source_code"])
 
     df["so2_lbs_per_unit"] = df["multiply_by_sulfur_content"] * df["sulfur_content_pct"] * df["emission_factor_coeff"]
 
@@ -1738,22 +1789,35 @@ def clean_eia923(year, include_nox=False, include_so2=False, include_co2e=False)
     # calculate co2 emissions for each generator-fuel based on allocated fuel consumption
     gen_fuel_allocated = calculate_co2_from_fuel_consumption(gen_fuel_allocated, year)
 
+    cols_to_sum_by_generator = [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_tons",
+        "co2_mass_tons_adjusted"]
+
     if include_nox:
         gen_fuel_allocated = calculate_nox_from_fuel_consumption(gen_fuel_allocated)
+        cols_to_sum_by_generator.append("nox_mass_lbs")
+        if "fuel_consumed_for_electricity_units" in gen_fuel_allocated:
+            cols_to_sum_by_generator.append("nox_mass_lbs_adjusted")
 
     if include_so2:
         gen_fuel_allocated = calculate_so2_from_fuel_consumption(gen_fuel_allocated)
+        cols_to_sum_by_generator.append("so2_mass_lbs")
+        if "fuel_consumed_for_electricity_units" in gen_fuel_allocated:
+            cols_to_sum_by_generator.append("so2_mass_lbs_adjusted")
+    
+    if include_co2e:
+        gen_fuel_allocated = calculate_co2e_from_fuel_consumption(gen_fuel_allocated, year)
+        cols_to_sum_by_generator.append("co2e_mass_tons")
+        if "fuel_consumed_for_electricity_units" in gen_fuel_allocated:
+            cols_to_sum_by_generator.append("co2e_mass_tons_adjusted")
 
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
         gen_fuel_allocated,
-        sum_cols=[
-            "net_generation_mwh",
-            "fuel_consumed_mmbtu",
-            "fuel_consumed_for_electricity_mmbtu",
-            "co2_mass_tons",
-            "co2_mass_tons_adjusted",
-        ],
+        sum_cols=cols_to_sum_by_generator
     )
 
     # remove any plants that we don't want in the data
