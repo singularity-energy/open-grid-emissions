@@ -229,6 +229,10 @@ def load_cems_data(year):
         "steam_load_1000_lbs",
         "co2_mass_tons",
         "co2_mass_measurement_code",
+        "nox_mass_lbs",
+        "nox_mass_measurement_code",
+        "so2_mass_lbs",
+        "so2_mass_measurement_code",
         "heat_content_mmbtu",
         "unit_id_epa",
     ]
@@ -242,6 +246,10 @@ def load_cems_data(year):
         columns={
             "plant_id_eia": "plant_id_epa",
             "heat_content_mmbtu": "fuel_consumed_mmbtu",
+            "steam_load_1000_lbs": "steam_load_1000_lb",
+            "nox_mass_lbs": "nox_mass_lb",
+            "so2_mass_lbs": "so2_mass_lb",
+            "gross_load_mw": "gross_generation_mwh",  # we are going to convert this in a later step
         }
     )
 
@@ -253,17 +261,20 @@ def load_cems_data(year):
 
     # fill any missing values for operating time or steam load with zero
     cems["operating_time_hours"] = cems["operating_time_hours"].fillna(0)
-    cems["steam_load_1000_lbs"] = cems["steam_load_1000_lbs"].fillna(0)
+    cems["steam_load_1000_lb"] = cems["steam_load_1000_lb"].fillna(0)
 
     # NOTE: The co2 and heat content data are reported as rates (e.g. tons/hr) rather than absolutes
     # Thus they need to be multiplied by operating_time_hours
     # See https://github.com/catalyst-cooperative/pudl/issues/1581
     # calculate gross generation by multiplying gross_load_mw by operating_time_hours
-    cems["gross_generation_mwh"] = cems["gross_load_mw"] * cems["operating_time_hours"]
-    cems["co2_mass_tons"] = cems["co2_mass_tons"] * cems["operating_time_hours"]
-    cems["fuel_consumed_mmbtu"] = (
-        cems["fuel_consumed_mmbtu"] * cems["operating_time_hours"]
-    )
+    for col in [
+        "gross_generation_mwh",
+        "co2_mass_tons",
+        "fuel_consumed_mmbtu",
+        "nox_mass_lb",
+        "so2_mass_lb",
+    ]:
+        cems[col] = cems[col] * cems["operating_time_hours"]
 
     # convert co2 mass in tons to lb
     cems["co2_mass_lb"] = cems["co2_mass_tons"] * 2000
@@ -281,12 +292,15 @@ def load_cems_data(year):
             "cems_id",
             "operating_datetime_utc",
             "operating_time_hours",
-            "gross_load_mw",
             "gross_generation_mwh",
-            "steam_load_1000_lbs",
+            "steam_load_1000_lb",
             "fuel_consumed_mmbtu",
             "co2_mass_lb",
             "co2_mass_measurement_code",
+            "nox_mass_lb",
+            "nox_mass_measurement_code",
+            "so2_mass_lb",
+            "so2_mass_measurement_code",
             "plant_id_epa",
             "unit_id_epa",
         ]
@@ -317,7 +331,7 @@ def load_pudl_table(table_name, year=None):
     return table
 
 
-def load_emission_factors():
+def load_ghg_emission_factors():
     """
     Read in the table of emissions factors and convert to lb/mmbtu
     """
@@ -335,14 +349,21 @@ def load_emission_factors():
     return efs
 
 
-def load_emission_factors_nox():
+def load_nox_emission_factors():
     """Read in the NOx emission factors from eGRID Table C2."""
-    return pd.read_csv(
+    emission_factors = pd.read_csv(
         "../data/manual/egrid_static_tables/table_C2_emission_factors_for_NOx.csv"
     )
 
+    # standardize units as lower case
+    emission_factors["emission_factor_denominator"] = emission_factors[
+        "emission_factor_denominator"
+    ].str.lower()
 
-def load_emission_factors_so2():
+    return emission_factors
+
+
+def load_so2_emission_factors():
     """
     Read in the SO2 emission factors from eGRID Table C3.
 
@@ -355,13 +376,16 @@ def load_emission_factors_so2():
 
     # Add a boolean column that reports whether the emission factor is a formula or value.
     df["multiply_by_sulfur_content"] = (
-        df["Emission Factor"].str.contains("*", regex=False).astype(int)
+        df["emission_factor"].str.contains("*", regex=False).astype(int)
     )
 
     # Extract the numeric coefficient from the emission factor.
-    df["emission_factor_coeff"] = (
-        df["Emission Factor"].str.replace("*S", "", regex=False).astype(float)
+    df["emission_factor"] = (
+        df["emission_factor"].str.replace("*S", "", regex=False).astype(float)
     )
+
+    # standardize units as lower case
+    df["emission_factor_denominator"] = df["emission_factor_denominator"].str.lower()
 
     return df
 
@@ -372,7 +396,7 @@ def initialize_pudl_out(year=None):
 
     If `year` is set to `None`, all years of data are returned.
     """
-    pudl_db = "sqlite:///../data/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:///../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
 
     if year is None:
@@ -384,6 +408,7 @@ def initialize_pudl_out(year=None):
             freq="MS",
             start_date=f"{year}-01-01",
             end_date=f"{year}-12-31",
+            fill_tech_desc=False,
         )
     return pudl_out
 

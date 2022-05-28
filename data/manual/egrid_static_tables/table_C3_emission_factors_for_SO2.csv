@@ -1,4 +1,4 @@
-Prime Mover,Primary Fuel Type,Boiler Firing Type (if applicable),Emission Factor,Emission Factor Numerator,Emission Factor Denominator
+prime_mover_code,energy_source_code,boiler_firing_type,emission_factor,emission_factor_numerator,emission_factor_denominator
 ST,AB,N/A,0.025,lb,MMBtu
 ST,AB,STOKER,0.025,lb,MMBtu
 ST,BFG,N/A,0.0006,lb,Mcf
