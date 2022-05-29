@@ -878,6 +878,114 @@ def calculate_co2_eq_mass(df,
     return df
 
 
+def calculate_nox_from_fuel_consumption(
+    df: pd.DataFrame, pudl_out, year
+) -> pd.DataFrame:
+    """
+    Calculate NOx emissions from fuel consumption data.
+    Inputs:
+        df: Should contain the following columns:
+            [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
+    
+    If the `fuel_consumed_for_electricity_units` column is available, we also
+    compute the adjusted emissions.
+    """
+    emission_factors = load_data.load_nox_emission_factors()
+    # remove emissions factors where the unit is mmbtu
+    emission_factors = emission_factors[
+        emission_factors["emission_factor_denominator"] != "mmbtu"
+    ]
+    # for now, we do not have information about the boiler firing type
+    # thus, we will average the factors by fuel and prime mover
+    emission_factors = (
+        emission_factors.groupby(["energy_source_code", "prime_mover_code"])
+        .mean()
+        .reset_index()
+    )
+    # merge in the emission factor
+    df = df.merge(
+        emission_factors,
+        how="left",
+        on=["energy_source_code", "prime_mover_code"],
+        validate="m:1",
+    )
+    # fill missing factors with zero
+    df["emission_factor"] = df["emission_factor"].fillna(0)
+
+    # load information about the monthly heat input of fuels
+    plant_heat_content = pudl_out.gf_eia923().loc[
+        :,
+        [
+            "plant_id_eia",
+            "energy_source_code",
+            "prime_mover_code",
+            "report_date",
+            "fuel_mmbtu_per_unit",
+        ],
+    ]
+    # replace zero heat content with missing values
+    plant_heat_content["fuel_mmbtu_per_unit"] = plant_heat_content[
+        "fuel_mmbtu_per_unit"
+    ].replace(0, np.NaN)
+    # calculate the average monthly heat content for a fuel
+    fuel_heat_content = (
+        plant_heat_content.drop(columns=["plant_id_eia"])
+        .groupby(["energy_source_code", "report_date"])
+        .mean()
+        .reset_index()
+    )
+
+    # change the report date columns back to datetimes
+    plant_heat_content["report_date"] = pd.to_datetime(
+        plant_heat_content["report_date"]
+    )
+    fuel_heat_content["report_date"] = pd.to_datetime(fuel_heat_content["report_date"])
+
+    # merge the heat content, starting with plant-specific values, then filling using fuel-specific values
+    df = df.merge(
+        plant_heat_content,
+        how="left",
+        on=["plant_id_eia", "energy_source_code", "prime_mover_code", "report_date"],
+        validate="m:1",
+    )
+    df = df.merge(
+        fuel_heat_content,
+        how="left",
+        on=["energy_source_code", "report_date"],
+        validate="m:1",
+        suffixes=(None, "_generic"),
+    )
+    df["fuel_mmbtu_per_unit"] = df["fuel_mmbtu_per_unit"].fillna(
+        df["fuel_mmbtu_per_unit_generic"]
+    )
+
+    # calculate the nox emissions mass
+    df["nox_mass_lb"] = (df["fuel_consumed_mmbtu"] / df["fuel_mmbtu_per_unit"]) * df[
+        "emission_factor"
+    ]
+
+    if df["energy_source_code"].str.contains("GEO").any():
+        df = add_geothermal_emission_factors(
+            df, year, include_co2=False, include_nox=True, include_so2=False
+        )
+        df.loc[df["energy_source_code"] == "GEO", "nox_mass_lb"] = (
+            df.loc[df["energy_source_code"] == "GEO", "fuel_consumed_mmbtu"]
+            * df.loc[df["energy_source_code"] == "GEO", "nox_lb_per_mmbtu"]
+        )
+        df = df.drop(columns=["nox_lb_per_mmbtu"])
+
+    # Drop intermediate columns.
+    df = df.drop(
+        columns=[
+            "fuel_mmbtu_per_unit",
+            "fuel_mmbtu_per_unit_generic",
+            "emission_factor",
+        ]
+    )
+
+    return df
+
+
 def calculate_so2_from_fuel_consumption(
     df: pd.DataFrame, pudl_out, year
 ) -> pd.DataFrame:
