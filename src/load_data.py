@@ -588,4 +588,4 @@ def load_gross_to_net_data(
 
 def load_ipcc_gwp():
     """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
-    return pd.read_csv('../data/manual/ipcc_gwp.csv')
+    return pd.read_csv('../data/manual/ipcc_gwp.csv', index_col='ipcc_version')

@@ -1,10 +1,8 @@
-from multiprocessing.sharedctypes import Value
 import pandas as pd
 import numpy as np
 import statsmodels.formula.api as smf
 from pandas import DataFrame
 import sqlalchemy as sa
-import warnings
 
 import src.load_data as load_data
 
@@ -714,16 +712,16 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     return df
 
 
-def calculate_co2e_from_fuel_consumption(df,
-                                         ipcc_version='AR5',
-                                         gwp_horizon=100,
-                                         gwp_ccf=False):
+def calculate_co2_eq_mass(df,
+                          ipcc_version='AR5',
+                          gwp_horizon=100,
+                          ar5_climate_carbon_feedback=False):
     """
-    Calculate CO2e emissions from fuel consumption data.
+    Calculate CO2-equivalent emissions from CO2, CH4, and N2O. This is done
+    by choosing one of the IPCC's emission factors for CH4 and N2O.
 
     Inputs:
-        df: Should contain the following columns:
-            [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
+        df: Should contain at least: ['co2_mass_lb', 'ch4_mass_lb', 'n2o_mass_lb']
     
     If the `fuel_consumed_for_electricity_units` column is available, we also
     compute the adjusted emissions.
@@ -734,16 +732,19 @@ def calculate_co2e_from_fuel_consumption(df,
         raise ValueError('Unsupported option for `ipcc_version`.')
     if gwp_horizon not in (20, 100):
         raise ValueError('Only 20-year and 100-year global warming potentials are supported.')
-    if gwp_ccf and ipcc_version not in ('AR5'):
+    if ar5_climate_carbon_feedback and ipcc_version not in ('AR5'):
         raise ValueError('Climate carbon feedback (CCF) is only available for AR5.')
 
-    if gwp_ccf:
+    if ar5_climate_carbon_feedback:
         ipcc_version += 'f'
 
-    ch4_gwp_factor = df_gwp[df['ipcc_version'] == ipcc_version][f'ch4_{gwp_horizon}_year']
-    n2o_gwp_factor = df_gwp[df['ipcc_version'] == ipcc_version][f'n2o_{gwp_horizon}_year']
+    ch4_gwp_factor = df_gwp.loc[ipcc_version][f'ch4_{gwp_horizon}_year'].astype(float)
+    n2o_gwp_factor = df_gwp.loc[ipcc_version][f'n2o_{gwp_horizon}_year'].astype(float)
 
-    df['co2_eq_mass_lbs'] = df['co2_mass_lb'] + \
+    if 'co2_mass_lb' not in df.columns or 'ch4_mass_lb' not in df.columns or 'n2o_mass_lb' not in df.columns:
+        raise ValueError('Make sure the input dataframe has emissions data for CO2, CH4, and N2O.')
+
+    df['co2_eq_mass_lb'] = df['co2_mass_lb'] + \
                             ch4_gwp_factor * df['ch4_mass_lb'] + \
                             n2o_gwp_factor * df['n2o_mass_lb']
     
