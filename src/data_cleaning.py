@@ -883,6 +883,7 @@ def calculate_nox_from_fuel_consumption(
 ) -> pd.DataFrame:
     """
     Calculate NOx emissions from fuel consumption data.
+
     Inputs:
         df: Should contain the following columns:
             [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
