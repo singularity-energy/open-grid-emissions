@@ -1,4 +1,4 @@
-Fuel Type,energy_source_code,co2_tons_per_mmbtu,ch4_lbs_per_mmbtu,n2o_lbs_per_mmbtu,Source
+Fuel Type,energy_source_code,co2_tons_per_mmbtu,ch4_lb_per_mmbtu,n2o_lb_per_mmbtu,Source
 Agricultural Byproducts,AB,0.13026,0.07055,0.00926,"(EPA, 2009)"
 Anthracite,ANT,0.11413,0.02425,0.00353,"(EPA, 2009)"
 Blast Furnace Gas,BFG,0.30239,0.00005,0.00022,"(EPA, 2009)"

@@ -1,18 +1,25 @@
 # HIGH PRIORITY
 
 ## Short-term priorities
-
+- [ ] Partial cems calculation method
 - [ ] Output final files
 - [ ] Split functions related to hourly distribution to separate file (starting at data cleaning / identify hourly data source)
-- [ ] Insert placeholder for consumption-based emissions calculations
-- [ ] Partial cems calculation method
 - [ ] Test gross to net emissions ordering using residual 
-- [x] Rename and clean up data outputs
-- [x] Draft output file structure
-- [x] Calculate CH4, N2O, and CO2e emissions
-- [x] Output intermediate files
-- [x] Move validation to separate notebook
+- [ ] Remove emissions measurement codes from cems for now b/c makes file quite large
 
+## Emissions
+- [ ] replace all OTH fuel type
+- [ ] Add functions to clean_cems for filling missing NOx and SOx
+- [ ] Use plant-season specific Nox emissions factors from EIA-923 schedule 8c
+- [ ] Calculate Nox emissions using factors specific to boiler firing type
+- [ ] Adjust SO2 emissions for control efficiencies reported in EIA-923
+- see: https://github.com/catalyst-cooperative/pudl/issues/889
+
+## CHP Allocation
+- [ ] Investigate whether we can improve the 0.8 assumed efficiency factor
+- [ ] Investigate the 0.75 assumed efficiency factor
+- [ ] Apply unit specific calculation based on topping or bottoming cycle
+- [ ] When adjusting CEMS data, investigate whether we can use gross generation instead of net for the calculation
 
 ## General data cleaning
 - [-] When subplant ID is NA in CEMS, make sure it is correctly merging with the EIA data
