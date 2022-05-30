@@ -187,6 +187,11 @@ def create_primary_fuel_table(gen_fuel_allocated):
         columns={"energy_source_code": "plant_primary_fuel"}
     )
 
+    # NOTE(milo): There seems to be the occasional duplicate row. For example,
+    # in 2003 the plant_id_eia 1875 shows up as both DFO and NG. We need to
+    # drop the duplicates in order for the many_to_one merge below to succeed.
+    plant_primary_fuel = plant_primary_fuel.drop_duplicates(subset='plant_id_eia', keep='first')
+
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
         plant_primary_fuel, how="left", on="plant_id_eia", validate="many_to_one"
