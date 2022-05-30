@@ -172,8 +172,13 @@ def create_primary_fuel_table(gen_fuel_allocated):
         .reset_index()
     )
 
-    # drop rows where there is zero fuel consumed
+    # NOTE(milo): Dropping rows with zero fuel consumption results in 'NaN'
+    # primary fuels for many plants. Even when there is no fuel consumption for
+    # a plant, we should pick the fuel type that represents the majority of generators.
+    # https://stackoverflow.com/questions/15222754/groupby-pandas-dataframe-and-select-most-common-value
+    plant_mode_fuel = plant_primary_fuel.groupby("plant_id_eia")["energy_source_code"].agg(lambda x: pd.Series.mode(x)[0]).rename('mode_energy_source_code')
 
+    # drop rows where there is zero fuel consumed
     plant_primary_fuel = plant_primary_fuel[plant_primary_fuel.fuel_consumed_mmbtu > 0]
 
     # identify the energy source code with the greatest fuel consumption for each plant
@@ -181,6 +186,8 @@ def create_primary_fuel_table(gen_fuel_allocated):
         plant_primary_fuel.groupby("plant_id_eia")["fuel_consumed_mmbtu"].transform(max)
         == plant_primary_fuel["fuel_consumed_mmbtu"]
     ][["plant_id_eia", "energy_source_code"]]
+
+    plant_primary_fuel = plant_primary_fuel.merge(plant_mode_fuel, how='outer', on='plant_id_eia')
 
     # rename the column to plant primary fuel
     plant_primary_fuel = plant_primary_fuel.rename(
@@ -196,6 +203,9 @@ def create_primary_fuel_table(gen_fuel_allocated):
     primary_fuel_table = gen_primary_fuel.merge(
         plant_primary_fuel, how="left", on="plant_id_eia", validate="many_to_one"
     )
+
+    primary_fuel_table['plant_primary_fuel'] = primary_fuel_table['plant_primary_fuel'].fillna(primary_fuel_table['mode_energy_source_code'])
+    primary_fuel_table = primary_fuel_table.drop(columns='mode_energy_source_code')
 
     return primary_fuel_table
 
