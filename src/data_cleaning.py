@@ -254,7 +254,7 @@ def add_geothermal_emission_factors(
     efs_to_use = [emission + "_lb_per_mmbtu" for emission in emissions_to_calc]
 
     geothermal_efs = calculate_geothermal_emission_factors(year).loc[
-        :, ["plant_id_eia", "generator_id","plant_frac"] + efs_to_use
+        :, ["plant_id_eia", "generator_id", "plant_frac"] + efs_to_use
     ]
 
     for e in emissions_to_calc:
@@ -641,9 +641,7 @@ def manually_remove_steam_units(df):
 
     # get the list of plant_id_eia from the static table
     units_to_remove = list(
-        pd.read_csv("../data/manual/steam_units_to_remove.csv")[
-            "cems_id"
-        ]
+        pd.read_csv("../data/manual/steam_units_to_remove.csv")["cems_id"]
     )
 
     print(
@@ -1351,7 +1349,16 @@ def calculate_electric_fuel_consumption_for_cems(cems, drop_interim_columns=True
 
 
 def identify_hourly_data_source(eia923_allocated, cems, year):
-    """Identifies whether there is hourly CEMS data available for each subplant-month."""
+    """Identifies whether there is hourly CEMS data available for each subplant-month.
+    Possible categories:
+        1. `cems`: For subplant-months for which we have hourly CEMS data for all CEMS units that make up that subplant,
+            we will use the hourly values reported in CEMS. (Add a validation check for the net generation and fuel consumption totals)
+        2. `partial_cems`: For subplant-months for which we have hourly CEMS data 
+            for only some of the CEMS units that make up a subplant, we will use the reported 
+            EIA-923 values to scale the partial hourly CEMS data from the other units to match the total value for the entire subplant. This will also calculate a partial subplant scaling factor for each data column (e.g. net generation, fuel consumption) by comparing the total monthly CEMS data to the monthly EIA-923 data.
+        3. `eia`: for subplant-months for which no hourly data is reported in CEMS, 
+            we will attempt to use EIA-930 data to assign an hourly profile to the monthly EIA-923 data
+    """
 
     # aggregate cems data to plant-unit-month
     cems_monthly = (
