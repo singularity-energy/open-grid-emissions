@@ -1,7 +1,9 @@
 """
 Entry point for creating final dataset and intermediate cleaned data products.
 
-Run without arguments as `python data_pipeline.py` after installing conda environment. 
+Run from `src` as `python data_pipeline.py` after installing conda environment
+
+Optional arguments are --year (default 2020), --gtn_years (default 5)
 
 # Overview of Data Pipeline 
 
