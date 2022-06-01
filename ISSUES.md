@@ -23,7 +23,7 @@
 
 ## General data cleaning
 - [-] When subplant ID is NA in CEMS, make sure it is correctly merging with the EIA data
-- [ ] Export intermediate files 
+- [x] Export intermediate files 
 - [ ] Check MSW codes - make sure this was done correctly
 - [ ] Identify and remove hourly values in CEMS that appear to be outliers
 
