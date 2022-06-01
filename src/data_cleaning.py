@@ -3,7 +3,6 @@ import numpy as np
 import statsmodels.formula.api as smf
 from pandas import DataFrame
 import sqlalchemy as sa
-import warnings
 
 import src.load_data as load_data
 
@@ -173,8 +172,13 @@ def create_primary_fuel_table(gen_fuel_allocated):
         .reset_index()
     )
 
-    # drop rows where there is zero fuel consumed
+    # NOTE(milo): Dropping rows with zero fuel consumption results in 'NaN'
+    # primary fuels for many plants. Even when there is no fuel consumption for
+    # a plant, we should pick the fuel type that represents the majority of generators.
+    # https://stackoverflow.com/questions/15222754/groupby-pandas-dataframe-and-select-most-common-value
+    plant_mode_fuel = plant_primary_fuel.groupby("plant_id_eia")["energy_source_code"].agg(lambda x: pd.Series.mode(x)[0]).rename('mode_energy_source_code')
 
+    # drop rows where there is zero fuel consumed
     plant_primary_fuel = plant_primary_fuel[plant_primary_fuel.fuel_consumed_mmbtu > 0]
 
     # identify the energy source code with the greatest fuel consumption for each plant
@@ -183,15 +187,25 @@ def create_primary_fuel_table(gen_fuel_allocated):
         == plant_primary_fuel["fuel_consumed_mmbtu"]
     ][["plant_id_eia", "energy_source_code"]]
 
+    plant_primary_fuel = plant_primary_fuel.merge(plant_mode_fuel, how='outer', on='plant_id_eia')
+
     # rename the column to plant primary fuel
     plant_primary_fuel = plant_primary_fuel.rename(
         columns={"energy_source_code": "plant_primary_fuel"}
     )
 
+    # NOTE(milo): There seems to be the occasional duplicate row. For example,
+    # in 2003 the plant_id_eia 1875 shows up as both DFO and NG. We need to
+    # drop the duplicates in order for the many_to_one merge below to succeed.
+    plant_primary_fuel = plant_primary_fuel.drop_duplicates(subset='plant_id_eia', keep='first')
+
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
         plant_primary_fuel, how="left", on="plant_id_eia", validate="many_to_one"
     )
+
+    primary_fuel_table['plant_primary_fuel'] = primary_fuel_table['plant_primary_fuel'].fillna(primary_fuel_table['mode_energy_source_code'])
+    primary_fuel_table = primary_fuel_table.drop(columns='mode_energy_source_code')
 
     return primary_fuel_table
 
@@ -825,6 +839,54 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
 
     # remove the intermediate column
     df = df.drop(columns=["energy_source_code_single"])
+
+    return df
+
+
+def calculate_co2_eq_mass(df,
+                          ipcc_version='AR5',
+                          gwp_horizon=100,
+                          ar5_climate_carbon_feedback=False):
+    """
+    Calculate CO2-equivalent emissions from CO2, CH4, and N2O. This is done
+    by choosing one of the IPCC's emission factors for CH4 and N2O.
+
+    Inputs:
+        df: Should contain at least: ['co2_mass_lb', 'ch4_mass_lb', 'n2o_mass_lb']
+    
+    If the `fuel_consumed_for_electricity_units` column is available, we also
+    compute the adjusted emissions.
+    """
+    df_gwp = load_data.load_ipcc_gwp()
+
+    if ipcc_version not in ("SAR", "TAR", "AR4", "AR5"):
+        raise ValueError('Unsupported option for `ipcc_version`.')
+    if gwp_horizon not in (20, 100):
+        raise ValueError('Only 20-year and 100-year global warming potentials are supported.')
+    if ar5_climate_carbon_feedback and ipcc_version not in ('AR5'):
+        raise ValueError('Climate carbon feedback (CCF) is only available for AR5.')
+
+    if ar5_climate_carbon_feedback:
+        ipcc_version += 'f'
+
+    ch4_gwp_factor = df_gwp.loc[ipcc_version][f'ch4_{gwp_horizon}_year'].astype(float)
+    n2o_gwp_factor = df_gwp.loc[ipcc_version][f'n2o_{gwp_horizon}_year'].astype(float)
+
+    if 'co2_mass_lb' not in df.columns or 'ch4_mass_lb' not in df.columns or 'n2o_mass_lb' not in df.columns:
+        raise ValueError('Make sure the input dataframe has emissions data for CO2, CH4, and N2O.')
+
+    df['co2_eq_mass_lb'] = df['co2_mass_lb'] + \
+                            ch4_gwp_factor * df['ch4_mass_lb'] + \
+                            n2o_gwp_factor * df['n2o_mass_lb']
+    
+    if 'co2_mass_lb_adjusted' in df:
+        df['co2_eq_mass_lb_adjusted'] = df['co2_mass_lb_adjusted'] + \
+                                        ch4_gwp_factor * df['ch4_mass_lb_adjusted'] + \
+                                        n2o_gwp_factor * df['n2o_mass_lb_adjusted']
+    if 'co2_mass_lb_for_electricity' in df:
+        df['co2_eq_mass_lb_for_electricity'] = df['co2_mass_lb_for_electricity'] + \
+                                               ch4_gwp_factor * df['ch4_mass_lb_for_electricity'] + \
+                                               n2o_gwp_factor * df['n2o_mass_lb_for_electricity']
 
     return df
 

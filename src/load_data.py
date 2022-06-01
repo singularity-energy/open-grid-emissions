@@ -609,3 +609,8 @@ def load_gross_to_net_data(
         gtn_data["report_date"] = pd.to_datetime(gtn_data["report_date"])
 
     return gtn_data
+
+
+def load_ipcc_gwp():
+    """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
+    return pd.read_csv('../data/manual/ipcc_gwp.csv', index_col='ipcc_version')
