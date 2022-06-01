@@ -7,7 +7,7 @@ import src.load_data as load_data
 import pudl.analysis.allocate_net_gen as allocate_gen_fuel
 
 
-def clean_eia923(year, args):
+def clean_eia923(year, small):
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
@@ -45,7 +45,7 @@ def clean_eia923(year, args):
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated)
 
-    if args.small:
+    if small:
         gen_fuel_allocated = smallerize_test_data(df=gen_fuel_allocated, random_seed=42)
 
     # calculate co2 emissions for each generator-fuel based on allocated fuel consumption
@@ -601,14 +601,14 @@ def remove_non_grid_connected_plants(df):
     return df
 
 
-def clean_cems(year, args):
+def clean_cems(year, small):
     """
     Coordinating function for all of the cems data cleaning
     """
     # load the CEMS data
     cems = load_data.load_cems_data(year)
 
-    if args.small:
+    if small:
         cems = smallerize_test_data(df=cems, random_seed=42)
 
     # remove non-grid connected plants

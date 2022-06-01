@@ -254,7 +254,7 @@ def main():
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     print('Cleaning EIA-923 data')
-    eia923_allocated, primary_fuel_table = data_cleaning.clean_eia923(year, args)
+    eia923_allocated, primary_fuel_table = data_cleaning.clean_eia923(year, args.small)
 
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
@@ -266,7 +266,7 @@ def main():
 
     # 4. Clean Hourly Data from CEMS
     print('Cleaning CEMS data')
-    cems = data_cleaning.clean_cems(year, args)
+    cems = data_cleaning.clean_cems(year, args.small)
 
     # 5. Convert CEMS Hourly Gross Generation to Hourly Net Generation
     print('Converting CEMS gross generation to net generation')
