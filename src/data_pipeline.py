@@ -246,13 +246,16 @@ def main():
     # 2. Identify subplants and gross-to net ratios
     # GTN ratios are saved for reloading, as this is computationally intensive
     if not os.path.isdir("../data/outputs/gross_to_net/"):
+        print('Generating subplant IDs and gross to net calcuations')
         number_of_years = args.gtn_years
         gross_to_net_generation.identify_subplants_and_gtn_conversions(
             year, number_of_years
         )
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
-    eia923_allocated, primary_fuel_table = data_cleaning.clean_eia923(year)
+    print('Cleaning EIA-923 data')
+    eia923_allocated, primary_fuel_table = data_cleaning.clean_eia923(year, args.small)
+
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
         primary_fuel_table,
@@ -262,31 +265,27 @@ def main():
     )
 
     # 4. Clean Hourly Data from CEMS
-    cems = data_cleaning.clean_cems(year)
-
-    # Optionally trim to 5% of plants to more quickly run remainder of pipeline.
-    if args.small:
-        print("Randomly selecting 5% of plants for faster test run.")
-        # Select 5% of plants
-        selected_plants = eia923_allocated.plant_id_eia.unique()
-        selected_plants = np.random.choice(
-            selected_plants, size=int(len(selected_plants) * 0.05), replace=False
-        )
-        # Filter for selected plants
-        eia923_allocated = eia923_allocated[
-            eia923_allocated.plant_id_eia.isin(selected_plants)
-        ]
-        cems = cems[cems.plant_id_eia.isin(selected_plants)]
+    print('Cleaning CEMS data')
+    cems = data_cleaning.clean_cems(year, args.small)
 
     # 5. Convert CEMS Hourly Gross Generation to Hourly Net Generation
+    print('Converting CEMS gross generation to net generation')
     cems = data_cleaning.convert_gross_to_net_generation(cems)
 
     # 6. Crosswalk CEMS and EIA data
+    print('Identifying source for hourly data')
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
     )
 
+    # 7. Calculate hourly data for partial_cems plants
+    print('Scaling partial CEMS data')
+    partial_cems_scaled, eia923_allocated = data_cleaning.scale_partial_cems_data(
+        cems, eia923_allocated
+    )
+
     # Export data cleaned by above for later validation, visualization, analysis
+    print('Exporting intermediate output files')
     cems.to_csv(f"../data/outputs/{path_prefix}cems_{year}.csv", index=False)
     column_checks.check_columns(f"../data/outputs/{path_prefix}cems_{year}.csv")
     eia923_allocated.to_csv(
@@ -295,16 +294,20 @@ def main():
     column_checks.check_columns(
         f"../data/outputs/{path_prefix}eia923_allocated_{year}.csv"
     )
+    partial_cems_scaled.to_csv(
+        f"../data/outputs/{path_prefix}partial_cems_scaled_{year}.csv", index=False
+    )
+    column_checks.check_columns(
+        f"../data/outputs/{path_prefix}partial_cems_scaled_{year}.csv"
+    )
 
-    # 7. Assign static characteristics to CEMS and EIA data to aid in aggregation
+    # 8. Assign static characteristics to CEMS and EIA data to aid in aggregation
     # assign a BA code and state code to each plant
     eia923_allocated = data_cleaning.assign_ba_code_to_plant(eia923_allocated, year)
     # assign a fuel category to each plant based on what is most likely to match with the category used in EIA-930
     # TODO: Add two different fuel categories (one for 930, one that is more specific)
     eia923_allocated = data_cleaning.assign_fuel_category_to_ESC(
-        eia923_allocated,
-        fuel_category_name="fuel_group_eia930",
-        esc_column="plant_primary_fuel",
+        df=eia923_allocated, esc_column="plant_primary_fuel",
     )
     # add a flag about whether the plant is distribution connected
     eia923_allocated = data_cleaning.identify_distribution_connected_plants(
@@ -324,15 +327,30 @@ def main():
         on="plant_id_eia",
     )
     cems = data_cleaning.assign_fuel_category_to_ESC(
-        cems, fuel_category_name="fuel_group_eia930", esc_column="plant_primary_fuel"
+        df=cems, esc_column="plant_primary_fuel"
     )
-    cems = cems.rename(columns={"fuel_category": "fuel_category_eia930"})
+
+    partial_cems_scaled = data_cleaning.assign_ba_code_to_plant(
+        partial_cems_scaled, year
+    )
+    # add a plant primary fuel and a fuel category for eia930
+    partial_cems_scaled = partial_cems_scaled.merge(
+        primary_fuel_table.drop_duplicates(subset="plant_id_eia")[
+            ["plant_id_eia", "plant_primary_fuel"]
+        ],
+        how="left",
+        on="plant_id_eia",
+    )
+    partial_cems_scaled = data_cleaning.assign_fuel_category_to_ESC(
+        df=partial_cems_scaled, esc_column="plant_primary_fuel"
+    )
 
     # export plant frame
     plant_static_columns = [
         "plant_id_eia",
         "plant_primary_fuel",
         "fuel_category",
+        "fuel_category_eia930",
         "ba_code",
         "ba_code_physical",
         "state",
@@ -347,21 +365,25 @@ def main():
     column_checks.check_columns(
         f"../data/outputs/{path_prefix}plant_static_attributes.csv"
     )
-
-    # 8. Calculate hourly data for partial_cems plants
-    # TODO
+    plant_frame.to_csv(
+        f"../data/results/{path_prefix}plant_data/plant_static_attributes.csv",
+        index=False,
+    )
 
     # 9. Clean and Reconcile EIA-930 data
+    print('Cleaning EIA-930 data')
     # TODO
     # Load raw EIA-930 data, fix timestamp issues, perform physics-based reconciliation
     # Currently implemented in `notebooks/930_lag` and the `gridemissions` repository
     # Output: `data/outputs/EBA_adjusted_elec.csv`
 
     # 10. Calculate Residual Net Generation Profile
+    print('Calculating residual net generation profiles from EIA-930')
     # TODO
     # Currently implemented in `notebooks/calculate_residual_net_generation`
 
     # 11. Assign hourly profile to monthly data
+    print('Assigning hourly profile to monthly EIA-923 data')
     # create a separate dataframe containing only the generators for which we do not have CEMS data
     monthly_eia_data_to_distribute = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
@@ -390,14 +412,15 @@ def main():
         "co2_mass_lb_adjusted",
     ]
     hourly_eia_data[columns_for_output].to_csv(
-        f"../data/results/{path_prefix}plant_data/hourly_data_distributed_from_eia_{year}.csv",
+        f"../data/outputs/{path_prefix}hourly_data_distributed_from_eia_{year}.csv",
         index=False,
     )
     # column_checks.check_columns(
-    #     f"../data/results/{path_prefix}plant_data/hourly_data_distributed_from_eia_{year}.csv"
+    #     f"../data/outputs/{path_prefix}hourly_data_distributed_from_eia_{year}.csv"
     # )
 
     # 12. Aggregate CEMS data to BA-fuel and combine with hourly shaped EIA data
+    print('Outputting final results')
     cems_ba_fuel = (
         cems.groupby(["ba_code", "fuel_category_eia930", "operating_datetime_utc"])
         .sum()[

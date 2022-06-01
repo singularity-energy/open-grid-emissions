@@ -1,40 +1,43 @@
-energy_source_code,energy_source_description,fuel_group_eia,fuel_group_eia930,fuel_group_custom
-ANT,Anthracite Coal,coal,coal,coal
-BIT,Bituminous Coal,coal,coal,coal
-LIG,Lignite Coal,coal,coal,coal
-RC,Refined Coal,coal,coal,coal
-SUB,Subbituminous Coal,coal,coal,coal
-SGC,Coal-derived Syngas,coal,coal,coal
-WC,Waste/Other Coal,coal,coal,coal
-DFO,Distillate Fuel Oil/Diesel,petroleum_products,petroleum,petroleum
-JF,Jet Fuel,petroleum_products,petroleum,petroleum
-KER,Kerosene,petroleum_products,petroleum,petroleum
-PC,Petroleum Coke,petroleum_products,petroleum,petroleum
-PG,Propane,petroleum_products,petroleum,petroleum
-RFO,Residual Fuel Oil,petroleum_products,petroleum,petroleum
-SGP,Petroleum Coke-derived Syngas,petroleum_products,petroleum,petroleum
-WO,Waste/Other Oil,petroleum_products,petroleum,petroleum
-BFG,Blast Furnace Gas,natural_gas,natural_gas,natural_gas
-NG,Natural Gas,natural_gas,natural_gas,natural_gas
-OG,Other Gas,natural_gas,natural_gas,natural_gas
-PRG,Process Gas,natural_gas,natural_gas,natural_gas
-NUC,Nuclear,nuclear,nuclear,nuclear
-WAT,Hydroelectric / Pumped Storage,hydro,hydro,hydro
-WDS,Wood/Wood Waste Solids,wood,other,biomass
-WDL,Wood Waste Liquids,wood,other,biomass
-BLQ,Black Liquor,wood,other,biomass
-AB,Agricultural Byproducts,other_biomass,other,biomass
-MSW,Municipal Solid Waste,other_biomass,other,waste
-OBG,Other Biomass Gas,other_biomass,other,biomass
-OBL,Other Biomass Liquids,other_biomass,other,biomass
-OBS,Other Biomass Solids,other_biomass,other,biomass
-LFG,Landfill Gas,other_biomass,other,biomass
-SLW,Sludge Waste,other_biomass,other,biomass
-SUN,Solar,other_renewable,solar,solar
-WND,Wind,other_renewable,wind,wind
-GEO,Geothermal,other_renewable,other,geothermal
-PUR,Purchased Steam,other,other,other
-WH,Waste Heat,other,other,other
-TDF,Tire-derived Fuels,other,other,waste
-MWH,Energy Storage,other,other,other
-OTH,Other,other,other,other
+energy_source_code,energy_source_description,fuel_category_eia,fuel_category_eia930,fuel_category_egrid,fuel_category
+ANT,Anthracite Coal,coal,coal,coal,coal
+BIT,Bituminous Coal,coal,coal,coal,coal
+LIG,Lignite Coal,coal,coal,coal,coal
+RC,Refined Coal,coal,coal,coal,coal
+SUB,Subbituminous Coal,coal,coal,coal,coal
+SGC,Coal-derived Syngas,coal,coal,coal,coal
+WC,Waste/Other Coal,coal,coal,coal,coal
+DFO,Distillate Fuel Oil/Diesel,petroleum_products,petroleum,oil,petroleum
+JF,Jet Fuel,petroleum_products,petroleum,oil,petroleum
+KER,Kerosene,petroleum_products,petroleum,oil,petroleum
+PC,Petroleum Coke,petroleum_products,petroleum,oil,petroleum
+PG,Propane,petroleum_products,petroleum,oil,petroleum
+RFO,Residual Fuel Oil,petroleum_products,petroleum,oil,petroleum
+SGP,Petroleum Coke-derived Syngas,petroleum_products,petroleum,oil,petroleum
+WO,Waste/Other Oil,petroleum_products,petroleum,oil,petroleum
+BFG,Blast Furnace Gas,natural_gas,natural_gas,other_fossil,natural_gas
+NG,Natural Gas,natural_gas,natural_gas,gas,natural_gas
+OG,Other Gas,natural_gas,natural_gas,other_fossil,natural_gas
+PRG,Process Gas,natural_gas,natural_gas,other,natural_gas
+PG,Propane Gas,petroleum_products,petroleum_products,gas,petroleum
+NUC,Nuclear,nuclear,nuclear,nuclear,nuclear
+WAT,Hydroelectric / Pumped Storage,hydro,hydro,hydro,hydro
+WDS,Wood/Wood Waste Solids,wood,other,biomass,biomass
+WDL,Wood Waste Liquids,wood,other,biomass,biomass
+BLQ,Black Liquor,wood,other,biomass,biomass
+AB,Agricultural Byproducts,other_biomass,other,biomass,biomass
+MSB,Municipal Solid Waste (biogenic),other_biomass,other,biomass,waste
+MSN,Municipal Solid Waste (nonbiogenic),other_biomass,other,other_fossil,waste
+MSW,Municipal Solid Waste,other_biomass,other,biomass,waste
+OBG,Other Biomass Gas,other_biomass,other,biomass,biomass
+OBL,Other Biomass Liquids,other_biomass,other,biomass,biomass
+OBS,Other Biomass Solids,other_biomass,other,biomass,biomass
+LFG,Landfill Gas,other_biomass,other,biomass,biomass
+SLW,Sludge Waste,other_biomass,other,biomass,biomass
+SUN,Solar,other_renewable,solar,solar,solar
+WND,Wind,other_renewable,wind,wind,wind
+GEO,Geothermal,other_renewable,other,geothermal,geothermal
+PUR,Purchased Steam,other,other,other,other
+WH,Waste Heat,other,other,other,other
+TDF,Tire-derived Fuels,other,other,other_fossil,waste
+MWH,Energy Storage,other,other,other,other
+OTH,Other,other,other,other,other

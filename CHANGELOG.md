@@ -1,6 +1,24 @@
 CHANGELOG
 
 -------------------------------------------------------------------------------
+# Branch partial_cems (PR 2022-06-01) 
+-------------------------------------------------------------------------------
+Closes #22 and #30
+
+## Partial CEMS calculations
+Adds `data_cleaning.scale_partial_cems_data()` as step 7 in the pipeline. This function scales hourly subplant-level CEMS data to match the EIA monthly data totals when only certain CEMS units that make up a subplant report data in a month, and the CEMS totals are less than the reported EIA totals (indicating missing data from CEMS). For any subplants that were flagged as partial CEMS, but for which the CEMS totals are greater than the EIA totals, the function changes the `hourly_data_source` flag back to `cems` instead of `partial_cems`
+
+## Fuel Categories
+ - Updates `energy_source_groups.csv` and related functions
+ - adds a new column to identigy the fuel categories used in egrid
+ - renames columns from "fuel_group_" to "fuel_category_"
+ - Both our custom fuel category (which is just labeled `fuel_category`) and `fuel_category_eia930` are now assigned to the EIA-923 and CEMS data during denormalization (step 8)
+
+## Other
+ - Implements --small argument for both EIA and CEMS data
+ - updates column data checks
+
+-------------------------------------------------------------------------------
 # Branch grgmiller/car-342-clean-cems-and-eia923 (PR 2022-05-28) 
 -------------------------------------------------------------------------------
 
