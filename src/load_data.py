@@ -65,9 +65,10 @@ def download_pudl_data(zenodo_url):
             download_pudl(zenodo_url, pudl_version)
     else:
         download_pudl(zenodo_url, pudl_version)
+        download_updated_pudl_database(download=True)
 
 
-def download_updated_pudl_database(download=False):
+def download_updated_pudl_database(download=True):
     """
     Downloaded the updated `pudl.sqlite` file from datasette.
 
@@ -166,23 +167,25 @@ def download_eia930_data(years_to_download):
 
     # download the egrid files
     for year in years_to_download:
-        for period in ["Jan_Jun", "Jul_Dec"]:
-            if os.path.exists(
-                f"../data/downloads/eia930/EIA930_BALANCE_{year}_{period}.csv"
-            ):
-                print(f"{year}_{period} data already downloaded")
-            else:
-                print(f"downloading {year}_{period} data")
-                r = requests.get(
-                    f"https://www.eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_BALANCE_{year}_{period}.csv",
-                    stream=True,
-                )
+        for description in ["BALANCE", "INTERCHANGE"]:
+            for months in ["Jan_Jun", "Jul_Dec"]:
+                if os.path.exists(
+                    f"../data/downloads/eia930/EIA930_{description}_{year}_{months}.csv"
+                ):
+                    print(f"{description}_{year}_{months} data already downloaded")
+                else:
+                    print(f"downloading {description}_{year}_{months} data")
+                    r = requests.get(
+                        f"https://www.eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_{description}_{year}_{months}.csv",
+                        stream=True,
+                    )
 
-                with open(
-                    f"../data/downloads/eia930/EIA930_BALANCE_{year}_{period}.csv", "wb"
-                ) as fd:
-                    for chunk in r.iter_content(chunk_size=1024 * 1024):
-                        fd.write(chunk)
+                    with open(
+                        f"../data/downloads/eia930/EIA930_{description}_{year}_{months}.csv",
+                        "wb",
+                    ) as fd:
+                        for chunk in r.iter_content(chunk_size=1024 * 1024):
+                            fd.write(chunk)
 
 
 def download_epa_psdc(psdc_url):
@@ -613,4 +616,81 @@ def load_gross_to_net_data(
 
 def load_ipcc_gwp():
     """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
-    return pd.read_csv('../data/manual/ipcc_gwp.csv', index_col='ipcc_version')
+    return pd.read_csv("../data/manual/ipcc_gwp.csv", index_col="ipcc_version")
+
+
+def load_raw_eia930_data(year, description):
+
+    eia_930 = pd.concat(
+        [
+            pd.read_csv(
+                f"../data/downloads/eia930/EIA930_{description}_{year}_Jan_Jun.csv",
+                thousands=",",
+                parse_dates=["UTC Time at End of Hour"],
+            ),
+            pd.read_csv(
+                f"../data/downloads/eia930/EIA930_{description}_{year}_Jul_Dec.csv",
+                thousands=",",
+                parse_dates=["UTC Time at End of Hour"],
+            ),
+        ]
+    )
+
+    # convert from end of hour timestamp to beginning of hour timestamp
+    eia_930["UTC Time at End of Hour"] = eia_930[
+        "UTC Time at End of Hour"
+    ] - pd.Timedelta(hours=1)
+
+    # localize the timezone as UTC time and rename the column
+    eia_930["UTC Time at End of Hour"] = eia_930[
+        "UTC Time at End of Hour"
+    ].dt.tz_localize("UTC")
+    eia_930 = eia_930.rename(
+        columns={"UTC Time at End of Hour": "operating_datetime_utc"}
+    )
+
+    # TODO re-localize the timezones for the BAs that report in a different timezone
+    # ba_reference = load_ba_reference()
+    # bas_to_convert_tz = list(ba_reference.loc[ba_reference.timezone_reporting_eia930 != ba_reference.timezone_local, 'ba_code'])
+
+    return eia_930
+
+
+def load_ba_reference():
+    return pd.read_csv(
+        "../data/manual/ba_reference.csv",
+        parse_dates=["activation_date", "retirement_date"],
+    )
+
+
+def load_diba_data(year):
+    # load information about directly interconnected balancing authorities (DIBAs)
+    dibas = load_raw_eia930_data(year, "INTERCHANGE")
+    dibas = dibas[
+        [
+            "Balancing Authority",
+            "Directly Interconnected Balancing Authority",
+            "Region",
+            "DIBA Region",
+        ]
+    ].drop_duplicates()
+    dibas = dibas.rename(
+        columns={
+            "Balancing Authority": "ba_code",
+            "Directly Interconnected Balancing Authority": "diba_code",
+            "Region": "ba_region",
+            "DIBA Region": "diba_region",
+        }
+    )
+
+    # add information about the local timezone of each ba/diba
+    ba_tz = load_ba_reference()[["ba_code", "timezone_local"]]
+    dibas = dibas.merge(ba_tz, how="left", on="ba_code")
+    dibas = dibas.merge(
+        ba_tz,
+        how="left",
+        left_on="diba_code",
+        right_on="ba_code",
+        suffixes=(None, "_diba"),
+    ).drop(columns="ba_code_diba")
+    dibas

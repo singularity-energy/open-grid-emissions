@@ -226,7 +226,6 @@ def main():
     load_data.download_pudl_data(
         zenodo_url="https://zenodo.org/record/6349861/files/pudl-v0.6.0-2022-03-12.tgz"
     )
-    load_data.download_updated_pudl_database(download=False)
     # eGRID
     # the 2019 and 2020 data appear to be hosted on different urls
     egrid_files_to_download = [
@@ -418,6 +417,8 @@ def main():
     # column_checks.check_columns(
     #     f"../data/outputs/{path_prefix}hourly_data_distributed_from_eia_{year}.csv"
     # )
+
+    # 12. Export plant files
 
     # 12. Aggregate CEMS data to BA-fuel and combine with hourly shaped EIA data
     print('Outputting final results')
