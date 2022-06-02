@@ -107,6 +107,7 @@ import src.gross_to_net_generation as gross_to_net_generation
 import src.load_data as load_data
 import src.residual as residual
 import src.column_checks as column_checks
+import src.eia930 as eia930
 
 
 def get_args():
@@ -375,6 +376,16 @@ def main():
     # Load raw EIA-930 data, fix timestamp issues, perform physics-based reconciliation
     # Currently implemented in `notebooks/930_lag` and the `gridemissions` repository
     # Output: `data/outputs/EBA_adjusted_elec.csv`
+    eia930_dat = eia930.load_chalendar_for_pipeline(
+        "../data/eia930/chalendar/EBA_adjusted_elec.csv", year=year
+    )  # For now, load data in form it will eventually be in
+    hourly_profiles = residual.calculate_residual(cems, eia930_dat, plant_frame, year)
+    hourly_profiles.to_csv(
+        f"../data/outputs/{path_prefix}residual_profiles_{year}.csv", index=False
+    )
+    column_checks.check_columns(
+        f"../data/outputs/{path_prefix}residual_profiles_{year}.csv"
+    )
 
     # 10. Calculate Residual Net Generation Profile
     print("Calculating residual net generation profiles from EIA-930")
@@ -392,6 +403,7 @@ def main():
     # TODO: once this is in the pipeline (step 10), may not need to read file
     hourly_profiles = residual.load_hourly_profiles(
         monthly_eia_data_to_distribute, year
+
     )
 
     hourly_eia_data = data_cleaning.distribute_monthly_eia_data_to_hourly(
