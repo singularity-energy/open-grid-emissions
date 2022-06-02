@@ -3,7 +3,7 @@ data/*
 !data/egrid/*
 !data/egrid/
 data/egrid/*
-!data/egrid/egrid_static_tables
+!data/manual/egrid_static_tables
 
 !data/manual/
 
@@ -18,3 +18,6 @@ notebooks/.ipynb_checkpoints
 
 # Mac junk
 .DS_Store
+
+# Don't track output files.
+output/
