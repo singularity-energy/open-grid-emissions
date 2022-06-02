@@ -693,4 +693,5 @@ def load_diba_data(year):
         right_on="ba_code",
         suffixes=(None, "_diba"),
     ).drop(columns="ba_code_diba")
-    dibas
+
+    return dibas
