@@ -107,6 +107,7 @@ import src.gross_to_net_generation as gross_to_net_generation
 import src.load_data as load_data
 import src.residual as residual
 import src.column_checks as column_checks
+import src.eia930 as eia930
 
 
 def get_args():
@@ -246,14 +247,14 @@ def main():
     # 2. Identify subplants and gross-to net ratios
     # GTN ratios are saved for reloading, as this is computationally intensive
     if not os.path.isdir("../data/outputs/gross_to_net/"):
-        print('Generating subplant IDs and gross to net calcuations')
+        print("Generating subplant IDs and gross to net calcuations")
         number_of_years = args.gtn_years
         gross_to_net_generation.identify_subplants_and_gtn_conversions(
             year, number_of_years
         )
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
-    print('Cleaning EIA-923 data')
+    print("Cleaning EIA-923 data")
     eia923_allocated, primary_fuel_table = data_cleaning.clean_eia923(year, args.small)
 
     # Add primary fuel data to each generator
@@ -265,27 +266,27 @@ def main():
     )
 
     # 4. Clean Hourly Data from CEMS
-    print('Cleaning CEMS data')
+    print("Cleaning CEMS data")
     cems = data_cleaning.clean_cems(year, args.small)
 
     # 5. Convert CEMS Hourly Gross Generation to Hourly Net Generation
-    print('Converting CEMS gross generation to net generation')
+    print("Converting CEMS gross generation to net generation")
     cems = data_cleaning.convert_gross_to_net_generation(cems)
 
     # 6. Crosswalk CEMS and EIA data
-    print('Identifying source for hourly data')
+    print("Identifying source for hourly data")
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
     )
 
     # 7. Calculate hourly data for partial_cems plants
-    print('Scaling partial CEMS data')
+    print("Scaling partial CEMS data")
     partial_cems_scaled, eia923_allocated = data_cleaning.scale_partial_cems_data(
         cems, eia923_allocated
     )
 
     # Export data cleaned by above for later validation, visualization, analysis
-    print('Exporting intermediate output files')
+    print("Exporting intermediate output files")
     cems.to_csv(f"../data/outputs/{path_prefix}cems_{year}.csv", index=False)
     column_checks.check_columns(f"../data/outputs/{path_prefix}cems_{year}.csv")
     eia923_allocated.to_csv(
@@ -371,19 +372,29 @@ def main():
     )
 
     # 9. Clean and Reconcile EIA-930 data
-    print('Cleaning EIA-930 data')
+    print("Cleaning EIA-930 data")
     # TODO
     # Load raw EIA-930 data, fix timestamp issues, perform physics-based reconciliation
     # Currently implemented in `notebooks/930_lag` and the `gridemissions` repository
     # Output: `data/outputs/EBA_adjusted_elec.csv`
+    eia930_dat = eia930.load_chalendar_for_pipeline(
+        "../data/eia930/chalendar/EBA_adjusted_elec.csv", year=year
+    )  # For now, load data in form it will eventually be in
+    hourly_profiles = residual.calculate_residual(cems, eia930_dat, plant_frame, year)
+    hourly_profiles.to_csv(
+        f"../data/outputs/{path_prefix}residual_profiles_{year}.csv", index=False
+    )
+    column_checks.check_columns(
+        f"../data/outputs/{path_prefix}residual_profiles_{year}.csv"
+    )
 
     # 10. Calculate Residual Net Generation Profile
-    print('Calculating residual net generation profiles from EIA-930')
+    print("Calculating residual net generation profiles from EIA-930")
     # TODO
     # Currently implemented in `notebooks/calculate_residual_net_generation`
 
     # 11. Assign hourly profile to monthly data
-    print('Assigning hourly profile to monthly EIA-923 data')
+    print("Assigning hourly profile to monthly EIA-923 data")
     # create a separate dataframe containing only the generators for which we do not have CEMS data
     monthly_eia_data_to_distribute = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
@@ -391,9 +402,6 @@ def main():
     ]
     # load profile data and format for use in the pipeline
     # TODO: once this is in the pipeline (step 10), may not need to read file
-    hourly_profiles = pd.read_csv(
-        "../data/outputs/residual_profiles.csv", parse_dates=["report_date"]
-    )
     hourly_profiles = residual.assign_flat_profiles(
         monthly_eia_data_to_distribute, hourly_profiles, year
     )
@@ -420,7 +428,7 @@ def main():
     # )
 
     # 12. Aggregate CEMS data to BA-fuel and combine with hourly shaped EIA data
-    print('Outputting final results')
+    print("Outputting final results")
     cems_ba_fuel = (
         cems.groupby(["ba_code", "fuel_category_eia930", "operating_datetime_utc"])
         .sum()[

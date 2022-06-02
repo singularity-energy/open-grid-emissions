@@ -118,7 +118,7 @@ COLUMNS = {
         "state",
         "distribution_flag",
     },
-    "residual_profiles": {
+    "residual_profiles_": {
         "ba_code",
         "fuel_category",
         "datetime_utc",
