@@ -1,7 +1,7 @@
 # HIGH PRIORITY
+Finish work on load_hourly_profiles()... add hydro and other resource profiles, test that it works
 
 ## Short-term priorities
-- [ ] Partial cems calculation method
 - [ ] Output final files
 - [ ] Split functions related to hourly distribution to separate file (starting at data cleaning / identify hourly data source)
 - [ ] Test gross to net emissions ordering using residual 

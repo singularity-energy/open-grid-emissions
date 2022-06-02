@@ -227,7 +227,6 @@ def main():
     load_data.download_pudl_data(
         zenodo_url="https://zenodo.org/record/6349861/files/pudl-v0.6.0-2022-03-12.tgz"
     )
-    load_data.download_updated_pudl_database(download=False)
     # eGRID
     # the 2019 and 2020 data appear to be hosted on different urls
     egrid_files_to_download = [
@@ -402,11 +401,13 @@ def main():
     ]
     # load profile data and format for use in the pipeline
     # TODO: once this is in the pipeline (step 10), may not need to read file
-    hourly_profiles = residual.assign_flat_profiles(
-        monthly_eia_data_to_distribute, hourly_profiles, year
+    hourly_profiles = residual.load_hourly_profiles(
+        monthly_eia_data_to_distribute, year
+
     )
+
     hourly_eia_data = data_cleaning.distribute_monthly_eia_data_to_hourly(
-        monthly_eia_data_to_distribute, hourly_profiles, "residual_scaled"
+        monthly_eia_data_to_distribute, hourly_profiles, "profile"
     )
     # Export data
     columns_for_output = [
@@ -426,6 +427,8 @@ def main():
     # column_checks.check_columns(
     #     f"../data/outputs/{path_prefix}hourly_data_distributed_from_eia_{year}.csv"
     # )
+
+    # 12. Export plant files
 
     # 12. Aggregate CEMS data to BA-fuel and combine with hourly shaped EIA data
     print("Outputting final results")

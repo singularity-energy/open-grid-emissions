@@ -1,6 +1,12 @@
 CHANGELOG
 
 -------------------------------------------------------------------------------
+# Branch hourly_profiles_for_clean_gens (PR 2022-06-02) 
+-------------------------------------------------------------------------------
+
+Implements methods in `residual.load_hourly_profiles()` for creating hourly profiles for EIA-923 data when there is no data available from EIA-930, primarily for clean/renewable generators or generators in the other category (solar, wind, hydro, nuclear, biomass, geothermal, waste)
+
+-------------------------------------------------------------------------------
 # Branch partial_cems (PR 2022-06-01) 
 -------------------------------------------------------------------------------
 Closes #22 and #30

@@ -173,14 +173,17 @@ def create_primary_fuel_table(gen_fuel_allocated):
         .reset_index()
     )
 
-    # NOTE(milo): Dropping rows with zero fuel consumption results in 'NaN'
+    # Dropping rows with zero fuel consumption results in 'NaN'
     # primary fuels for many plants. Even when there is no fuel consumption for
     # a plant, we should pick the fuel type that represents the majority of generators.
-    # https://stackoverflow.com/questions/15222754/groupby-pandas-dataframe-and-select-most-common-value
+    # There seems to be the occasional duplicate row due to multiple modes.
+    # drop the duplicates in order for the many_to_one merge below to succeed.
     plant_mode_fuel = (
-        plant_primary_fuel.groupby("plant_id_eia")["energy_source_code"]
+        gen_primary_fuel.groupby("plant_id_eia")["energy_source_code"]
         .agg(lambda x: pd.Series.mode(x)[0])
         .rename("mode_energy_source_code")
+        .reset_index()
+        .drop_duplicates(subset="plant_id_eia", keep="first")
     )
 
     # drop rows where there is zero fuel consumed
@@ -193,7 +196,7 @@ def create_primary_fuel_table(gen_fuel_allocated):
     ][["plant_id_eia", "energy_source_code"]]
 
     plant_primary_fuel = plant_primary_fuel.merge(
-        plant_mode_fuel, how="outer", on="plant_id_eia"
+        plant_mode_fuel, how="outer", on="plant_id_eia", validate="1:1",
     )
 
     # rename the column to plant primary fuel
@@ -201,22 +204,16 @@ def create_primary_fuel_table(gen_fuel_allocated):
         columns={"energy_source_code": "plant_primary_fuel"}
     )
 
-    # NOTE(milo): There seems to be the occasional duplicate row. For example,
-    # in 2003 the plant_id_eia 1875 shows up as both DFO and NG. We need to
-    # drop the duplicates in order for the many_to_one merge below to succeed.
-    plant_primary_fuel = plant_primary_fuel.drop_duplicates(
-        subset="plant_id_eia", keep="first"
+    plant_primary_fuel["plant_primary_fuel"] = (
+        plant_primary_fuel["plant_primary_fuel"]
+        .fillna(plant_primary_fuel["mode_energy_source_code"])
+        .drop(columns="mode_energy_source_code")
     )
 
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
         plant_primary_fuel, how="left", on="plant_id_eia", validate="many_to_one"
     )
-
-    primary_fuel_table["plant_primary_fuel"] = primary_fuel_table[
-        "plant_primary_fuel"
-    ].fillna(primary_fuel_table["mode_energy_source_code"])
-    primary_fuel_table = primary_fuel_table.drop(columns="mode_energy_source_code")
 
     return primary_fuel_table
 
