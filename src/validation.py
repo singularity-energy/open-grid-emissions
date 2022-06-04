@@ -37,14 +37,14 @@ def load_egrid_plant_file(year):
             "PNAME": "plant_name",
             "UNHTIT": "fuel_consumed_mmbtu",
             "PLHTIANT": "fuel_consumed_for_electricity_mmbtu",
-            "UNCO2": "co2_mass_lb", # this is actually in tons, but we are converting in the next step
-            "PLCO2AN": "co2_mass_lb_adjusted", # this is actually in tons, but we are converting in the next step
+            "UNCO2": "co2_mass_lb",  # this is actually in tons, but we are converting in the next step
+            "PLCO2AN": "co2_mass_lb_adjusted",  # this is actually in tons, but we are converting in the next step
         }
     )
 
     # convert co2 mass tons to lb
-    egrid_plant['co2_mass_lb'] = egrid_plant['co2_mass_lb'] * 2000
-    egrid_plant['co2_mass_lb_adjusted'] = egrid_plant['co2_mass_lb_adjusted'] * 2000
+    egrid_plant["co2_mass_lb"] = egrid_plant["co2_mass_lb"] * 2000
+    egrid_plant["co2_mass_lb_adjusted"] = egrid_plant["co2_mass_lb_adjusted"] * 2000
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
     clean_fuels = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
@@ -167,9 +167,7 @@ def test_chp_allocation(df):
 
 
 def test_for_missing_co2(df):
-    missing_co2_test = df[
-        df["co2_mass_lb"].isna() & ~df["fuel_consumed_mmbtu"].isna()
-    ]
+    missing_co2_test = df[df["co2_mass_lb"].isna() & ~df["fuel_consumed_mmbtu"].isna()]
     if not missing_co2_test.empty:
         print(
             f"Warning: There are {len(missing_co2_test)} records where co2 data is missing. Check `missing_co2_test` for complete list"
@@ -256,3 +254,82 @@ def test_gtn_results(df):
             f"Warning: There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
         )
     return gtn_test
+
+
+def co2_source_metric(cems, partial_cems, shaped_eia_data):
+    """Calculates what percent of CO2 emissions mass came from each source."""
+    # determine the source of the co2 data
+    co2_from_eia = (
+        partial_cems["co2_mass_lb"].sum() + shaped_eia_data["co2_mass_lb"].sum()
+    )
+    co2_from_eia = pd.DataFrame(
+        [{"co2_mass_measurement_code": "EIA Calculated", "co2_mass_lb": co2_from_eia}]
+    )
+
+    co2_from_cems = (
+        cems.groupby("co2_mass_measurement_code")["co2_mass_lb"].sum().reset_index()
+    )
+    co2_from_cems["co2_mass_measurement_code"] = (
+        "CEMS " + co2_from_cems["co2_mass_measurement_code"].astype(str)
+    )
+
+    co2_source = pd.concat([co2_from_cems, co2_from_eia])
+    co2_source["percent"] = (
+        co2_source["co2_mass_lb"] / co2_source["co2_mass_lb"].sum() * 100
+    )
+    co2_source = co2_source.round(2)
+    return co2_source
+
+
+def net_generation_method_metric(cems, partial_cems, shaped_eia_data):
+    """Calculates what percent of net generation mwh was calculated using each method."""
+    # determine the method for the net generation data
+    data_metric = "net_generation_mwh"
+
+    eia_ng_method = (
+        shaped_eia_data.groupby("profile_method")[data_metric]
+        .sum()
+        .reset_index()
+        .rename(columns={"profile_method": "method"})
+    )
+    cems_ng_method = (
+        cems.groupby("gtn_method")[data_metric]
+        .sum()
+        .reset_index()
+        .rename(columns={"gtn_method": "method"})
+    )
+    partial_cems_ng_method = partial_cems[data_metric].sum()
+    partial_cems_ng_method = pd.DataFrame(
+        [{"method": "partial_cems", data_metric: partial_cems_ng_method}]
+    )
+
+    ng_method = pd.concat([cems_ng_method, partial_cems_ng_method, eia_ng_method])
+    ng_method["percent"] = ng_method[data_metric] / ng_method[data_metric].sum() * 100
+    ng_method = ng_method.round(2)
+    return ng_method
+
+
+def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
+    """Calculates the percentage of data whose hourly profile was determined by method"""
+    data_metric = "co2_mass_lb"
+
+    # determine the source of the hourly profile
+    profile_from_cems = cems[data_metric].sum()
+    profile_from_partial_cems = partial_cems[data_metric].sum()
+    profile_from_eia = (
+        shaped_eia_data.groupby("profile_method")[data_metric].sum().reset_index()
+    )
+
+    profile_from_cems = pd.DataFrame(
+        [
+            {"profile_method": "cems", data_metric: profile_from_cems},
+            {"profile_method": "partial_cems", data_metric: profile_from_partial_cems},
+        ]
+    )
+
+    profile_source = pd.concat([profile_from_cems, profile_from_eia])
+    profile_source["percent"] = (
+        profile_source[data_metric] / profile_source[data_metric].sum() * 100
+    )
+    profile_source = profile_source.round(2)
+    return profile_source

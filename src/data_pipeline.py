@@ -102,12 +102,15 @@ import sys
 sys.path.append("../../hourly-egrid/")
 
 # import local modules
+import src.download_data as download_data
+import src.load_data as load_data
 import src.data_cleaning as data_cleaning
 import src.gross_to_net_generation as gross_to_net_generation
-import src.load_data as load_data
-import src.residual as residual
+import src.impute_hourly_profiles as impute_hourly_profiles
 import src.column_checks as column_checks
 import src.eia930 as eia930
+import src.validation as validation
+import src.output_data as output_data
 
 
 def get_args():
@@ -134,82 +137,6 @@ def get_args():
     return args
 
 
-def write_final_result(combined_data, path_prefix):
-    """
-    Helper function to write combined data by BA
-    """
-
-    # only keep relevant columns
-    combined_data = combined_data[
-        [
-            "ba_code",
-            "fuel_category",
-            "datetime_utc",
-            "net_generation_mwh",
-            "fuel_consumed_mmbtu",
-            "fuel_consumed_for_electricity_mmbtu",
-            "co2_mass_lb",
-            "co2_mass_lb_adjusted",
-            "data_source",
-        ]
-    ]
-
-    for ba in list(combined_data.ba_code.unique()):
-
-        # filter the data for a single BA
-        ba_table = combined_data[combined_data["ba_code"] == ba].drop(columns="ba_code")
-
-        # convert the datetime_utc column back to a datetime
-        ba_table["datetime_utc"] = pd.to_datetime(ba_table["datetime_utc"], utc=True)
-
-        # combine the data from CEMS and EIA for each fuel-hour
-        ba_table = (
-            ba_table.groupby(["fuel_category", "datetime_utc"]).sum().reset_index()
-        )
-
-        # calculate a total for the BA
-        ba_total = (
-            ba_table.groupby(["datetime_utc"])
-            .sum()[
-                [
-                    "net_generation_mwh",
-                    "fuel_consumed_mmbtu",
-                    "fuel_consumed_for_electricity_mmbtu",
-                    "co2_mass_lb",
-                    "co2_mass_lb_adjusted",
-                ]
-            ]
-            .reset_index()
-        )
-        ba_total["fuel_category"] = "total"
-
-        # concat the totals to the fuel-specific totals
-        ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
-
-        # calculate a generated emission rate
-        ba_table["generated_co2_rate_lb_per_mwh"] = (
-            (ba_table["co2_mass_lb"] * 2000 / ba_table["net_generation_mwh"])
-            .fillna(0)
-            .replace(np.inf, np.NaN)
-        )
-        ba_table["adjusted_generated_co2_rate_lb_per_mwh"] = (
-            (ba_table["co2_mass_lb_adjusted"] * 2000 / ba_table["net_generation_mwh"])
-            .fillna(0)
-            .replace(np.inf, np.NaN)
-        )
-
-        ba_table = ba_table.pivot(index="datetime_utc", columns="fuel_category")
-
-        # round all values to one decimal place
-        ba_table = ba_table.round(1)
-
-        # flatten the multilevel column into a single column name like data_fuelname
-        ba_table.columns = ["_".join(col) for col in ba_table.columns.values]
-
-        # export to a csv
-        ba_table.to_csv(f"../data/results/{path_prefix}carbon_accounting/{ba}.csv")
-
-
 def main():
     args = get_args()
     year = args.year
@@ -219,12 +146,14 @@ def main():
     os.makedirs("../data/downloads", exist_ok=True)
     os.makedirs(f"../data/outputs/{path_prefix}", exist_ok=True)
     os.makedirs(f"../data/results/{path_prefix}", exist_ok=True)
-    os.makedirs(f"../data/results/{path_prefix}carbon_accounting", exist_ok=True)
     os.makedirs(f"../data/results/{path_prefix}plant_data", exist_ok=True)
+    os.makedirs(f"../data/results/{path_prefix}carbon_accounting", exist_ok=True)
+    os.makedirs(f"../data/results/{path_prefix}power_sector_data", exist_ok=True)
+    os.makedirs(f"../data/results/{path_prefix}validation_metrics", exist_ok=True)
 
     # 1. Download data
     # PUDL
-    load_data.download_pudl_data(
+    download_data.download_pudl_data(
         zenodo_url="https://zenodo.org/record/6349861/files/pudl-v0.6.0-2022-03-12.tgz"
     )
     # eGRID
@@ -233,13 +162,13 @@ def main():
         "https://www.epa.gov/sites/default/files/2021-02/egrid2019_data.xlsx",
         "https://www.epa.gov/system/files/documents/2022-01/egrid2020_data.xlsx",
     ]
-    load_data.download_egrid_files(egrid_files_to_download)
+    download_data.download_egrid_files(egrid_files_to_download)
     # EIA-930
-    load_data.download_eia930_data(years_to_download=[year])
-    load_data.download_chalendar_files()
+    download_data.download_eia930_data(years_to_download=[year])
+    download_data.download_chalendar_files()
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
-    load_data.download_epa_psdc(
+    download_data.download_epa_psdc(
         psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.2.1/epa_eia_crosswalk.csv"
     )
 
@@ -280,25 +209,21 @@ def main():
 
     # 7. Calculate hourly data for partial_cems plants
     print("Scaling partial CEMS data")
-    partial_cems_scaled, eia923_allocated = data_cleaning.scale_partial_cems_data(
+    partial_cems_scaled, eia923_allocated = impute_hourly_profiles.scale_partial_cems_data(
         cems, eia923_allocated
     )
 
     # Export data cleaned by above for later validation, visualization, analysis
     print("Exporting intermediate output files")
-    cems.to_csv(f"../data/outputs/{path_prefix}cems_{year}.csv", index=False)
-    column_checks.check_columns(f"../data/outputs/{path_prefix}cems_{year}.csv")
-    eia923_allocated.to_csv(
-        f"../data/outputs/{path_prefix}eia923_allocated_{year}.csv", index=False
+    output_data.output_intermediate_data(cems, "cems", path_prefix, year)
+    output_data.output_intermediate_data(
+        eia923_allocated.drop(columns="plant_primary_fuel"),
+        "eia923_allocated",
+        path_prefix,
+        year,
     )
-    column_checks.check_columns(
-        f"../data/outputs/{path_prefix}eia923_allocated_{year}.csv"
-    )
-    partial_cems_scaled.to_csv(
-        f"../data/outputs/{path_prefix}partial_cems_scaled_{year}.csv", index=False
-    )
-    column_checks.check_columns(
-        f"../data/outputs/{path_prefix}partial_cems_scaled_{year}.csv"
+    output_data.output_intermediate_data(
+        partial_cems_scaled, "partial_cems_scaled", path_prefix, year
     )
 
     # 8. Assign static characteristics to CEMS and EIA data to aid in aggregation
@@ -359,15 +284,15 @@ def main():
     plant_frame = eia923_allocated[plant_static_columns].drop_duplicates(
         subset="plant_id_eia"
     )
-    plant_frame.to_csv(
-        f"../data/outputs/{path_prefix}plant_static_attributes.csv", index=False
+    # add tz info before exporting
+    pudl_out = load_data.initialize_pudl_out(year=year)
+    plant_tz = pudl_out.plants_eia860()[["plant_id_eia", "timezone"]]
+    plant_frame = plant_frame.merge(plant_tz, how="left", on=["plant_id_eia"])
+    output_data.output_intermediate_data(
+        plant_frame, "plant_static_attributes", path_prefix, year
     )
-    column_checks.check_columns(
-        f"../data/outputs/{path_prefix}plant_static_attributes.csv"
-    )
-    plant_frame.to_csv(
-        f"../data/results/{path_prefix}plant_data/plant_static_attributes.csv",
-        index=False,
+    output_data.output_to_results(
+        plant_frame, "plant_static_attributes", "plant_data/", path_prefix,
     )
 
     # 9. Clean and Reconcile EIA-930 data
@@ -377,89 +302,87 @@ def main():
     # Currently implemented in `notebooks/930_lag` and the `gridemissions` repository
     # Output: `data/outputs/EBA_adjusted_elec.csv`
     eia930_dat = eia930.load_chalendar_for_pipeline(
-        "../data/eia930/chalendar/EBA_adjusted_elec.csv", year=year
+        "../data/downloads/eia930/chalendar/EBA_adjusted_elec.csv", year=year
     )  # For now, load data in form it will eventually be in
-    hourly_profiles = residual.calculate_residual(cems, eia930_dat, plant_frame, year)
-    hourly_profiles.to_csv(
-        f"../data/outputs/{path_prefix}residual_profiles_{year}.csv", index=False
-    )
-    column_checks.check_columns(
-        f"../data/outputs/{path_prefix}residual_profiles_{year}.csv"
-    )
 
     # 10. Calculate Residual Net Generation Profile
     print("Calculating residual net generation profiles from EIA-930")
-    # TODO
-    # Currently implemented in `notebooks/calculate_residual_net_generation`
+    residual_profiles = impute_hourly_profiles.calculate_residual(
+        cems, eia930_dat, plant_frame, year
+    )
+    output_data.output_intermediate_data(
+        residual_profiles, "residual_profiles", path_prefix, year
+    )
 
     # 11. Assign hourly profile to monthly data
     print("Assigning hourly profile to monthly EIA-923 data")
     # create a separate dataframe containing only the generators for which we do not have CEMS data
-    monthly_eia_data_to_distribute = eia923_allocated[
+    monthly_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
         & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
     # load profile data and format for use in the pipeline
     # TODO: once this is in the pipeline (step 10), may not need to read file
-    hourly_profiles = residual.load_hourly_profiles(
-        monthly_eia_data_to_distribute, year
-
+    hourly_profiles = impute_hourly_profiles.impute_missing_hourly_profiles(
+        monthly_data_to_shape, residual_profiles, year
     )
+    hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
-    hourly_eia_data = data_cleaning.distribute_monthly_eia_data_to_hourly(
-        monthly_eia_data_to_distribute, hourly_profiles, "profile"
+    shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_data_to_shape, hourly_profiles
     )
     # Export data
-    columns_for_output = [
-        "ba_code",
-        "fuel_category",
-        "datetime_utc",
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "co2_mass_lb_adjusted",
-    ]
-    hourly_eia_data[columns_for_output].to_csv(
-        f"../data/outputs/{path_prefix}hourly_data_distributed_from_eia_{year}.csv",
-        index=False,
+    output_data.output_intermediate_data(
+        shaped_eia_data, "shaped_eia923_data", path_prefix, year
     )
-    # column_checks.check_columns(
-    #     f"../data/outputs/{path_prefix}hourly_data_distributed_from_eia_{year}.csv"
-    # )
 
     # 12. Export plant files
+    cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
 
-    # 12. Aggregate CEMS data to BA-fuel and combine with hourly shaped EIA data
-    print("Outputting final results")
-    cems_ba_fuel = (
-        cems.groupby(["ba_code", "fuel_category_eia930", "operating_datetime_utc"])
-        .sum()[
-            [
-                "gross_generation_mwh",
-                "net_generation_mwh",
-                "fuel_consumed_mmbtu",
-                "fuel_consumed_for_electricity_mmbtu",
-                "co2_mass_lb",
-                "co2_mass_lb_adjusted",
-            ]
-        ]
-        .reset_index()
+    # output data quality metrics
+    output_data.output_to_results(
+        validation.co2_source_metric(cems, partial_cems_scaled, shaped_eia_data),
+        "co2_measurement_source",
+        "validation_metrics/",
+        path_prefix,
     )
-    cems_ba_fuel["data_source"] = "CEMS"
-    # rename the datetime_utc column
-    cems_ba_fuel = cems_ba_fuel.rename(
-        columns={
-            "operating_datetime_utc": "datetime_utc",
-            "fuel_category_eia930": "fuel_category",
-        }
+    output_data.output_to_results(
+        validation.net_generation_method_metric(
+            cems, partial_cems_scaled, shaped_eia_data
+        ),
+        "net_generation_method",
+        "validation_metrics/",
+        path_prefix,
     )
-    combined_data = pd.concat(
-        [cems_ba_fuel, hourly_eia_data.drop(columns=["datetime_local", "report_date"])],
-        axis=0,
+    output_data.output_to_results(
+        validation.hourly_profile_source_metric(
+            cems, partial_cems_scaled, shaped_eia_data
+        ),
+        "hourly_profile_method",
+        "validation_metrics/",
+        path_prefix,
     )
 
-    write_final_result(combined_data, path_prefix)
+    combined_plant_data = data_cleaning.combine_subplant_data(
+        cems, partial_cems_scaled, shaped_eia_data
+    )
+
+    # export to a csv
+    combined_plant_data.to_csv(
+        f"../data/results/{path_prefix}plant_data/hourly_plant_data.csv",
+        compression="zip",
+        index=False,
+    )
+
+    # 12. Aggregate CEMS data to BA-fuel and write power sector results
+    ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
+        combined_plant_data, plant_frame
+    )
+
+    output_data.write_power_sector_results(ba_fuel_data, path_prefix)
+
+    # 13. Calculate consumption-based emissions and write carbon accounting results
+    # TODO (Gailin)
 
 
 if __name__ == "__main__":

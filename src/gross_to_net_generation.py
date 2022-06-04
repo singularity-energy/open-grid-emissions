@@ -99,7 +99,7 @@ def load_cems_gross_generation(start_year, end_year):
             "plant_id_eia",
             "unitid",
             "unit_id_epa",
-            "operating_datetime_utc",
+            "datetime_utc",
             "operating_time_hours",
             "gross_load_mw",
         ]

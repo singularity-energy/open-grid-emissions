@@ -1,4 +1,4 @@
-plant_id_eia,unitid,cems_id,notes
-2504,120,2504_120,"reports to cems but not EIA, and steam only"
-2504,121,2504_121,"reports to cems but not EIA, and steam only"
-2504,122,2504_122,"reports to cems but not EIA, and steam only"
+plant_id_eia,unitid,notes
+2504,120,"reports to cems but not EIA, and steam only"
+2504,121,"reports to cems but not EIA, and steam only"
+2504,122,"reports to cems but not EIA, and steam only"
