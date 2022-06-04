@@ -269,9 +269,9 @@ def co2_source_metric(cems, partial_cems, shaped_eia_data):
     co2_from_cems = (
         cems.groupby("co2_mass_measurement_code")["co2_mass_lb"].sum().reset_index()
     )
-    co2_from_cems["co2_mass_measurement_code"] = (
-        "CEMS " + co2_from_cems["co2_mass_measurement_code"].astype(str)
-    )
+    co2_from_cems["co2_mass_measurement_code"] = "CEMS " + co2_from_cems[
+        "co2_mass_measurement_code"
+    ].astype(str)
 
     co2_source = pd.concat([co2_from_cems, co2_from_eia])
     co2_source["percent"] = (

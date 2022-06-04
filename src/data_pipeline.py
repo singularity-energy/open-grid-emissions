@@ -209,9 +209,10 @@ def main():
 
     # 7. Calculate hourly data for partial_cems plants
     print("Scaling partial CEMS data")
-    partial_cems_scaled, eia923_allocated = impute_hourly_profiles.scale_partial_cems_data(
-        cems, eia923_allocated
-    )
+    (
+        partial_cems_scaled,
+        eia923_allocated,
+    ) = impute_hourly_profiles.scale_partial_cems_data(cems, eia923_allocated)
 
     # Export data cleaned by above for later validation, visualization, analysis
     print("Exporting intermediate output files")
