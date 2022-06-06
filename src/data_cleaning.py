@@ -1,6 +1,9 @@
+from email import message
+from functools import partial
 import pandas as pd
 import numpy as np
 from pandas import DataFrame
+import warnings
 
 import src.load_data as load_data
 
@@ -204,16 +207,14 @@ def create_primary_fuel_table(gen_fuel_allocated):
         columns={"energy_source_code": "plant_primary_fuel"}
     )
 
-    plant_primary_fuel["plant_primary_fuel"] = (
-        plant_primary_fuel["plant_primary_fuel"]
-        .fillna(plant_primary_fuel["mode_energy_source_code"])
-        .drop(columns="mode_energy_source_code")
-    )
+    plant_primary_fuel["plant_primary_fuel"] = plant_primary_fuel[
+        "plant_primary_fuel"
+    ].fillna(plant_primary_fuel["mode_energy_source_code"])
 
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
         plant_primary_fuel, how="left", on="plant_id_eia", validate="many_to_one"
-    )
+    ).drop(columns=["mode_energy_source_code"])
 
     return primary_fuel_table
 
@@ -440,6 +441,8 @@ def adjust_emissions_for_CHP(df):
         df["so2_mass_lb_for_electricity"] = (
             df["so2_mass_lb"] * df["electric_allocation_factor"]
         )
+
+    df = df.drop(columns=["electric_allocation_factor"])
 
     return df
 
@@ -680,15 +683,19 @@ def manually_remove_steam_units(df):
     """
 
     # get the list of plant_id_eia from the static table
-    units_to_remove = list(
-        pd.read_csv("../data/manual/steam_units_to_remove.csv")["cems_id"]
-    )
+    units_to_remove = pd.read_csv(
+        "../data/manual/steam_units_to_remove.csv",
+        dtype={"plant_id_eia": "int", "unitid": "str",},
+    )[["plant_id_eia", "unitid"]]
 
     print(
         f"Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
     )
 
-    df = df[~df["cems_id"].isin(units_to_remove)]
+    df = df.merge(
+        units_to_remove, how="outer", on=["plant_id_eia", "unitid"], indicator="source"
+    )
+    df = df[df["source"] == "left_only"].drop(columns=["source"])
 
     return df
 
@@ -698,7 +705,7 @@ def add_report_date(df):
     Add a report date column to the cems data based on the plant's local timezone
 
     Args:
-        df (pd.Dataframe): dataframe containing 'plant_id_eia' and 'operating_datetime_utc' columns
+        df (pd.Dataframe): dataframe containing 'plant_id_eia' and 'datetime_utc' columns
     Returns:
         Original dataframe with 'report_date' column added
     """
@@ -709,8 +716,8 @@ def add_report_date(df):
         plants_entity_eia[["plant_id_eia", "timezone"]], how="left", on="plant_id_eia"
     )
 
-    # create a datetimeindex from the operating_datetime_utc column
-    datetime_utc = pd.DatetimeIndex(df["operating_datetime_utc"])
+    # create a datetimeindex from the datetime_utc column
+    datetime_utc = pd.DatetimeIndex(df["datetime_utc"])
 
     # create blank column to hold local datetimes
     df["report_date"] = np.NaN
@@ -721,13 +728,18 @@ def add_report_date(df):
     # convert UTC to the local timezone
     for tz in timezones:
         tz_mask = df["timezone"] == tz  # find all rows where the tz matches
-        df.loc[tz_mask, "report_date"] = (
-            datetime_utc[tz_mask]
-            .tz_convert(tz)  # convert to local time
-            .to_series(index=df[tz_mask].index)  # convert to a series
-            .dt.to_period("M")
-            .dt.to_timestamp()  # convert to a YYYY-MM-01 stamp
-        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Converting to PeriodArray/Index representation will drop timezone information.",
+            )
+            df.loc[tz_mask, "report_date"] = (
+                datetime_utc[tz_mask]
+                .tz_convert(tz)  # convert to local time
+                .to_series(index=df[tz_mask].index)  # convert to a series
+                .dt.to_period("M")
+                .dt.to_timestamp()  # convert to a YYYY-MM-01 stamp
+            )
 
     df["report_date"] = pd.to_datetime(df["report_date"])
 
@@ -1265,6 +1277,12 @@ def fill_cems_missing_co2(cems, year):
     If a unit has a unit-specific fuel type identified by the EPA-EIA crosswalk, calculate co2 using a fuel-specific emission factor.
     If not, fill missing data by calculating a plant-month weighted average emission factor of all fuels burned in that plant-month.
     """
+
+    # add a new categorical option to the mass measurement code
+    cems["co2_mass_measurement_code"] = cems[
+        "co2_mass_measurement_code"
+    ].cat.add_categories("Imputed")
+
     # replace all "missing" CO2 values with zero
     cems["co2_mass_lb"] = cems["co2_mass_lb"].fillna(0)
 
@@ -1297,6 +1315,9 @@ def fill_cems_missing_co2(cems, year):
 
     # fill this data into the original cems data
     cems.update(co2_to_fill[["co2_mass_lb"]])
+
+    # update the co2 mass measurement code
+    cems.loc[co2_to_fill.index, "co2_mass_measurement_code"] = "Imputed"
 
     #### Second round of data filling using weighted average EF based on EIA-923 heat input data
 
@@ -1362,6 +1383,9 @@ def fill_cems_missing_co2(cems, year):
     # update in CEMS table
     cems.update(missing_co2[["co2_mass_lb"]])
 
+    # update the co2 mass measurement code
+    cems.loc[missing_co2.index, "co2_mass_measurement_code"] = "Imputed"
+
     return cems
 
 
@@ -1370,12 +1394,14 @@ def remove_cems_with_zero_monthly_data(cems):
     Identifies months where zero generation, heat input, or emissions are reported 
     from each unit and removes associated hours from CEMS so that these can be filled using the eia923 data
     Inputs:
-        cems: pandas dataframe of hourly cems data containing columns "cems_id" and "report_date"
+        cems: pandas dataframe of hourly cems data containing columns "plant_id_eia", "unitid" and "report_date"
     Returns:
         cems df with hourly observations for months when no emissions reported removed
     """
     # calculate the totals reported in each month
-    cems_with_zero_monthly_emissions = cems.groupby(["cems_id", "report_date"]).sum()[
+    cems_with_zero_monthly_emissions = cems.groupby(
+        ["plant_id_eia", "unitid", "report_date"]
+    ).sum()[
         [
             "co2_mass_lb",
             "nox_mass_lb",
@@ -1394,10 +1420,10 @@ def remove_cems_with_zero_monthly_data(cems):
     # merge the missing data flag into the cems data
     cems = cems.merge(
         cems_with_zero_monthly_emissions.reset_index()[
-            ["cems_id", "report_date", "missing_data_flag"]
+            ["plant_id_eia", "unitid", "report_date", "missing_data_flag"]
         ],
         how="left",
-        on=["cems_id", "report_date"],
+        on=["plant_id_eia", "unitid", "report_date"],
     )
     # remove any observations with the missing data flag
     print(
@@ -1832,7 +1858,7 @@ def convert_gross_to_net_generation(cems):
     values_to_fill = gtn_conversion[gtn_conversion["gtn_ratio"].isna()].index
     gtn_conversion.loc[values_to_fill, "gtn_ratio"] = 0.85
     gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
-    gtn_conversion.loc[values_to_fill, "gtn_method"] = "assumed_value"
+    gtn_conversion.loc[values_to_fill, "gtn_method"] = "assumed_gtn_ratio"
 
     # fill missing gtn_constant with zero
     gtn_conversion["gtn_constant"] = gtn_conversion["gtn_constant"].fillna(0)
@@ -1994,85 +2020,6 @@ def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
     return cems
 
 
-def ba_timezone(ba, type):
-    """
-    Retrieves the UTC Offset (for standard time) for a single balancing area.
-    Args:
-        ba: string containing the ba_code
-        type: either 'reporting_eia930' or 'local'. Reporting will return the TZ used by the BA when reporting to EIA-930, local will return the actual local tz
-    """
-
-    tz = pd.read_csv(
-        "../data/manual/ba_reference.csv", usecols=["ba_code", f"timezone_{type}"]
-    )
-    tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"].item()
-
-    return tz
-
-
-def distribute_monthly_eia_data_to_hourly(
-    monthly_eia_data_to_distribute, hourly_profiles, profile_column_name
-):
-    """
-    Uses monthly-level EIA data and assigns an hourly profile
-    Inputs: 
-        monthly_eia_data_to_distribute: a dataframe that contains monthly total net generation, fuel consumption, and co2 data, along with columns for report_date and ba_code
-    """
-    columns_to_shape = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "co2_mass_lb_adjusted",
-    ]
-
-    # calculate totals by BA, Fuel Group, and Month
-    monthly_eia_ba_fuel = (
-        monthly_eia_data_to_distribute.groupby(
-            ["ba_code", "fuel_category", "report_date"]
-        )
-        .sum()[columns_to_shape]
-        .reset_index()
-    )
-
-    # calculate the total monthly net generation profile by BA and fuel group
-    monthly_profile_total = (
-        hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])
-        .sum()
-        .reset_index()
-    )
-
-    # merge the total monthly profile into the monthly totals
-    monthly_eia_ba_fuel = monthly_eia_ba_fuel.merge(
-        monthly_profile_total,
-        how="left",
-        on=["ba_code", "fuel_category", "report_date"],
-    )
-
-    # calculate how much net generation, fuel, and co2 should be assigned to each unit of net generation in the profile
-    for col in columns_to_shape:
-        monthly_eia_ba_fuel[col] = (
-            monthly_eia_ba_fuel[col] / monthly_eia_ba_fuel[profile_column_name]
-        )
-
-    # drop the profile column and merge the hourly generation, fuel, and co2 factors back into the profile timeseries data
-    monthly_eia_ba_fuel = monthly_eia_ba_fuel.drop(columns=profile_column_name)
-    hourly_eia_data = hourly_profiles.merge(
-        monthly_eia_ba_fuel, how="left", on=["ba_code", "fuel_category", "report_date"]
-    )
-
-    # multiply each factor by the profile to calculate the hourly shape
-    for col in columns_to_shape:
-        hourly_eia_data[col] = (
-            hourly_eia_data[col] * hourly_eia_data[profile_column_name]
-        )
-
-    # create a column identifying the source of the data
-    hourly_eia_data["data_source"] = "EIA"
-
-    return hourly_eia_data
-
-
 def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
     """
     Identifies which plant_id_eia are "distribution grid connected" based on a voltage threshold.
@@ -2133,13 +2080,59 @@ def assign_fuel_category_to_ESC(
     return df
 
 
-def scale_partial_cems_data(cems, eia923_allocated):
-    """Scales CEMS subplant data for which there is partial units reporting"""
-    subplant_keys = ["report_date", "plant_id_eia", "subplant_id"]
-    data_columns = [
+def filter_unique_cems_data(cems, partial_cems):
+    """Removes subplant-months from cems that also appear in partial_cems."""
+    # filter the cems data to remove data that was scaled in partial_cems
+    partial_cems_subplant_months = partial_cems[
+        ["plant_id_eia", "subplant_id", "report_date"]
+    ].drop_duplicates()
+    filtered_cems = cems.merge(
+        partial_cems_subplant_months,
+        how="outer",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        indicator="source",
+    )
+
+    filtered_cems = filtered_cems[filtered_cems["source"] == "left_only"].drop(
+        columns=["source"]
+    )
+
+    return filtered_cems
+
+
+def combine_subplant_data(cems, partial_cems, shaped_eia_data):
+    """Combines final hourly subplant data from each source into a single dataframe."""
+
+    # identify the source
+    cems["data_source"] = "CEMS reported"
+    partial_cems["data_source"] = "partial CEMS/EIA"
+    shaped_eia_data["data_source"] = "EIA imputed"
+
+    # identify net generation method
+    cems = cems.rename(columns={"gtn_method": "net_generation_method"})
+    shaped_eia_data["net_generation_method"] = shaped_eia_data["profile_method"]
+    partial_cems["net_generation_method"] = "partial_cems"
+
+    # identify hourly profile method
+    cems["hourly_profile_source"] = "CEMS"
+    partial_cems["hourly_profile_source"] = "partial CEMS"
+    shaped_eia_data = shaped_eia_data.rename(
+        columns={"profile_method": "hourly_profile_source"}
+    )
+
+    columns_to_use = [
+        "plant_id_eia",
+        "subplant_id",
+        "report_date",
+        "datetime_utc",
+        "data_source",
+        "hourly_profile_source",
+        "gross_generation_mwh",
+        "net_generation_mwh",
+        "net_generation_method",
+        "steam_load_1000_lb",
         "fuel_consumed_mmbtu",
         "fuel_consumed_for_electricity_mmbtu",
-        "net_generation_mwh",
         "co2_mass_lb",
         "ch4_mass_lb",
         "n2o_mass_lb",
@@ -2157,140 +2150,106 @@ def scale_partial_cems_data(cems, eia923_allocated):
         "so2_mass_lb_adjusted",
     ]
 
-    # identify all of the partial cems plants and group by subplant-month
-    partial_cems = eia923_allocated.loc[
-        eia923_allocated.hourly_data_source == "partial_cems"
+    data_columns = [
+        "gross_generation_mwh",
+        "net_generation_mwh",
+        "steam_load_1000_lb",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "ch4_mass_lb_for_electricity",
+        "n2o_mass_lb_for_electricity",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb_for_electricity",
+        "co2_mass_lb_adjusted",
+        "ch4_mass_lb_adjusted",
+        "n2o_mass_lb_adjusted",
+        "nox_mass_lb_adjusted",
+        "so2_mass_lb_adjusted",
     ]
-    partial_cems = (
-        partial_cems.groupby(subplant_keys, dropna=False)
-        .sum()[data_columns]
+
+    # aggregate the data by plant and concat together
+    combined_subplant_data = pd.concat(
+        [
+            cems.groupby(
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "datetime_utc",
+                    "data_source",
+                    "net_generation_method",
+                    "hourly_profile_source",
+                ],
+                dropna=False,
+            )
+            .sum()
+            .reset_index()[[col for col in cems.columns if col in columns_to_use]],
+            partial_cems[
+                [col for col in partial_cems.columns if col in columns_to_use]
+            ],
+            shaped_eia_data[
+                [col for col in shaped_eia_data.columns if col in columns_to_use]
+            ],
+        ],
+        axis=0,
+    )
+
+    combined_subplant_data["subplant_id"] = combined_subplant_data[
+        "subplant_id"
+    ].fillna(0)
+
+    combined_subplant_data[data_columns] = combined_subplant_data[data_columns].round(2)
+
+    combined_subplant_data = combined_subplant_data.astype(
+        {
+            "plant_id_eia": "int",
+            "subplant_id": "int",
+            "data_source": "category",
+            "hourly_profile_source": "category",
+            "net_generation_method": "category",
+        }
+    )
+
+    # re-order the columns
+    combined_subplant_data = combined_subplant_data[columns_to_use]
+
+    return combined_subplant_data
+
+
+def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
+    data_columns = [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "ch4_mass_lb_for_electricity",
+        "n2o_mass_lb_for_electricity",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb_for_electricity",
+        "co2_mass_lb_adjusted",
+        "ch4_mass_lb_adjusted",
+        "n2o_mass_lb_adjusted",
+        "nox_mass_lb_adjusted",
+        "so2_mass_lb_adjusted",
+    ]
+
+    ba_fuel_data = combined_plant_data.merge(
+        plant_frame, how="left", on=["plant_id_eia"]
+    )
+    ba_fuel_data = (
+        ba_fuel_data.groupby(["ba_code", "fuel_category", "datetime_utc"])[data_columns]
+        .sum()
         .reset_index()
     )
-
-    # group the cems data by subplant month and merge into partial cems
-    cems_monthly = (
-        cems.groupby(subplant_keys, dropna=False).sum()[data_columns].reset_index()
-    )
-    partial_cems = partial_cems.merge(
-        cems_monthly, how="left", on=subplant_keys, suffixes=("_eia", "_cems")
-    )
-
-    # compare the fuel consumption values from each source. If the CEMS data
-    # actually represents only partial data, the CEMS-reported values should be
-    # less than the EIA values. Where the CEMS-reported values are greater than
-    # the EIA-reported values, change the flag back to cems only, and remove
-    # these from the partial cems list
-    complete_cems = partial_cems.loc[
-        (partial_cems.fuel_consumed_mmbtu_cems >= partial_cems.fuel_consumed_mmbtu_eia),
-        subplant_keys,
-    ]
-    eia923_allocated = eia923_allocated.merge(
-        complete_cems, how="outer", on=subplant_keys, indicator="source"
-    )
-    eia923_allocated.loc[
-        eia923_allocated["source"] == "both", "hourly_data_source"
-    ] == "cems"
-    eia923_allocated = eia923_allocated.drop(columns="source")
-    partial_cems = partial_cems[
-        (partial_cems.fuel_consumed_mmbtu_cems < partial_cems.fuel_consumed_mmbtu_eia)
-    ]
-
-    # create a version of the cems data that is aggregated at the subplant level
-    #  and filtered to include only the subplant-months that need to be scaled
-    cems_scaled = cems.merge(
-        partial_cems[subplant_keys], how="outer", on=subplant_keys, indicator="source"
-    )
-    cems_scaled = cems_scaled[cems_scaled["source"] == "both"].drop(columns=["source"])
-    cems_scaled = (
-        cems_scaled.groupby(subplant_keys + ["operating_datetime_utc"])
-        .sum()[data_columns]
-        .reset_index()
-    )
-
-    # scale the cems data
-    for index, row in partial_cems.iterrows():
-        plant_id = row.plant_id_eia
-        subplant_id = row.subplant_id
-        report_date = row.report_date
-
-        for column in data_columns:
-            try:
-                scaling_factor = row[f"{column}_eia"] / row[f"{column}_cems"]
-                scaling_method = "multiply_by_cems_value"
-
-                if scaling_factor < 0:
-                    scaling_factor = row[f"{column}_eia"] - row[f"{column}_cems"]
-                    scaling_method = "shift_negative_profile"
-
-            except ZeroDivisionError:
-                if (row[f"{column}_eia"] == 0) & (row[f"{column}_cems"] == 0):
-                    scaling_factor = 1
-                    scaling_method = "multiply_by_cems_value"
-                elif (row[f"{column}_eia"] > 0) & (row[f"{column}_cems"] == 0):
-                    scaling_factor = (
-                        row[f"{column}_eia"] / row["fuel_consumed_mmbtu_cems"]
-                    )
-                    scaling_method = "multiply_by_cems_fuel"
-                elif (row[f"{column}_eia"] < 0) & (row[f"{column}_cems"] == 0):
-                    scaling_factor = row[f"{column}_eia"] - row[f"{column}_cems"]
-                    scaling_method = "shift_negative_profile"
-
-            if scaling_method == "multiply_by_cems_value":
-                cems_scaled.loc[
-                    (cems_scaled.report_date == report_date)
-                    & (cems_scaled.plant_id_eia == plant_id)
-                    & (cems_scaled.subplant_id == subplant_id),
-                    column,
-                ] = (
-                    cems_scaled.loc[
-                        (cems_scaled.report_date == report_date)
-                        & (cems_scaled.plant_id_eia == plant_id)
-                        & (cems_scaled.subplant_id == subplant_id),
-                        column,
-                    ]
-                    * scaling_factor
-                )
-            elif scaling_method == "multiply_by_cems_fuel":
-                cems_scaled.loc[
-                    (cems_scaled.report_date == report_date)
-                    & (cems_scaled.plant_id_eia == plant_id)
-                    & (cems_scaled.subplant_id == subplant_id),
-                    column,
-                ] = (
-                    cems_scaled.loc[
-                        (cems_scaled.report_date == report_date)
-                        & (cems_scaled.plant_id_eia == plant_id)
-                        & (cems_scaled.subplant_id == subplant_id),
-                        "fuel_consumed_mmbtu",
-                    ]
-                    * scaling_factor
-                )
-            elif scaling_method == "shift_negative_profile":
-                # get a count of the number of hours
-                number_of_hours = len(
-                    cems_scaled.loc[
-                        (cems_scaled.report_date == report_date)
-                        & (cems_scaled.plant_id_eia == plant_id)
-                        & (cems_scaled.subplant_id == subplant_id),
-                        column,
-                    ]
-                )
-                # divide the scaling factor by the number of hours to get the hourly shift
-                hourly_shift = scaling_factor / number_of_hours
-                # add the shift factor to the hourly profile
-                cems_scaled.loc[
-                    (cems_scaled.report_date == report_date)
-                    & (cems_scaled.plant_id_eia == plant_id)
-                    & (cems_scaled.subplant_id == subplant_id),
-                    column,
-                ] = (
-                    cems_scaled.loc[
-                        (cems_scaled.report_date == report_date)
-                        & (cems_scaled.plant_id_eia == plant_id)
-                        & (cems_scaled.subplant_id == subplant_id),
-                        "fuel_consumed_mmbtu",
-                    ]
-                    + hourly_shift
-                )
-
-    return cems_scaled, eia923_allocated
+    return ba_fuel_data
