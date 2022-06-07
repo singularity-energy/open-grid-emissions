@@ -90,8 +90,12 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
                 )
 
         # create a local datetime column
-        local_tz = load_data.ba_timezone(ba, 'local')
-        ba_table["datetime_local"] = ba_table["datetime_utc"].dt.tz_convert(local_tz)
+        try:
+            local_tz = load_data.ba_timezone(ba, 'local')
+            ba_table["datetime_local"] = ba_table["datetime_utc"].dt.tz_convert(local_tz)
+        # TODO: figure out what to do for missing ba
+        except ValueError:
+            ba_table["datetime_local"] = pd.NaT
 
         # re-order columns
         ba_table = ba_table[
