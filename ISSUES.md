@@ -1,11 +1,8 @@
 # HIGH PRIORITY
-Finish work on load_hourly_profiles()... add hydro and other resource profiles, test that it works
 
-## Short-term priorities
-- [ ] Output final files
-- [ ] Split functions related to hourly distribution to separate file (starting at data cleaning / identify hourly data source)
-- [ ] Test gross to net emissions ordering using residual 
-- [ ] Remove emissions measurement codes from cems for now b/c makes file quite large
+## Outputs
+- [ ] Separate data by hourly data source
+- [-] Output final files
 
 ## Emissions
 - [ ] replace all OTH fuel type
@@ -15,44 +12,27 @@ Finish work on load_hourly_profiles()... add hydro and other resource profiles, 
 - [ ] Adjust SO2 emissions for control efficiencies reported in EIA-923
 - see: https://github.com/catalyst-cooperative/pudl/issues/889
 
-## CHP Allocation
-- [ ] Investigate whether we can improve the 0.8 assumed efficiency factor
-- [ ] Investigate the 0.75 assumed efficiency factor
-- [ ] Apply unit specific calculation based on topping or bottoming cycle
-- [ ] When adjusting CEMS data, investigate whether we can use gross generation instead of net for the calculation
-
 ## General data cleaning
 - [-] When subplant ID is NA in CEMS, make sure it is correctly merging with the EIA data
-- [x] Export intermediate files 
 - [ ] Check MSW codes - make sure this was done correctly
 - [ ] Identify and remove hourly values in CEMS that appear to be outliers
 
 ## Gross to net generation conversion
+- [ ] Test gross to net emissions ordering using residual 
 - [ ] Create annual residual metric to evaluate what order I should do methods in
 - [ ] Add method to deal with negative GTN ratios
 - [ ] Revise assumption for assumed GTN value
 - [-] Fix issue where net generation > gross generation
 
 ## EIA-923 Data Cleaning
-
 - [ ] Allocate 99999 data from EIA 923
 - [ ] Check performance of allocation when net generation is negative
 
-## Distributing EIA-923 to Hourly
-- [ ] Develop method for partial_cems plants
-- [ ] Distribute data at plant level instead of BA-fuel level
-- [ ] Assign flat profile to Geothermal and biomass generation
-- [ ] Identify BAs where "Other" category includes a single fuel type
-- [ ] Assign a profile to missing wind and solar data if none provided in 930
-For plants with negative net generation
- - [ ] If no fuel consumption, assign a flat profile
- - [ ] If fuel consumption, adjust hourly profile
 
 # LOWER PRIORITY
 
 ## General data cleaning
 - [ ] For heat rate validation test, group by fuel and PM
-- [ ] Remove `cems_id` column in favor of outer merges
 - [ ] Figure out what to do with retired BAs
 - [ ] Figure out what to do with energy storage
 - [ ] Remove steam-only plants from CEMS (or plants that have no generation)

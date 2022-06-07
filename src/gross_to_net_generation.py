@@ -99,7 +99,7 @@ def load_cems_gross_generation(start_year, end_year):
             "plant_id_eia",
             "unitid",
             "unit_id_epa",
-            "operating_datetime_utc",
+            "datetime_utc",
             "operating_time_hours",
             "gross_load_mw",
         ]
@@ -439,9 +439,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level):
     ]
 
     # load the activation and retirement dates into the data
-    subplant_crosswalk = pd.read_csv(
-        f"../data/outputs/subplant_crosswalk.csv"
-    )
+    subplant_crosswalk = pd.read_csv(f"../data/outputs/subplant_crosswalk.csv")
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,
         how="left",

@@ -2,6 +2,7 @@ import pandas as pd
 import re
 from datetime import timedelta
 import src.data_cleaning as data_cleaning
+import src.load_data as load_data
 
 # Map from 923 fuel types (added to cems data in data_pipeline)
 # to 930 fuel types
@@ -117,7 +118,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     for ba in list(data["ba_code"].unique()):
         data.loc[data.ba_code == ba, "datetime_local"] = data.loc[
             data.ba_code == ba, "datetime_utc"
-        ].dt.tz_convert(data_cleaning.ba_timezone(ba=ba, type="local"))
+        ].dt.tz_convert(load_data.ba_timezone(ba=ba, type="local"))
 
     # create a report date column
     data["report_date"] = data["datetime_local"].astype(str).str[:7]

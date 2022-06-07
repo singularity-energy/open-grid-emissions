@@ -1,214 +1,9 @@
-import os
-import requests
-import tarfile
 import pandas as pd
 import sqlalchemy as sa
 
 import src.data_cleaning as data_cleaning
-import shutil
-import gzip
 
 import pudl.output.pudltabl
-
-
-def download_pudl_data(zenodo_url):
-    """
-    Downloads the archived PUDL data release. The most recent version can be found at https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#zenodo-archives
-    Inputs:
-        zenodo_url: the url to the .tgz file hosted on zenodo
-    """
-
-    # get the version number
-    pudl_version = zenodo_url.split("/")[-1].replace(".tgz", "")
-
-    def download_pudl(zenodo_url, pudl_version):
-        r = requests.get(zenodo_url, params={"download": "1"}, stream=True)
-        # specify parameters for progress bar
-        total_size_in_bytes = int(r.headers.get("content-length", 0))
-        block_size = 1024 * 1024 * 10  # 10 MB
-        downloaded = 0
-        with open("../data/downloads/pudl.tgz", "wb") as fd:
-            for chunk in r.iter_content(chunk_size=block_size):
-                print(
-                    f"Downloading PUDL. Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
-                    end="",
-                )
-                fd.write(chunk)
-                downloaded += block_size
-
-        # extract the tgz file
-        print("Extracting PUDL data...")
-        with tarfile.open("../data/downloads/pudl.tgz") as tar:
-            tar.extractall("../data/")
-
-        # rename the extracted directory to pudl so that we don't have to update this for future versions
-        os.rename(f"../data/{pudl_version}", "../data/downloads/pudl")
-
-        # add a version file
-        with open("../data/downloads/pudl/pudl_version.txt", "w+") as v:
-            v.write(pudl_version)
-
-        # delete the downloaded tgz file
-        os.remove("../data/downloads/pudl.tgz")
-
-        print("PUDL download complete")
-
-    # if the pudl data already exists, do not re-download
-    if os.path.exists("../data/downloads/pudl"):
-        with open("../data/downloads/pudl/pudl_version.txt", "r") as f:
-            existing_version = f.readlines()[0]
-        if pudl_version == existing_version:
-            print("PUDL data already downloaded")
-        else:
-            print("Downloading new version of pudl")
-            shutil.rmtree("../data/downloads/pudl")
-            download_pudl(zenodo_url, pudl_version)
-    else:
-        download_pudl(zenodo_url, pudl_version)
-        download_updated_pudl_database(download=True)
-
-
-def download_updated_pudl_database(download=True):
-    """
-    Downloaded the updated `pudl.sqlite` file from datasette.
-
-    This is temporary until a new version of the data is published on zenodo
-    """
-    if download is True:
-        print("Downloading updated pudl.sqlite from Datasette...")
-        # remove the existing file from zenodo
-        os.remove("../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite")
-
-        r = requests.get("https://data.catalyst.coop/pudl.db", stream=True)
-        with open("../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite", "wb") as fd:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                fd.write(chunk)
-
-    else:
-        pass
-
-
-def download_chalendar_files():
-    """
-    download_chalendar_files
-    Download raw and cleaned files. Eventually we'll do our own processing to get our own version of chalendar,
-    but still will be useful to use this raw file and compare to this cleaned file.
-
-    TODO: download functions share a lot of code, could refactor
-    """
-    # if there is not yet a directory for egrid, make it
-    if not os.path.exists("../data/downloads/eia930"):
-        os.mkdir("../data/downloads/eia930")
-    # if there is not a directory for chalendar-formatted files, make it
-    if not os.path.exists("../data/downloads/eia930/chalendar"):
-        os.mkdir("../data/downloads/eia930/chalendar")
-
-    # download the cleaned and raw files
-    urls = [
-        "https://gridemissions.s3.us-east-2.amazonaws.com/EBA_elec.csv.gz",
-        "https://gridemissions.s3.us-east-2.amazonaws.com/EBA_raw.csv.gz",
-    ]
-    for url in urls:
-        filename = url.split("/")[-1].replace(".gz", "")
-        # if the file already exists, do not re-download it
-        if os.path.exists(f"../data/downloads/eia930/chalendar/{filename}"):
-            print(f"{filename} already downloaded")
-        else:
-            r = requests.get(url, stream=True)
-
-            with open(f"../data/downloads/eia930/chalendar/{filename}.gz", "wb") as fd:
-                for chunk in r.iter_content(chunk_size=1024):
-                    fd.write(chunk)
-
-            # Unzip
-            with gzip.open(
-                f"../data/downloads/eia930/chalendar/{filename}.gz", "rb"
-            ) as f_in:
-                with open(
-                    f"../data/downloads/eia930/chalendar/{filename}", "wb"
-                ) as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-            os.remove(f"../data/downloads/eia930/chalendar/{filename}.gz")
-
-
-def download_egrid_files(egrid_files_to_download):
-    """
-    Downloads the egrid excel files
-    Inputs:
-        egrid_files_to_download: a list of urls for the egrid excel files that you want to download
-    """
-    # if there is not yet a directory for egrid, make it
-    if not os.path.exists("../data/downloads/egrid"):
-        os.mkdir("../data/downloads/egrid")
-
-    # download the egrid files
-    for url in egrid_files_to_download:
-        filename = url.split("/")[-1]
-        # if the file already exists, do not re-download it
-        if os.path.exists(f"../data/downloads/egrid/{filename}"):
-            print(f"{filename} already downloaded")
-        else:
-            r = requests.get(url, stream=True)
-
-            with open(f"../data/downloads/egrid/{filename}", "wb") as fd:
-                for chunk in r.iter_content(chunk_size=1024):
-                    fd.write(chunk)
-
-
-def download_eia930_data(years_to_download):
-    """
-    Downloads the six month csv files from the EIA-930 website
-    Inputs:
-        years_to_download: list of four-digit year numbers to download from EIA-930
-    """
-    # if there is not yet a directory for EIA-930, make it
-    if not os.path.exists("../data/downloads/eia930"):
-        os.mkdir("../data/downloads/eia930")
-
-    # download the egrid files
-    for year in years_to_download:
-        for description in ["BALANCE", "INTERCHANGE"]:
-            for months in ["Jan_Jun", "Jul_Dec"]:
-                if os.path.exists(
-                    f"../data/downloads/eia930/EIA930_{description}_{year}_{months}.csv"
-                ):
-                    print(f"{description}_{year}_{months} data already downloaded")
-                else:
-                    print(f"downloading {description}_{year}_{months} data")
-                    r = requests.get(
-                        f"https://www.eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_{description}_{year}_{months}.csv",
-                        stream=True,
-                    )
-
-                    with open(
-                        f"../data/downloads/eia930/EIA930_{description}_{year}_{months}.csv",
-                        "wb",
-                    ) as fd:
-                        for chunk in r.iter_content(chunk_size=1024 * 1024):
-                            fd.write(chunk)
-
-
-def download_epa_psdc(psdc_url):
-    """
-    Downloads the EPA's Power Sector Data Crosswalk
-    Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
-    Inputs:
-        psdc_url: the url to the csv file hosted on github
-    """
-    # if there is not yet a directory for egrid, make it
-    if not os.path.exists("../data/downloads/epa"):
-        os.mkdir("../data/downloads/epa")
-
-    filename = psdc_url.split("/")[-1]
-    # if the file already exists, do not re-download it
-    if os.path.exists(f"../data/downloads/epa/{filename}"):
-        print(f"{filename} already downloaded")
-    else:
-        r = requests.get(psdc_url, stream=True)
-
-        with open(f"../data/downloads/epa/{filename}", "wb") as fd:
-            for chunk in r.iter_content(chunk_size=1024):
-                fd.write(chunk)
 
 
 def load_cems_data(year):
@@ -237,7 +32,6 @@ def load_cems_data(year):
         "so2_mass_lbs",
         "so2_mass_measurement_code",
         "heat_content_mmbtu",
-        "unit_id_epa",
     ]
 
     # load the CEMS data
@@ -247,6 +41,7 @@ def load_cems_data(year):
     # rename the heat content column to use the convention used in the EIA data
     cems = cems.rename(
         columns={
+            "operating_datetime_utc": "datetime_utc",
             "plant_id_eia": "plant_id_epa",
             "heat_content_mmbtu": "fuel_consumed_mmbtu",
             "steam_load_1000_lbs": "steam_load_1000_lb",
@@ -282,32 +77,36 @@ def load_cems_data(year):
     # convert co2 mass in tons to lb
     cems["co2_mass_lb"] = cems["co2_mass_tons"] * 2000
 
-    # add a unique unit id
-    cems["cems_id"] = (
-        cems["plant_id_eia"].astype(str) + "_" + cems["unitid"].astype(str)
-    )
-
     # re-order columns
     cems = cems[
         [
             "plant_id_eia",
             "unitid",
-            "cems_id",
-            "operating_datetime_utc",
+            "datetime_utc",
             "operating_time_hours",
             "gross_generation_mwh",
             "steam_load_1000_lb",
             "fuel_consumed_mmbtu",
             "co2_mass_lb",
-            "co2_mass_measurement_code",
             "nox_mass_lb",
-            "nox_mass_measurement_code",
             "so2_mass_lb",
-            "so2_mass_measurement_code",
             "plant_id_epa",
-            "unit_id_epa",
+            "co2_mass_measurement_code",
+            "nox_mass_measurement_code",
+            "so2_mass_measurement_code",
         ]
     ]
+
+    # re-code mass_measurement_codes as categoricals to reduce file size
+    cems = cems.astype(
+        {
+            "plant_id_eia": "int",
+            "unitid": "str",
+            "co2_mass_measurement_code": "category",
+            "nox_mass_measurement_code": "category",
+            "so2_mass_measurement_code": "category",
+        }
+    )
 
     return cems
 
@@ -414,41 +213,6 @@ def initialize_pudl_out(year=None):
             fill_tech_desc=False,
         )
     return pudl_out
-
-
-def create_flat_eia930_placeholder_profiles(
-    monthly_eia_data_to_distribute, energy_source_groups, year
-):
-    # For now, create a synthetic flat profile for each resource for now until we have shapes to distribute to from EIA-930
-
-    # create lists of all bas and fuel types
-    ba_list = list(monthly_eia_data_to_distribute["ba_code"].dropna().unique())
-    fuel_list = list(energy_source_groups["fuel_category"].unique())
-
-    # create an hourly datetime series in local time for each ba/fuel type
-    hourly_profiles = []
-
-    for ba in ba_list:
-        for fuel in fuel_list:
-            # create a dataframe
-            df_temp = pd.DataFrame(
-                index=pd.date_range(
-                    start=f"{year}-01-01 00:00:00",
-                    end=f"{year}-12-31 23:00:00",
-                    freq="H",
-                    tz=data_cleaning.ba_timezone(ba=ba, type="local"),
-                    name="datetime_local",
-                ),
-                columns=["ba_code", "fuel_category", "profile"],
-            ).reset_index()
-            df_temp["ba_code"] = ba
-            df_temp["fuel_category"] = fuel
-            df_temp["profile"] = 1.0
-            df_temp["report_date"] = df_temp["datetime_local"].astype(str).str[:7]
-            df_temp["report_date"] = pd.to_datetime(df_temp["report_date"])
-            hourly_profiles.append(df_temp)
-
-    hourly_profiles = pd.concat(hourly_profiles, axis=0, ignore_index=True)
 
 
 def load_epa_eia_crosswalk(year):
@@ -695,3 +459,19 @@ def load_diba_data(year):
     ).drop(columns="ba_code_diba")
 
     return dibas
+
+
+def ba_timezone(ba, type):
+    """
+    Retrieves the timezone for a single balancing area.
+    Args:
+        ba: string containing the ba_code
+        type: either 'reporting_eia930' or 'local'. Reporting will return the TZ used by the BA when reporting to EIA-930, local will return the actual local tz
+    """
+
+    tz = pd.read_csv(
+        "../data/manual/ba_reference.csv", usecols=["ba_code", f"timezone_{type}"]
+    )
+    tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"].item()
+
+    return tz

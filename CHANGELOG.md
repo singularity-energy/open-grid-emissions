@@ -1,6 +1,40 @@
 CHANGELOG
 
 -------------------------------------------------------------------------------
+# Branch add_residual_calcs_to_pipeline (PR 2022-06-04) 
+-------------------------------------------------------------------------------
+
+## Outputs
+- creates new module `data_output` to hold all functions related to writing data to csvs
+- outputs final plant-level hourly data as zip file in `data/results/plant_data`
+- outputs BA-fuel power sector data in `data/results/power_sector_data`
+- No implementation of carbon accounting data yet (waiting on consumption-based rate calculations)
+- Calculates and outputs metrics summarizing what percent of data came from each source/method in `results/validation_metrics`
+    - net generation profile method
+    - data source (CEMS or EIA)
+    - method/source of hourly profile data
+- moves column checks from data pipeline to function in `output_data`
+- Adds plant local timezone to the `plant_static_attributes` output
+
+## Cleanup/organization
+- updates README with module and data directory descriptions
+- renames `operating_datetime_utc` to `datetime_utc`
+- removes column `unit_id_epa` from cems dataframe - it is not used
+- removes column `cems_id` from cems.
+- splits certain functions from `load_data` into new module `download_data`
+- renames module `residual` as `impute_hourly_profiles`
+- Re-organizes functions across modules
+- Removes modules `assign_hourly` and `allocate_fuel` as they seem to be defunct
+
+## Residual calculations
+- Fix issue when calculating scaled residual profiles. We only want to use scaling factors if the scaling factor < 1. However, all scaling factors were being merged into the combined data. 
+
+## Hourly profiles
+- Implements methods for assinging hourly profiles to BA-fuels for which we are missing residual calculations
+- outputs summary of the number of BAs for which each hourly profile method was used for each fuel
+- after calculating profile, convert each hourly value (in mwh) to a percent of total monthly mwh so that the profile can be directly multiplied by the monthly total value to get teh resulting imputed profile
+
+-------------------------------------------------------------------------------
 # Branch hourly_profiles_for_clean_gens (PR 2022-06-02) 
 -------------------------------------------------------------------------------
 
