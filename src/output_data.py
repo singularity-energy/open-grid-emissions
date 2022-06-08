@@ -68,7 +68,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         ba_table["datetime_utc"] = pd.to_datetime(ba_table["datetime_utc"], utc=True)
 
         # calculate a total for the BA
-        ba_total = ba_table.groupby(["datetime_utc"]).sum()[data_columns].reset_index()
+        ba_total = ba_table.groupby(["datetime_utc"], dropna=False).sum()[data_columns].reset_index()
         ba_total["fuel_category"] = "total"
 
         # concat the totals to the fuel-specific totals

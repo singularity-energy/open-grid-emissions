@@ -338,7 +338,7 @@ def co2_source_metric(cems, partial_cems, shaped_eia_data):
     )
 
     co2_from_cems = (
-        cems.groupby("co2_mass_measurement_code")["co2_mass_lb"].sum().reset_index()
+        cems.groupby("co2_mass_measurement_code", dropna=False)["co2_mass_lb"].sum().reset_index()
     )
     co2_from_cems["co2_mass_measurement_code"] = "CEMS " + co2_from_cems[
         "co2_mass_measurement_code"
@@ -358,13 +358,13 @@ def net_generation_method_metric(cems, partial_cems, shaped_eia_data):
     data_metric = "net_generation_mwh"
 
     eia_ng_method = (
-        shaped_eia_data.groupby("profile_method")[data_metric]
+        shaped_eia_data.groupby("profile_method", dropna=False)[data_metric]
         .sum()
         .reset_index()
         .rename(columns={"profile_method": "method"})
     )
     cems_ng_method = (
-        cems.groupby("gtn_method")[data_metric]
+        cems.groupby("gtn_method", dropna=False)[data_metric]
         .sum()
         .reset_index()
         .rename(columns={"gtn_method": "method"})
@@ -388,7 +388,7 @@ def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     profile_from_cems = cems[data_metric].sum()
     profile_from_partial_cems = partial_cems[data_metric].sum()
     profile_from_eia = (
-        shaped_eia_data.groupby("profile_method")[data_metric].sum().reset_index()
+        shaped_eia_data.groupby("profile_method", dropna=False)[data_metric].sum().reset_index()
     )
 
     profile_from_cems = pd.DataFrame(
