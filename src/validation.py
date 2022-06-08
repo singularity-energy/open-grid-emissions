@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+import src.load_data as load_data
+
 
 def load_egrid_plant_file(year):
     # load plant level data from egrid
@@ -184,6 +186,39 @@ def test_for_missing_data(df, columns_to_test):
     return missing_data_test
 
 
+def test_for_missing_incorrect_prime_movers(df, year):
+
+    # cehck for incorrect PM by comparing to EIA-860 data
+    pudl_out = load_data.initialize_pudl_out(year)
+    pms_in_eia860 = pudl_out.gens_eia860()[
+        ["plant_id_eia", "generator_id", "prime_mover_code"]
+    ]
+    incorrect_pm_test = df.copy()[["plant_id_eia", "generator_id", "prime_mover_code"]]
+    incorrect_pm_test = incorrect_pm_test.merge(
+        pms_in_eia860,
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+        suffixes=("_allocated", "_eia860"),
+    )
+    incorrect_pm_test[
+        incorrect_pm_test["prime_mover_code_allocated"]
+        != incorrect_pm_test["prime_mover_code_eia860"]
+    ]
+    if not incorrect_pm_test.empty:
+        print(
+            f"Warning: There are {len(incorrect_pm_test)} records for which the allocated prime mover does not match the reported prime mover. Check `incorrect_pm_test` for complete list"
+        )
+
+    # check for missing PM code
+    missing_pm_test = df[df["prime_mover_code"].isna()]
+    if not missing_pm_test.empty:
+        print(
+            f"Warning: There are {len(missing_pm_test)} records for which no prime mover was assigned. Check `missing_pm_test` for complete list"
+        )
+
+    return incorrect_pm_test, missing_pm_test
+
+
 def test_for_outlier_heat_rates(df):
     # check heat rates
     print("Heat Rate Test")
@@ -191,29 +226,65 @@ def test_for_outlier_heat_rates(df):
     thermal_generators = df[
         ~df["energy_source_code"].isin(["SUN", "MWH", "WND", "WAT", "WH", "PUR"])
     ]
+    heat_rate_test_all = []
     for fuel_type in sorted(
         list(thermal_generators.energy_source_code.dropna().unique())
     ):
+        # identify all generators with a given fuel type
         generators = thermal_generators[
             thermal_generators["energy_source_code"] == fuel_type
         ]
-        heat_rate = (
-            generators["fuel_consumed_for_electricity_mmbtu"]
-            / generators["net_generation_mwh"]
-        )
-        heat_rate_stats = heat_rate[(heat_rate >= 0) & (heat_rate != np.inf)].describe()
-        outlier_threshold = (
-            (heat_rate_stats["75%"] - heat_rate_stats["25%"]) * 1.5
-        ) + heat_rate_stats["75%"]
-        heat_rate_test = generators[
-            (heat_rate > outlier_threshold)
-            & (heat_rate != np.inf)
-            & (generators["net_generation_mwh"] >= 1)
-        ]
-        if not heat_rate_test.empty:
-            print(
-                f'    Warning: {len(heat_rate_test)} of {len(generators)} {fuel_type} records have heat rate > {outlier_threshold.round(2)} mmbtu/MWh (median = {heat_rate_stats["50%"].round(2)})'
+        # identify all unique prime mover codes for generators of that fuel type
+        for pm in sorted(list(generators.prime_mover_code.dropna().unique())):
+            generators_with_pm = generators[generators["prime_mover_code"] == pm]
+            # calculate a heat rate for each generator of the given fuel type
+            heat_rate = (
+                generators_with_pm["fuel_consumed_for_electricity_mmbtu"]
+                / generators_with_pm["net_generation_mwh"]
             )
+            # calculate descriptive statistics for all nonnegative heat rates
+            heat_rate_stats = heat_rate[
+                (heat_rate >= 0) & (heat_rate != np.inf)
+            ].describe()
+            # set the outlier threhshold to 1.5 x IQR
+            outlier_threshold = (
+                (heat_rate_stats["75%"] - heat_rate_stats["25%"]) * 1.5
+            ) + heat_rate_stats["75%"]
+            # identify all generators whose heatrate is outside this threshold
+            heat_rate_test = generators_with_pm[
+                (
+                    (heat_rate > outlier_threshold)
+                    & (heat_rate != np.inf)
+                    & (generators_with_pm["net_generation_mwh"] >= 1)
+                    | (heat_rate.round(2) == 0)
+                )
+            ]
+            if not heat_rate_test.empty:
+                print(
+                    f"    Warning: {len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
+                )
+                print(
+                    f'             median = {heat_rate_stats["50%"].round(2)}, max = {heat_rate_stats["max"].round(2)}, min = {heat_rate_stats["min"].round(2)}'
+                )
+                heat_rate_test_all.append(heat_rate_test)
+
+    heat_rate_test_all = pd.concat(heat_rate_test_all, axis=0)[
+        [
+            "report_date",
+            "plant_id_eia",
+            "generator_id",
+            "energy_source_code",
+            "prime_mover_code",
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+        ]
+    ]
+    heat_rate_test_all["heat_rate"] = (
+        heat_rate_test_all["fuel_consumed_for_electricity_mmbtu"]
+        / heat_rate_test_all["net_generation_mwh"]
+    )
+    return heat_rate_test_all
 
 
 def test_for_missing_energy_source_code(df):
