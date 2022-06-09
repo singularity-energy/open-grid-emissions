@@ -144,7 +144,7 @@ def load_cems_gross_generation(start_year, end_year):
 
         # group data by plant, unit, month
         cems = cems.groupby(
-            ["plant_id_eia", "unitid", "unit_id_epa", "report_date"]
+            ["plant_id_eia", "unitid", "unit_id_epa", "report_date"], dropna=False
         ).sum()
 
         cems_all.append(cems)
@@ -367,12 +367,12 @@ def combine_gross_and_net_generation_data(gross_gen_data, net_gen_data, agg_leve
 
     # aggregate the data and merge it together
     net_gen = (
-        net_gen_data.groupby(groupby_columns)
+        net_gen_data.groupby(groupby_columns, dropna=False)
         .sum(min_count=1)["net_generation_mwh"]
         .reset_index()
     )
     gross_gen = (
-        gross_gen_data.groupby(groupby_columns)
+        gross_gen_data.groupby(groupby_columns, dropna=False)
         .sum()["gross_generation_mwh"]
         .reset_index()
     )
@@ -401,7 +401,7 @@ def gross_to_net_regression(gross_gen_data, net_gen_data, agg_level):
 
     # calculate the ratio for each plant and create a dataframe
     gtn_regression = (
-        gen_data.dropna().groupby(plant_aggregation_columns).apply(model_gross_to_net)
+        gen_data.dropna().groupby(plant_aggregation_columns, dropna=False).apply(model_gross_to_net)
     )
     gtn_regression = pd.DataFrame(
         gtn_regression.tolist(),
@@ -471,7 +471,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level):
     gtn_ratio = gtn_ratio[gtn_ratio["source"] == "left_only"].drop(columns="source")
 
     # group data by aggregation columns
-    gtn_ratio = gtn_ratio.groupby(groupby_columns).sum().reset_index()
+    gtn_ratio = gtn_ratio.groupby(groupby_columns, dropna=False).sum().reset_index()
 
     # calculate gross to net ratios for the remaining data
     gtn_ratio["gtn_ratio"] = (

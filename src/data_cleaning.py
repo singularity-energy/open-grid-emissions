@@ -171,7 +171,7 @@ def create_primary_fuel_table(gen_fuel_allocated):
 
     # calculate the total annual heat input by fuel type for each plant
     plant_primary_fuel = (
-        gen_fuel_allocated.groupby(["plant_id_eia", "energy_source_code"])
+        gen_fuel_allocated.groupby(["plant_id_eia", "energy_source_code"], dropna=False)
         .sum()[["fuel_consumed_mmbtu"]]
         .reset_index()
     )
@@ -182,7 +182,7 @@ def create_primary_fuel_table(gen_fuel_allocated):
     # There seems to be the occasional duplicate row due to multiple modes.
     # drop the duplicates in order for the many_to_one merge below to succeed.
     plant_mode_fuel = (
-        gen_primary_fuel.groupby("plant_id_eia")["energy_source_code"]
+        gen_primary_fuel.groupby("plant_id_eia", dropna=False)["energy_source_code"]
         .agg(lambda x: pd.Series.mode(x)[0])
         .rename("mode_energy_source_code")
         .reset_index()
@@ -194,7 +194,7 @@ def create_primary_fuel_table(gen_fuel_allocated):
 
     # identify the energy source code with the greatest fuel consumption for each plant
     plant_primary_fuel = plant_primary_fuel[
-        plant_primary_fuel.groupby("plant_id_eia")["fuel_consumed_mmbtu"].transform(max)
+        plant_primary_fuel.groupby("plant_id_eia", dropna=False)["fuel_consumed_mmbtu"].transform(max)
         == plant_primary_fuel["fuel_consumed_mmbtu"]
     ][["plant_id_eia", "energy_source_code"]]
 
@@ -302,7 +302,7 @@ def add_geothermal_emission_factors(
             )
         # groupby plant to get the weighted emission factor
         geothermal_efs = (
-            geothermal_efs.groupby("plant_id_eia").sum().reset_index()
+            geothermal_efs.groupby("plant_id_eia", dropna=False).sum().reset_index()
         ).drop(columns=["plant_frac"])
         # add geothermal emission factor to df
         df = df.merge(geothermal_efs, how="left", on=["plant_id_eia"])
@@ -387,7 +387,7 @@ def identify_geothermal_generator_geotype(year):
     )
     # sum adjusted capacity by plant and merge back into generator-level data
     total_plant_capacity = (
-        geothermal_geotype.groupby("plant_id_eia")["pf_adjusted_capacity"]
+        geothermal_geotype.groupby("plant_id_eia", dropna=False)["pf_adjusted_capacity"]
         .sum()
         .reset_index()
         .rename(columns={"pf_adjusted_capacity": "plant_capacity_total"})
@@ -839,7 +839,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
 
     # group the data by plant, month, and fuel
     gf = (
-        gf.groupby(["plant_id_eia", "report_date", "energy_source_code"])
+        gf.groupby(["plant_id_eia", "report_date", "energy_source_code"], dropna=False)
         .sum()
         .reset_index()
     )
@@ -849,7 +849,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
 
     # identify which plant months have multiple fuels reported
     multi_fuels = (
-        gf.groupby(["plant_id_eia", "report_date"])["energy_source_code"]
+        gf.groupby(["plant_id_eia", "report_date"], dropna=False)["energy_source_code"]
         .count()
         .reset_index()
         .rename(columns={"energy_source_code": "num_fuels"})
@@ -963,7 +963,7 @@ def calculate_nox_from_fuel_consumption(
     # for now, we do not have information about the boiler firing type
     # thus, we will average the factors by fuel and prime mover
     emission_factors = (
-        emission_factors.groupby(["energy_source_code", "prime_mover_code"])
+        emission_factors.groupby(["energy_source_code", "prime_mover_code"], dropna=False)
         .mean()
         .reset_index()
     )
@@ -995,7 +995,7 @@ def calculate_nox_from_fuel_consumption(
     # calculate the average monthly heat content for a fuel
     fuel_heat_content = (
         plant_heat_content.drop(columns=["plant_id_eia"])
-        .groupby(["energy_source_code", "report_date"])
+        .groupby(["energy_source_code", "report_date"], dropna=False)
         .mean()
         .reset_index()
     )
@@ -1075,7 +1075,7 @@ def calculate_so2_from_fuel_consumption(
                 "prime_mover_code",
                 "emission_factor_denominator",
                 "multiply_by_sulfur_content",
-            ]
+            ], dropna=False
         )
         .mean()
         .reset_index()
@@ -1140,7 +1140,7 @@ def calculate_so2_from_fuel_consumption(
     # average the values by plant/PM/ESC
     plant_sulfur_content = (
         plant_sulfur_content.groupby(
-            ["plant_id_eia", "energy_source_code", "prime_mover_code", "report_date"]
+            ["plant_id_eia", "energy_source_code", "prime_mover_code", "report_date"], dropna=False
         )
         .mean()
         .reset_index()
@@ -1148,7 +1148,7 @@ def calculate_so2_from_fuel_consumption(
     # calculate the average monthly sulfur content for a fuel
     fuel_sulfur_content = (
         plant_sulfur_content.drop(columns=["plant_id_eia"])
-        .groupby(["energy_source_code", "report_date"])
+        .groupby(["energy_source_code", "report_date"], dropna=False)
         .mean()
         .reset_index()
     )
@@ -1195,7 +1195,7 @@ def calculate_so2_from_fuel_consumption(
     # calculate the average monthly heat content for a fuel
     fuel_heat_content = (
         plant_heat_content.drop(columns=["plant_id_eia"])
-        .groupby(["energy_source_code", "report_date"])
+        .groupby(["energy_source_code", "report_date"], dropna=False)
         .mean()
         .reset_index()
     )
@@ -1336,13 +1336,13 @@ def fill_cems_missing_co2(cems, year):
 
     # calculate total fuel consumed of each fuel type in each month
     missing_gf = missing_gf.groupby(
-        ["plant_id_eia", "report_date", "energy_source_code"]
+        ["plant_id_eia", "report_date", "energy_source_code"], dropna=False
     ).sum()[["fuel_consumed_for_electricity_mmbtu"]]
 
     # calculate the percent of heat input from each fuel in each month
     missing_gf = (
         missing_gf
-        / missing_gf.reset_index().groupby(["plant_id_eia", "report_date"]).sum()
+        / missing_gf.reset_index().groupby(["plant_id_eia", "report_date"], dropna=False).sum()
     )
 
     missing_gf = missing_gf.fillna(1)
@@ -1362,7 +1362,7 @@ def fill_cems_missing_co2(cems, year):
         * missing_gf["co2_lb_per_mmbtu"]
     )
     missing_gf = (
-        missing_gf.groupby(["plant_id_eia", "report_date"])
+        missing_gf.groupby(["plant_id_eia", "report_date"], dropna=False)
         .sum()["weighted_ef"]
         .reset_index()
     )
@@ -1400,7 +1400,7 @@ def remove_cems_with_zero_monthly_data(cems):
     """
     # calculate the totals reported in each month
     cems_with_zero_monthly_emissions = cems.groupby(
-        ["plant_id_eia", "unitid", "report_date"]
+        ["plant_id_eia", "unitid", "report_date"], dropna=False
     ).sum()[
         [
             "co2_mass_lb",
@@ -1902,7 +1902,7 @@ def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
     """
     # calculate total values for each plant-month in CEMS and EIA
     cems_monthly = (
-        cems.groupby(["plant_id_eia", "report_date"])
+        cems.groupby(["plant_id_eia", "report_date"], dropna=False)
         .sum()[
             [
                 "gross_generation_mwh",
@@ -1914,7 +1914,7 @@ def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
         .reset_index()
     )
     eia_monthly = (
-        gen_fuel_allocated.groupby(["plant_id_eia", "report_date"]).sum().reset_index()
+        gen_fuel_allocated.groupby(["plant_id_eia", "report_date"], dropna=False).sum().reset_index()
     )
 
     # identify all plant months that report no generation but have heat input and have no steam production
@@ -2248,7 +2248,7 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
         plant_frame, how="left", on=["plant_id_eia"]
     )
     ba_fuel_data = (
-        ba_fuel_data.groupby(["ba_code", "fuel_category", "datetime_utc"])[data_columns]
+        ba_fuel_data.groupby(["ba_code", "fuel_category", "datetime_utc"], dropna=False)[data_columns]
         .sum()
         .reset_index()
     )

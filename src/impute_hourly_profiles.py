@@ -21,7 +21,7 @@ def aggregate_for_residual(
         data = data[data["distribution_flag"] == False]
 
     data = (
-        data.groupby([ba_key, "fuel_category_eia930", time_key])["net_generation_mwh"]
+        data.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)["net_generation_mwh"]
         .sum()
         .reset_index()
         .rename(
@@ -92,7 +92,7 @@ def calculate_residual(cems, eia930, plant_attributes, year: int):
     )
     # find the minimum ratio for each ba-fuel
     scaling_factors = (
-        scaling_factors.groupby(["ba_code", "fuel_category"])["scaling_factor"]
+        scaling_factors.groupby(["ba_code", "fuel_category"], dropna=False)["scaling_factor"]
         .min()
         .reset_index()
     )
@@ -234,7 +234,7 @@ def impute_missing_hourly_profiles(monthly_eia_data_to_shape, residual_profiles,
                                 "datetime_utc",
                                 "datetime_local",
                                 "report_date",
-                            ]
+                            ], dropna=False
                         )
                         .mean()
                         .reset_index()
@@ -255,7 +255,7 @@ def impute_missing_hourly_profiles(monthly_eia_data_to_shape, residual_profiles,
                 df_temporary["datetime_local"] = df_temporary["datetime_local"].str[:-6]
                 df_temporary = (
                     df_temporary.groupby(
-                        ["fuel_category", "datetime_local", "report_date",]
+                        ["fuel_category", "datetime_local", "report_date",], dropna=False
                     )
                     .mean()
                     .reset_index()
@@ -314,6 +314,9 @@ def impute_missing_hourly_profiles(monthly_eia_data_to_shape, residual_profiles,
 
     hourly_profiles = pd.concat([residual_profiles, hourly_profiles_to_add], axis=0)
 
+    # round the data to the nearest tenth
+    hourly_profiles["profile"] = hourly_profiles["profile"].round(1)
+
     print("Summary of methods used to estimate missing hourly profiles:")
     print(
         hourly_profiles[["ba_code", "fuel_category", "profile_method"]]
@@ -331,7 +334,7 @@ def convert_profile_to_percent(hourly_profiles):
     # convert the profile so that each hour is a percent of the monthly total
     monthly_group_columns = ["ba_code", "fuel_category", "report_date"]
     hourly_profiles = hourly_profiles.merge(
-        hourly_profiles.groupby(monthly_group_columns).sum().reset_index(),
+        hourly_profiles.groupby(monthly_group_columns, dropna=False).sum().reset_index(),
         how="left",
         on=monthly_group_columns,
         suffixes=(None, "_monthly_total"),
@@ -389,7 +392,8 @@ def shape_monthly_eia_data_as_hourly(
                 "ba_code_physical",
                 "state",
                 "distribution_flag",
-            ]
+            ],
+            dropna=False,
         )
         .sum()
         .reset_index()
@@ -517,7 +521,7 @@ def scale_partial_cems_data(cems, eia923_allocated):
     )
     cems_scaled = cems_scaled[cems_scaled["source"] == "both"].drop(columns=["source"])
     cems_scaled = (
-        cems_scaled.groupby(subplant_keys + ["datetime_utc"])
+        cems_scaled.groupby(subplant_keys + ["datetime_utc"], dropna=False)
         .sum()[data_columns]
         .reset_index()
     )

@@ -358,7 +358,7 @@ def load_gross_to_net_data(
         elif level == "subplant":
             groupby_columns = ["plant_id_eia", "subplant_id"]
         subplant_crosswalk = (
-            subplant_crosswalk.groupby(groupby_columns)
+            subplant_crosswalk.groupby(groupby_columns, dropna=False)
             .count()
             .reset_index()
             .rename(columns={"unitid": f"units_in_{level}"})
