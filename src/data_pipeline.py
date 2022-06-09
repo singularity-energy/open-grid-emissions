@@ -111,6 +111,7 @@ import src.column_checks as column_checks
 import src.eia930 as eia930
 import src.validation as validation
 import src.output_data as output_data
+import src.consumed as consumed
 
 
 def get_args():
@@ -380,10 +381,18 @@ def main():
         combined_plant_data, plant_frame
     )
 
+    # Output intermediate data: produced per-fuel annual averages
+    output_data.write_generated_averages(ba_fuel_data, path_prefix, year)
+
+    # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix)
 
     # 13. Calculate consumption-based emissions and write carbon accounting results
-    # TODO (Gailin)
+    hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
+        "../data/downloads/eia930/chalendar/EBA_adjusted_elec.csv", small=args.small
+    )
+    hourly_consumed_calc.process()
+    hourly_consumed_calc.output_data(path_prefix=path_prefix)
 
 
 if __name__ == "__main__":

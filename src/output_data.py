@@ -4,19 +4,62 @@ import numpy as np
 import src.load_data as load_data
 import src.column_checks as column_checks
 
+GENERATED_EMISSION_RATE_COLS = [
+    "generated_co2_rate_lb_per_mwh_for_electricity",
+    "generated_ch4_rate_lb_per_mwh_for_electricity",
+    "generated_n2o_rate_lb_per_mwh_for_electricity",
+    "generated_nox_rate_lb_per_mwh_for_electricity",
+    "generated_so2_rate_lb_per_mwh_for_electricity",
+    "generated_co2_rate_lb_per_mwh_adjusted",
+    "generated_ch4_rate_lb_per_mwh_adjusted",
+    "generated_n2o_rate_lb_per_mwh_adjusted",
+    "generated_nox_rate_lb_per_mwh_adjusted",
+    "generated_so2_rate_lb_per_mwh_adjusted",
+]
+
+
 def output_intermediate_data(df, file_name, path_prefix, year):
 
-    df.to_csv(
-        f"../data/outputs/{path_prefix}{file_name}_{year}.csv", index=False
-    )
-    column_checks.check_columns(
-        f"../data/outputs/{path_prefix}{file_name}_{year}.csv"
-    )
+    df.to_csv(f"../data/outputs/{path_prefix}{file_name}_{year}.csv", index=False)
+    column_checks.check_columns(f"../data/outputs/{path_prefix}{file_name}_{year}.csv")
+
 
 def output_to_results(df, file_name, subfolder, path_prefix):
 
-    df.to_csv(
-        f"../data/results/{path_prefix}{subfolder}{file_name}.csv", index=False
+    df.to_csv(f"../data/results/{path_prefix}{subfolder}{file_name}.csv", index=False)
+
+
+def write_generated_averages(ba_fuel_data, path_prefix, year):
+    avg_fuel_type_production = (
+        ba_fuel_data.groupby(["fuel_category"]).sum().reset_index()
+    )
+    # Add row for total before taking rates
+    total = avg_fuel_type_production.mean(numeric_only=True).to_frame().T
+    total.loc[0, "fuel_category"] = "total"
+    avg_fuel_type_production = pd.concat([avg_fuel_type_production, total], axis=0)
+
+    # Find rates
+    for emission_type in ["_for_electricity", "_adjusted"]:
+        for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
+            avg_fuel_type_production[
+                f"generated_{emission}_rate_lb_per_mwh{emission_type}"
+            ] = (
+                (
+                    avg_fuel_type_production[f"{emission}_mass_lb{emission_type}"]
+                    / avg_fuel_type_production["net_generation_mwh"]
+                )
+                .fillna(0)
+                .replace(np.inf, np.NaN)
+                .replace(-np.inf, np.NaN)
+                .replace(
+                    np.NaN, 0
+                )  # TODO: temporary placeholder while solar is broken. Eventually there should be no NaNs.
+            )
+    output_intermediate_data(
+        avg_fuel_type_production,
+        "annual_generation_averages_by_fuel",
+        path_prefix,
+        year,
     )
 
 
@@ -44,19 +87,6 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         "n2o_mass_lb_adjusted",
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
-    ]
-
-    generated_emission_rate_columns = [
-        "generated_co2_rate_lb_per_mwh_for_electricity",
-        "generated_ch4_rate_lb_per_mwh_for_electricity",
-        "generated_n2o_rate_lb_per_mwh_for_electricity",
-        "generated_nox_rate_lb_per_mwh_for_electricity",
-        "generated_so2_rate_lb_per_mwh_for_electricity",
-        "generated_co2_rate_lb_per_mwh_adjusted",
-        "generated_ch4_rate_lb_per_mwh_adjusted",
-        "generated_n2o_rate_lb_per_mwh_adjusted",
-        "generated_nox_rate_lb_per_mwh_adjusted",
-        "generated_so2_rate_lb_per_mwh_adjusted",
     ]
 
     for ba in list(ba_fuel_data.ba_code.unique()):
@@ -90,14 +120,14 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
                 )
 
         # create a local datetime column
-        local_tz = load_data.ba_timezone(ba, 'local')
+        local_tz = load_data.ba_timezone(ba, "local")
         ba_table["datetime_local"] = ba_table["datetime_utc"].dt.tz_convert(local_tz)
 
         # re-order columns
         ba_table = ba_table[
             ["fuel_category", "datetime_local", "datetime_utc"]
             + data_columns
-            + generated_emission_rate_columns
+            + GENERATED_EMISSION_RATE_COLS
         ]
 
         # export to a csv
