@@ -319,19 +319,19 @@ def main():
     # 11. Assign hourly profile to monthly data
     print("Assigning hourly profile to monthly EIA-923 data")
     # create a separate dataframe containing only the generators for which we do not have CEMS data
-    monthly_data_to_shape = eia923_allocated[
+    monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
         & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
     # load profile data and format for use in the pipeline
     # TODO: once this is in the pipeline (step 10), may not need to read file
     hourly_profiles = impute_hourly_profiles.impute_missing_hourly_profiles(
-        monthly_data_to_shape, residual_profiles, year
+        monthly_eia_data_to_shape, residual_profiles, year
     )
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
-        monthly_data_to_shape, hourly_profiles
+        monthly_eia_data_to_shape, hourly_profiles
     )
     # Export data
     output_data.output_intermediate_data(

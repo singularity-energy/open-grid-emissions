@@ -15,38 +15,6 @@ def download_pudl_data(zenodo_url):
     # get the version number
     pudl_version = zenodo_url.split("/")[-1].replace(".tgz", "")
 
-    def download_pudl(zenodo_url, pudl_version):
-        r = requests.get(zenodo_url, params={"download": "1"}, stream=True)
-        # specify parameters for progress bar
-        total_size_in_bytes = int(r.headers.get("content-length", 0))
-        block_size = 1024 * 1024 * 10  # 10 MB
-        downloaded = 0
-        with open("../data/downloads/pudl.tgz", "wb") as fd:
-            for chunk in r.iter_content(chunk_size=block_size):
-                print(
-                    f"Downloading PUDL. Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
-                    end="",
-                )
-                fd.write(chunk)
-                downloaded += block_size
-
-        # extract the tgz file
-        print("Extracting PUDL data...")
-        with tarfile.open("../data/downloads/pudl.tgz") as tar:
-            tar.extractall("../data/")
-
-        # rename the extracted directory to pudl so that we don't have to update this for future versions
-        os.rename(f"../data/{pudl_version}", "../data/downloads/pudl")
-
-        # add a version file
-        with open("../data/downloads/pudl/pudl_version.txt", "w+") as v:
-            v.write(pudl_version)
-
-        # delete the downloaded tgz file
-        os.remove("../data/downloads/pudl.tgz")
-
-        print("PUDL download complete")
-
     # if the pudl data already exists, do not re-download
     if os.path.exists("../data/downloads/pudl"):
         with open("../data/downloads/pudl/pudl_version.txt", "r") as f:
@@ -57,9 +25,43 @@ def download_pudl_data(zenodo_url):
             print("Downloading new version of pudl")
             shutil.rmtree("../data/downloads/pudl")
             download_pudl(zenodo_url, pudl_version)
+            download_updated_pudl_database(download=True)
     else:
         download_pudl(zenodo_url, pudl_version)
         download_updated_pudl_database(download=True)
+
+
+def download_pudl(zenodo_url, pudl_version):
+    r = requests.get(zenodo_url, params={"download": "1"}, stream=True)
+    # specify parameters for progress bar
+    total_size_in_bytes = int(r.headers.get("content-length", 0))
+    block_size = 1024 * 1024 * 10  # 10 MB
+    downloaded = 0
+    with open("../data/downloads/pudl.tgz", "wb") as fd:
+        for chunk in r.iter_content(chunk_size=block_size):
+            print(
+                f"Downloading PUDL. Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
+                end="",
+            )
+            fd.write(chunk)
+            downloaded += block_size
+
+    # extract the tgz file
+    print("Extracting PUDL data...")
+    with tarfile.open("../data/downloads/pudl.tgz") as tar:
+        tar.extractall("../data/")
+
+    # rename the extracted directory to pudl so that we don't have to update this for future versions
+    os.rename(f"../data/{pudl_version}", "../data/downloads/pudl")
+
+    # add a version file
+    with open("../data/downloads/pudl/pudl_version.txt", "w+") as v:
+        v.write(pudl_version)
+
+    # delete the downloaded tgz file
+    os.remove("../data/downloads/pudl.tgz")
+
+    print("PUDL download complete")
 
 
 def download_updated_pudl_database(download=True):

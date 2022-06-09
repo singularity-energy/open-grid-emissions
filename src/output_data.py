@@ -98,7 +98,11 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         ba_table["datetime_utc"] = pd.to_datetime(ba_table["datetime_utc"], utc=True)
 
         # calculate a total for the BA
-        ba_total = ba_table.groupby(["datetime_utc"]).sum()[data_columns].reset_index()
+        ba_total = (
+            ba_table.groupby(["datetime_utc"], dropna=False)
+            .sum()[data_columns]
+            .reset_index()
+        )
         ba_total["fuel_category"] = "total"
 
         # concat the totals to the fuel-specific totals
@@ -120,8 +124,14 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
                 )
 
         # create a local datetime column
-        local_tz = load_data.ba_timezone(ba, "local")
-        ba_table["datetime_local"] = ba_table["datetime_utc"].dt.tz_convert(local_tz)
+        try:
+            local_tz = load_data.ba_timezone(ba, "local")
+            ba_table["datetime_local"] = ba_table["datetime_utc"].dt.tz_convert(
+                local_tz
+            )
+        # TODO: figure out what to do for missing ba
+        except ValueError:
+            ba_table["datetime_local"] = pd.NaT
 
         # re-order columns
         ba_table = ba_table[
