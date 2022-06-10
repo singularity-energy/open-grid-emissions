@@ -330,6 +330,7 @@ def main():
     )
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
+    # TODO: shaped_eia_data is HUGE, consider moving to dask.dataframe
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
         monthly_eia_data_to_shape, hourly_profiles
     )
@@ -365,17 +366,18 @@ def main():
         path_prefix,
     )
 
+    # G: BREAKS HERE ON FULL RUN
     combined_plant_data = data_cleaning.combine_subplant_data(
         cems, partial_cems_scaled, shaped_eia_data
     )
+    del shaped_eia_data, cems, partial_cems_scaled  # free memory back to python
 
-    # export to a csv
+    # export to a csv. Dask breaks into per-chunk files of <x>.csv
     combined_plant_data.to_csv(
-        f"../data/results/{path_prefix}plant_data/hourly_plant_data.csv",
-        compression="zip",
-        index=False,
+        f"../data/results/{path_prefix}plant_data/hourly_plant_data/*.csv", index=False,
     )
 
+    print("Aggregating to BA-fuel")
     # 12. Aggregate CEMS data to BA-fuel and write power sector results
     ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
         combined_plant_data, plant_frame

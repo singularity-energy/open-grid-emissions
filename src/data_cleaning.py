@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from pandas import DataFrame
 import warnings
+import dask.dataframe as dd
 
 import src.load_data as load_data
 
@@ -194,7 +195,9 @@ def create_primary_fuel_table(gen_fuel_allocated):
 
     # identify the energy source code with the greatest fuel consumption for each plant
     plant_primary_fuel = plant_primary_fuel[
-        plant_primary_fuel.groupby("plant_id_eia", dropna=False)["fuel_consumed_mmbtu"].transform(max)
+        plant_primary_fuel.groupby("plant_id_eia", dropna=False)[
+            "fuel_consumed_mmbtu"
+        ].transform(max)
         == plant_primary_fuel["fuel_consumed_mmbtu"]
     ][["plant_id_eia", "energy_source_code"]]
 
@@ -963,7 +966,9 @@ def calculate_nox_from_fuel_consumption(
     # for now, we do not have information about the boiler firing type
     # thus, we will average the factors by fuel and prime mover
     emission_factors = (
-        emission_factors.groupby(["energy_source_code", "prime_mover_code"], dropna=False)
+        emission_factors.groupby(
+            ["energy_source_code", "prime_mover_code"], dropna=False
+        )
         .mean()
         .reset_index()
     )
@@ -1075,7 +1080,8 @@ def calculate_so2_from_fuel_consumption(
                 "prime_mover_code",
                 "emission_factor_denominator",
                 "multiply_by_sulfur_content",
-            ], dropna=False
+            ],
+            dropna=False,
         )
         .mean()
         .reset_index()
@@ -1140,7 +1146,8 @@ def calculate_so2_from_fuel_consumption(
     # average the values by plant/PM/ESC
     plant_sulfur_content = (
         plant_sulfur_content.groupby(
-            ["plant_id_eia", "energy_source_code", "prime_mover_code", "report_date"], dropna=False
+            ["plant_id_eia", "energy_source_code", "prime_mover_code", "report_date"],
+            dropna=False,
         )
         .mean()
         .reset_index()
@@ -1342,7 +1349,9 @@ def fill_cems_missing_co2(cems, year):
     # calculate the percent of heat input from each fuel in each month
     missing_gf = (
         missing_gf
-        / missing_gf.reset_index().groupby(["plant_id_eia", "report_date"], dropna=False).sum()
+        / missing_gf.reset_index()
+        .groupby(["plant_id_eia", "report_date"], dropna=False)
+        .sum()
     )
 
     missing_gf = missing_gf.fillna(1)
@@ -1914,7 +1923,9 @@ def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
         .reset_index()
     )
     eia_monthly = (
-        gen_fuel_allocated.groupby(["plant_id_eia", "report_date"], dropna=False).sum().reset_index()
+        gen_fuel_allocated.groupby(["plant_id_eia", "report_date"], dropna=False)
+        .sum()
+        .reset_index()
     )
 
     # identify all plant months that report no generation but have heat input and have no steam production
@@ -2101,7 +2112,19 @@ def filter_unique_cems_data(cems, partial_cems):
 
 
 def combine_subplant_data(cems, partial_cems, shaped_eia_data):
-    """Combines final hourly subplant data from each source into a single dataframe."""
+    """
+    Combines final hourly subplant data from each source into a single dataframe.
+    Inputs: 
+        Pandas dataframes of shaped or original hourly data
+
+    Note: returns dask dataframe (not used before this point in pipeline) because of data size
+    
+    """
+    # Convert to dask because we are about to make a GIANT dataframe
+    # 2,900,000 rows/partition leads to approx 1GB chunk size
+    cems = dd.from_pandas(cems, npartitions=20)
+    partial_cems = dd.from_pandas(partial_cems, npartitions=20)
+    shaped_eia_data = dd.from_pandas(shaped_eia_data, npartitions=20)
 
     # identify the source
     cems["data_source"] = "CEMS reported"
@@ -2173,32 +2196,34 @@ def combine_subplant_data(cems, partial_cems, shaped_eia_data):
         "so2_mass_lb_adjusted",
     ]
 
-    # aggregate the data by plant and concat together
-    combined_subplant_data = pd.concat(
-        [
-            cems.groupby(
-                [
-                    "plant_id_eia",
-                    "subplant_id",
-                    "report_date",
-                    "datetime_utc",
-                    "data_source",
-                    "net_generation_method",
-                    "hourly_profile_source",
-                ],
-                dropna=False,
-            )
-            .sum()
-            .reset_index()[[col for col in cems.columns if col in columns_to_use]],
-            partial_cems[
-                [col for col in partial_cems.columns if col in columns_to_use]
+    # Select rows
+    cems = (
+        cems.groupby(
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "report_date",
+                "datetime_utc",
+                "data_source",
+                "net_generation_method",
+                "hourly_profile_source",
             ],
-            shaped_eia_data[
-                [col for col in shaped_eia_data.columns if col in columns_to_use]
-            ],
-        ],
-        axis=0,
+            dropna=False,
+        )
+        .sum()
+        .reset_index()[[col for col in cems.columns if col in columns_to_use]]
     )
+
+    partial_cems = partial_cems[
+        [col for col in partial_cems.columns if col in columns_to_use]
+    ]
+
+    shaped_eia_data = shaped_eia_data[
+        [col for col in shaped_eia_data.columns if col in columns_to_use]
+    ]
+
+    # aggregate the data by plant and concat together
+    combined_subplant_data = dd.concat([cems, partial_cems, shaped_eia_data], axis=0,)
 
     combined_subplant_data["subplant_id"] = combined_subplant_data[
         "subplant_id"
@@ -2223,6 +2248,14 @@ def combine_subplant_data(cems, partial_cems, shaped_eia_data):
 
 
 def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
+    """
+        `aggregate_plant_data_to_ba_fuel` 
+            Aggregate all hourly data to ba/fuel
+    Inputs: 
+        `combined_plant_data`: dask.dataframe
+        `plant_frame`: static plant attributes 
+    Returns Pandas dataframe
+    """
     data_columns = [
         "net_generation_mwh",
         "fuel_consumed_mmbtu",
@@ -2244,12 +2277,27 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
         "so2_mass_lb_adjusted",
     ]
 
+    print("Plant data to dask")
+    # Dask freaks out when trying to merge on custom pandas Int type, so convert to np int
+    plant_frame = plant_frame.astype({"plant_id_eia": np.int64})
+    plant_frame = dd.from_pandas(plant_frame, chunksize=100000)
+
+    print("Merging plant data")
     ba_fuel_data = combined_plant_data.merge(
-        plant_frame, how="left", on=["plant_id_eia"]
+        plant_frame, how="left", left_on=["plant_id_eia"], right_index=True
     )
+
+    print("Grouping plant data")
     ba_fuel_data = (
-        ba_fuel_data.groupby(["ba_code", "fuel_category", "datetime_utc"], dropna=False)[data_columns]
+        ba_fuel_data.groupby(
+            ["datetime_utc", "ba_code", "fuel_category"], dropna=False
+        )[data_columns]
         .sum()
         .reset_index()
     )
-    return ba_fuel_data
+
+    print("Computing before returning")
+    return (
+        ba_fuel_data.compute()
+    )  # Convert from dask back to Pandas because it's now small(ish)
+
