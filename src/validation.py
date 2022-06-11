@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 
 import src.load_data as load_data
+from src.column_checks import get_dtypes
 
 
 def load_egrid_plant_file(year):
@@ -115,7 +116,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv"
+        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv", dtype=get_dtypes()
     )
     id_map = dict(
         zip(
@@ -327,11 +328,11 @@ def test_gtn_results(df):
     return gtn_test
 
 
-def co2_source_metric(cems, partial_cems, shaped_eia_data):
+def co2_source_metric(cems, partial_cems, monthly_eia_data_to_shape):
     """Calculates what percent of CO2 emissions mass came from each source."""
     # determine the source of the co2 data
     co2_from_eia = (
-        partial_cems["co2_mass_lb"].sum() + shaped_eia_data["co2_mass_lb"].sum()
+        partial_cems["co2_mass_lb"].sum() + monthly_eia_data_to_shape["co2_mass_lb"].sum()
     )
     co2_from_eia = pd.DataFrame(
         [{"co2_mass_measurement_code": "EIA Calculated", "co2_mass_lb": co2_from_eia}]
@@ -352,17 +353,12 @@ def co2_source_metric(cems, partial_cems, shaped_eia_data):
     return co2_source
 
 
-def net_generation_method_metric(cems, partial_cems, shaped_eia_data):
+def net_generation_method_metric(cems, partial_cems, monthly_eia_data_to_shape):
     """Calculates what percent of net generation mwh was calculated using each method."""
+    
     # determine the method for the net generation data
     data_metric = "net_generation_mwh"
 
-    eia_ng_method = (
-        shaped_eia_data.groupby("profile_method", dropna=False)[data_metric]
-        .sum()
-        .reset_index()
-        .rename(columns={"profile_method": "method"})
-    )
     cems_ng_method = (
         cems.groupby("gtn_method", dropna=False)[data_metric]
         .sum()
@@ -371,7 +367,11 @@ def net_generation_method_metric(cems, partial_cems, shaped_eia_data):
     )
     partial_cems_ng_method = partial_cems[data_metric].sum()
     partial_cems_ng_method = pd.DataFrame(
-        [{"method": "partial_cems", data_metric: partial_cems_ng_method}]
+        [{"method": "scaled_from_eia", data_metric: partial_cems_ng_method}]
+    )
+    eia_ng_method = monthly_eia_data_to_shape[data_metric].sum()
+    eia_ng_method = pd.DataFrame(
+        [{"method": "reported_eia", data_metric: eia_ng_method}]
     )
 
     ng_method = pd.concat([cems_ng_method, partial_cems_ng_method, eia_ng_method])

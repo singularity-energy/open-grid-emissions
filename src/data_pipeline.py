@@ -228,74 +228,30 @@ def main():
         partial_cems_scaled, "partial_cems_scaled", path_prefix, year
     )
 
+    # aggregate cems data to subplant level
+    cems = data_cleaning.aggregate_cems_to_subplant(cems)
+
     # 8. Assign static characteristics to CEMS and EIA data to aid in aggregation
-    # assign a BA code and state code to each plant
-    eia923_allocated = data_cleaning.assign_ba_code_to_plant(eia923_allocated, year)
-    # assign a fuel category to each plant based on what is most likely to match with the category used in EIA-930
-    # TODO: Add two different fuel categories (one for 930, one that is more specific)
-    eia923_allocated = data_cleaning.assign_fuel_category_to_ESC(
-        df=eia923_allocated, esc_column="plant_primary_fuel",
+    plant_attributes = data_cleaning.create_plant_attributes_table(
+        cems, eia923_allocated, year, primary_fuel_table
     )
-    # add a flag about whether the plant is distribution connected
-    eia923_allocated = data_cleaning.identify_distribution_connected_plants(
-        eia923_allocated, year, voltage_threshold_kv=60
-    )
-    # Repeat for CEMS
-    cems = data_cleaning.assign_ba_code_to_plant(cems, year)
-    cems = data_cleaning.identify_distribution_connected_plants(
-        cems, year, voltage_threshold_kv=60
-    )
-    # add a plant primary fuel and a fuel category for eia930
-    cems = cems.merge(
-        primary_fuel_table.drop_duplicates(subset="plant_id_eia")[
-            ["plant_id_eia", "plant_primary_fuel"]
-        ],
-        how="left",
-        on="plant_id_eia",
-    )
-    cems = data_cleaning.assign_fuel_category_to_ESC(
-        df=cems, esc_column="plant_primary_fuel"
-    )
-
-    partial_cems_scaled = data_cleaning.assign_ba_code_to_plant(
-        partial_cems_scaled, year
-    )
-    # add a plant primary fuel and a fuel category for eia930
-    partial_cems_scaled = partial_cems_scaled.merge(
-        primary_fuel_table.drop_duplicates(subset="plant_id_eia")[
-            ["plant_id_eia", "plant_primary_fuel"]
-        ],
-        how="left",
-        on="plant_id_eia",
-    )
-    partial_cems_scaled = data_cleaning.assign_fuel_category_to_ESC(
-        df=partial_cems_scaled, esc_column="plant_primary_fuel"
-    )
-
-    # export plant frame
-    plant_static_columns = [
-        "plant_id_eia",
-        "plant_primary_fuel",
-        "fuel_category",
-        "fuel_category_eia930",
-        "ba_code",
-        "ba_code_physical",
-        "state",
-        "distribution_flag",
-    ]
-    plant_frame = eia923_allocated[plant_static_columns].drop_duplicates(
-        subset="plant_id_eia"
-    )
-    # add tz info before exporting
-    pudl_out = load_data.initialize_pudl_out(year=year)
-    plant_tz = pudl_out.plants_eia860()[["plant_id_eia", "timezone"]]
-    plant_frame = plant_frame.merge(plant_tz, how="left", on=["plant_id_eia"])
     output_data.output_intermediate_data(
-        plant_frame, "plant_static_attributes", path_prefix, year
+        plant_attributes, "plant_static_attributes", path_prefix, year
     )
     output_data.output_to_results(
-        plant_frame, "plant_static_attributes", "plant_data/", path_prefix,
+        plant_attributes, "plant_static_attributes", "plant_data/", path_prefix,
     )
+
+    # 8b. split all data into three non-overlapping dataframes
+    # drop data from cems that is now in partial_cems
+    cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
+
+    # create a separate dataframe containing only the generators for which we do not have CEMS data
+    monthly_eia_data_to_shape = eia923_allocated[
+        (eia923_allocated["hourly_data_source"] == "eia")
+        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
+    ]
+    del eia923_allocated
 
     # 9. Clean and Reconcile EIA-930 data
     print("Cleaning EIA-930 data")
@@ -310,78 +266,54 @@ def main():
     # 10. Calculate Residual Net Generation Profile
     print("Calculating residual net generation profiles from EIA-930")
     residual_profiles = impute_hourly_profiles.calculate_residual(
-        cems, eia930_dat, plant_frame, year
+        cems, eia930_dat, plant_attributes, year
     )
+    del eia930_dat
     output_data.output_intermediate_data(
         residual_profiles, "residual_profiles", path_prefix, year
     )
 
     # 11. Assign hourly profile to monthly data
     print("Assigning hourly profile to monthly EIA-923 data")
-    # create a separate dataframe containing only the generators for which we do not have CEMS data
-    monthly_eia_data_to_shape = eia923_allocated[
-        (eia923_allocated["hourly_data_source"] == "eia")
-        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
-    ]
     # load profile data and format for use in the pipeline
     # TODO: once this is in the pipeline (step 10), may not need to read file
     hourly_profiles = impute_hourly_profiles.impute_missing_hourly_profiles(
-        monthly_eia_data_to_shape, residual_profiles, year
+        monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
     )
+    del residual_profiles
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
     # TODO: shaped_eia_data is HUGE, consider moving to dask.dataframe
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
-        monthly_eia_data_to_shape, hourly_profiles
+        monthly_eia_data_to_shape, hourly_profiles, plant_attributes
     )
     # Export data
     output_data.output_intermediate_data(
         shaped_eia_data, "shaped_eia923_data", path_prefix, year
     )
 
-    # 12. Export plant files
-    cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
-
-    # output data quality metrics
-    output_data.output_to_results(
-        validation.co2_source_metric(cems, partial_cems_scaled, shaped_eia_data),
-        "co2_measurement_source",
-        "validation_metrics/",
-        path_prefix,
-    )
-    output_data.output_to_results(
-        validation.net_generation_method_metric(
-            cems, partial_cems_scaled, shaped_eia_data
-        ),
-        "net_generation_method",
-        "validation_metrics/",
-        path_prefix,
-    )
-    output_data.output_to_results(
-        validation.hourly_profile_source_metric(
-            cems, partial_cems_scaled, shaped_eia_data
-        ),
-        "hourly_profile_method",
-        "validation_metrics/",
-        path_prefix,
+    # 12. Combine plant-level data from all sources
+    # write metadata and remove metadata columns
+    cems, partial_cems_scaled, shaped_eia_data = output_data.write_plant_metadata(
+        cems, partial_cems_scaled, shaped_eia_data, path_prefix
     )
 
-    # G: BREAKS HERE ON FULL RUN
-    combined_plant_data = data_cleaning.combine_subplant_data(
+    combined_plant_data = data_cleaning.combine_plant_data(
         cems, partial_cems_scaled, shaped_eia_data
     )
     del shaped_eia_data, cems, partial_cems_scaled  # free memory back to python
 
-    # export to a csv. Dask breaks into per-chunk files of <x>.csv
+    # export to a csv.
     combined_plant_data.to_csv(
-        f"../data/results/{path_prefix}plant_data/hourly_plant_data/*.csv", index=False,
+        f"../data/results/{path_prefix}plant_data/hourly_plant_data.csv", index=False,
     )
 
     print("Aggregating to BA-fuel")
     # 12. Aggregate CEMS data to BA-fuel and write power sector results
     ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
-        combined_plant_data, plant_frame
+        combined_plant_data, plant_attributes
     )
+    del combined_plant_data
 
     # Output intermediate data: produced per-fuel annual averages
     output_data.write_generated_averages(ba_fuel_data, path_prefix, year)

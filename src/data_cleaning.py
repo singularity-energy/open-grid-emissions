@@ -1,5 +1,4 @@
-from email import message
-from functools import partial
+
 import pandas as pd
 import numpy as np
 from pandas import DataFrame
@@ -9,6 +8,8 @@ import dask.dataframe as dd
 import src.load_data as load_data
 
 import pudl.analysis.allocate_net_gen as allocate_gen_fuel
+
+from src.column_checks import get_dtypes, apply_dtypes
 
 
 def clean_eia923(year, small):
@@ -75,7 +76,7 @@ def clean_eia923(year, small):
     # adjust emissions for biomass
     gen_fuel_allocated = adjust_emissions_for_biomass(gen_fuel_allocated)
 
-    data_columns = [
+    DATA_COLUMNS = [
         "net_generation_mwh",
         "fuel_consumed_mmbtu",
         "fuel_consumed_for_electricity_mmbtu",
@@ -98,7 +99,7 @@ def clean_eia923(year, small):
 
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
-        gen_fuel_allocated, sum_cols=data_columns,
+        gen_fuel_allocated, sum_cols=DATA_COLUMNS,
     )
 
     # remove any plants that we don't want in the data
@@ -111,14 +112,14 @@ def clean_eia923(year, small):
     )
 
     # round all values to the nearest tenth of a unit
-    gen_fuel_allocated.loc[:, data_columns] = gen_fuel_allocated.loc[
-        :, data_columns
+    gen_fuel_allocated.loc[:, DATA_COLUMNS] = gen_fuel_allocated.loc[
+        :, DATA_COLUMNS
     ].round(1)
 
     # add subplant id
-    subplant_crosswalk = pd.read_csv("../data/outputs/subplant_crosswalk.csv")[
-        ["plant_id_eia", "generator_id", "subplant_id"]
-    ].drop_duplicates()
+    subplant_crosswalk = pd.read_csv(
+        "../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes()
+    )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
     gen_fuel_allocated = gen_fuel_allocated.merge(
         subplant_crosswalk, how="left", on=["plant_id_eia", "generator_id"]
     )
@@ -130,6 +131,9 @@ def clean_eia923(year, small):
     gen_fuel_allocated = gen_fuel_allocated.merge(
         gen_pm, how="left", on=["plant_id_eia", "generator_id"]
     )
+
+    gen_fuel_allocated = apply_dtypes(gen_fuel_allocated)
+    primary_fuel_table = apply_dtypes(primary_fuel_table)
 
     return gen_fuel_allocated, primary_fuel_table
 
@@ -328,12 +332,13 @@ def add_geothermal_emission_factors(
 def calculate_geothermal_emission_factors(year):
     """
     Updates the list of geothermal plants provided by EPA using EIA data
-    Calculates a weighted average EF for each plant-month based on the fraction 
+    Calculates a weighted average EF for each plant-month based on the fraction
     of fuel consumed from each type of prime mover (steam, binary, flash)
     """
     # load geothermal efs
     geothermal_efs = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C6_geothermal_emission_factors.csv"
+        "../data/manual/egrid_static_tables/table_C6_geothermal_emission_factors.csv",
+        dtype=get_dtypes(),
     ).loc[
         :, ["geotype_code", "co2_lb_per_mmbtu", "nox_lb_per_mmbtu", "so2_lb_per_mmbtu"]
     ]
@@ -518,6 +523,7 @@ def adjust_emissions_for_biomass(df):
     if "n2o_mass_lb_for_electricity" in df.columns:
         df["n2o_mass_lb_adjusted"] = df["n2o_mass_lb_for_electricity"]
         df.loc[df["energy_source_code"] == "LFG", "n2o_mass_lb_adjusted"] = 0
+    # nox gets assigned an adjusted value
     if "nox_mass_lb_for_electricity" in df.columns:
         df["nox_mass_lb_adjusted"] = df["nox_mass_lb_for_electricity"]
         df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = 0
@@ -582,7 +588,8 @@ def remove_non_grid_connected_plants(df):
     # get the list of plant_id_eia from the static table
     ngc_plants = list(
         pd.read_csv(
-            "../data/manual/egrid_static_tables/table_4-2_plants_not_connected_to_grid.csv"
+            "../data/manual/egrid_static_tables/table_4-2_plants_not_connected_to_grid.csv",
+            dtype=get_dtypes(),
         )["Plant ID"]
     )
 
@@ -657,10 +664,12 @@ def clean_cems(year, small):
     cems = adjust_emissions_for_biomass(cems)
 
     # add subplant id
-    subplant_crosswalk = pd.read_csv("../data/outputs/subplant_crosswalk.csv")[
-        ["plant_id_eia", "unitid", "subplant_id"]
-    ].drop_duplicates()
+    subplant_crosswalk = pd.read_csv(
+        "../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes()
+    )[["plant_id_eia", "unitid", "subplant_id"]].drop_duplicates()
     cems = cems.merge(subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"])
+
+    cems = apply_dtypes(cems)
 
     return cems
 
@@ -687,8 +696,7 @@ def manually_remove_steam_units(df):
 
     # get the list of plant_id_eia from the static table
     units_to_remove = pd.read_csv(
-        "../data/manual/steam_units_to_remove.csv",
-        dtype={"plant_id_eia": "int", "unitid": "str",},
+        "../data/manual/steam_units_to_remove.csv", dtype=get_dtypes(),
     )[["plant_id_eia", "unitid"]]
 
     print(
@@ -1531,6 +1539,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
     # load the subplant crosswalk and identify unique unitids in each subplant
     units_in_subplant = pd.read_csv(
         "../data/outputs/subplant_crosswalk.csv",
+        dtype=get_dtypes(),
         parse_dates=["current_planned_operating_date", "retirement_date"],
     )[["plant_id_eia", "unitid", "subplant_id", "retirement_date"]].drop_duplicates()
 
@@ -1593,155 +1602,6 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
     all_data = all_data.drop(columns=["reported_eia923"])
 
     return all_data
-
-
-def assign_ba_code_to_plant(df, year):
-    """
-    Assigns a balancing authority code and state to each plant based on the plant id
-    Inputs:
-        df: a pandas dataframe containing a 'plant_id_eia' column
-        year: four digit year number for the data
-    Returns:
-        df with a new column for 'ba_code' and 'state'
-    """
-
-    pudl_out = load_data.initialize_pudl_out(year=year)
-
-    plant_ba = pudl_out.plants_eia860().loc[
-        :,
-        [
-            "plant_id_eia",
-            "balancing_authority_code_eia",
-            "balancing_authority_name_eia",
-            "utility_name_eia",
-            "transmission_distribution_owner_name",
-            "state",
-        ],
-    ]
-
-    # convert the dtype of the balancing authority code column from string to object
-    # this will allow for missing values to be filled
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].astype(object)
-
-    # specify a ba code for certain utilities
-    utility_as_ba_code = {
-        "Anchorage Municipal Light and Power": "AMPL",
-        "Arizona Public Service Co": "AZPS",
-        "Associated Electric Coop, Inc": "AECI",
-        "Avista Corp": "AVA",
-        "Avangrid Renewables Inc": "AVRN",
-        "Bonneville Power Administration": "BPAT",
-        "Bonneville Power Admin": "BPAT",
-        "Chugach Electric Assn Inc": "CEA",
-        "Duke Energy Carolinas, LLC": "DUK",
-        "Duke Energy Florida, Inc": "FPC",
-        "Duke Energy Florida, LLC": "FPC",
-        "Duke Energy Progress - (NC)": "CPLE",
-        "El Paso Electric Co": "EPE",
-        "Florida Power & Light Co": "FPL",
-        "Florida Power &amp; Light Co": "FPL",
-        "Gainesville Regional Utilities": "GVL",
-        "Hawaiian Electric Co Inc": "HECO",
-        "Hawaii Electric Light Co Inc": "HECO",
-        "City of Homestead - (FL)": "HST",
-        "Imperial Irrigation District": "IID",
-        "JEA": "JEA",
-        "Kentucky Utilities Co": "LGEE",
-        "Los Angeles Department of Water & Power": "LDWP",
-        "Louisville Gas & Electric Co": "LGEE",
-        "Nevada Power Co": "NEVP",
-        "New Smyrna Beach City of": "NSB",
-        "NorthWestern Corporation": "NWMT",
-        "NorthWestern Energy": "NWMT",
-        "NorthWestern Energy - (SD)": "NWMT",
-        "NorthWestern Energy LLC - (MT)": "NWMT",
-        "Ohio Valley Electric Corp": "OVEC",
-        "Portland General Electric Co": "PGE",
-        "Portland General Electric Company": "PGE",
-        "PowerSouth Energy Cooperative": "AEC",
-        "Public Service Co of Colorado": "PSCO",
-        "Public Service Co of NM": "PNM",
-        "PUD No 1 of Chelan County": "CHPD",
-        "PUD No 1 of Douglas County": "DOPD",
-        "PUD No 2 of Grant County": "GCPD",
-        "Puget Sound Energy Inc": "PSEI",
-        "Sacramento Municipal Util Dist": "BANC",
-        "Salt River Project": "SRP",
-        "Seminole Electric Cooperative Inc": "SEC",
-        "South Carolina Electric&Gas Company": "SCEG",
-        "South Carolina Electric & Gas Co": "SCEG",
-        "South Carolina Electric &amp; Gas Co": "SCEG",
-        "South Carolina Electric&amp;Gas Company": "SCEG",
-        "South Carolina Public Service Authority": "SC",
-        "South Carolina Public Service Auth": "SC",
-        "Southwestern Power Administration": "SPA",
-        "Tacoma City of": "TPWR",
-        "Tampa Electric Co": "TEC",
-        "Tennessee Valley Authority": "TVA",
-        "Tucson Electric Power Co": "TEPC",
-        "Turlock Irrigation District": "TIDC",
-    }
-
-    # fill missing BA codes first based on the BA name, then utility name, then on the transmisison owner name
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(plant_ba["balancing_authority_name_eia"].map(utility_as_ba_code))
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(plant_ba["utility_name_eia"].map(utility_as_ba_code))
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(plant_ba["transmission_distribution_owner_name"].map(utility_as_ba_code))
-
-    # use this to explore plants without an assigned ba
-    # sorted(plant_ba[plant_ba['balancing_authority_code_eia'].isna()]['utility_name_eia'].unique().astype(str))
-
-    # rename the ba column
-    plant_ba = plant_ba.rename(columns={"balancing_authority_code_eia": "ba_code"})
-
-    # TODO: Remove this once the PUDL issue is fixed
-    # As of 4/16/22, there are currently a few incorrect BA assignments in the pudl tables (see https://github.com/catalyst-cooperative/pudl/issues/1584)
-    # thus, we will manually correct some of the BA codes based on data in the most recent EIA forms
-    manual_ba_corrections = {
-        57698: "BANC",
-        7966: "SWPP",
-        6292: "None",
-        7367: "None",
-        55966: "None",
-        6283: "None",
-        57206: "None",
-        10093: "None",
-    }  # TODO: Tesoro Hawaii has no BA assigned, but is connected to the HECO transmission grid - investigate further
-
-    plant_ba["ba_code"].update(plant_ba["plant_id_eia"].map(manual_ba_corrections))
-    plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
-
-    # add a physical ba code based on the owner of the transmission system
-    plant_ba["ba_code_physical"] = plant_ba["ba_code"]
-    plant_ba["ba_code_physical"].update(
-        plant_ba["transmission_distribution_owner_name"].map(utility_as_ba_code)
-    )
-
-    # update based on mapping table when ambiguous
-    physical_ba = pd.read_csv("../data/manual/physical_ba.csv")
-    plant_ba = plant_ba.merge(
-        physical_ba,
-        how="left",
-        on=["ba_code", "transmission_distribution_owner_name"],
-        suffixes=("", "_map"),
-    )
-    plant_ba["ba_code_physical"].update(plant_ba["ba_code_physical_map"])
-
-    # merge the ba code into the dataframe
-    df = df.merge(
-        plant_ba.loc[:, ["plant_id_eia", "ba_code", "ba_code_physical", "state"]],
-        how="left",
-        on="plant_id_eia",
-    )
-
-    return df
 
 
 def convert_gross_to_net_generation(cems):
@@ -2031,6 +1891,363 @@ def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
     return cems
 
 
+def filter_unique_cems_data(cems, partial_cems):
+    """Removes subplant-months from cems that also appear in partial_cems."""
+    # filter the cems data to remove data that was scaled in partial_cems
+    partial_cems_subplant_months = partial_cems[
+        ["plant_id_eia", "subplant_id", "report_date"]
+    ].drop_duplicates()
+    filtered_cems = cems.merge(
+        partial_cems_subplant_months,
+        how="outer",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        indicator="source",
+    )
+
+    filtered_cems = filtered_cems[filtered_cems["source"] == "left_only"].drop(
+        columns=["source"]
+    )
+
+    return filtered_cems
+
+
+def combine_plant_data(cems, partial_cems, shaped_eia_data):
+    """
+    Combines final hourly subplant data from each source into a single dataframe.
+    Inputs: 
+        Pandas dataframes of shaped or original hourly data
+
+    Note: returns dask dataframe (not used before this point in pipeline) because of data size
+    
+    """
+    # Convert to dask because we are about to make a GIANT dataframe
+    # 2,900,000 rows/partition leads to approx 1GB chunk size
+    # cems = dd.from_pandas(cems, npartitions=20)
+    # partial_cems = dd.from_pandas(partial_cems, npartitions=20)
+    # shaped_eia_data = dd.from_pandas(shaped_eia_data, npartitions=20)
+
+    KEY_COLUMNS = [
+        "plant_id_eia",
+        "datetime_utc",
+    ]
+
+    DATA_COLUMNS = [
+        "gross_generation_mwh",
+        "net_generation_mwh",
+        "steam_load_1000_lb",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "ch4_mass_lb_for_electricity",
+        "n2o_mass_lb_for_electricity",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb_for_electricity",
+        "co2_mass_lb_adjusted",
+        "ch4_mass_lb_adjusted",
+        "n2o_mass_lb_adjusted",
+        "nox_mass_lb_adjusted",
+        "so2_mass_lb_adjusted",
+    ]
+
+    ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
+
+    # group data by plant-hour and filter columns
+    cems = (
+        cems.groupby(KEY_COLUMNS, dropna=False,)
+        .sum()
+        .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
+    )
+    partial_cems = (
+        partial_cems.groupby(KEY_COLUMNS, dropna=False,)
+        .sum()
+        .reset_index()[[col for col in partial_cems.columns if col in ALL_COLUMNS]]
+    )
+    shaped_eia_data = shaped_eia_data[
+        [col for col in shaped_eia_data.columns if col in ALL_COLUMNS]
+    ]
+
+    # concat together
+    combined_plant_data = pd.concat(
+        [cems, partial_cems, shaped_eia_data], axis=0, ignore_index=True, copy=False
+    )
+
+    # groupby plant
+    combined_plant_data = (
+        combined_plant_data.groupby(KEY_COLUMNS, dropna=False).sum().reset_index()
+    )
+
+    combined_plant_data[DATA_COLUMNS] = combined_plant_data[DATA_COLUMNS].round(2)
+
+    # re-order the columns
+    combined_plant_data = combined_plant_data[ALL_COLUMNS]
+
+    return combined_plant_data
+
+
+def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
+    """
+        `aggregate_plant_data_to_ba_fuel` 
+            Aggregate all hourly data to ba/fuel
+    Inputs: 
+        `combined_plant_data`: dask.dataframe
+        `plant_frame`: static plant attributes 
+    Returns Pandas dataframe
+    """
+    DATA_COLUMNS = [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "ch4_mass_lb_for_electricity",
+        "n2o_mass_lb_for_electricity",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb_for_electricity",
+        "co2_mass_lb_adjusted",
+        "ch4_mass_lb_adjusted",
+        "n2o_mass_lb_adjusted",
+        "nox_mass_lb_adjusted",
+        "so2_mass_lb_adjusted",
+    ]
+
+    print("Plant data to dask")
+    # Dask freaks out when trying to merge on custom pandas Int type, so convert to np int
+    plant_frame = plant_frame.astype({"plant_id_eia": np.int64})
+    plant_frame = dd.from_pandas(plant_frame, chunksize=100000)
+
+    print("Merging plant data")
+    ba_fuel_data = combined_plant_data.merge(
+        plant_frame, how="left", left_on=["plant_id_eia"], right_index=True
+    )
+
+    print("Grouping plant data")
+    ba_fuel_data = (
+        ba_fuel_data.groupby(
+            ["datetime_utc", "ba_code", "fuel_category"], dropna=False
+        )[DATA_COLUMNS]
+        .sum()
+        .reset_index()
+    )
+
+    print("Computing before returning")
+    return (
+        ba_fuel_data.compute()
+    )  # Convert from dask back to Pandas because it's now small(ish)
+
+
+def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_table):
+
+    # create a table with the unique plantids from both dataframes
+    eia_plants = eia923_allocated[
+        ["plant_id_eia", "plant_primary_fuel"]
+    ].drop_duplicates()
+    cems_plants = cems[["plant_id_eia"]].drop_duplicates()
+
+    # merge primary fuel into cems
+    cems_plants = cems_plants.merge(
+        primary_fuel_table.drop_duplicates(subset="plant_id_eia")[
+            ["plant_id_eia", "plant_primary_fuel"]
+        ],
+        how="left",
+        on="plant_id_eia",
+        validate="1:1",
+    )
+
+    # concat the two lists together
+    plant_attributes = eia_plants.merge(
+        cems_plants,
+        how="outer",
+        on="plant_id_eia",
+        indicator="source",
+        suffixes=(None, "_cems"),
+    )
+    plant_attributes["plant_primary_fuel"] = plant_attributes[
+        "plant_primary_fuel"
+    ].fillna(plant_attributes["plant_primary_fuel_cems"])
+    plant_attributes = plant_attributes.drop(columns=["plant_primary_fuel_cems"])
+    plant_attributes["source"] = plant_attributes["source"].replace(
+        {"left_only": "EIA", "right_only": "EPA"}
+    )
+
+    # assign a BA code and state code to each plant
+    plant_attributes = assign_ba_code_to_plant(plant_attributes, year)
+
+    # add a flag about whether the plant is distribution connected
+    plant_attributes = identify_distribution_connected_plants(
+        plant_attributes, year, voltage_threshold_kv=60
+    )
+
+    # assign a fuel category to each plant based on what is most likely to match with the category used in EIA-930
+    plant_attributes = assign_fuel_category_to_ESC(
+        df=plant_attributes, esc_column="plant_primary_fuel",
+    )
+
+    # add tz info
+    plant_attributes = add_plant_local_timezone(plant_attributes, year)
+
+    plant_attributes = apply_dtypes(plant_attributes)
+
+    return plant_attributes
+
+
+def assign_ba_code_to_plant(df, year):
+    """
+    Assigns a balancing authority code and state to each plant based on the plant id
+    Inputs:
+        df: a pandas dataframe containing a 'plant_id_eia' column
+        year: four digit year number for the data
+    Returns:
+        df with a new column for 'ba_code' and 'state'
+    """
+
+    pudl_out = load_data.initialize_pudl_out(year=year)
+
+    plant_ba = pudl_out.plants_eia860().loc[
+        :,
+        [
+            "plant_id_eia",
+            "balancing_authority_code_eia",
+            "balancing_authority_name_eia",
+            "utility_name_eia",
+            "transmission_distribution_owner_name",
+            "state",
+        ],
+    ]
+
+    # convert the dtype of the balancing authority code column from string to object
+    # this will allow for missing values to be filled
+    plant_ba["balancing_authority_code_eia"] = plant_ba[
+        "balancing_authority_code_eia"
+    ].astype(object)
+
+    # specify a ba code for certain utilities
+    utility_as_ba_code = {
+        "Anchorage Municipal Light and Power": "AMPL",
+        "Arizona Public Service Co": "AZPS",
+        "Associated Electric Coop, Inc": "AECI",
+        "Avista Corp": "AVA",
+        "Avangrid Renewables Inc": "AVRN",
+        "Bonneville Power Administration": "BPAT",
+        "Bonneville Power Admin": "BPAT",
+        "Chugach Electric Assn Inc": "CEA",
+        "Duke Energy Carolinas, LLC": "DUK",
+        "Duke Energy Florida, Inc": "FPC",
+        "Duke Energy Florida, LLC": "FPC",
+        "Duke Energy Progress - (NC)": "CPLE",
+        "El Paso Electric Co": "EPE",
+        "Florida Power & Light Co": "FPL",
+        "Florida Power &amp; Light Co": "FPL",
+        "Gainesville Regional Utilities": "GVL",
+        "Hawaiian Electric Co Inc": "HECO",
+        "Hawaii Electric Light Co Inc": "HECO",
+        "City of Homestead - (FL)": "HST",
+        "Imperial Irrigation District": "IID",
+        "JEA": "JEA",
+        "Kentucky Utilities Co": "LGEE",
+        "Los Angeles Department of Water & Power": "LDWP",
+        "Louisville Gas & Electric Co": "LGEE",
+        "Nevada Power Co": "NEVP",
+        "New Smyrna Beach City of": "NSB",
+        "NorthWestern Corporation": "NWMT",
+        "NorthWestern Energy": "NWMT",
+        "NorthWestern Energy - (SD)": "NWMT",
+        "NorthWestern Energy LLC - (MT)": "NWMT",
+        "Ohio Valley Electric Corp": "OVEC",
+        "Portland General Electric Co": "PGE",
+        "Portland General Electric Company": "PGE",
+        "PowerSouth Energy Cooperative": "AEC",
+        "Public Service Co of Colorado": "PSCO",
+        "Public Service Co of NM": "PNM",
+        "PUD No 1 of Chelan County": "CHPD",
+        "PUD No 1 of Douglas County": "DOPD",
+        "PUD No 2 of Grant County": "GCPD",
+        "Puget Sound Energy Inc": "PSEI",
+        "Sacramento Municipal Util Dist": "BANC",
+        "Salt River Project": "SRP",
+        "Seminole Electric Cooperative Inc": "SEC",
+        "South Carolina Electric&Gas Company": "SCEG",
+        "South Carolina Electric & Gas Co": "SCEG",
+        "South Carolina Electric &amp; Gas Co": "SCEG",
+        "South Carolina Electric&amp;Gas Company": "SCEG",
+        "South Carolina Public Service Authority": "SC",
+        "South Carolina Public Service Auth": "SC",
+        "Southwestern Power Administration": "SPA",
+        "Tacoma City of": "TPWR",
+        "Tampa Electric Co": "TEC",
+        "Tennessee Valley Authority": "TVA",
+        "Tucson Electric Power Co": "TEPC",
+        "Turlock Irrigation District": "TIDC",
+    }
+
+    # fill missing BA codes first based on the BA name, then utility name, then on the transmisison owner name
+    plant_ba["balancing_authority_code_eia"] = plant_ba[
+        "balancing_authority_code_eia"
+    ].fillna(plant_ba["balancing_authority_name_eia"].map(utility_as_ba_code))
+    plant_ba["balancing_authority_code_eia"] = plant_ba[
+        "balancing_authority_code_eia"
+    ].fillna(plant_ba["utility_name_eia"].map(utility_as_ba_code))
+    plant_ba["balancing_authority_code_eia"] = plant_ba[
+        "balancing_authority_code_eia"
+    ].fillna(plant_ba["transmission_distribution_owner_name"].map(utility_as_ba_code))
+
+    # use this to explore plants without an assigned ba
+    # sorted(plant_ba[plant_ba['balancing_authority_code_eia'].isna()]['utility_name_eia'].unique().astype(str))
+
+    # rename the ba column
+    plant_ba = plant_ba.rename(columns={"balancing_authority_code_eia": "ba_code"})
+
+    # TODO: Remove this once the PUDL issue is fixed
+    # As of 4/16/22, there are currently a few incorrect BA assignments in the pudl tables (see https://github.com/catalyst-cooperative/pudl/issues/1584)
+    # thus, we will manually correct some of the BA codes based on data in the most recent EIA forms
+    manual_ba_corrections = {
+        57698: "BANC",
+        7966: "SWPP",
+        6292: "None",
+        7367: "None",
+        55966: "None",
+        6283: "None",
+        57206: "None",
+        10093: "None",
+    }  # TODO: Tesoro Hawaii has no BA assigned, but is connected to the HECO transmission grid - investigate further
+
+    plant_ba["ba_code"].update(plant_ba["plant_id_eia"].map(manual_ba_corrections))
+    plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
+
+    # add a physical ba code based on the owner of the transmission system
+    plant_ba["ba_code_physical"] = plant_ba["ba_code"]
+    plant_ba["ba_code_physical"].update(
+        plant_ba["transmission_distribution_owner_name"].map(utility_as_ba_code)
+    )
+
+    # update based on mapping table when ambiguous
+    physical_ba = pd.read_csv("../data/manual/physical_ba.csv", dtype=get_dtypes())
+    plant_ba = plant_ba.merge(
+        physical_ba,
+        how="left",
+        on=["ba_code", "transmission_distribution_owner_name"],
+        suffixes=("", "_map"),
+    )
+    plant_ba["ba_code_physical"].update(plant_ba["ba_code_physical_map"])
+
+    # merge the ba code into the dataframe
+    df = df.merge(
+        plant_ba.loc[:, ["plant_id_eia", "ba_code", "ba_code_physical", "state"]],
+        how="left",
+        on="plant_id_eia",
+    )
+
+    return df
+
+
 def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
     """
     Identifies which plant_id_eia are "distribution grid connected" based on a voltage threshold.
@@ -2078,9 +2295,11 @@ def assign_fuel_category_to_ESC(
         df with additional column for fuel category
     """
     # load the fuel category table
-    energy_source_groups = pd.read_csv("../data/manual/energy_source_groups.csv")[
-        ["energy_source_code"] + fuel_category_names
-    ].rename(columns={"energy_source_code": esc_column})
+    energy_source_groups = pd.read_csv(
+        "../data/manual/energy_source_groups.csv", dtype=get_dtypes()
+    )[["energy_source_code"] + fuel_category_names].rename(
+        columns={"energy_source_code": esc_column}
+    )
     # assign a fuel category to the monthly eia data
     df = df.merge(
         energy_source_groups[[esc_column] + fuel_category_names],
@@ -2091,89 +2310,17 @@ def assign_fuel_category_to_ESC(
     return df
 
 
-def filter_unique_cems_data(cems, partial_cems):
-    """Removes subplant-months from cems that also appear in partial_cems."""
-    # filter the cems data to remove data that was scaled in partial_cems
-    partial_cems_subplant_months = partial_cems[
-        ["plant_id_eia", "subplant_id", "report_date"]
-    ].drop_duplicates()
-    filtered_cems = cems.merge(
-        partial_cems_subplant_months,
-        how="outer",
-        on=["plant_id_eia", "subplant_id", "report_date"],
-        indicator="source",
-    )
+def add_plant_local_timezone(df, year):
+    pudl_out = load_data.initialize_pudl_out(year=year)
+    plant_tz = pudl_out.plants_eia860()[["plant_id_eia", "timezone"]]
+    df = df.merge(plant_tz, how="left", on=["plant_id_eia"])
 
-    filtered_cems = filtered_cems[filtered_cems["source"] == "left_only"].drop(
-        columns=["source"]
-    )
-
-    return filtered_cems
+    return df
 
 
-def combine_subplant_data(cems, partial_cems, shaped_eia_data):
-    """
-    Combines final hourly subplant data from each source into a single dataframe.
-    Inputs: 
-        Pandas dataframes of shaped or original hourly data
+def aggregate_cems_to_subplant(cems):
 
-    Note: returns dask dataframe (not used before this point in pipeline) because of data size
-    
-    """
-    # Convert to dask because we are about to make a GIANT dataframe
-    # 2,900,000 rows/partition leads to approx 1GB chunk size
-    cems = dd.from_pandas(cems, npartitions=20)
-    partial_cems = dd.from_pandas(partial_cems, npartitions=20)
-    shaped_eia_data = dd.from_pandas(shaped_eia_data, npartitions=20)
-
-    # identify the source
-    cems["data_source"] = "CEMS reported"
-    partial_cems["data_source"] = "partial CEMS/EIA"
-    shaped_eia_data["data_source"] = "EIA imputed"
-
-    # identify net generation method
-    cems = cems.rename(columns={"gtn_method": "net_generation_method"})
-    shaped_eia_data["net_generation_method"] = shaped_eia_data["profile_method"]
-    partial_cems["net_generation_method"] = "partial_cems"
-
-    # identify hourly profile method
-    cems["hourly_profile_source"] = "CEMS"
-    partial_cems["hourly_profile_source"] = "partial CEMS"
-    shaped_eia_data = shaped_eia_data.rename(
-        columns={"profile_method": "hourly_profile_source"}
-    )
-
-    columns_to_use = [
-        "plant_id_eia",
-        "subplant_id",
-        "report_date",
-        "datetime_utc",
-        "data_source",
-        "hourly_profile_source",
-        "gross_generation_mwh",
-        "net_generation_mwh",
-        "net_generation_method",
-        "steam_load_1000_lb",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-    ]
-
-    data_columns = [
+    DATA_COLUMNS = [
         "gross_generation_mwh",
         "net_generation_mwh",
         "steam_load_1000_lb",
@@ -2196,108 +2343,10 @@ def combine_subplant_data(cems, partial_cems, shaped_eia_data):
         "so2_mass_lb_adjusted",
     ]
 
-    # Select rows
-    cems = (
-        cems.groupby(
-            [
-                "plant_id_eia",
-                "subplant_id",
-                "report_date",
-                "datetime_utc",
-                "data_source",
-                "net_generation_method",
-                "hourly_profile_source",
-            ],
-            dropna=False,
-        )
-        .sum()
-        .reset_index()[[col for col in cems.columns if col in columns_to_use]]
-    )
-
-    partial_cems = partial_cems[
-        [col for col in partial_cems.columns if col in columns_to_use]
-    ]
-
-    shaped_eia_data = shaped_eia_data[
-        [col for col in shaped_eia_data.columns if col in columns_to_use]
-    ]
-
-    # aggregate the data by plant and concat together
-    combined_subplant_data = dd.concat([cems, partial_cems, shaped_eia_data], axis=0,)
-
-    combined_subplant_data["subplant_id"] = combined_subplant_data[
-        "subplant_id"
-    ].fillna(0)
-
-    combined_subplant_data[data_columns] = combined_subplant_data[data_columns].round(2)
-
-    combined_subplant_data = combined_subplant_data.astype(
-        {
-            "plant_id_eia": "int",
-            "subplant_id": "int",
-            "data_source": "category",
-            "hourly_profile_source": "category",
-            "net_generation_method": "category",
-        }
-    )
-
-    # re-order the columns
-    combined_subplant_data = combined_subplant_data[columns_to_use]
-
-    return combined_subplant_data
-
-
-def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
-    """
-        `aggregate_plant_data_to_ba_fuel` 
-            Aggregate all hourly data to ba/fuel
-    Inputs: 
-        `combined_plant_data`: dask.dataframe
-        `plant_frame`: static plant attributes 
-    Returns Pandas dataframe
-    """
-    data_columns = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-    ]
-
-    print("Plant data to dask")
-    # Dask freaks out when trying to merge on custom pandas Int type, so convert to np int
-    plant_frame = plant_frame.astype({"plant_id_eia": np.int64})
-    plant_frame = dd.from_pandas(plant_frame, chunksize=100000)
-
-    print("Merging plant data")
-    ba_fuel_data = combined_plant_data.merge(
-        plant_frame, how="left", left_on=["plant_id_eia"], right_index=True
-    )
-
-    print("Grouping plant data")
-    ba_fuel_data = (
-        ba_fuel_data.groupby(
-            ["datetime_utc", "ba_code", "fuel_category"], dropna=False
-        )[data_columns]
-        .sum()
-        .reset_index()
-    )
-
-    print("Computing before returning")
     return (
-        ba_fuel_data.compute()
-    )  # Convert from dask back to Pandas because it's now small(ish)
+        cems.groupby(["plant_id_eia", "subplant_id", "datetime_utc", "report_date"])
+        .sum()[DATA_COLUMNS]
+        .reset_index()
+        .pipe(apply_dtypes)
+    )
 

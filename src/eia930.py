@@ -3,6 +3,7 @@ import re
 from datetime import timedelta
 import src.data_cleaning as data_cleaning
 import src.load_data as load_data
+from src.column_checks import get_dtypes
 
 # Map from 923 fuel types (added to cems data in data_pipeline)
 # to 930 fuel types
@@ -66,7 +67,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     for use in the data pipeline
     """
     # read the data, only keeping net generation columns
-    data = pd.read_csv(cleaned_data_filepath, index_col=0, parse_dates=True).filter(
+    data = pd.read_csv(cleaned_data_filepath, index_col=0, parse_dates=True, dtype=get_dtypes()).filter(
         like="-ALL.NG."
     )
 
@@ -95,7 +96,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     )
 
     # create columns for ba_code and fuel category
-    data[["ba_code", "fuel_category"]] = data["variable"].str.split(
+    data[["ba_code", "fuel_category_eia930"]] = data["variable"].str.split(
         r"[.-]", expand=True, regex=True
     )[[1, 4]]
 
@@ -139,13 +140,13 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
         "GEO": "geothermal",
     }
 
-    data["fuel_category"] = data["fuel_category"].map(fuel_categories)
+    data["fuel_category_eia930"] = data["fuel_category_eia930"].map(fuel_categories)
 
     # reorder the columns and remove the variable column
     data = data[
         [
             "ba_code",
-            "fuel_category",
+            "fuel_category_eia930",
             "datetime_utc",
             "datetime_local",
             "report_date",
