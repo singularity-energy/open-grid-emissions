@@ -283,9 +283,12 @@ def main():
     del residual_profiles
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
-    # TODO: shaped_eia_data is HUGE, consider moving to dask.dataframe
+    # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
+    monthly_eia_data_to_shape = impute_hourly_profiles.monthly_eia_data_to_ba(
+        monthly_eia_data_to_shape, plant_attributes
+    )
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
-        monthly_eia_data_to_shape, hourly_profiles, plant_attributes
+        monthly_eia_data_to_shape, hourly_profiles
     )
     # Export data
     output_data.output_intermediate_data(
