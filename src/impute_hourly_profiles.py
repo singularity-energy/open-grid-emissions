@@ -173,14 +173,14 @@ def impute_missing_hourly_profiles(
         str
     )
 
-    residual_profiles = residual_profiles.rename(columns={"fuel_category_eia930": "fuel_category"})
+    residual_profiles = residual_profiles.rename(
+        columns={"fuel_category_eia930": "fuel_category"}
+    )
 
     # determine for which BA-fuels we are missing residual profiles
-    available_profiles = (
-        residual_profiles[["ba_code", "fuel_category"]]
-        .drop_duplicates()
-        
-    )
+    available_profiles = residual_profiles[
+        ["ba_code", "fuel_category"]
+    ].drop_duplicates()
     monthly_eia_data_to_shape = monthly_eia_data_to_shape.merge(
         plant_attributes[["plant_id_eia", "fuel_category", "ba_code"]],
         how="left",
@@ -359,13 +359,121 @@ def convert_profile_to_percent(hourly_profiles):
     return hourly_profiles
 
 
-def shape_monthly_eia_data_as_hourly(
-    monthly_eia_data_to_shape, hourly_profiles, plant_attributes
-):
+def get_artificial_plant(row: pd.Series):
+    """
+        Return artificial plant code. Max real plant is 64663
+        Our codes look like <x>00,<y>00 where x is index of BA and y is index of fuel
+
+        row must contain `ba_code` and `fuel_category`
+    """
+    plants = [
+        "AECI",
+        "AVA",
+        "AVRN",
+        "AZPS",
+        "BANC",
+        "BPAT",
+        "CEA",
+        "CISO",
+        "CPLE",
+        "DUK",
+        "EPE",
+        "ERCO",
+        "FPC",
+        "FPL",
+        "GCPD",
+        "GVL",
+        "HECO",
+        "IID",
+        "IPCO",
+        "ISNE",
+        "JEA",
+        "LDWP",
+        "MISO",
+        "NEVP",
+        "NWMT",
+        "NYIS",
+        "PACE",
+        "PACW",
+        "PGE",
+        "PJM",
+        "PNM",
+        "PSCO",
+        "PSEI",
+        "SCEG",
+        "SCL",
+        "SOCO",
+        "SPA",
+        "SRP",
+        "SWPP",
+        "TEC",
+        "TVA",
+        "WACM",
+        None,
+    ]
+
+    fuels = [
+        "petroleum",
+        "biomass",
+        "hydro",
+        "natural_gas",
+        "solar",
+        "wind",
+        "nuclear",
+        "other",
+        "geothermal",
+        "waste",
+        "coal",
+    ]
+
+    ba_code = row.ba_code
+    fuel_category = row.fuel_category
+
+    if ba_code not in plants:
+        raise ValueError(f"BA {ba_code} not in expected BAs")
+    if fuel_category not in fuels:
+        raise ValueError(f"Fuel {fuel_category} not in expected fuels")
+
+    ba_factor = plants.index(ba_code) + 1
+    fuel_factor = fuels.index(fuel_category) + 1
+
+    return 100000 * ba_factor + 100 * fuel_factor
+
+
+def monthly_eia_data_to_ba(monthly_eia_data_to_shape, plant_attributes):
+    # Note: currently using ba_code, could alternatively use ba_code_physical
+    # Add plant attributes for grouping
+    eia_agg = monthly_eia_data_to_shape.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+        how="left",
+        on="plant_id_eia",
+    )
+
+    # Group
+    eia_agg = (
+        eia_agg.groupby(["ba_code", "report_date", "fuel_category"], dropna=False)
+        .sum()
+        .reset_index()
+        .drop(columns=["plant_id_eia", "subplant_id"])
+    )
+
+    # Make nan BA "None" so equality test works
+    eia_agg.ba_code = eia_agg.ba_code.replace(np.nan, None)
+
+    eia_agg["plant_id_eia"] = eia_agg[["ba_code", "fuel_category"]].apply(
+        get_artificial_plant, axis=1
+    )
+
+    return eia_agg
+
+
+def shape_monthly_eia_data_as_hourly(shaped_monthly_data, hourly_profiles):
     """
     Uses monthly-level EIA data and assigns an hourly profile
+    Intended for calling after `monthly_eia_data_to_ba` 
     Inputs: 
-        monthly_eia_data_to_distribute: a dataframe that contains monthly total net generation, fuel consumption, and co2 data, along with columns for report_date and ba_code
+        shaped_monthly_data: a dataframe that contains monthly total net generation, 
+            fuel consumption, and co2 data, along with columns for report_date and ba_code
     """
     # specify columns containing monthly data that should be distributed to hourly
     DATA_COLUMNS = [
@@ -388,21 +496,6 @@ def shape_monthly_eia_data_as_hourly(
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
     ]
-
-    # group eia data by plant
-    shaped_monthly_data = (
-        monthly_eia_data_to_shape.groupby(
-            ["plant_id_eia", "report_date"], dropna=False,
-        )
-        .sum()
-        .reset_index()
-    )
-
-    shaped_monthly_data = shaped_monthly_data.merge(
-        plant_attributes[["plant_id_eia", "fuel_category", "ba_code"]],
-        how="left",
-        on="plant_id_eia",
-    )
 
     # merge the hourly profiles into each plant-month
     shaped_monthly_data = shaped_monthly_data.merge(
