@@ -2201,6 +2201,12 @@ def assign_ba_code_to_plant(df, year):
     plant_ba["ba_code"].update(plant_ba["plant_id_eia"].map(manual_ba_corrections))
     plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
 
+    # for plants without a BA code located in AK, HI, or PR, assign the miscellaneous BA code
+    for state in ["AK", "HI", "PR"]:
+        plant_ba.loc[
+            plant_ba["ba_code"].isna() & (plant_ba["state"] == state), "ba_code"
+        ] = f"{state}MS"
+
     # add a physical ba code based on the owner of the transmission system
     plant_ba["ba_code_physical"] = plant_ba["ba_code"]
     plant_ba["ba_code_physical"].update(

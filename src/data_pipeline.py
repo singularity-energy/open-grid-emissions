@@ -284,7 +284,7 @@ def main():
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
     # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
-    monthly_eia_data_to_shape = impute_hourly_profiles.monthly_eia_data_to_ba(
+    monthly_eia_data_to_shape = impute_hourly_profiles.aggregate_eia_data_to_ba_fuel(
         monthly_eia_data_to_shape, plant_attributes
     )
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(

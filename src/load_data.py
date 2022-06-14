@@ -483,6 +483,11 @@ def ba_timezone(ba, type):
     tz = pd.read_csv(
         "../data/manual/ba_reference.csv", usecols=["ba_code", f"timezone_{type}"]
     )
-    tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"].item()
+    tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"]
+
+    if tz.isna().item():
+        raise UserWarning(f'The BA {ba} does not have a timezone specified in data/manual/ba_reference.csv. Please add.')
+    else:
+        tz = tz.item()
 
     return tz
