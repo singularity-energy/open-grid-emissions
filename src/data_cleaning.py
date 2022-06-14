@@ -1,4 +1,3 @@
-
 import pandas as pd
 import numpy as np
 from pandas import DataFrame
@@ -1911,14 +1910,49 @@ def filter_unique_cems_data(cems, partial_cems):
     return filtered_cems
 
 
+def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
+    data_columns = [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "ch4_mass_lb_for_electricity",
+        "n2o_mass_lb_for_electricity",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb_for_electricity",
+        "co2_mass_lb_adjusted",
+        "ch4_mass_lb_adjusted",
+        "n2o_mass_lb_adjusted",
+        "nox_mass_lb_adjusted",
+        "so2_mass_lb_adjusted",
+    ]
+
+    ba_fuel_data = combined_plant_data.merge(
+        plant_frame, how="left", on=["plant_id_eia"]
+    )
+    ba_fuel_data = (
+        ba_fuel_data.groupby(
+            ["ba_code", "fuel_category", "datetime_utc"], dropna=False
+        )[data_columns]
+        .sum()
+        .reset_index()
+    )
+    return ba_fuel_data
+
+
 def combine_plant_data(cems, partial_cems, shaped_eia_data):
     """
     Combines final hourly subplant data from each source into a single dataframe.
-    Inputs: 
+    Inputs:
         Pandas dataframes of shaped or original hourly data
 
     Note: returns dask dataframe (not used before this point in pipeline) because of data size
-    
+
     """
     # Convert to dask because we are about to make a GIANT dataframe
     # 2,900,000 rows/partition leads to approx 1GB chunk size
@@ -1987,61 +2021,6 @@ def combine_plant_data(cems, partial_cems, shaped_eia_data):
     combined_plant_data = combined_plant_data[ALL_COLUMNS]
 
     return combined_plant_data
-
-
-def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
-    """
-        `aggregate_plant_data_to_ba_fuel` 
-            Aggregate all hourly data to ba/fuel
-    Inputs: 
-        `combined_plant_data`: dask.dataframe
-        `plant_frame`: static plant attributes 
-    Returns Pandas dataframe
-    """
-    DATA_COLUMNS = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-    ]
-
-    print("Plant data to dask")
-    # Dask freaks out when trying to merge on custom pandas Int type, so convert to np int
-    plant_frame = plant_frame.astype({"plant_id_eia": np.int64})
-    plant_frame = dd.from_pandas(plant_frame, chunksize=100000)
-
-    print("Merging plant data")
-    ba_fuel_data = combined_plant_data.merge(
-        plant_frame, how="left", left_on=["plant_id_eia"], right_index=True
-    )
-
-    print("Grouping plant data")
-    ba_fuel_data = (
-        ba_fuel_data.groupby(
-            ["datetime_utc", "ba_code", "fuel_category"], dropna=False
-        )[DATA_COLUMNS]
-        .sum()
-        .reset_index()
-    )
-
-    print("Computing before returning")
-    return (
-        ba_fuel_data.compute()
-    )  # Convert from dask back to Pandas because it's now small(ish)
 
 
 def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_table):
@@ -2343,10 +2322,16 @@ def aggregate_cems_to_subplant(cems):
         "so2_mass_lb_adjusted",
     ]
 
-    return (
+    # Sum numeric columns, take first of category column (gtn_method)
+    aggregators = {name: "sum" for name in DATA_COLUMNS}
+    aggregators["gtn_method"] = "first"
+
+    cems = (
         cems.groupby(["plant_id_eia", "subplant_id", "datetime_utc", "report_date"])
-        .sum()[DATA_COLUMNS]
+        .agg(aggregators)[DATA_COLUMNS + ["gtn_method"]]
         .reset_index()
         .pipe(apply_dtypes)
     )
+
+    return cems
 
