@@ -114,10 +114,11 @@ COLUMNS = {
         "state",
         "distribution_flag",
         "timezone",
+        "source",
     },
     "residual_profiles_": {
         "ba_code",
-        "fuel_category",
+        "fuel_category_eia930",
         "datetime_utc",
         "datetime_local",
         "report_date",
@@ -126,8 +127,6 @@ COLUMNS = {
     },
     "shaped_eia923_data_": {
         "plant_id_eia",
-        "subplant_id",
-        "datetime_local",
         "datetime_utc",
         "report_date",
         "net_generation_mwh",
@@ -149,7 +148,6 @@ COLUMNS = {
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
         "profile_method",
-        "hourly_data_source",
     },
     "annual_generation_averages_by_fuel_": {
         "fuel_category",
@@ -225,3 +223,48 @@ def check_columns(file_path):
         raise ValueError(f"Columns {missing} missing from {file_path}")
 
     return
+
+
+def get_dtypes():
+    dtypes_to_use = {
+        "plant_id_eia": "Int32",
+        "plant_id_epa": "Int32",
+        "subplant_id": "Int16",
+        "generator_id": "str",
+        "unitid": "str",
+        "operating_time_hours": "float16",
+        "gross_generation_mwh": "float64",
+        "steam_load_1000_lb": "float64",
+        "fuel_consumed_mmbtu": "float64",
+        "co2_mass_lb": "float64",
+        "co2_mass_measurement_code": "category",
+        "nox_mass_lb": "float64",
+        "nox_mass_measurement_code": "category",
+        "so2_mass_lb": "float64",
+        "so2_mass_measurement_code": "category",
+        "energy_source_code": "str",
+        "ch4_mass_lb": "float64",
+        "n2o_mass_lb": "float64",
+        "fuel_consumed_for_electricity_mmbtu": "float64",
+        "co2_mass_lb_for_electricity": "float64",
+        "ch4_mass_lb_for_electricity": "float64",
+        "n2o_mass_lb_for_electricity": "float64",
+        "nox_mass_lb_for_electricity": "float64",
+        "so2_mass_lb_for_electricity": "float64",
+        "co2_mass_lb_adjusted": "float64",
+        "ch4_mass_lb_adjusted": "float64",
+        "n2o_mass_lb_adjusted": "float64",
+        "nox_mass_lb_adjusted": "float64",
+        "so2_mass_lb_adjusted": "float64",
+        "gtn_method": "category",
+        "net_generation_mwh": "float64",
+        "prime_mover_code": "str",
+        "hourly_data_source": "category",
+    }
+
+    return dtypes_to_use
+
+
+def apply_dtypes(df):
+    dtypes = get_dtypes()
+    return df.astype({col: dtypes[col] for col in df.columns if col in dtypes})

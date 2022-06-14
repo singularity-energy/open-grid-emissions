@@ -5,6 +5,8 @@ import src.data_cleaning as data_cleaning
 
 import pudl.output.pudltabl
 
+from src.column_checks import get_dtypes, apply_dtypes
+
 
 def load_cems_data(year):
     """
@@ -139,7 +141,8 @@ def load_ghg_emission_factors():
     """
 
     efs = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C1_emission_factors_for_CO2_CH4_N2O.csv"
+        "../data/manual/egrid_static_tables/table_C1_emission_factors_for_CO2_CH4_N2O.csv",
+        dtype=get_dtypes(),
     )
 
     # convert co2 mass in short tons to lb
@@ -154,7 +157,8 @@ def load_ghg_emission_factors():
 def load_nox_emission_factors():
     """Read in the NOx emission factors from eGRID Table C2."""
     emission_factors = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C2_emission_factors_for_NOx.csv"
+        "../data/manual/egrid_static_tables/table_C2_emission_factors_for_NOx.csv",
+        dtype=get_dtypes(),
     )
 
     # standardize units as lower case
@@ -173,7 +177,8 @@ def load_so2_emission_factors():
     reported in Table C3 as a formula like `123*S`.
     """
     df = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C3_emission_factors_for_SO2.csv"
+        "../data/manual/egrid_static_tables/table_C3_emission_factors_for_SO2.csv",
+        dtype=get_dtypes(),
     )
 
     # Add a boolean column that reports whether the emission factor is a formula or value.
@@ -294,7 +299,7 @@ def load_epa_eia_crosswalk(year):
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
-        "../data/manual/epa_eia_crosswalk_manual.csv", dtype={"generator_id": str}
+        "../data/manual/epa_eia_crosswalk_manual.csv", dtype=get_dtypes()
     ).drop(columns=["notes"])
 
     # merge the energy source code from EIA-860
@@ -336,7 +341,8 @@ def load_gross_to_net_data(
         gtn_data: pandas dataframe containing revevant keys and conversion factors
     """
     gtn_data = pd.read_csv(
-        f"../data/outputs/gross_to_net/{level}_gross_to_net_{conversion_type}.csv"
+        f"../data/outputs/gross_to_net/{level}_gross_to_net_{conversion_type}.csv",
+        dtype=get_dtypes(),
     )
 
     # filter the data based on the upper and lower thresholds, if specified
@@ -348,7 +354,9 @@ def load_gross_to_net_data(
 
     # if loading regression data, add a count of units in each subplant to the regression results
     if conversion_type == "regression":
-        subplant_crosswalk = pd.read_csv("../data/outputs/subplant_crosswalk.csv")
+        subplant_crosswalk = pd.read_csv(
+            "../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes()
+        )
         subplant_crosswalk = subplant_crosswalk[
             ["plant_id_eia", "unitid", "subplant_id"]
         ].drop_duplicates()
@@ -380,7 +388,9 @@ def load_gross_to_net_data(
 
 def load_ipcc_gwp():
     """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
-    return pd.read_csv("../data/manual/ipcc_gwp.csv", index_col="ipcc_version")
+    return pd.read_csv(
+        "../data/manual/ipcc_gwp.csv", index_col="ipcc_version", dtype=get_dtypes()
+    )
 
 
 def load_raw_eia930_data(year, description):
@@ -423,6 +433,7 @@ def load_raw_eia930_data(year, description):
 def load_ba_reference():
     return pd.read_csv(
         "../data/manual/ba_reference.csv",
+        dtype=get_dtypes(),
         parse_dates=["activation_date", "retirement_date"],
     )
 

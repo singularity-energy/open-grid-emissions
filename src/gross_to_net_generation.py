@@ -156,7 +156,7 @@ def load_cems_gross_generation(start_year, end_year):
 
 def manual_crosswalk_updates(crosswalk):
     # load manual matches
-    crosswalk_manual = pd.read_csv("../data/manual/epa_eia_crosswalk_manual.csv").drop(
+    crosswalk_manual = pd.read_csv("../data/manual/epa_eia_crosswalk_manual.csv", dtype=get_dtypes()).drop(
         columns=["notes"]
     )
     crosswalk_manual = crosswalk_manual.rename(
@@ -439,7 +439,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level):
     ]
 
     # load the activation and retirement dates into the data
-    subplant_crosswalk = pd.read_csv(f"../data/outputs/subplant_crosswalk.csv")
+    subplant_crosswalk = pd.read_csv(f"../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes())
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,
         how="left",

@@ -1,5 +1,5 @@
-import src.data_cleaning as data_cleaning
 import src.load_data as load_data
+from src.column_checks import apply_dtypes
 import pandas as pd
 import numpy as np
 
@@ -21,15 +21,12 @@ def aggregate_for_residual(
         data = data[data["distribution_flag"] == False]
 
     data = (
-        data.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)["net_generation_mwh"]
+        data.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)[
+            "net_generation_mwh"
+        ]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "fuel_category_eia930": "fuel_category",
-                "ba_code_physical": "ba_code",
-            }
-        )
+        .rename(columns={"ba_code_physical": "ba_code",})
     )
 
     return data
@@ -62,19 +59,17 @@ def calculate_residual(cems, eia930, plant_attributes, year: int):
     """
     # Options for how to group. Could make command line arguments if needed.
     # transmission = True and physical BA code is based on EIA-930 instructions
-    TRANSMISSION = True  # use only transmission-level connections?
-    BA_CODE = "ba_code_physical"  # ba_code or ba_code_physical?
+    TRANSMISSION = False  # use only transmission-level connections?
+    BA_CODE = "ba_code"  # ba_code or ba_code_physical?
 
     # Name column same as 930, hourly_profiles.
-    cems = cems.merge(
-        plant_attributes, how="left", on="plant_id_eia", suffixes=("_orig", "")
-    )
+    cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
 
     cems = aggregate_for_residual(
         cems, "datetime_utc", BA_CODE, transmission=TRANSMISSION
     )
     combined_data = eia930.merge(
-        cems, how="left", on=["ba_code", "fuel_category", "datetime_utc"]
+        cems, how="left", on=["ba_code", "fuel_category_eia930", "datetime_utc"]
     )
     # only keep rows where local datetime is in the current year
     combined_data = combined_data[
@@ -92,7 +87,9 @@ def calculate_residual(cems, eia930, plant_attributes, year: int):
     )
     # find the minimum ratio for each ba-fuel
     scaling_factors = (
-        scaling_factors.groupby(["ba_code", "fuel_category"], dropna=False)["scaling_factor"]
+        scaling_factors.groupby(["ba_code", "fuel_category_eia930"], dropna=False)[
+            "scaling_factor"
+        ]
         .min()
         .reset_index()
     )
@@ -103,7 +100,7 @@ def calculate_residual(cems, eia930, plant_attributes, year: int):
     # merge the scaling factor into the combined data
     # for any BA-fuels without a scaling factor, fill with 1 (scale to 100% of the origina data)
     combined_data = combined_data.merge(
-        scaling_factors, how="left", on=["ba_code", "fuel_category"]
+        scaling_factors, how="left", on=["ba_code", "fuel_category_eia930"]
     ).fillna(1)
 
     # calculate the scaled cems data
@@ -127,7 +124,7 @@ def calculate_residual(cems, eia930, plant_attributes, year: int):
     return combined_data[
         [
             "ba_code",
-            "fuel_category",
+            "fuel_category_eia930",
             "datetime_utc",
             "datetime_local",
             "report_date",
@@ -167,17 +164,28 @@ def create_flat_profile(year, ba, fuel):
     return df_temporary
 
 
-def impute_missing_hourly_profiles(monthly_eia_data_to_shape, residual_profiles, year):
+def impute_missing_hourly_profiles(
+    monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
+):
     """Identify and estimate hourly profiles for missing BA-fuels."""
     # change local datetime column to string due to challenges with mixed timezones
     residual_profiles["datetime_local"] = residual_profiles["datetime_local"].astype(
         str
     )
 
+    residual_profiles = residual_profiles.rename(columns={"fuel_category_eia930": "fuel_category"})
+
     # determine for which BA-fuels we are missing residual profiles
-    available_profiles = residual_profiles[
-        ["ba_code", "fuel_category"]
-    ].drop_duplicates()
+    available_profiles = (
+        residual_profiles[["ba_code", "fuel_category"]]
+        .drop_duplicates()
+        
+    )
+    monthly_eia_data_to_shape = monthly_eia_data_to_shape.merge(
+        plant_attributes[["plant_id_eia", "fuel_category", "ba_code"]],
+        how="left",
+        on="plant_id_eia",
+    )
     ba_fuel_to_distribute = (
         monthly_eia_data_to_shape[["ba_code", "fuel_category"]]
         .drop_duplicates()
@@ -190,7 +198,7 @@ def impute_missing_hourly_profiles(monthly_eia_data_to_shape, residual_profiles,
         indicator="source",
     )
     missing_profiles = missing_profiles[missing_profiles.source == "left_only"]
-    missing_profiles.sort_values(by=["ba_code", "fuel_category"])
+    missing_profiles = missing_profiles.sort_values(by=["ba_code", "fuel_category"])
 
     # load information about directly interconnected balancing authorities (DIBAs)
     # this will help us fill profiles using data from nearby BAs
@@ -234,7 +242,8 @@ def impute_missing_hourly_profiles(monthly_eia_data_to_shape, residual_profiles,
                                 "datetime_utc",
                                 "datetime_local",
                                 "report_date",
-                            ], dropna=False
+                            ],
+                            dropna=False,
                         )
                         .mean()
                         .reset_index()
@@ -255,7 +264,8 @@ def impute_missing_hourly_profiles(monthly_eia_data_to_shape, residual_profiles,
                 df_temporary["datetime_local"] = df_temporary["datetime_local"].str[:-6]
                 df_temporary = (
                     df_temporary.groupby(
-                        ["fuel_category", "datetime_local", "report_date",], dropna=False
+                        ["fuel_category", "datetime_local", "report_date",],
+                        dropna=False,
                     )
                     .mean()
                     .reset_index()
@@ -334,7 +344,9 @@ def convert_profile_to_percent(hourly_profiles):
     # convert the profile so that each hour is a percent of the monthly total
     monthly_group_columns = ["ba_code", "fuel_category", "report_date"]
     hourly_profiles = hourly_profiles.merge(
-        hourly_profiles.groupby(monthly_group_columns, dropna=False).sum().reset_index(),
+        hourly_profiles.groupby(monthly_group_columns, dropna=False)
+        .sum()
+        .reset_index(),
         how="left",
         on=monthly_group_columns,
         suffixes=(None, "_monthly_total"),
@@ -348,7 +360,7 @@ def convert_profile_to_percent(hourly_profiles):
 
 
 def shape_monthly_eia_data_as_hourly(
-    monthly_eia_data_to_shape, hourly_profiles,
+    monthly_eia_data_to_shape, hourly_profiles, plant_attributes
 ):
     """
     Uses monthly-level EIA data and assigns an hourly profile
@@ -356,7 +368,7 @@ def shape_monthly_eia_data_as_hourly(
         monthly_eia_data_to_distribute: a dataframe that contains monthly total net generation, fuel consumption, and co2 data, along with columns for report_date and ba_code
     """
     # specify columns containing monthly data that should be distributed to hourly
-    columns_to_shape = [
+    DATA_COLUMNS = [
         "net_generation_mwh",
         "fuel_consumed_mmbtu",
         "fuel_consumed_for_electricity_mmbtu",
@@ -380,23 +392,16 @@ def shape_monthly_eia_data_as_hourly(
     # group eia data by plant
     shaped_monthly_data = (
         monthly_eia_data_to_shape.groupby(
-            [
-                "plant_id_eia",
-                "subplant_id",
-                "report_date",
-                "plant_primary_fuel",
-                "hourly_data_source",
-                "fuel_category",
-                "fuel_category_eia930",
-                "ba_code",
-                "ba_code_physical",
-                "state",
-                "distribution_flag",
-            ],
-            dropna=False,
+            ["plant_id_eia", "report_date"], dropna=False,
         )
         .sum()
         .reset_index()
+    )
+
+    shaped_monthly_data = shaped_monthly_data.merge(
+        plant_attributes[["plant_id_eia", "fuel_category", "ba_code"]],
+        how="left",
+        on="plant_id_eia",
     )
 
     # merge the hourly profiles into each plant-month
@@ -413,40 +418,20 @@ def shape_monthly_eia_data_as_hourly(
     ] = "flat_negative_generation"
 
     # shape the data
-    for column in columns_to_shape:
+    for column in DATA_COLUMNS:
         shaped_monthly_data[column] = (
             shaped_monthly_data[column] * shaped_monthly_data["profile"]
         )
-    shaped_monthly_data = shaped_monthly_data.drop(columns=["profile"])
 
     # re order the columns
     column_order = [
         "plant_id_eia",
-        "subplant_id",
-        "datetime_local",
         "datetime_utc",
         "report_date",
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
         "profile_method",
-        "hourly_data_source",
-    ]
+    ] + DATA_COLUMNS
+
+    # re-order and drop intermediate columns
     shaped_monthly_data = shaped_monthly_data[column_order]
 
     return shaped_monthly_data
@@ -611,5 +596,7 @@ def scale_partial_cems_data(cems, eia923_allocated):
                     ]
                     + hourly_shift
                 )
+
+    cems_scaled = apply_dtypes(cems_scaled)
 
     return cems_scaled, eia923_allocated

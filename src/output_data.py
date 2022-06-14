@@ -62,6 +62,53 @@ def write_generated_averages(ba_fuel_data, path_prefix, year):
         year,
     )
 
+def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
+    """Outputs metadata for each subplant-hour."""
+
+    KEY_COLUMNS = [
+        "plant_id_eia",
+        "subplant_id",
+        "report_date",
+    ]
+
+    METADATA_COLUMNS = [
+        "data_source",
+        "hourly_profile_source",
+        "net_generation_method",
+    ]
+
+    # identify the source
+    cems["data_source"] = "CEMS reported"
+    partial_cems["data_source"] = "partial CEMS/EIA"
+    shaped_eia_data["data_source"] = "EIA imputed"
+
+    # identify net generation method
+    cems = cems.rename(columns={"gtn_method": "net_generation_method"})
+    shaped_eia_data["net_generation_method"] = shaped_eia_data["profile_method"]
+    partial_cems["net_generation_method"] = "partial_cems"
+
+    # identify hourly profile method
+    cems["hourly_profile_source"] = "CEMS"
+    partial_cems["hourly_profile_source"] = "partial CEMS"
+    shaped_eia_data = shaped_eia_data.rename(
+        columns={"profile_method": "hourly_profile_source"}
+    )
+
+    # only keep one metadata row per plant/subplant-month
+    cems_meta = cems[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(subset=KEY_COLUMNS)
+    partial_cems_meta = partial_cems[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(subset=KEY_COLUMNS)
+    shaped_eia_data_meta = shaped_eia_data[["plant_id_eia","report_date"] + METADATA_COLUMNS].drop_duplicates(subset=["plant_id_eia","report_date"])
+
+    # concat the metadata into a one file and export
+    metadata = pd.concat([cems_meta, partial_cems_meta, shaped_eia_data_meta], axis =0)
+    metadata.to_csv(f"../data/results/{path_prefix}plant_data/plant_metadata.csv", index=False)
+
+    # drop the metadata columns from each dataframe
+    cems = cems.drop(columns=METADATA_COLUMNS)
+    partial_cems = partial_cems.drop(columns=METADATA_COLUMNS)
+    shaped_eia_data = shaped_eia_data.drop(columns=METADATA_COLUMNS)
+
+    return cems, partial_cems, shaped_eia_data
 
 def write_power_sector_results(ba_fuel_data, path_prefix):
     """
