@@ -144,7 +144,7 @@ KEYS["N2O"] = {
 }
 
 
-def get_average_emission_factors():
+def get_average_emission_factors(prefix: str = ""):
     """
         Edit EMISSIONS dict with per-fuel, per-adjustment, per-poll emission factors.
         Used to fill in emissions from BAs outside of US, where we have generation by
@@ -153,7 +153,7 @@ def get_average_emission_factors():
         Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
-        "../data/outputs/annual_generation_averages_by_fuel_2020.csv",
+        f"../data/outputs/{prefix}annual_generation_averages_by_fuel_2020.csv",
         index_col="fuel_category",
     )
     efs = {}
@@ -163,7 +163,13 @@ def get_average_emission_factors():
             efs[pol][adjustment] = {}
             for fuel in SRC:
                 column = get_rate_column(pol, adjustment, generated=True)
-                efs[pol][adjustment][fuel] = genavg.loc[FUEL_TYPE_MAP[fuel], column]
+                if fuel not in genavg.index:
+                    print(
+                        f"WARNING: fuel {fuel} not found in file annual_generation_averages_by_fuel_2020.csv, using average"
+                    )
+                    efs[pol][adjustment][fuel] = genavg.loc["total", column]
+                else:
+                    efs[pol][adjustment][fuel] = genavg.loc[FUEL_TYPE_MAP[fuel], column]
     return efs
 
 
@@ -184,6 +190,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         )  # todo pass a dataframe with our generation columns, per-fuel generation dropped
         self.year = year
         self.small = small
+        self.prefix = "small/" if small else ""
         self.poll = poll
         self.adjustment = adjustment  # "for_electricity" or "adjusted"
 
@@ -193,7 +200,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         fixed.regions = regions  # make sure we only use our data regions. TODO: not needed if clean up cols in _replace_generation
 
         # Overwrite emission factors object
-        self.emissions_factors = get_average_emission_factors()
+        self.emissions_factors = get_average_emission_factors(self.prefix)
 
         super().__init__(fixed, poll)
 
