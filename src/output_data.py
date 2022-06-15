@@ -17,6 +17,10 @@ GENERATED_EMISSION_RATE_COLS = [
     "generated_so2_rate_lb_per_mwh_adjusted",
 ]
 
+UNIT_CONVERSIONS = {"lb": ("kg", 0.453592), "mmbtu": ("GJ", 1.055056)}
+
+TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
+
 
 def output_intermediate_data(df, file_name, path_prefix, year):
 
@@ -25,8 +29,43 @@ def output_intermediate_data(df, file_name, path_prefix, year):
 
 
 def output_to_results(df, file_name, subfolder, path_prefix):
+    metric = convert_results(df)
 
-    df.to_csv(f"../data/results/{path_prefix}{subfolder}{file_name}.csv", index=False)
+    df.to_csv(
+        f"../data/results/{path_prefix}{subfolder}us_units/{file_name}.csv", index=False
+    )
+    metric.to_csv(
+        f"../data/results/{path_prefix}{subfolder}metric_units/{file_name}.csv",
+        index=False,
+    )
+
+
+def convert_results(df):
+    """
+    Take df in US units (used throughout pipeline).
+    Return a df with metric units.
+
+    ASSUMPTIONS:
+        * Columns to convert have names of form
+            `co2_lb_per_mwh_produced` (mass),
+            `co2_lb_per_mwh_produced_for_electricity` (rate),
+            `fuel_consumed_mmbtu` (mass)
+          meaning that unit to convert is ALWAYS in numerator
+    """
+    converted = df.copy(deep=True)
+    for column in converted.columns:
+        unit = ""
+        for u in UNIT_CONVERSIONS.keys():  # What to convert?
+            if u in column.split("_"):
+                unit = u
+                break
+        if unit == "":
+            continue  # nothing to convert, next column
+        new_unit, factor = UNIT_CONVERSIONS[unit]
+        new_col = column.replace(unit, new_unit)
+        converted.rename(columns={column: new_col}, inplace=True)
+        converted.loc[:, new_col] = converted.loc[:, new_col] * factor
+    return converted
 
 
 def write_generated_averages(ba_fuel_data, path_prefix, year):
@@ -62,6 +101,7 @@ def write_generated_averages(ba_fuel_data, path_prefix, year):
         year,
     )
 
+
 def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
     """Outputs metadata for each subplant-hour."""
 
@@ -96,12 +136,17 @@ def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
 
     # only keep one metadata row per plant/subplant-month
     cems_meta = cems[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(subset=KEY_COLUMNS)
-    partial_cems_meta = partial_cems[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(subset=KEY_COLUMNS)
-    shaped_eia_data_meta = shaped_eia_data[["plant_id_eia","report_date"] + METADATA_COLUMNS].drop_duplicates(subset=["plant_id_eia","report_date"])
+    partial_cems_meta = partial_cems[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(
+        subset=KEY_COLUMNS
+    )
+    shaped_eia_data_meta = shaped_eia_data[
+        ["plant_id_eia", "report_date"] + METADATA_COLUMNS
+    ].drop_duplicates(subset=["plant_id_eia", "report_date"])
 
     # concat the metadata into a one file and export
-    metadata = pd.concat([cems_meta, partial_cems_meta, shaped_eia_data_meta], axis =0)
-    metadata.to_csv(f"../data/results/{path_prefix}plant_data/plant_metadata.csv", index=False)
+    metadata = pd.concat([cems_meta, partial_cems_meta, shaped_eia_data_meta], axis=0)
+
+    output_to_results(metadata, "plant_metadata", "plant_data/", path_prefix)
 
     # drop the metadata columns from each dataframe
     cems = cems.drop(columns=METADATA_COLUMNS)
@@ -109,6 +154,7 @@ def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
     shaped_eia_data = shaped_eia_data.drop(columns=METADATA_COLUMNS)
 
     return cems, partial_cems, shaped_eia_data
+
 
 def write_power_sector_results(ba_fuel_data, path_prefix):
     """
@@ -137,6 +183,11 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
     ]
 
     for ba in list(ba_fuel_data.ba_code.unique()):
+        if type(ba) is not str:
+            print(
+                f"Warning: not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
+            )
+            continue
 
         # filter the data for a single BA
         ba_table = ba_fuel_data[ba_fuel_data["ba_code"] == ba].drop(columns="ba_code")
@@ -158,36 +209,62 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         # round all values to one decimal place
         ba_table = ba_table.round(2)
 
-        for emission_type in ["_for_electricity", "_adjusted"]:
-            for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
-                ba_table[f"generated_{emission}_rate_lb_per_mwh{emission_type}"] = (
-                    (
-                        ba_table[f"{emission}_mass_lb{emission_type}"]
-                        / ba_table["net_generation_mwh"]
+        # All below here needs to be repeated per time resolution
+        for time_resolution in TIME_RESOLUTIONS.keys():
+            if time_resolution == "hourly":  # no adjustment needed
+                ba_table_time = ba_table.copy(deep=True)
+            else:  # Resample each fuel type
+                ba_table_time = pd.DataFrame()
+                for f in ba_table.fuel_category.unique():
+                    # Sum numeric columns, take first of other columns
+                    how_to_resample = {c: "sum" for c in data_columns}
+                    how_to_resample["fuel_category"] = "first"
+                    fuel = ba_table.loc[ba_table.fuel_category == f]
+                    fuel = (
+                        fuel.resample(
+                            TIME_RESOLUTIONS[time_resolution],
+                            label="left",
+                            closed="left",
+                            on="datetime_utc",
+                        )
+                        .agg(how_to_resample)
+                        .reset_index()
                     )
-                    .fillna(0)
-                    .replace(np.inf, np.NaN)
-                    .replace(-np.inf, np.NaN)
-                )
+                    ba_table_time = pd.concat([ba_table_time, fuel], axis="index")
 
-        # create a local datetime column
-        try:
-            local_tz = load_data.ba_timezone(ba, "local")
-            ba_table["datetime_local"] = ba_table["datetime_utc"].dt.tz_convert(
-                local_tz
+            for emission_type in ["_for_electricity", "_adjusted"]:
+                for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
+                    ba_table_time[
+                        f"generated_{emission}_rate_lb_per_mwh{emission_type}"
+                    ] = (
+                        (
+                            ba_table_time[f"{emission}_mass_lb{emission_type}"]
+                            / ba_table_time["net_generation_mwh"]
+                        )
+                        .fillna(0)
+                        .replace(np.inf, np.NaN)
+                        .replace(-np.inf, np.NaN)
+                    )
+
+            # create a local datetime column
+            try:
+                local_tz = load_data.ba_timezone(ba, "local")
+                ba_table_time["datetime_local"] = ba_table_time[
+                    "datetime_utc"
+                ].dt.tz_convert(local_tz)
+            # TODO: figure out what to do for missing ba
+            except ValueError:
+                ba_table_time["datetime_local"] = pd.NaT
+
+            # re-order columns
+            ba_table_time = ba_table_time[
+                ["fuel_category", "datetime_local", "datetime_utc"]
+                + data_columns
+                + GENERATED_EMISSION_RATE_COLS
+            ]
+
+            # export to a csv
+            output_to_results(
+                ba_table_time, ba, f"power_sector_data/{time_resolution}/", path_prefix
             )
-        # TODO: figure out what to do for missing ba
-        except ValueError:
-            ba_table["datetime_local"] = pd.NaT
 
-        # re-order columns
-        ba_table = ba_table[
-            ["fuel_category", "datetime_local", "datetime_utc"]
-            + data_columns
-            + GENERATED_EMISSION_RATE_COLS
-        ]
-
-        # export to a csv
-        ba_table.to_csv(
-            f"../data/results/{path_prefix}power_sector_data/{ba}.csv", index=False
-        )

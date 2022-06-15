@@ -2,11 +2,17 @@ import numpy as np
 import pandas as pd
 import os
 
+from sqlalchemy import TIME
+
 from gridemissions.emissions import BaDataEmissionsCalc, EMISSIONS_FACTORS
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
 
-from src.output_data import GENERATED_EMISSION_RATE_COLS, output_to_results
+from src.output_data import (
+    GENERATED_EMISSION_RATE_COLS,
+    output_to_results,
+    TIME_RESOLUTIONS,
+)
 
 # # From workers/consumed_carbon.py: factors for inport-only regions
 # DEFAULT_EMISSION_FACTORS = {
@@ -144,7 +150,7 @@ KEYS["N2O"] = {
 }
 
 
-def get_average_emission_factors():
+def get_average_emission_factors(prefix: str = ""):
     """
         Edit EMISSIONS dict with per-fuel, per-adjustment, per-poll emission factors.
         Used to fill in emissions from BAs outside of US, where we have generation by
@@ -153,7 +159,7 @@ def get_average_emission_factors():
         Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
-        "../data/outputs/annual_generation_averages_by_fuel_2020.csv",
+        f"../data/outputs/{prefix}annual_generation_averages_by_fuel_2020.csv",
         index_col="fuel_category",
     )
     efs = {}
@@ -163,7 +169,13 @@ def get_average_emission_factors():
             efs[pol][adjustment] = {}
             for fuel in SRC:
                 column = get_rate_column(pol, adjustment, generated=True)
-                efs[pol][adjustment][fuel] = genavg.loc[FUEL_TYPE_MAP[fuel], column]
+                if FUEL_TYPE_MAP[fuel] not in genavg.index:
+                    print(
+                        f"WARNING: fuel {FUEL_TYPE_MAP[fuel]} not found in file annual_generation_averages_by_fuel_2020.csv, using average"
+                    )
+                    efs[pol][adjustment][fuel] = genavg.loc["total", column]
+                else:
+                    efs[pol][adjustment][fuel] = genavg.loc[FUEL_TYPE_MAP[fuel], column]
     return efs
 
 
@@ -175,6 +187,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         adjustment="for_electricity",
         year: int = 2020,
         small: bool = False,
+        path_prefix: str = "",
     ):
         """
         TODO: take in out types, convert to gridemissions types
@@ -184,6 +197,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         )  # todo pass a dataframe with our generation columns, per-fuel generation dropped
         self.year = year
         self.small = small
+        self.prefix = path_prefix
         self.poll = poll
         self.adjustment = adjustment  # "for_electricity" or "adjusted"
 
@@ -193,7 +207,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         fixed.regions = regions  # make sure we only use our data regions. TODO: not needed if clean up cols in _replace_generation
 
         # Overwrite emission factors object
-        self.emissions_factors = get_average_emission_factors()
+        self.emissions_factors = get_average_emission_factors(self.prefix)
 
         super().__init__(fixed, poll)
 
@@ -207,7 +221,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
 
     def process(self):
         """
-        Run process for all adjustments and pols 
+        Run process for all adjustments and pols
         """
         # Set up outputs: map from BA to timeseries of consumed emission rates
         outputs = {}
@@ -249,8 +263,31 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         for ba in self.output_regions:
             dat = self.output_dat[ba]
             dat = dat.reset_index()
-            dat.rename(columns={"index": "datetime_utc"})
-            output_to_results(dat, ba, "carbon_accounting/", path_prefix)
+            dat = dat.rename(columns={"index": "datetime_utc"})
+            for time_resolution in TIME_RESOLUTIONS:
+                time_dat = dat.copy(deep=True)
+
+                # Aggregate to appropriate resolution
+                time_dat = time_dat.resample(
+                    TIME_RESOLUTIONS[time_resolution],
+                    closed="left",
+                    label="left",
+                    on="datetime_utc",
+                ).sum()[EMISSION_COLS + ["net_consumed_mwh"]]
+
+                # Calculate rates from summed emissions, consumption
+                for pol in POLLS:
+                    for adj in ADJUSTMENTS:
+                        rate_col = get_rate_column(pol, adj, generated=False)
+                        emission_col = get_column(pol, adj)
+                        time_dat[rate_col] = (
+                            time_dat[emission_col] / time_dat["net_consumed_mwh"]
+                        )
+
+                # Output
+                output_to_results(
+                    dat, ba, f"carbon_accounting/{time_resolution}/", path_prefix
+                )
         return
 
     def _replace_generation(self):
@@ -271,7 +308,9 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         regions930 = set(self.original.regions)
         our_regions = {
             f.replace(".csv", "")
-            for f in os.listdir("../data/results/power_sector_data/")
+            for f in os.listdir(
+                f"../data/results/{self.prefix}power_sector_data/hourly/us_units/"
+            )
         }
         self.output_regions = regions930.intersection(
             our_regions
@@ -334,7 +373,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
             # Normal case: load hourly generation and emission factor data
             else:
                 new = pd.read_csv(
-                    f"../data/results/power_sector_data/{ba}.csv",
+                    f"../data/results/{self.prefix}power_sector_data/hourly/us_units/{ba}.csv",
                     index_col="datetime_utc",
                     parse_dates=True,
                 )

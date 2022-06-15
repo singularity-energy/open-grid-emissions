@@ -418,6 +418,7 @@ def get_synthetic_plant_id_from_ba_fuel(df):
 
         df must contain `ba_code` and `fuel_category`
     """
+
     # load the ba reference table with all of the ba number ids
     ba_numbers = pd.read_csv("../data/manual/ba_reference.csv")[
         ["ba_code", "ba_number"]
