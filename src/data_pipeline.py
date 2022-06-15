@@ -148,10 +148,20 @@ def main():
     os.makedirs("../data/downloads", exist_ok=True)
     os.makedirs(f"../data/outputs/{path_prefix}", exist_ok=True)
     os.makedirs(f"../data/results/{path_prefix}", exist_ok=True)
-    os.makedirs(f"../data/results/{path_prefix}plant_data", exist_ok=True)
-    os.makedirs(f"../data/results/{path_prefix}carbon_accounting", exist_ok=True)
-    os.makedirs(f"../data/results/{path_prefix}power_sector_data", exist_ok=True)
-    os.makedirs(f"../data/results/{path_prefix}validation_metrics", exist_ok=True)
+    for unit in ["us_units", "metric_units"]:
+        os.makedirs(f"../data/results/{path_prefix}/plant_data/{unit}", exist_ok=True)
+        os.makedirs(
+            f"../data/results/{path_prefix}validation_metrics/{unit}", exist_ok=True
+        )
+        for time_resolution in output_data.TIME_RESOLUTIONS.keys():
+            os.makedirs(
+                f"../data/results/{path_prefix}/carbon_accounting/{time_resolution}/{unit}",
+                exist_ok=True,
+            )
+            os.makedirs(
+                f"../data/results/{path_prefix}/power_sector_data/{time_resolution}/{unit}",
+                exist_ok=True,
+            )
 
     # 1. Download data
     # PUDL
