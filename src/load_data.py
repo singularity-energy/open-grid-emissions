@@ -485,8 +485,10 @@ def ba_timezone(ba, type):
     )
     tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"]
 
-    if tz.isna().item():
-        raise UserWarning(f'The BA {ba} does not have a timezone specified in data/manual/ba_reference.csv. Please add.')
+    if len(tz) == 0:
+        raise UserWarning(
+            f"The BA {ba} does not have a timezone specified in data/manual/ba_reference.csv. Please add."
+        )
     else:
         tz = tz.item()
 
