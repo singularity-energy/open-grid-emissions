@@ -163,9 +163,9 @@ def get_average_emission_factors(prefix: str = ""):
             efs[pol][adjustment] = {}
             for fuel in SRC:
                 column = get_rate_column(pol, adjustment, generated=True)
-                if fuel not in genavg.index:
+                if FUEL_TYPE_MAP[fuel] not in genavg.index:
                     print(
-                        f"WARNING: fuel {fuel} not found in file annual_generation_averages_by_fuel_2020.csv, using average"
+                        f"WARNING: fuel {FUEL_TYPE_MAP[fuel]} not found in file annual_generation_averages_by_fuel_2020.csv, using average"
                     )
                     efs[pol][adjustment][fuel] = genavg.loc["total", column]
                 else:
@@ -181,6 +181,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         adjustment="for_electricity",
         year: int = 2020,
         small: bool = False,
+        path_prefix: str = "",
     ):
         """
         TODO: take in out types, convert to gridemissions types
@@ -190,7 +191,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         )  # todo pass a dataframe with our generation columns, per-fuel generation dropped
         self.year = year
         self.small = small
-        self.prefix = "small/" if small else ""
+        self.prefix = path_prefix
         self.poll = poll
         self.adjustment = adjustment  # "for_electricity" or "adjusted"
 

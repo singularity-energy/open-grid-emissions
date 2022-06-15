@@ -144,6 +144,7 @@ def main():
 
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
+    path_prefix += f"{year}/"
     os.makedirs("../data/downloads", exist_ok=True)
     os.makedirs(f"../data/outputs/{path_prefix}", exist_ok=True)
     os.makedirs(f"../data/results/{path_prefix}", exist_ok=True)
@@ -326,7 +327,9 @@ def main():
 
     # 13. Calculate consumption-based emissions and write carbon accounting results
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
-        "../data/downloads/eia930/chalendar/EBA_adjusted_elec.csv", small=args.small
+        "../data/downloads/eia930/chalendar/EBA_adjusted_elec.csv",
+        small=args.small,
+        path_prefix=path_prefix,
     )
     hourly_consumed_calc.process()
     hourly_consumed_calc.output_data(path_prefix=path_prefix)
