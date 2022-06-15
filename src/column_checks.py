@@ -129,6 +129,8 @@ COLUMNS = {
         "plant_id_eia",
         "datetime_utc",
         "report_date",
+        "ba_code",
+        "fuel_category",
         "net_generation_mwh",
         "fuel_consumed_mmbtu",
         "fuel_consumed_for_electricity_mmbtu",

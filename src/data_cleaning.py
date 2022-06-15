@@ -2196,10 +2196,14 @@ def assign_ba_code_to_plant(df, year):
         6283: "None",
         57206: "None",
         10093: "None",
+        52106: "PAMS",
     }  # TODO: Tesoro Hawaii has no BA assigned, but is connected to the HECO transmission grid - investigate further
 
     plant_ba["ba_code"].update(plant_ba["plant_id_eia"].map(manual_ba_corrections))
     plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
+
+    # for plants without a BA code assign the miscellaneous BA code based on the state
+    plant_ba["ba_code"] = plant_ba["ba_code"].fillna(plant_ba["state"] + "MS")
 
     # add a physical ba code based on the owner of the transmission system
     plant_ba["ba_code_physical"] = plant_ba["ba_code"]
@@ -2223,6 +2227,10 @@ def assign_ba_code_to_plant(df, year):
         how="left",
         on="plant_id_eia",
     )
+
+    # replace missing ba codes with NA
+    df["ba_code"] = df["ba_code"].fillna("NA")
+    df["ba_code_physical"] = df["ba_code_physical"].fillna("NA")
 
     return df
 
