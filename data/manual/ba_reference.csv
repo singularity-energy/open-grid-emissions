@@ -1,215 +1,84 @@
-ba_code,ba_name,ba_category,timezone_reporting_eia930,timezone_local,us_ba,activation_date,retirement_date,ba_name_ferc,activation_date_ferc,retirement_date_ferc,source,ba_number
-AEBN,"AESC, LLC - AEBN",,,,Yes,1/1/2004,7/1/2006,,,,FERC,1
-AEC,PowerSouth Energy Cooperative,,US/Central,US/Central,Yes,1/1/2004,9/1/2021,"Alabama Electric Cooperative, Inc.",,,EIA & FERC,2
-AECI,"Associated Electric Cooperative, Inc.",,US/Central,US/Central,Yes,1/1/2004,,,,,EIA & FERC,3
-AEGL,"AESC, LLC - Gleason",,,,Yes,1/1/2004,7/1/2006,,,,FERC,4
-AELC,"AESC, LLC - Lincoln Center",,,,Yes,1/1/2004,7/1/2006,,,,FERC,5
-AEP,AEP Service Corp. -- Transmission System,,,,Yes,1/1/2004,7/1/2006,,,,FERC,6
-AESO,Alberta Electric System Operator,rto,Canada/Mountain,Canada/Mountain,No,1/1/2004,,,,,EIA & FERC,7
-AEWC,"AESC, LLC - Wheatland CIN",,,,Yes,1/1/2004,4/1/2015,,,,FERC,8
-AEWI,"AESC, LLC - Wheatland IPL",,,,Yes,1/1/2004,7/1/2006,,,,FERC,9
-AKMS,No Balancing Authority - Alaska,miscellaneous,US/Alaska,US/Alaska,Yes,,,,,,EPA,10
-ALEX,"Alliant Energy Corporate Services, LLC",,,,Yes,1/1/2004,7/1/2006,,,,FERC,11
-ALTE,"Alliant Energy Corporate Services, LLC - East",,,,Yes,1/1/2004,,,,,FERC,12
-ALTW,"Alliant Energy Corporate Services, LLC- West",,,,Yes,1/1/2004,,,,,FERC,13
-ALWX,"Alliant Energy Corporate Services, LLC",,,,Yes,1/1/2004,7/1/2006,,,,FERC,14
-AMIL,Ameren Transmission-Illinois,,,,Yes,1/1/2007,,,,,FERC,15
-AMMO,Ameren Transmission-Missouri,,,,Yes,1/1/2007,,,,,FERC,16
-AMPL,Anchorage Municipal Light and Power,,US/Alaska,US/Alaska,Yes,,,,,,EIA,17
-AMRN,Ameren Transmission,,,,Yes,1/1/2004,,,,,FERC,18
-AVA,Avista Corporation,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,19
-AVRN,"Avangrid Renewables, LLC",generation_only,US/Pacific,US/Pacific,Yes,7/31/2018,,,7/1/2017,,EIA & FERC,20
-AZPS,Arizona Public Service Company,,US/Arizona,US/Arizona,Yes,1/1/2004,,,,,EIA & FERC,21
-BANC,Balancing Authority of Northern California,,US/Pacific,US/Pacific,Yes,7/1/2013,,,,,EIA & FERC,22
-BBA,Batesville Balancing Authority,,,,Yes,7/1/2006,4/1/2015,,,,FERC,23
-BCA,Batesville Control Area,,,,Yes,1/1/2004,9/30/2006,,,,FERC,24
-BCHA,British Columbia Hydro and Power Authority,,Canada/Pacific,Canada/Pacific,No,1/1/2004,,,,,EIA & FERC,25
-BCTC,British Columbia Transmission Corporation,,,,No,10/1/2008,4/1/2015,,,,FERC,26
-BERC,"DECA, LLC",,,,Yes,1/1/2004,7/1/2006,,,,FERC,27
-BPAT,Bonneville Power Administration,power_marketing_administration,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,28
-BRAZ,"CECD, LLC",,,,Yes,7/1/2013,4/1/2015,,,,FERC,29
-BREC,Big Rivers Electric Corp.,,,,Yes,1/1/2004,,,,,FERC,30
-BUBA,"Constellation Energy Control and Dispatch - City of Benton, Arkansas",,,,Yes,1/1/2007,4/1/2015,,,,FERC,31
-CE,Commonwealth Edison,,,,Yes,1/1/2004,7/1/2006,,,,FERC,32
-CEA,Chugash Electric Association,,US/Alaska,US/Alaska,Yes,,,,,,EIA,33
-CEN,Centro Nacional de Control de Energia,,America/Mexico_City,America/Mexico_City,No,10/31/2017,,,1/1/2016,,EIA & FERC,34
-CFE,Comision Federal de Electricidad,,America/Mexico_City,America/Mexico_City,No,,,,,,EIA & FERC,35
-CFEN,Comision Federal de Electricidad,,,,No,,4/1/2015,,,,FERC,36
-CHPD,Public Utility District No. 1 of Chelan County,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,37
-CILC,Central Illinois Light Co,,,,Yes,1/1/2004,10/1/2007,,,,FERC,38
-CIN,Cinergy Corporation,,,,Yes,1/1/2004,,,,,FERC,39
-CISO,California Independent System Operator,rto,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,40
-CLEC,Cleco Power LLC,,,,Yes,1/1/2004,,,,,FERC,41
-CNWY,"Constellation Energy Control and Dispatch - Conway, Arkansas",,,,Yes,1/1/2005,4/1/2015,,,,FERC,42
-CONS,Michigan Electric Coordinated System- CONS,,,,Yes,1/1/2004,,,,,FERC,43
-CPLE,Duke Energy Progress East,,US/Eastern,US/Eastern,Yes,1/1/2004,,Carolina Power and Light Company - East,,,EIA & FERC,44
-CPLW,Duke Energy Progress West,limited_generation,US/Eastern,US/Eastern,Yes,1/1/2004,,Carolina Power & Light Company - CPLW,,,EIA & FERC,45
-CSTO,"Constellation Energy Control and Dispatch, LLC",,US/Eastern,US/Eastern,Yes,7/1/2013,4/1/2015,"CECD, LLC",,,EIA & FERC,46
-CSWS,Central and Southwest,,,,Yes,1/1/2004,4/1/2015,,,,FERC,47
-CWAY,"Louisiana Generating, LLC - City of Conway",,,,Yes,4/1/2010,7/1/2016,,,,FERC,48
-CWLD,Columbia Water & Light,,,,Yes,1/1/2004,,,,,FERC,49
-CWLP,City Water Light & Power,,,,Yes,1/1/2004,,,,,FERC,50
-DEAA,"Arlington Valley, LLC",generation_only,US/Arizona,US/Arizona,Yes,1/1/2004,,"DECA, LLC - Arlington Valley",,,EIA & FERC,51
-DECO,Michigan Electric Coordinated System- DECO,,,,Yes,1/1/2004,,,,,FERC,52
-DEEM,"DECA, LLC - Enterprise",,,,Yes,1/1/2004,7/1/2006,,,,FERC,53
-DEHA,"DECA, LLC",,,,Yes,1/1/2004,7/1/2006,,,,FERC,54
-DELI,"DECA, LLC - Lee",,,,Yes,1/1/2004,7/1/2006,,,,FERC,55
-DELO,"DECA, LLC",,,,Yes,1/1/2004,7/1/2006,,,,FERC,56
-DEMG,"DECA, LLC",,,,Yes,1/1/2004,7/1/2006,,,,FERC,57
-DEMT,"DECA, LLC - Murray",,,,Yes,1/1/2004,7/1/2006,,,,FERC,58
-DENL,"Constellation Energy Control and Dispatch - North Little Rock, AK",,,,Yes,1/1/2004,4/1/2015,,,,FERC,59
-DERS,"Constellation Energy Control and Dispatch - City of Ruston, LA",,,,Yes,1/1/2004,4/1/2015,,,,FERC,60
-DESG,"DECA, LLC - Sandersville",,,,Yes,1/1/2004,7/1/2006,,,,FERC,61
-DESM,"DECA, LLC",,,,Yes,1/1/2004,7/1/2006,,,,FERC,62
-DEVI,Constellation Energy Control and Dispatch - Vermillion,,,,Yes,1/1/2004,7/1/2006,,,,FERC,63
-DEWO,"DECA, LLC - Washington",,,,Yes,1/1/2004,7/1/2006,,,,FERC,64
-DLCO,Duquesne Light,,,,Yes,1/1/2004,7/1/2006,,,,FERC,65
-DOPD,PUD No. 1 of Douglas County,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,66
-DPC,Dairyland Power Cooperative,,,,Yes,1/1/2004,,,,,FERC,67
-DPL,Dayton Power & Light,,,,Yes,1/1/2004,7/1/2006,,,,FERC,68
-DSK1,BridgeCo,,,,Yes,1/1/2004,7/1/2006,,,,FERC,69
-DUK,Duke Energy Carolinas,,US/Eastern,US/Eastern,Yes,1/1/2004,,Duke Energy Corporation,,,EIA & FERC,70
-EAI,"Entergy Arkansas, Inc.",,,,Yes,7/1/2013,,,,,FERC,71
-EDE,"Empire District Electric Co., The",,,,Yes,1/1/2004,4/1/2015,,,,FERC,72
-EEI,"Electric Energy, Inc.",,US/Central,US/Central,Yes,1/1/2004,2/29/2020,,,,EIA & FERC,73
-EES,Entergy,,,,Yes,1/1/2004,,,,,FERC,74
-EKPC,"East Kentucky Power Cooperative, Inc.",,,,Yes,1/1/2004,4/1/2015,,,,FERC,75
-EMBA,"Entergy Mississippi, Inc.",,,,Yes,4/1/2015,,,,,FERC,76
-EPE,El Paso Electric Company,,US/Arizona,US/Mountain,Yes,1/1/2004,,El Paso Electric,,,EIA & FERC,77
-ERCO,"Electric Reliability Council of Texas, Inc.",rto,US/Central,US/Central,Yes,1/1/2004,,ERCOT ISO,,,EIA & FERC,78
-FE,"American Transmission Systems, Inc.",,,,Yes,1/1/2004,4/1/2015,,,,FERC,79
-FMPP,Florida Municipal Power Pool,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,80
-FPC,"Duke Energy Florida, Inc.",,US/Eastern,US/Eastern,Yes,1/1/2004,,Florida Power Corporation,,,EIA & FERC,81
-FPL,Florida Power & Light Co.,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,82
-GA,GridAmerica,,,,Yes,1/1/2004,4/1/2015,,,,FERC,83
-GCPD,"Public Utility District No. 2 of Grant County, Washington",,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,84
-GLHB,GridLiance,generation_only,US/Central,US/Central,Yes,2/29/2020,,GridLiance Heartland (BA),1/1/2020,,EIA & FERC,85
-GLHL,GridLiance Heartland,,,,Yes,1/1/2020,,,,,FERC,86
-GRDA,Grand River Dam Authority,,,,Yes,1/1/2004,4/1/2015,,,,FERC,87
-GRE,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,88
-GREC,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,89
-GREN,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,90
-GRES,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,91
-GRID,"Gridforce Energy Management, LLC",generation_only,US/Pacific,US/Pacific,Yes,4/1/2014,,Constellation Energy Control and Dispatch,,,EIA & FERC,92
-GRIF,"Griffith Energy, LLC",generation_only,US/Arizona,US/Arizona,Yes,10/1/2008,,Constellation Energy Control and Dispatch,,,EIA & FERC,93
-GRIS,Gridforce South,,US/Central,US/Central,Yes,,,,,,EIA,94
-GRMA,"Gila River Power, LLC",generation_only,US/Arizona,US/Arizona,Yes,1/1/2004,5/3/2018,Constellation Energy Control and Dispatch - Gila River,,,EIA & FERC,95
-GSOC,Georgia System Operations Corporation,,,,Yes,1/1/2004,12/31/2009,,,,FERC,96
-GTC,Georgia Transmission Corporation,,,,Yes,1/1/2005,12/31/2009,,,,FERC,97
-GVL,Gainesville Regional Utilities,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,98
-GWA,"NaturEner Power Watch, LLC",generation_only,US/Mountain,US/Mountain,Yes,7/1/2008,,Constellation Energy Control and Dispatch - Glacier Wind Energy,,,EIA & FERC,99
-HE,Hoosier Energy,,,,Yes,1/1/2004,,,,,FERC,100
-HECO,Hawaiian Electric Company,,US/Hawaii,US/Hawaii,Yes,,,,,,EIA,101
-HGMA,"New Harquahala Generating Company, LLC",generation_only,US/Arizona,US/Arizona,Yes,1/1/2004,,Constellation Energy Control and Dispatch - Harquehala,,,EIA & FERC,102
-HIMS,No Balancing Authority - Hawaii,miscellaneous,US/Hawaii,US/Hawaii,Yes,,,,,,EPA,103
-HMPL,"City of Henderson, KY, Utility Commission, DBA Henderson Municip",,,,Yes,1/1/2019,,,,,FERC,104
-HQT,Hydro-Quebec TransEnergie,,Canada/Eastern,Canada/Eastern,No,1/1/2004,,,,,EIA & FERC,105
-HST,City of Homestead,limited_generation,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,106
-IESO,Ontario IESO,rto,Canada/Eastern,Canada/Eastern,No,,,,,,EIA,107
-IID,Imperial Irrigation District,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,108
-IMO,Ontario - Independent Electricity Market Operator,,,,No,1/1/2004,12/31/2008,,,,FERC,109
-INDN,City of Independence P&L Dept.,,,,Yes,1/1/2004,10/1/2015,,,,FERC,110
-IP,Illinois Power Co.,,,,Yes,1/1/2004,10/1/2007,,,,FERC,111
-IPCO,Idaho Power Company,,US/Pacific,US/Mountain,Yes,1/1/2004,,,,,EIA & FERC,112
-IPL,Indianapolis Power & Light Company,,,,Yes,1/1/2004,,,,,FERC,113
-IPRV,Illinois Power Co.,,,,Yes,1/1/2004,4/1/2015,,,,FERC,114
-ISNE,ISO New England,rto,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,115
-JEA,JEA,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,116
-KACY,Board of Public Utilities,,,,Yes,1/1/2004,,,,,FERC,117
-KCPL,"Kansas City Power & Light, Co",,,,Yes,1/1/2004,10/1/2015,,,,FERC,118
-LAFA,Lafayette Utilities System,,,,Yes,1/1/2004,10/1/2015,,,,FERC,119
-LAGN,"Louisiana Generating, LLC",,,,Yes,1/1/2004,,,,,FERC,120
-LDWP,Los Angeles Department of Water and Power,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,121
-LEPA,Louisiana Energy & Power Authority,,,,Yes,1/1/2004,10/1/2015,,,,FERC,122
-LES,Lincoln Electric System,,,,Yes,1/1/2004,4/1/2015,,,,FERC,123
-LGEE,Louisville Gas and Electric Company and Kentucky Utilities Company,,ETC/GMT+6,US/Eastern,Yes,1/1/2004,,LG&E Energy Transmission Services,,,EIA & FERC,124
-MCLN,NRG South Central Generating LLC,,,,Yes,1/1/2004,7/1/2006,,,,FERC,125
-MDU,Montana-Dakota Utilities Co.,,,,Yes,1/1/2004,,,,,FERC,126
-MEC,MidAmerican Energy Company,,,,Yes,1/1/2004,,,,,FERC,127
-MECS,Michigan Electric Coordinated System,,,,Yes,1/1/2004,,,,,FERC,128
-MGE,Madison Gas and Electric Company,,,,Yes,1/1/2004,,,,,FERC,129
-MHEB,Manitoba Hydro,,Canada/Central,Canada/Central,No,1/1/2004,,,,,EIA & FERC,130
-MISO,"Midcontinent Independent System Operator, Inc.",rto,ETC/GMT+5,US/Central,Yes,1/1/2004,,,,,EIA & FERC,131
-MIUP,Wisconsin Energy Corporation,,,,Yes,4/1/2014,,,,,FERC,132
-MOWR,Westar Energy - MoPEP Cities,,,,Yes,1/1/2004,4/1/2015,,,,FERC,133
-MP,"Minnesota Power, Inc.",,,,Yes,1/1/2004,,,,,FERC,134
-MPS,Aquila Networks - Missouri Public Service,,,,Yes,1/1/2004,10/1/2015,,,,FERC,135
-MPW,Muscatine Power and Water,,,,Yes,1/1/2004,,,,,FERC,136
-NBPC,New Brunswick Power Corporation,,,,No,1/1/2004,12/31/2008,,,,FERC,137
-NBSO,New Brunswick System Operator,,Canada/Atlantic,Canada/Atlantic,No,7/1/2008,,,,,EIA & FERC,138
-NEVP,Nevada Power Company,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,139
-NHC1,New Horizons Electric Cooperative,,,,Yes,1/1/2004,,,,,FERC,140
-NIPS,Northern Indiana Public Service Company,,,,Yes,1/1/2004,,,,,FERC,141
-NLR,"Louisiana Generating, LLC - North Little Rock",,,,Yes,1/1/2010,,,,,FERC,142
-NLSO,Newfoundland and Labrador Hydro,,,,No,7/1/2017,,,,,FERC,143
-NPPD,Nebraska Public Power District,,,,Yes,1/1/2004,4/1/2015,,,,FERC,144
-NSB,Utilities Commission of New Smyrna Beach,limited_generation,US/Eastern,US/Eastern,Yes,1/1/2004,1/8/2020,,,,EIA & FERC,145
-NSP,Northern States Power Company,,,,Yes,1/1/2004,,,,,FERC,146
-NSSO,Nova Scotia Power System Operator,,,,No,7/1/2013,,,,,FERC,147
-NWMT,NorthWestern Corporation,,US/Mountain,US/Mountain,Yes,1/1/2004,,NorthWestern Energy,,,EIA & FERC,148
-NYIS,New York Independent System Operator,rto,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,149
-OKGE,Oklahoma Gas and Electric,,,,Yes,1/1/2004,4/1/2015,,,,FERC,150
-OMLP,Constellation Energy Control and Dispatch - Osceola Municipal Light an,,,,Yes,10/1/2009,4/1/2015,,,,FERC,151
-ONT,Ontario - Independent Electricity System Operator,,,,No,3/2/2006,,,,,FERC,152
-OPPD,OPPD CA/TP,,,,Yes,1/1/2004,7/1/2016,,,,FERC,153
-OTP,Otter Tail Power Company,,,,Yes,1/1/2004,,,,,FERC,154
-OVEC,Ohio Valley Electric Corporation,,US/Eastern,US/Eastern,Yes,1/1/2004,12/1/2018,,,,EIA & FERC,155
-PACE,PacifiCorp East,,US/Mountain,US/Mountain,Yes,1/1/2004,,,,,EIA & FERC,156
-PACW,PacifiCorp West,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,157
-PGE,Portland General Electric Company,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,158
-PJM,"PJM Interconnection, LLC",rto,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,159
-PLUM,Constellation Energy Control and Dispatch - Plum Point,,,,Yes,4/1/2009,4/1/2015,,,,FERC,160
-PNM,Public Service Company of New Mexico,,US/Arizona,US/Mountain,Yes,1/1/2004,,,,,EIA & FERC,161
-PRMS,No Balancing Authority - Puerto Rico,miscellaneous,America/Puerto_Rico,America/Puerto_Rico,Yes,,,,,,EPA,162
-PSCO,Public Service Company of Colorado,,US/Mountain,US/Mountain,Yes,1/1/2004,,,,,EIA & FERC,163
-PSEI,"Puget Sound Energy, Inc.",,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,164
-PUPP,Constellation Energy Control and Dispatch - Arkansas,,,,Yes,1/1/2004,4/1/2015,,,,FERC,165
-RC,Reedy Creek Improvement District,,,,Yes,1/1/2004,4/1/2015,,,,FERC,166
-SC,South Carolina Public Service Authority,,US/Eastern,US/Eastern,Yes,1/1/2004,,Santee Cooper,,,EIA & FERC,167
-SCEG,South Carolina Electric & Gas Company,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,168
-SCL,Seattle City Light,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,169
-SEC,Seminole Electric Cooperative,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,170
-SECI,Sunflower Electric Power Corporation,,,,Yes,1/1/2004,,,,,FERC,171
-SEHA,Southeastern Power Administration - Hartwell,,,,Yes,1/1/2004,,,,,FERC,172
-SEPA,Southeastern Power Administration,generation_only,US/Central,US/Eastern,Yes,,,,,,EIA,173
-SERU,Southeastern Power Administration - Russell,,,,Yes,1/1/2004,,,,,FERC,174
-SETH,Southeastern Power Administration - Thurmond,,,,Yes,1/1/2004,,,,,FERC,175
-SIGE,Southern Indiana Gas & Electric Co.,,,,Yes,1/1/2004,,,,,FERC,176
-SIPC,Southern Illinois Power Cooperative,,,,Yes,1/1/2004,,,,,FERC,177
-SME,South Mississippi Electric Power Association,,,,Yes,1/1/2004,,,,,FERC,178
-SMEE,South Mississippi Electric Power Association,,,,Yes,1/1/2004,,,,,FERC,179
-SMP,Southern Minnesota Municipal Power Agency,,,,Yes,1/1/2004,,,,,FERC,180
-SMUD,Sacramento Municipal Utility District,,,,Yes,1/1/2004,4/1/2015,,,,FERC,181
-SOCO,"Southern Company Services, Inc. - Trans",,US/Central,US/Central,Yes,1/1/2004,,,,,EIA & FERC,182
-SPA,Southwestern Power Administration,power_marketing_administration,US/Central,US/Central,Yes,1/1/2004,,,,,EIA & FERC,183
-SPC,Saskatchewan Power Corporation,,Canada/Central,Canada/Central,No,1/1/2004,,,,,EIA & FERC,184
-SPPC,Sierra Pacific Power Co. - Transmission,,,,Yes,1/1/2004,4/1/2015,,,,FERC,185
-SPRM,City Utilities of Springfield,,,,Yes,7/1/2013,10/1/2015,,,,FERC,186
-SPS,Southwestern Public Service Company,,,,Yes,1/1/2004,4/1/2015,,,,FERC,187
-SRP,Salt River Project Agricultural Improvement and Power District,,US/Arizona,US/Arizona,Yes,1/1/2004,,,,,EIA & FERC,188
-SWPP,Southwest Power Pool,rto,US/Central,US/Central,Yes,1/1/2004,,,,,EIA & FERC,189
-TAL,City of Tallahassee,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,190
-TEC,Tampa Electric Company,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,191
-TEPC,Tucson Electric Power,,US/Arizona,US/Arizona,Yes,1/1/2004,,,,,EIA & FERC,192
-TEST,North American Electric Reliability Council,,,,Yes,1/1/2004,12/31/2007,,,,FERC,193
-TIDC,Turlock Irrigation District,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,194
-TLKN,TRANSLink Management Company,,,,Yes,1/1/2004,4/1/2015,,,,FERC,195
-TPWR,"City of Tacoma, Department of Public Utilities, Light Division",,US/Pacific,US/Pacific,Yes,1/1/2004,,Tacoma Power,,,EIA & FERC,196
-TVA,Tennessee Valley Authority,,US/Central,US/Central,Yes,1/1/2004,,,,,EIA & FERC,197
-UPPC,Upper Peninsula Power Co.,,,,Yes,1/1/2004,,,,,FERC,198
-VAP,Dominion Virginia Power,,,,Yes,1/1/2004,7/1/2006,,,,FERC,199
-WACM,Western Area Power Administration - Rocky Mountain Region,power_marketing_administration,US/Arizona,US/Mountain,Yes,1/1/2004,,Western Area Power Administration - Colorado-Missouri,,,EIA & FERC,200
-WALC,Western Area Power Administration - Desert Southwest Region,power_marketing_administration,US/Arizona,US/Arizona,Yes,1/1/2004,,Western Area Power Administration - Lower Colorado,,,EIA & FERC,201
-WAUE,Western Area Power Administration - Upper Great Plains East,power_marketing_administration,US/Mountain,US/Mountain,Yes,1/1/2004,10/1/2015,,,7/1/2016,EIA & FERC,202
-WAUW,Western Area Power Administration - Upper Great Plains West,power_marketing_administration,US/Mountain,US/Mountain,Yes,1/1/2004,,,,,EIA & FERC,203
-WEC,Wisconsin Energy Corporation,,,,Yes,1/1/2004,,,,,FERC,204
-WFEC,Western Farmers Electric Cooperative,,,,Yes,1/1/2004,,,,,FERC,205
-WMU,"Louisiana Generating, LLC - City of West Memphis",,,,Yes,4/1/2010,,,,,FERC,206
-WMUC,"Constellation Energy Control and Dispatch - West Memphis, Arkansas",,,,Yes,1/1/2005,4/1/2015,,,,FERC,207
-WPEC,Aquila Networks - West Plains Dispatch,,,,Yes,1/1/2004,4/1/2015,,,,FERC,208
-WPEK,Aquila Networks - Kansas,,,,Yes,1/1/2004,4/1/2015,,,,FERC,209
-WPS,Wisconsin Public Service Corporation,,,,Yes,1/1/2004,,,,,FERC,210
-WR,Western Resources dba Westar Energy,,,,Yes,1/1/2004,4/1/2015,,,,FERC,211
-WWA,"NaturEner Wind Watch, LLC",generation_only,US/Mountain,US/Mountain,Yes,7/1/2013,,"CECD, LLC",,,EIA & FERC,212
-YAD,"Alcoa Power Generating, Inc. - Yadkin Division",generation_only,US/Eastern,US/Eastern,Yes,1/1/2004,,"Yadkin, Inc.",,,EIA & FERC,213
-None,No Balancing Authority,,,,,,,,,,,999
+ba_code,ba_name,ba_category,timezone_reporting_eia930,timezone_local,us_ba,activation_date,retirement_date
+AEC,PowerSouth Energy Cooperative,,US/Central,US/Central,Yes,,9/1/2021
+AECI,"Associated Electric Cooperative, Inc.",,US/Central,US/Central,Yes,,
+AESO,Alberta Electric System Operator,rto,Canada/Mountain,Canada/Mountain,No,,
+AMPL,Anchorage Municipal Light and Power,,US/Alaska,US/Alaska,Yes,,
+AVA,Avista Corporation,,US/Pacific,US/Pacific,Yes,,
+AVRN,"Avangrid Renewables, LLC",generation_only,US/Pacific,US/Pacific,Yes,7/31/2018,
+AZPS,Arizona Public Service Company,,US/Arizona,US/Arizona,Yes,,
+BANC,Balancing Authority of Northern California,,US/Pacific,US/Pacific,Yes,,
+BCHA,British Columbia Hydro and Power Authority,,Canada/Pacific,Canada/Pacific,No,,
+BPAT,Bonneville Power Administration,power_marketing_administration,US/Pacific,US/Pacific,Yes,,
+CEA,Chugash Electric Association,,US/Alaska,US/Alaska,Yes,,
+CEN,Centro Nacional de Control de Energia,,America/Mexico_City,America/Mexico_City,No,10/31/2017,
+CFE,Comision Federal de Electricidad,,America/Mexico_City,America/Mexico_City,No,,
+CHPD,Public Utility District No. 1 of Chelan County,,US/Pacific,US/Pacific,Yes,,
+CISO,California Independent System Operator,rto,US/Pacific,US/Pacific,Yes,,
+CPLE,Duke Energy Progress East,,US/Eastern,US/Eastern,Yes,,
+CPLW,Duke Energy Progress West,limited_generation,US/Eastern,US/Eastern,Yes,,
+CSTO,"Constellation Energy Control and Dispatch, LLC",US/Eastern,US/Eastern,Yes,,
+DEAA,"Arlington Valley, LLC",generation_only,US/Arizona,US/Arizona,Yes,,
+DOPD,PUD No. 1 of Douglas County,,US/Pacific,US/Pacific,Yes,,
+DUK,Duke Energy Carolinas,,US/Eastern,US/Eastern,Yes,,
+EEI,"Electric Energy, Inc.",,US/Central,US/Central,Yes,,2/29/2020
+EPE,El Paso Electric Company,,US/Arizona,US/Mountain,Yes,,
+ERCO,"Electric Reliability Council of Texas, Inc.",rto,US/Central,US/Central,Yes,,
+FMPP,Florida Municipal Power Pool,,US/Eastern,US/Eastern,Yes,,
+FPC,"Duke Energy Florida, Inc.",,US/Eastern,US/Eastern,Yes,,
+FPL,Florida Power & Light Co.,,US/Eastern,US/Eastern,Yes,,
+GCPD,"Public Utility District No. 2 of Grant County, Washington",,US/Pacific,US/Pacific,Yes,,
+GLHB,GridLiance,generation_only,US/Central,US/Central,Yes,2/29/2020,
+GRID,"Gridforce Energy Management, LLC",generation_only,US/Pacific,US/Pacific,Yes,,
+GRIF,"Griffith Energy, LLC",generation_only,US/Arizona,US/Arizona,Yes,,
+GRIS,Gridforce South,,US/Central,US/Central,Yes,,
+GRMA,"Gila River Power, LLC",generation_only,US/Arizona,US/Arizona,Yes,,5/3/2018
+GVL,Gainesville Regional Utilities,,US/Eastern,US/Eastern,Yes,,
+GWA,"NaturEner Power Watch, LLC",generation_only,US/Mountain,US/Mountain,Yes,,
+HECO,Hawaiian Electric Company,,US/Hawaii,US/Hawaii,Yes,,
+HGMA,"New Harquahala Generating Company, LLC",generation_only,US/Arizona,US/Arizona,Yes,,
+HQT,Hydro-Quebec TransEnergie,,Canada/Eastern,Canada/Eastern,No,,
+HST,City of Homestead,limited_generation,US/Eastern,US/Eastern,Yes,,
+IESO,Ontario IESO,rto,Canada/Eastern,Canada/Eastern,No,,
+IID,Imperial Irrigation District,,US/Pacific,US/Pacific,Yes,,
+IPCO,Idaho Power Company,,US/Pacific,US/Mountain,Yes,,
+ISNE,ISO New England,rto,US/Eastern,US/Eastern,Yes,,
+JEA,JEA,,US/Eastern,US/Eastern,Yes,,
+LDWP,Los Angeles Department of Water and Power,,US/Pacific,US/Pacific,Yes,,
+LGEE,Louisville Gas and Electric Company and Kentucky Utilities Company,,ETC/GMT+6,US/Eastern,Yes,,
+MHEB,Manitoba Hydro,,Canada/Central,Canada/Central,No,,
+MISO,"Midcontinent Independent System Operator, Inc.",rto,ETC/GMT+5,US/Central,Yes,,
+NBSO,New Brunswick System Operator,,Canada/Atlantic,Canada/Atlantic,No,,
+NEVP,Nevada Power Company,,US/Pacific,US/Pacific,Yes,,
+NSB,Utilities Commission of New Smyrna Beach,limited_generation,US/Eastern,US/Eastern,Yes,,1/8/2020
+NWMT,NorthWestern Corporation,,US/Mountain,US/Mountain,Yes,,
+NYIS,New York Independent System Operator,rto,US/Eastern,US/Eastern,Yes,,
+OVEC,Ohio Valley Electric Corporation,,US/Eastern,US/Eastern,Yes,,12/1/2018
+PACE,PacifiCorp East,,US/Mountain,US/Mountain,Yes,,
+PACW,PacifiCorp West,,US/Pacific,US/Pacific,Yes,,
+PGE,Portland General Electric Company,,US/Pacific,US/Pacific,Yes,,
+PJM,"PJM Interconnection, LLC",rto,US/Eastern,US/Eastern,Yes,,
+PNM,Public Service Company of New Mexico,,US/Arizona,US/Mountain,Yes,,
+PSCO,Public Service Company of Colorado,,US/Mountain,US/Mountain,Yes,,
+PSEI,"Puget Sound Energy, Inc.",,US/Pacific,US/Pacific,Yes,,
+SC,South Carolina Public Service Authority,,US/Eastern,US/Eastern,Yes,,
+SCEG,South Carolina Electric & Gas Company,,US/Eastern,US/Eastern,Yes,,
+SCL,Seattle City Light,,US/Pacific,US/Pacific,Yes,,
+SEC,Seminole Electric Cooperative,,US/Eastern,US/Eastern,Yes,,
+SEPA,Southeastern Power Administration,generation_only,US/Central,US/Eastern,Yes,,
+SOCO,"Southern Company Services, Inc. - Trans",,US/Central,US/Central,Yes,,
+SPA,Southwestern Power Administration,power_marketing_administration,US/Central,US/Central,Yes,,
+SPC,Saskatchewan Power Corporation,,Canada/Central,Canada/Central,No,,
+SRP,Salt River Project Agricultural Improvement and Power District,,US/Arizona,US/Arizona,Yes,,
+SWPP,Southwest Power Pool,rto,US/Central,US/Central,Yes,,
+TAL,City of Tallahassee,,US/Eastern,US/Eastern,Yes,,
+TEC,Tampa Electric Company,,US/Eastern,US/Eastern,Yes,,
+TEPC,Tucson Electric Power,,US/Arizona,US/Arizona,Yes,,
+TIDC,Turlock Irrigation District,,US/Pacific,US/Pacific,Yes,,
+TPWR,"City of Tacoma, Department of Public Utilities, Light Division",,US/Pacific,US/Pacific,Yes,,
+TVA,Tennessee Valley Authority,,US/Central,US/Central,Yes,,
+WACM,Western Area Power Administration - Rocky Mountain Region,power_marketing_administration,US/Arizona,US/Mountain,Yes,,
+WALC,Western Area Power Administration - Desert Southwest Region,power_marketing_administration,US/Arizona,US/Arizona,Yes,,
+WAUE,Western Area Power Administration - Upper Great Plains East,power_marketing_administration,US/Mountain,US/Mountain,Yes,,10/1/2015
+WAUW,Western Area Power Administration - Upper Great Plains West,power_marketing_administration,US/Mountain,US/Mountain,Yes,,
+WWA,"NaturEner Wind Watch, LLC",generation_only,US/Mountain,US/Mountain,Yes,,
+YAD,"Alcoa Power Generating, Inc. - Yadkin Division",generation_only,US/Eastern,US/Eastern,Yes,,
