@@ -359,88 +359,53 @@ def convert_profile_to_percent(hourly_profiles):
     return hourly_profiles
 
 
-def get_artificial_plant(row: pd.Series):
+def get_synthetic_plant_id_from_ba_fuel(df):
     """
         Return artificial plant code. Max real plant is 64663
-        Our codes look like <x>00,<y>00 where x is index of BA and y is index of fuel
+        Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the 
+        two-digit fuel number
 
-        row must contain `ba_code` and `fuel_category`
+        df must contain `ba_code` and `fuel_category`
     """
-    plants = [
-        "AECI",
-        "AVA",
-        "AVRN",
-        "AZPS",
-        "BANC",
-        "BPAT",
-        "CEA",
-        "CISO",
-        "CPLE",
-        "DUK",
-        "EPE",
-        "ERCO",
-        "FPC",
-        "FPL",
-        "GCPD",
-        "GVL",
-        "HECO",
-        "IID",
-        "IPCO",
-        "ISNE",
-        "JEA",
-        "LDWP",
-        "MISO",
-        "NEVP",
-        "NWMT",
-        "NYIS",
-        "PACE",
-        "PACW",
-        "PGE",
-        "PJM",
-        "PNM",
-        "PSCO",
-        "PSEI",
-        "SCEG",
-        "SCL",
-        "SOCO",
-        "SPA",
-        "SRP",
-        "SWPP",
-        "TEC",
-        "TVA",
-        "WACM",
-        None,
+    # load the ba reference table with all of the ba number ids
+    ba_numbers = pd.read_csv("../data/manual/ba_reference.csv")[
+        ["ba_code", "ba_number"]
     ]
+    # reformat the number with leading zeros
+    ba_numbers["ba_number"] = ba_numbers["ba_number"].astype(str).str.zfill(3)
+    # convert to a dictionary
+    ba_numbers = dict(zip(ba_numbers["ba_code"], ba_numbers["ba_number"]))
 
-    fuels = [
-        "petroleum",
-        "biomass",
-        "hydro",
-        "natural_gas",
-        "solar",
-        "wind",
-        "nuclear",
-        "other",
-        "geothermal",
-        "waste",
-        "coal",
-    ]
+    # specify the ba numbers with leading zeros
+    fuel_numbers = {
+        "biomass": "01",
+        "coal": "02",
+        "geothermal": "03",
+        "hydro": "04",
+        "natural_gas": "05",
+        "nuclear": "06",
+        "other": "07",
+        "petroleum": "08",
+        "solar": "09",
+        "storage": "10",
+        "waste": "11",
+        "wind": "12",
+    }
 
-    ba_code = row.ba_code
-    fuel_category = row.fuel_category
+    # make sure the ba codes are strings
+    df["ba_code"] = df["ba_code"].astype(str)
+    # create a new column with the synthetic plant ids
+    df["plant_id_eia"] = df.apply(
+        lambda row: f"9{ba_numbers[row['ba_code']]}{fuel_numbers[row['fuel_category']]}",
+        axis=1,
+    )
+    # convert to an int32 column
+    df["plant_id_eia"] = df["plant_id_eia"].astype("Int32")
 
-    if ba_code not in plants:
-        raise ValueError(f"BA {ba_code} not in expected BAs")
-    if fuel_category not in fuels:
-        raise ValueError(f"Fuel {fuel_category} not in expected fuels")
-
-    ba_factor = plants.index(ba_code) + 1
-    fuel_factor = fuels.index(fuel_category) + 1
-
-    return 100000 * ba_factor + 100 * fuel_factor
+    return df
 
 
-def monthly_eia_data_to_ba(monthly_eia_data_to_shape, plant_attributes):
+def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
     # Note: currently using ba_code, could alternatively use ba_code_physical
     # Add plant attributes for grouping
     eia_agg = monthly_eia_data_to_shape.merge(
@@ -460,14 +425,12 @@ def monthly_eia_data_to_ba(monthly_eia_data_to_shape, plant_attributes):
     # Make nan BA "None" so equality test works
     eia_agg.ba_code = eia_agg.ba_code.replace(np.nan, None)
 
-    eia_agg["plant_id_eia"] = eia_agg[["ba_code", "fuel_category"]].apply(
-        get_artificial_plant, axis=1
-    )
+    eia_agg = get_synthetic_plant_id_from_ba_fuel(eia_agg)
 
     return eia_agg
 
 
-def shape_monthly_eia_data_as_hourly(shaped_monthly_data, hourly_profiles):
+def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles):
     """
     Uses monthly-level EIA data and assigns an hourly profile
     Intended for calling after `monthly_eia_data_to_ba` 
@@ -498,14 +461,16 @@ def shape_monthly_eia_data_as_hourly(shaped_monthly_data, hourly_profiles):
     ]
 
     # merge the hourly profiles into each plant-month
-    shaped_monthly_data = shaped_monthly_data.merge(
+    shaped_monthly_data = monthly_eia_data_to_shape.merge(
         hourly_profiles, how="left", on=["report_date", "fuel_category", "ba_code"]
     )
 
     # plant-months where there is negative net generation, assign a flat profile
+    # to do this, we assign each hour an equal share of the total number of hours in the month
     shaped_monthly_data.loc[
         shaped_monthly_data["net_generation_mwh"] < 0, "profile"
     ] = 1 / (shaped_monthly_data["report_date"].dt.daysinmonth * 24)
+    # update the method column
     shaped_monthly_data.loc[
         shaped_monthly_data["net_generation_mwh"] < 0, "profile_method"
     ] = "flat_negative_generation"
