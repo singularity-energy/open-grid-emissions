@@ -76,7 +76,7 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
         combined_data["datetime_local"].apply(lambda x: x.year) == year
     ]
 
-    # if there is no cems data for a ba-fuel, replace missing values with zero 
+    # if there is no cems data for a ba-fuel, replace missing values with zero
     combined_data["net_generation_mwh"] = combined_data["net_generation_mwh"].fillna(0)
 
     # Find scaling factor
@@ -263,7 +263,8 @@ def impute_missing_hourly_profiles(
     print("Summary of methods used to estimate missing hourly profiles:")
     print(
         hourly_profiles[["ba_code", "fuel_category", "report_date", "profile_method"]]
-        .drop_duplicates().drop(columns=['ba_code'])
+        .drop_duplicates()
+        .drop(columns=["ba_code"])
         .pivot_table(index="fuel_category", columns="profile_method", aggfunc="count")
         .fillna(0)
         .astype(int)
@@ -458,6 +459,14 @@ def get_synthetic_plant_id_from_ba_fuel(df):
 
 
 def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
+    """
+        Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
+        using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
+        and YY=fuel (see `impute_hourly_profiles.get_synthetic_plant_id_from_ba_fuel`)
+
+        Add new artificial plants to plant_attributes frame.
+    """
+
     # Note: currently using ba_code, could alternatively use ba_code_physical
     # Add plant attributes for grouping
     eia_agg = monthly_eia_data_to_shape.merge(
@@ -479,7 +488,16 @@ def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
 
     eia_agg = get_synthetic_plant_id_from_ba_fuel(eia_agg)
 
-    return eia_agg
+    # Add BA code and fuel type for synthetic plants into plant_attributes.
+    # Note: We leave nan/NA values for all other columns, as the plants composing each synthetic plant may have a combination of values
+    to_add = (
+        eia_agg.groupby("plant_id_eia")
+        .first()
+        .reset_index()[["plant_id_eia", "ba_code", "fuel_category"]]
+    )
+    plant_attributes = pd.concat([plant_attributes, to_add])
+
+    return eia_agg, plant_attributes
 
 
 def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles):
