@@ -40,6 +40,29 @@ def output_to_results(df, file_name, subfolder, path_prefix):
     )
 
 
+def output_plant_data(df, path_prefix):
+    """
+    Helper function for plant-level output. 
+    Output for each time granularity, and output separately for real and synthetic plants
+
+    Note: plant-level does not include rates, so all aggregation is summation. 
+    """
+    for time in TIME_RESOLUTIONS.keys():
+        if time != "hourly":
+            df_resampled = (
+                df.groupby("plant_id_eia")
+                .resample(TIME_RESOLUTIONS[time], on="datetime_utc", closed='left', label='left')
+                .sum()
+                .drop(columns="plant_id_eia")
+                .reset_index()
+            )
+        else:  # No resampling needed, already hourly
+            df_resampled = df
+        # Separately save real and aggregate plants
+        output_to_results(df_resampled[df_resampled.plant_id_eia > 900000], "synthetic_plant_generation", f"plant_data/{time}/", path_prefix)
+        output_to_results(df_resampled[df_resampled.plant_id_eia < 900000], "CEMS_plant_generation", f"plant_data/{time}/", path_prefix)
+        
+
 def convert_results(df):
     """
     Take df in US units (used throughout pipeline).
