@@ -3,6 +3,22 @@ from src.column_checks import apply_dtypes
 import pandas as pd
 import numpy as np
 
+# specify the ba numbers with leading zeros
+FUEL_NUMBERS = {
+    "biomass": "01",
+    "coal": "02",
+    "geothermal": "03",
+    "hydro": "04",
+    "natural_gas": "05",
+    "nuclear": "06",
+    "other": "07",
+    "petroleum": "08",
+    "solar": "09",
+    "storage": "10",
+    "waste": "11",
+    "wind": "12",
+}
+
 
 def aggregate_for_residual(
     data,
@@ -76,7 +92,7 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
         combined_data["datetime_local"].apply(lambda x: x.year) == year
     ]
 
-    # if there is no cems data for a ba-fuel, replace missing values with zero 
+    # if there is no cems data for a ba-fuel, replace missing values with zero
     combined_data["net_generation_mwh"] = combined_data["net_generation_mwh"].fillna(0)
 
     # Find scaling factor
@@ -263,7 +279,8 @@ def impute_missing_hourly_profiles(
     print("Summary of methods used to estimate missing hourly profiles:")
     print(
         hourly_profiles[["ba_code", "fuel_category", "report_date", "profile_method"]]
-        .drop_duplicates().drop(columns=['ba_code'])
+        .drop_duplicates()
+        .drop(columns=["ba_code"])
         .pivot_table(index="fuel_category", columns="profile_method", aggfunc="count")
         .fillna(0)
         .astype(int)
@@ -428,27 +445,11 @@ def get_synthetic_plant_id_from_ba_fuel(df):
     # convert to a dictionary
     ba_numbers = dict(zip(ba_numbers["ba_code"], ba_numbers["ba_number"]))
 
-    # specify the ba numbers with leading zeros
-    fuel_numbers = {
-        "biomass": "01",
-        "coal": "02",
-        "geothermal": "03",
-        "hydro": "04",
-        "natural_gas": "05",
-        "nuclear": "06",
-        "other": "07",
-        "petroleum": "08",
-        "solar": "09",
-        "storage": "10",
-        "waste": "11",
-        "wind": "12",
-    }
-
     # make sure the ba codes are strings
     df["ba_code"] = df["ba_code"].astype(str)
     # create a new column with the synthetic plant ids
     df["plant_id_eia"] = df.apply(
-        lambda row: f"9{ba_numbers[row['ba_code']]}{fuel_numbers[row['fuel_category']]}",
+        lambda row: f"9{ba_numbers[row['ba_code']]}{FUEL_NUMBERS[row['fuel_category']]}",
         axis=1,
     )
     # convert to an int32 column

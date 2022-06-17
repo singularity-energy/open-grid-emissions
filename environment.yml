@@ -23,6 +23,8 @@ dependencies:
   - statsmodels
   - tabulate
 
+  - cvxpy # used by gridemissions
+
 
   - setuptools # used for pudl
   - geopandas # used for pudl
