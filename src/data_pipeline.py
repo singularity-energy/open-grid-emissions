@@ -154,14 +154,11 @@ def main():
             f"../data/results/{path_prefix}validation_metrics/{unit}", exist_ok=True
         )
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
-            os.makedirs(
-                f"../data/results/{path_prefix}/carbon_accounting/{time_resolution}/{unit}",
-                exist_ok=True,
-            )
-            os.makedirs(
-                f"../data/results/{path_prefix}/power_sector_data/{time_resolution}/{unit}",
-                exist_ok=True,
-            )
+            for subfolder in ["plant_data","carbon_accounting", "power_sector_data"]:
+                os.makedirs(
+                    f"../data/results/{path_prefix}/{subfolder}/{time_resolution}/{unit}",
+                    exist_ok=True,
+                )
 
     # 1. Download data
     # PUDL
@@ -321,9 +318,7 @@ def main():
     del shaped_eia_data, cems, partial_cems_scaled  # free memory back to python
 
     # export to a csv.
-    combined_plant_data.to_csv(
-        f"../data/results/{path_prefix}plant_data/hourly_plant_data.csv", index=False,
-    )
+    output_data.output_plant_data(combined_plant_data, path_prefix)
 
     print("Aggregating to BA-fuel")
     # 12. Aggregate CEMS data to BA-fuel and write power sector results
