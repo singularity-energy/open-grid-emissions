@@ -173,8 +173,10 @@ def main():
     ]
     download_data.download_egrid_files(egrid_files_to_download)
     # EIA-930
-    download_data.download_eia930_data(years_to_download=[year])
+    # for `small` run, we'll only clean 1 week, so need chalander file for making profiles
     download_data.download_chalendar_files()
+    # We use balance files for imputing missing hourly profiles. TODO use cleaned instead?
+    download_data.download_eia930_data(years_to_download=[year])
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(
@@ -268,13 +270,13 @@ def main():
 
     # 9. Clean and Reconcile EIA-930 data
     print("Cleaning EIA-930 data")
-    # TODO
-    # Load raw EIA-930 data, fix timestamp issues, perform physics-based reconciliation
-    # Currently implemented in `notebooks/930_lag` and the `gridemissions` repository
-    # Output: `data/outputs/EBA_adjusted_elec.csv`
+    # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
+    eia930.scrape_and_clean_930(year, rescrape=True, small=small)
+    # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles. 
+    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if small else "../data/downloads/eia930/EBA_elec.csv"
     eia930_data = eia930.load_chalendar_for_pipeline(
-        "../data/downloads/eia930/chalendar/EBA_adjusted_elec.csv", year=year
-    )  # For now, load data in form it will eventually be in
+        clean_930_file, year=year
+    )  
 
     # 10. Calculate Residual Net Generation Profile
     print("Calculating residual net generation profiles from EIA-930")
@@ -340,7 +342,7 @@ def main():
 
     # 13. Calculate consumption-based emissions and write carbon accounting results
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
-        "../data/downloads/eia930/chalendar/EBA_adjusted_elec.csv",
+        clean_930_file,
         small=args.small,
         path_prefix=path_prefix,
     )

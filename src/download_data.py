@@ -93,11 +93,7 @@ def download_chalendar_files():
     TODO: download functions share a lot of code, could refactor
     """
     # if there is not yet a directory for egrid, make it
-    if not os.path.exists("../data/downloads/eia930"):
-        os.mkdir("../data/downloads/eia930")
-    # if there is not a directory for chalendar-formatted files, make it
-    if not os.path.exists("../data/downloads/eia930/chalendar"):
-        os.mkdir("../data/downloads/eia930/chalendar")
+    os.makedirs("../data/downloads/eia930/chalendar", exist_ok=True)
 
     # download the cleaned and raw files
     urls = [

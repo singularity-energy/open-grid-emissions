@@ -3,6 +3,22 @@ from src.column_checks import apply_dtypes
 import pandas as pd
 import numpy as np
 
+# specify the ba numbers with leading zeros
+FUEL_NUMBERS = {
+    "biomass": "01",
+    "coal": "02",
+    "geothermal": "03",
+    "hydro": "04",
+    "natural_gas": "05",
+    "nuclear": "06",
+    "other": "07",
+    "petroleum": "08",
+    "solar": "09",
+    "storage": "10",
+    "waste": "11",
+    "wind": "12",
+}
+
 
 def aggregate_for_residual(
     data,
@@ -429,27 +445,11 @@ def get_synthetic_plant_id_from_ba_fuel(df):
     # convert to a dictionary
     ba_numbers = dict(zip(ba_numbers["ba_code"], ba_numbers["ba_number"]))
 
-    # specify the ba numbers with leading zeros
-    fuel_numbers = {
-        "biomass": "01",
-        "coal": "02",
-        "geothermal": "03",
-        "hydro": "04",
-        "natural_gas": "05",
-        "nuclear": "06",
-        "other": "07",
-        "petroleum": "08",
-        "solar": "09",
-        "storage": "10",
-        "waste": "11",
-        "wind": "12",
-    }
-
     # make sure the ba codes are strings
     df["ba_code"] = df["ba_code"].astype(str)
     # create a new column with the synthetic plant ids
     df["plant_id_eia"] = df.apply(
-        lambda row: f"9{ba_numbers[row['ba_code']]}{fuel_numbers[row['fuel_category']]}",
+        lambda row: f"9{ba_numbers[row['ba_code']]}{FUEL_NUMBERS[row['fuel_category']]}",
         axis=1,
     )
     # convert to an int32 column
