@@ -2429,6 +2429,8 @@ def add_plant_local_timezone(df, year):
 
 def aggregate_cems_to_subplant(cems):
 
+    GROUPBY_COLUMNS = ["plant_id_eia", "subplant_id", "datetime_utc", "report_date"]
+
     DATA_COLUMNS = [
         "gross_generation_mwh",
         "net_generation_mwh",
@@ -2452,16 +2454,20 @@ def aggregate_cems_to_subplant(cems):
         "so2_mass_lb_adjusted",
     ]
 
-    # Sum numeric columns, take first of category column (gtn_method)
-    aggregators = {name: "sum" for name in DATA_COLUMNS}
-    aggregators["gtn_method"] = "first"
+    gtn_methods = cems[
+        ["plant_id_eia", "subplant_id", "report_date", "gtn_method"]
+    ].drop_duplicates()
 
-    cems = (
-        cems.groupby(["plant_id_eia", "subplant_id", "datetime_utc", "report_date"])
-        .agg(aggregators)[DATA_COLUMNS + ["gtn_method"]]
-        .reset_index()
-        .pipe(apply_dtypes)
+    cems = cems.groupby(GROUPBY_COLUMNS, dropna=False).sum()[DATA_COLUMNS].reset_index()
+
+    cems = cems.merge(
+        gtn_methods,
+        how="left",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        validate="m:1",
     )
+
+    cems = apply_dtypes(cems)
 
     return cems
 

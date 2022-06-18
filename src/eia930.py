@@ -13,29 +13,6 @@ os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = "../config/gridemissions.json"
 from gridemissions.workflows import make_dataset
 from gridemissions.eia_api import EBA_data_scraper, load_eia_columns
 
-# Map from 923 fuel types (added to cems data in data_pipeline)
-# to 930 fuel types
-# Based on EIA 923 instructions:
-# https://www.eia.gov/survey/form/eia_923/instructions.pdf
-fuel_code_map = {
-    "NG": "NG",
-    "BIT": "COL",  # bituminous
-    "SUB": "COL",  # subbituminous
-    "BLQ": "OTH",  # black liquor
-    "RC": "COL",  # refined coal
-    "WDS": "OTH",  # wood / wood waste solids
-    "SUN": "SUN",  # solar. TODO: why is this in cems???
-    "KER": "OIL",  # kerosene
-    "RFO": "OIL",  # residual fuel oil
-    "JF": "OIL",  # jet fuel
-    "DFO": "OIL",  # distillate fuel oil
-    "SGC": "NG",  # synthetic gas derived from coal ???
-    "LIG": "COL",  # lignite coal
-    "OG": "NG",  # other gas
-    "PC": "COL",  # petroleum coke
-    "BFG": "NG",  # blast furnace gas
-    "WC": "COL",
-}  # waste coal
 
 
 def scrape_and_clean_930(year: int, rescrape: bool = True, small: bool = False):

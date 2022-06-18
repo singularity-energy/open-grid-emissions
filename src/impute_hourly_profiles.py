@@ -95,6 +95,35 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
     # if there is no cems data for a ba-fuel, replace missing values with zero
     combined_data["net_generation_mwh"] = combined_data["net_generation_mwh"].fillna(0)
 
+    combined_data = calculate_scaled_residual(combined_data)
+
+    # calculate the residual
+    combined_data["profile"] = (
+        combined_data["net_generation_mwh_930"] - combined_data["net_generation_mwh"]
+    )
+
+    # identify the method used to calculate the profile
+    # if the scaling factor is 1, then the profile was not scaled
+    """combined_data = combined_data.assign(
+        profile_method=lambda x: np.where(
+            (x.scaling_factor == 1), "residual", "scaled_residual"
+        )
+    )"""
+
+    return combined_data[
+        [
+            "ba_code",
+            "fuel_category_eia930",
+            "datetime_utc",
+            "datetime_local",
+            "report_date",
+            "profile",
+            "profile_scaled",
+        ]
+    ]
+
+
+def calculate_scaled_residual(combined_data):
     # Find scaling factor
     # only keep data where the cems data is greater than zero
     scaling_factors = combined_data.copy()[combined_data["net_generation_mwh"] != 0]
@@ -123,34 +152,17 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
     ).fillna(1)
 
     # calculate the scaled cems data
-    combined_data["cems_scaled"] = (
+    combined_data["net_generation_mwh_scaled"] = (
         combined_data["net_generation_mwh"] * combined_data["scaling_factor"]
     )
 
     # calculate the residual
-    combined_data["profile"] = (
-        combined_data["net_generation_mwh_930"] - combined_data["cems_scaled"]
+    combined_data["profile_scaled"] = (
+        combined_data["net_generation_mwh_930"]
+        - combined_data["net_generation_mwh_scaled"]
     )
 
-    # identify the method used to calculate the profile
-    # if the scaling factor is 1, then the profile was not scaled
-    combined_data = combined_data.assign(
-        profile_method=lambda x: np.where(
-            (x.scaling_factor == 1), "residual", "scaled_residual"
-        )
-    )
-
-    return combined_data[
-        [
-            "ba_code",
-            "fuel_category_eia930",
-            "datetime_utc",
-            "datetime_local",
-            "report_date",
-            "profile",
-            "profile_method",
-        ]
-    ]
+    return combined_data
 
 
 def create_flat_profile(report_date, ba, fuel):
