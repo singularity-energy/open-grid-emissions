@@ -181,14 +181,12 @@ def main():
         psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.2.1/epa_eia_crosswalk.csv"
     )
 
-    # 2. Identify subplants and gross-to net ratios
+    # 2. Identify subplants
     # GTN ratios are saved for reloading, as this is computationally intensive
-    if not os.path.isdir("../data/outputs/gross_to_net/"):
+    if not os.path.exists(f"../data/outputs/{year}/subplant_crosswalk.csv"):
         print("Generating subplant IDs and gross to net calcuations")
         number_of_years = args.gtn_years
-        gross_to_net_generation.identify_subplants_and_gtn_conversions(
-            year, number_of_years
-        )
+        gross_to_net_generation.identify_subplants(year, number_of_years)
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     print("Cleaning EIA-923 data")
@@ -206,17 +204,35 @@ def main():
     print("Cleaning CEMS data")
     cems = data_cleaning.clean_cems(year, args.small)
 
-    # 5. Convert CEMS Hourly Gross Generation to Hourly Net Generation
-    print("Converting CEMS gross generation to net generation")
-    cems = data_cleaning.convert_gross_to_net_generation(cems)
+    # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
+    plant_attributes = data_cleaning.create_plant_attributes_table(
+        cems, eia923_allocated, year, primary_fuel_table
+    )
+    output_data.output_intermediate_data(
+        plant_attributes, "plant_static_attributes", path_prefix, year
+    )
+    output_data.output_to_results(
+        plant_attributes, "plant_static_attributes", "plant_data/", path_prefix,
+    )
 
-    # 6. Crosswalk CEMS and EIA data
+    # 6. Convert CEMS Hourly Gross Generation to Hourly Net Generation
+    print("Converting CEMS gross generation to net generation")
+    cems, gtn_conversions = data_cleaning.convert_gross_to_net_generation(
+        cems, eia923_allocated, plant_attributes
+    )
+
+    # export the gtn conversion data
+    output_data.output_intermediate_data(
+        gtn_conversions, "gross_to_net_conversions", path_prefix, year
+    )
+
+    # 7. Crosswalk CEMS and EIA data
     print("Identifying source for hourly data")
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
     )
 
-    # 7. Calculate hourly data for partial_cems plants
+    # 8. Calculate hourly data for partial_cems plants
     print("Scaling partial CEMS data")
     (
         partial_cems_scaled,
@@ -238,17 +254,6 @@ def main():
 
     # aggregate cems data to subplant level
     cems = data_cleaning.aggregate_cems_to_subplant(cems)
-
-    # 8. Assign static characteristics to CEMS and EIA data to aid in aggregation
-    plant_attributes = data_cleaning.create_plant_attributes_table(
-        cems, eia923_allocated, year, primary_fuel_table
-    )
-    output_data.output_intermediate_data(
-        plant_attributes, "plant_static_attributes", path_prefix, year
-    )
-    output_data.output_to_results(
-        plant_attributes, "plant_static_attributes", "plant_data/", path_prefix,
-    )
 
     # 8b. split all data into three non-overlapping dataframes
     # drop data from cems that is now in partial_cems

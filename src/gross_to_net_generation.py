@@ -1,19 +1,34 @@
-from audioop import cross
 import pandas as pd
-import numpy as np
 import statsmodels.formula.api as smf
 import os
-from pathlib import Path
 import src.data_cleaning as data_cleaning
 import sqlalchemy as sa
 import warnings
+
 
 import pudl.analysis.epa_crosswalk as epa_crosswalk
 import pudl.analysis.allocate_net_gen as allocate_gen_fuel
 import pudl.output.pudltabl
 
+import src.load_data as load_data
+from src.column_checks import get_dtypes
 
-def identify_subplants_and_gtn_conversions(year, number_of_years):
+
+def identify_subplants(year, number_of_years):
+    """This is the coordinating function for loading and calculating subplant IDs, GTN regressions, and GTN ratios."""
+    start_year = year - (number_of_years - 1)
+    end_year = year
+
+    print("Creating subplant IDs")
+    # load 5 years of monthly data from CEMS and EIA-923
+    cems_monthly, gen_fuel_allocated = load_monthly_gross_and_net_generation(
+        start_year, end_year
+    )
+    # add subplant ids to the data
+    generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated)
+
+
+def calculate_gtn_conversions(year, number_of_years):
     """This is the coordinating function for loading and calculating subplant IDs, GTN regressions, and GTN ratios."""
     start_year = year - (number_of_years - 1)
     end_year = year
@@ -99,7 +114,7 @@ def load_cems_gross_generation(start_year, end_year):
             "plant_id_eia",
             "unitid",
             "unit_id_epa",
-            "datetime_utc",
+            "operating_datetime_utc",
             "operating_time_hours",
             "gross_load_mw",
         ]
@@ -113,13 +128,18 @@ def load_cems_gross_generation(start_year, end_year):
 
         # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
         # rename the heat content column to use the convention used in the EIA data
-        cems = cems.rename(columns={"plant_id_eia": "plant_id_epa",})
+        cems = cems.rename(
+            columns={
+                "plant_id_eia": "plant_id_epa",
+                "operating_datetime_utc": "datetime_utc",
+            }
+        )
 
         # if the unitid has any leading zeros, remove them
         cems["unitid"] = cems["unitid"].str.lstrip("0")
 
         # crosswalk the plant IDs and add a plant_id_eia column
-        cems = data_cleaning.crosswalk_epa_eia_plant_ids(cems, year)
+        cems = load_data.crosswalk_epa_eia_plant_ids(cems, year)
 
         # fill any missing values for operating time or steam load with zero
         cems["operating_time_hours"] = cems["operating_time_hours"].fillna(0)
@@ -156,9 +176,9 @@ def load_cems_gross_generation(start_year, end_year):
 
 def manual_crosswalk_updates(crosswalk):
     # load manual matches
-    crosswalk_manual = pd.read_csv("../data/manual/epa_eia_crosswalk_manual.csv", dtype=get_dtypes()).drop(
-        columns=["notes"]
-    )
+    crosswalk_manual = pd.read_csv(
+        "../data/manual/epa_eia_crosswalk_manual.csv", dtype=get_dtypes()
+    ).drop(columns=["notes"])
     crosswalk_manual = crosswalk_manual.rename(
         columns={
             "plant_id_epa": "CAMD_PLANT_ID",
@@ -332,27 +352,13 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
         on=["plant_id_eia", "generator_id"],
     )
 
-    if not os.path.exists("../data/outputs/subplant_crosswalk"):
-        os.mkdir("../data/outputs/subplant_crosswalk")
+    if not os.path.exists(f"../data/outputs/{end_year}"):
+        os.mkdir(f"../data/outputs/{end_year}")
 
     # export the crosswalk to csv
     crosswalk_with_subplant_ids.to_csv(
-        "../data/outputs/subplant_crosswalk.csv", index=False
+        f"../data/outputs/{end_year}/subplant_crosswalk.csv", index=False
     )
-
-    # merge the subplant ids into each dataframe
-    gen_fuel_allocated = gen_fuel_allocated.merge(
-        crosswalk_with_subplant_ids[["plant_id_eia", "generator_id", "subplant_id"]],
-        how="left",
-        on=["plant_id_eia", "generator_id"],
-    )
-    cems_monthly = cems_monthly.merge(
-        crosswalk_with_subplant_ids[["plant_id_eia", "unitid", "subplant_id"]],
-        how="left",
-        on=["plant_id_eia", "unitid"],
-    )
-
-    return cems_monthly, gen_fuel_allocated
 
 
 def combine_gross_and_net_generation_data(gross_gen_data, net_gen_data, agg_level):
@@ -401,7 +407,9 @@ def gross_to_net_regression(gross_gen_data, net_gen_data, agg_level):
 
     # calculate the ratio for each plant and create a dataframe
     gtn_regression = (
-        gen_data.dropna().groupby(plant_aggregation_columns, dropna=False).apply(model_gross_to_net)
+        gen_data.dropna()
+        .groupby(plant_aggregation_columns, dropna=False)
+        .apply(model_gross_to_net)
     )
     gtn_regression = pd.DataFrame(
         gtn_regression.tolist(),
@@ -439,7 +447,9 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level):
     ]
 
     # load the activation and retirement dates into the data
-    subplant_crosswalk = pd.read_csv(f"../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes())
+    subplant_crosswalk = pd.read_csv(
+        f"../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes()
+    )
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,
         how="left",

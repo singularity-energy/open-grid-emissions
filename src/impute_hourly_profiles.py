@@ -623,7 +623,7 @@ def scale_partial_cems_data(cems, eia923_allocated):
     )
     eia923_allocated.loc[
         eia923_allocated["source"] == "both", "hourly_data_source"
-    ] == "cems"
+    ] = "cems"
     eia923_allocated = eia923_allocated.drop(columns="source")
     partial_cems = partial_cems[
         (partial_cems.fuel_consumed_mmbtu_cems < partial_cems.fuel_consumed_mmbtu_eia)

@@ -114,7 +114,7 @@ COLUMNS = {
         "state",
         "distribution_flag",
         "timezone",
-        "source",
+        "data_availability",
     },
     "residual_profiles_": {
         "ba_code",
@@ -181,6 +181,23 @@ COLUMNS = {
         "generated_n2o_rate_lb_per_mwh_adjusted",
         "generated_nox_rate_lb_per_mwh_adjusted",
         "generated_so2_rate_lb_per_mwh_adjusted",
+    },
+    "gross_to_net_conversions_": {
+        "plant_id_eia",
+        "subplant_id",
+        "report_date",
+        "gross_generation_mwh",
+        "net_generation_mwh",
+        "source",
+        "hours_in_month",
+        "monthly_subplant_ratio",
+        "hourly_shift_mw_monthly",
+        "annual_subplant_ratio",
+        "hourly_shift_mw_annual",
+        "monthly_plant_ratio",
+        "annual_plant_ratio",
+        "plant_primary_fuel",
+        "annual_fuel_ratio",
     },
 }
 

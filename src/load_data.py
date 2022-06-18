@@ -1,11 +1,9 @@
 import pandas as pd
 import sqlalchemy as sa
 
-import src.data_cleaning as data_cleaning
-
 import pudl.output.pudltabl
 
-from src.column_checks import get_dtypes, apply_dtypes
+from src.column_checks import get_dtypes
 
 
 def load_cems_data(year):
@@ -57,7 +55,7 @@ def load_cems_data(year):
     cems["unitid"] = cems["unitid"].str.lstrip("0")
 
     # crosswalk the plant IDs and add a plant_id_eia column
-    cems = data_cleaning.crosswalk_epa_eia_plant_ids(cems, year)
+    cems = crosswalk_epa_eia_plant_ids(cems, year)
 
     # fill any missing values for operating time or steam load with zero
     cems["operating_time_hours"] = cems["operating_time_hours"].fillna(0)
@@ -109,6 +107,39 @@ def load_cems_data(year):
             "so2_mass_measurement_code": "category",
         }
     )
+
+    return cems
+
+
+def crosswalk_epa_eia_plant_ids(cems, year):
+    """
+    Adds a column to the CEMS data that matches the EPA plant ID to the EIA plant ID
+    Inputs:
+        cems: pandas dataframe with hourly emissions data and columns for "plant_id_epa" and "unitid"
+    Returns:
+        cems: pandas dataframe with an additional column for "plant_id_eia"
+    """
+
+    psdc = load_epa_eia_crosswalk(year)
+
+    # create a table that matches EPA plant and unit IDs to an EIA plant ID
+    plant_id_crosswalk = psdc[
+        ["plant_id_epa", "unitid", "plant_id_eia", "generator_id"]
+    ].drop_duplicates()
+
+    # only keep plant ids where the two are different
+    plant_id_crosswalk = plant_id_crosswalk[
+        plant_id_crosswalk["plant_id_epa"] != plant_id_crosswalk["plant_id_eia"]
+    ].dropna()
+
+    # match plant_id_eia on plant_id_epa and unitid
+    cems = cems.merge(plant_id_crosswalk, how="left", on=["plant_id_epa", "unitid"])
+
+    # if the merge resulted in any missing plant_id associations, fill with the plant_id_epa, assuming that they are the same
+    cems["plant_id_eia"] = cems["plant_id_eia"].fillna(cems["plant_id_epa"])
+
+    # change the id column from float dtype to int
+    cems["plant_id_eia"] = cems["plant_id_eia"].astype(int)
 
     return cems
 
