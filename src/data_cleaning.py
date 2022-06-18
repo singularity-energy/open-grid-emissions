@@ -759,39 +759,6 @@ def add_report_date(df):
     return df
 
 
-def crosswalk_epa_eia_plant_ids(cems, year):
-    """
-    Adds a column to the CEMS data that matches the EPA plant ID to the EIA plant ID
-    Inputs:
-        cems: pandas dataframe with hourly emissions data and columns for "plant_id_epa" and "unitid"
-    Returns:
-        cems: pandas dataframe with an additional column for "plant_id_eia"
-    """
-
-    psdc = load_data.load_epa_eia_crosswalk(year)
-
-    # create a table that matches EPA plant and unit IDs to an EIA plant ID
-    plant_id_crosswalk = psdc[
-        ["plant_id_epa", "unitid", "plant_id_eia", "generator_id"]
-    ].drop_duplicates()
-
-    # only keep plant ids where the two are different
-    plant_id_crosswalk = plant_id_crosswalk[
-        plant_id_crosswalk["plant_id_epa"] != plant_id_crosswalk["plant_id_eia"]
-    ].dropna()
-
-    # match plant_id_eia on plant_id_epa and unitid
-    cems = cems.merge(plant_id_crosswalk, how="left", on=["plant_id_epa", "unitid"])
-
-    # if the merge resulted in any missing plant_id associations, fill with the plant_id_epa, assuming that they are the same
-    cems["plant_id_eia"] = cems["plant_id_eia"].fillna(cems["plant_id_epa"])
-
-    # change the id column from float dtype to int
-    cems["plant_id_eia"] = cems["plant_id_eia"].astype(int)
-
-    return cems
-
-
 def assign_fuel_type_to_cems(cems, year):
     "Assigns a fuel type to each observation in CEMS"
 
@@ -1603,7 +1570,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
     return all_data
 
 
-def convert_gross_to_net_generation(cems):
+def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes):
     """
     Converts hourly gross generation in CEMS to hourly net generation by calculating a gross to net generation ratio
     Inputs:
@@ -1612,149 +1579,267 @@ def convert_gross_to_net_generation(cems):
         cems df with an added column for net_generation_mwh and a column indicated the method used to calculate net generation
     """
 
-    # load the regression coefficients
-    gtn_reg_subplant = load_data.load_gross_to_net_data(
-        level="subplant",
-        conversion_type="regression",
-        threshold_column="rsquared_adj",
-        lower_threshold=0.9,
-        upper_threshold=None,
-    )
-    gtn_reg_plant = load_data.load_gross_to_net_data(
-        level="plant",
-        conversion_type="regression",
-        threshold_column="rsquared_adj",
-        lower_threshold=0.9,
-        upper_threshold=None,
+    gtn_conversions = calculate_gross_to_net_conversion_factors(
+        cems, eia923_allocated, plant_attributes
     )
 
-    # load ratio values
-    gtn_ratio_subplant = load_data.load_gross_to_net_data(
-        level="subplant",
-        conversion_type="ratio",
-        threshold_column="gtn_ratio",
-        lower_threshold=0.5,
-        upper_threshold=1.0,
-    )
-    gtn_ratio_plant = load_data.load_gross_to_net_data(
-        level="plant",
-        conversion_type="ratio",
-        threshold_column="gtn_ratio",
-        lower_threshold=0.5,
-        upper_threshold=1.0,
-    )
-
-    # get a dataframe with all unique subplants in cems, and merge in the values from each source
-    gtn_conversion = cems.copy()[
-        ["plant_id_eia", "subplant_id", "report_date"]
-    ].drop_duplicates()
-    gtn_conversion = gtn_conversion.merge(
-        gtn_ratio_subplant,
-        how="left",
-        on=["plant_id_eia", "subplant_id", "report_date"],
-    )
-    gtn_conversion = gtn_conversion.merge(
-        gtn_reg_subplant[["plant_id_eia", "subplant_id", "slope", "intercept"]],
-        how="left",
-        on=["plant_id_eia", "subplant_id"],
-    )
-    gtn_conversion = gtn_conversion.merge(
-        gtn_ratio_plant,
-        how="left",
-        on=["plant_id_eia", "report_date"],
-        suffixes=("_subplant", "_plant"),
-    )
-    gtn_conversion = gtn_conversion.merge(
-        gtn_reg_plant[["plant_id_eia", "slope", "intercept"]],
-        how="left",
-        on=["plant_id_eia"],
-        suffixes=("_subplant", "_plant"),
-    )
-
-    # create placeholder columns for the final ratio and constant values
-    gtn_conversion["gtn_ratio"] = np.NaN
-    gtn_conversion["gtn_constant"] = np.NaN
-    gtn_conversion["gtn_method"] = np.NaN
-
-    # First, fill values with subplant ratio
-    values_to_fill = gtn_conversion[
-        gtn_conversion["gtn_ratio"].isna()
-        & ~gtn_conversion["gtn_ratio_subplant"].isna()
-    ].index
-    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
-        values_to_fill, "gtn_ratio_subplant"
-    ]
-    gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
-    gtn_conversion.loc[values_to_fill, "gtn_method"] = "subplant_ratio"
-
-    # Second, fill values with subplant regression
-    values_to_fill = gtn_conversion[
-        gtn_conversion["gtn_ratio"].isna() & ~gtn_conversion["slope_subplant"].isna()
-    ].index
-    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
-        values_to_fill, "slope_subplant"
-    ]
-    gtn_conversion.loc[values_to_fill, "gtn_constant"] = gtn_conversion.loc[
-        values_to_fill, "intercept_subplant"
-    ]
-    gtn_conversion.loc[values_to_fill, "gtn_method"] = "subplant_regression"
-
-    # Third, fill values with plant ratio
-    values_to_fill = gtn_conversion[
-        gtn_conversion["gtn_ratio"].isna() & ~gtn_conversion["gtn_ratio_plant"].isna()
-    ].index
-    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
-        values_to_fill, "gtn_ratio_plant"
-    ]
-    gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
-    gtn_conversion.loc[values_to_fill, "gtn_method"] = "plant_ratio"
-
-    # Finally, fill values with plant regression
-    values_to_fill = gtn_conversion[
-        gtn_conversion["gtn_ratio"].isna() & ~gtn_conversion["slope_plant"].isna()
-    ].index
-    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
-        values_to_fill, "slope_plant"
-    ]
-    gtn_conversion.loc[values_to_fill, "gtn_constant"] = gtn_conversion.loc[
-        values_to_fill, "intercept_plant"
-    ]
-    gtn_conversion.loc[values_to_fill, "gtn_method"] = "plant_regression"
-
-    # for any remaining values, use an assumed value of 85%
-    # TODO: identify assumed GTN ratio based on prime mover and fuel type of subplant
-    values_to_fill = gtn_conversion[gtn_conversion["gtn_ratio"].isna()].index
-    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = 0.85
-    gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
-    gtn_conversion.loc[values_to_fill, "gtn_method"] = "assumed_gtn_ratio"
-
-    # fill missing gtn_constant with zero
-    gtn_conversion["gtn_constant"] = gtn_conversion["gtn_constant"].fillna(0)
-
-    # remove intermediate columns
-    gtn_conversion = gtn_conversion[
+    factors_to_use = gtn_conversions[
         [
             "plant_id_eia",
             "subplant_id",
             "report_date",
-            "gtn_ratio",
-            "gtn_constant",
-            "gtn_method",
+            "hourly_shift_mw_monthly",
+            "hourly_shift_mw_annual",
+            "annual_plant_ratio",
+            "annual_fuel_ratio",
         ]
     ]
 
-    # merge the data back into cems and calculate net generation
+    # merge the conversion factors we want to use into the cems data
     cems = cems.merge(
-        gtn_conversion, how="left", on=["plant_id_eia", "subplant_id", "report_date"]
+        factors_to_use, how="left", on=["plant_id_eia", "subplant_id", "report_date"]
     )
-    cems["net_generation_mwh"] = (
-        cems["gross_generation_mwh"] * cems["gtn_ratio"]
-    ) + cems["gtn_constant"]
+    # count the number of units in each subplant
+    units_in_subplant = cems[
+        ["plant_id_eia", "subplant_id", "report_date", "unitid"]
+    ].drop_duplicates()
+    units_in_subplant = (
+        units_in_subplant.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )
+        .count()
+        .reset_index()
+        .rename(columns={"unitid": "units_in_subplant"})
+    )
+    cems = cems.merge(
+        units_in_subplant, how="left", on=["plant_id_eia", "subplant_id", "report_date"]
+    )
 
-    # remove intermediate columns
-    cems = cems.drop(columns=["gtn_ratio", "gtn_constant"])
+    cems["gtn_method"] = "monthly_shift_factor"
+    # calculate net generation using the monthly shift factors where available
+    cems["net_generation_mwh"] = cems["gross_generation_mwh"] + (
+        cems["hourly_shift_mw_monthly"] / cems["units_in_subplant"]
+    )
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "annual_shift_factor"
+    # next use the annual shift factor where available
+    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
+        cems["gross_generation_mwh"]
+        + (cems["hourly_shift_mw_annual"] / cems["units_in_subplant"])
+    )
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "annual_plant_ratio"
+    # next use the annual plant ratio
+    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
+        cems["gross_generation_mwh"] * cems["annual_plant_ratio"]
+    )
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "annual_fuel_ratio"
+    # next use the annual fuel ratio
+    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
+        cems["gross_generation_mwh"] * cems["annual_fuel_ratio"]
+    )
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "gross_as_net"
+    # if nothing else is abailable, use the gross generation value
+    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
+        cems["gross_generation_mwh"]
+    )
 
-    return cems
+    # drop intermediate columns
+    cems = cems.drop(
+        columns=[
+            "hourly_shift_mw_monthly",
+            "hourly_shift_mw_annual",
+            "annual_plant_ratio",
+            "annual_fuel_ratio",
+            "units_in_subplant",
+        ]
+    )
+
+    return cems, gtn_conversions
+
+
+def calculate_gross_to_net_conversion_factors(cems, eia923_allocated, plant_attributes):
+    """
+    Calculates gross to net ratios and shift factors
+    """
+    gross_gen_data = (
+        cems.groupby(
+            ["plant_id_eia", "subplant_id", "report_date", "datetime_utc"], dropna=False
+        )
+        .sum()["gross_generation_mwh"]
+        .reset_index()
+    )
+    gross_gen_data = (
+        gross_gen_data.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )
+        .agg({"datetime_utc": "count", "gross_generation_mwh": "sum"})
+        .reset_index()
+        .rename(columns={"datetime_utc": "hours_in_month"})
+    )
+    net_gen_data = (
+        eia923_allocated.dropna(subset=["net_generation_mwh"])
+        .groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)
+        .sum()["net_generation_mwh"]
+        .reset_index()
+    )
+
+    # combine monthly gross and net generation data where we have data for both
+    gtn_conversions = gross_gen_data.merge(
+        net_gen_data,
+        how="outer",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        indicator="source",
+    )
+
+    # drop data that only exists in EIA, but not in CEMS, since there is no gross generation data to calculate NG for
+    gtn_conversions = gtn_conversions[~(gtn_conversions["source"] == "right_only")]
+
+    # calculate other groupings at the plant and annual levels
+    annual_subplant_ratio = (
+        gtn_conversions.dropna(subset=["gross_generation_mwh", "net_generation_mwh"])
+        .groupby(["plant_id_eia", "subplant_id"], dropna=False)
+        .sum()[["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]]
+        .reset_index()
+    )
+    monthly_plant_ratio = (
+        gtn_conversions.groupby(["plant_id_eia", "report_date"], dropna=False)
+        .sum()[["gross_generation_mwh", "net_generation_mwh"]]
+        .reset_index()
+    )
+    annual_plant_ratio = (
+        gtn_conversions.dropna(subset=["gross_generation_mwh", "net_generation_mwh"])
+        .groupby(["plant_id_eia"], dropna=False)
+        .sum()[["gross_generation_mwh", "net_generation_mwh"]]
+        .reset_index()
+    )
+
+    # calculate the ratios at each aggregation level
+    # fill missing values (due to divide by zero) with zero
+    # replace infinite values with missing
+    gtn_conversions["monthly_subplant_ratio"] = (
+        (
+            gtn_conversions["net_generation_mwh"]
+            / gtn_conversions["gross_generation_mwh"]
+        )
+        .fillna(0)
+        .replace([np.inf, -np.inf], np.nan)
+    )
+    annual_subplant_ratio["annual_subplant_ratio"] = (
+        (
+            annual_subplant_ratio["net_generation_mwh"]
+            / annual_subplant_ratio["gross_generation_mwh"]
+        )
+        .fillna(0)
+        .replace([np.inf, -np.inf], np.nan)
+    )
+    monthly_plant_ratio["monthly_plant_ratio"] = (
+        (
+            monthly_plant_ratio["net_generation_mwh"]
+            / monthly_plant_ratio["gross_generation_mwh"]
+        )
+        .fillna(0)
+        .replace([np.inf, -np.inf], np.nan)
+    )
+    annual_plant_ratio["annual_plant_ratio"] = (
+        (
+            annual_plant_ratio["net_generation_mwh"]
+            / annual_plant_ratio["gross_generation_mwh"]
+        )
+        .fillna(0)
+        .replace([np.inf, -np.inf], np.nan)
+    )
+
+    # calculate a monthly and annual shift factor
+    gtn_conversions["hourly_shift_mw_monthly"] = (
+        gtn_conversions["net_generation_mwh"] - gtn_conversions["gross_generation_mwh"]
+    ) / (gtn_conversions["hours_in_month"])
+    annual_subplant_ratio["hourly_shift_mw_annual"] = (
+        annual_subplant_ratio["net_generation_mwh"]
+        - annual_subplant_ratio["gross_generation_mwh"]
+    ) / (annual_subplant_ratio["hours_in_month"])
+
+    # drop the gross and net generation data from the dataframes at teh other aggregation levels
+    annual_subplant_ratio = annual_subplant_ratio.drop(
+        columns=["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]
+    )
+    monthly_plant_ratio = monthly_plant_ratio.drop(
+        columns=["gross_generation_mwh", "net_generation_mwh"]
+    )
+    annual_plant_ratio = annual_plant_ratio.drop(
+        columns=["gross_generation_mwh", "net_generation_mwh"]
+    )
+
+    # merge the various ratios back into a single dataframe
+    gtn_conversions = gtn_conversions.merge(
+        annual_subplant_ratio, how="left", on=["plant_id_eia", "subplant_id"]
+    )
+    gtn_conversions = gtn_conversions.merge(
+        monthly_plant_ratio, how="left", on=["plant_id_eia", "report_date"]
+    )
+    gtn_conversions = gtn_conversions.merge(
+        annual_plant_ratio, how="left", on=["plant_id_eia"]
+    )
+
+    # where gross or net generation data was missing in a month, change the monthly ratios to missing
+    gtn_conversions.loc[
+        gtn_conversions[["gross_generation_mwh", "net_generation_mwh"]]
+        .isna()
+        .any(axis=1),
+        ["monthly_subplant_ratio", "monthly_plant_ratio"],
+    ] = np.NaN
+
+    # calculate the mean ratio for all plants of a single fuel type
+    annual_fuel_ratio = (
+        annual_plant_ratio.merge(
+            plant_attributes[["plant_id_eia", "plant_primary_fuel"]],
+            how="left",
+            on="plant_id_eia",
+        )
+        .groupby("plant_primary_fuel")
+        .mean()["annual_plant_ratio"]
+        .reset_index()
+        .rename(columns={"annual_plant_ratio": "annual_fuel_ratio"})
+    )
+
+    # merge the plant primary fuel and the fuel ratios into the conversion table
+    gtn_conversions = gtn_conversions.merge(
+        plant_attributes[["plant_id_eia", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+    )
+    gtn_conversions = gtn_conversions.merge(
+        annual_fuel_ratio, how="left", on="plant_primary_fuel"
+    )
+
+    return gtn_conversions
+
+
+def convert_gtn_using_ratio(gtn_conversion, level):
+    values_to_fill = gtn_conversion[
+        gtn_conversion["gtn_ratio"].isna()
+        & ~gtn_conversion[f"gtn_ratio_{level}"].isna()
+    ].index
+    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
+        values_to_fill, f"gtn_ratio_{level}"
+    ]
+    gtn_conversion.loc[values_to_fill, "gtn_constant"] = 0
+    gtn_conversion.loc[values_to_fill, "gtn_method"] = f"{level}_ratio"
+
+    return gtn_conversion
+
+
+def convert_gtn_using_regression(gtn_conversion, level):
+    values_to_fill = gtn_conversion[
+        gtn_conversion["gtn_ratio"].isna() & ~gtn_conversion[f"slope_{level}"].isna()
+    ].index
+    gtn_conversion.loc[values_to_fill, "gtn_ratio"] = gtn_conversion.loc[
+        values_to_fill, f"slope_{level}"
+    ]
+    gtn_conversion.loc[values_to_fill, "gtn_constant"] = gtn_conversion.loc[
+        values_to_fill, f"intercept_{level}"
+    ]
+    gtn_conversion.loc[values_to_fill, "gtn_method"] = f"{level}_regression"
+
+    return gtn_conversion
 
 
 def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
@@ -2046,15 +2131,17 @@ def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_tab
         cems_plants,
         how="outer",
         on="plant_id_eia",
-        indicator="source",
+        indicator="data_availability",
         suffixes=(None, "_cems"),
     )
     plant_attributes["plant_primary_fuel"] = plant_attributes[
         "plant_primary_fuel"
     ].fillna(plant_attributes["plant_primary_fuel_cems"])
     plant_attributes = plant_attributes.drop(columns=["plant_primary_fuel_cems"])
-    plant_attributes["source"] = plant_attributes["source"].replace(
-        {"left_only": "EIA", "right_only": "EPA"}
+    plant_attributes["data_availability"] = plant_attributes[
+        "data_availability"
+    ].replace(
+        {"left_only": "eia_only", "right_only": "cems_only", "both": "cems_and_eia"}
     )
 
     # assign a BA code and state code to each plant
