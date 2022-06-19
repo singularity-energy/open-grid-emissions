@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
-from pandas import DataFrame
 import warnings
-import dask.dataframe as dd
 
 import src.load_data as load_data
 
@@ -117,7 +115,7 @@ def clean_eia923(year, small):
 
     # add subplant id
     subplant_crosswalk = pd.read_csv(
-        "../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes()
+        f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
     )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
     gen_fuel_allocated = gen_fuel_allocated.merge(
         subplant_crosswalk, how="left", on=["plant_id_eia", "generator_id"]
@@ -543,17 +541,15 @@ def adjust_emissions_for_biomass(df):
     # to prevent negative emissions, we set the value = 0 if negative
     if "nox_mass_lb_for_electricity" in df.columns:
         df["nox_mass_lb_adjusted"] = df["nox_mass_lb_for_electricity"]
-        df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = max(
-            0,
-            df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"]
-            - (
-                df.loc[
-                    df["energy_source_code"] == "LFG",
-                    "fuel_consumed_for_electricity_mmbtu",
-                ]
-                * 0.078
-            ),
+        df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = df.loc[
+            df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"
+        ] - (
+            df.loc[
+                df["energy_source_code"] == "LFG", "fuel_consumed_for_electricity_mmbtu"
+            ]
+            * 0.078
         )
+        df.loc[df["nox_mass_lb_adjusted"] < 0, "nox_mass_lb_adjusted"] = 0
     if "so2_mass_lb_for_electricity" in df.columns:
         df["so2_mass_lb_adjusted"] = df["so2_mass_lb_for_electricity"]
         df.loc[df["energy_source_code"] == "LFG", "so2_mass_lb_adjusted"] = 0
@@ -692,7 +688,7 @@ def clean_cems(year, small):
 
     # add subplant id
     subplant_crosswalk = pd.read_csv(
-        "../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes()
+        f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
     )[["plant_id_eia", "unitid", "subplant_id"]].drop_duplicates()
     cems = cems.merge(subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"])
 
@@ -1303,7 +1299,7 @@ def fill_cems_missing_co2(cems, year):
     # create a new df with all observations with missing co2 data
     missing_co2 = cems[cems["co2_mass_lb"].isnull()]
 
-    #### First round of filling using fuel types in PSDC
+    # First round of filling using fuel types in PSDC
 
     # for rows that have a successful fuel code match, move to a temporary dataframe to hold the data
     co2_to_fill = missing_co2.copy()[~missing_co2["energy_source_code"].isna()]
@@ -1328,7 +1324,7 @@ def fill_cems_missing_co2(cems, year):
     # update the co2 mass measurement code
     cems.loc[co2_to_fill.index, "co2_mass_measurement_code"] = "Imputed"
 
-    #### Second round of data filling using weighted average EF based on EIA-923 heat input data
+    # Second round of data filling using weighted average EF based on EIA-923 heat input data
 
     # get a list of plant ids in the missing data
     missing_plants = list(missing_co2["plant_id_eia"].unique())
@@ -1538,7 +1534,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
 
     # load the subplant crosswalk and identify unique unitids in each subplant
     units_in_subplant = pd.read_csv(
-        "../data/outputs/subplant_crosswalk.csv",
+        f"../data/outputs/{year}/subplant_crosswalk.csv",
         dtype=get_dtypes(),
         parse_dates=["current_planned_operating_date", "retirement_date"],
     )[["plant_id_eia", "unitid", "subplant_id", "retirement_date"]].drop_duplicates()
@@ -1553,7 +1549,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
         units_in_subplant.groupby(["plant_id_eia", "subplant_id"], dropna=False)
         .count()["unitid"]
         .reset_index()
-        .rename(columns={"unitid": f"units_in_subplant"})
+        .rename(columns={"unitid": "units_in_subplant"})
     )
 
     # create a dataframe that counts the number of units reported in CEMS in each subplant-month
@@ -1563,7 +1559,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
         )
         .count()["unitid"]
         .reset_index()
-        .rename(columns={"unitid": f"subplant_units_reported"})
+        .rename(columns={"unitid": "subplant_units_reported"})
     )
 
     # merge in the total number of units that exist in each subplant
