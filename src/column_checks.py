@@ -123,6 +123,7 @@ COLUMNS = {
         "datetime_local",
         "report_date",
         "profile",
+        "profile_scaled",
         "profile_method",
     },
     "shaped_eia923_data_": {

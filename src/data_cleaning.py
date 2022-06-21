@@ -163,13 +163,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     Plant primary fuel is based on the most-consumed fuel at a plant based on allocated heat input
     """
 
-    # add generator nameplate capacity info to the dataframe
-    gen_capacity = pudl_out.gens_eia860().loc[
-        :, ["plant_id_eia", "generator_id", "capacity_mw"]
-    ]
-    gen_fuel_allocated = gen_fuel_allocated.merge(
-        gen_capacity, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
-    )
+    primary_fuel_from_capacity = calculate_capacity_based_primary_fuel(pudl_out)
 
     # get a table of primary energy source codes
     gen_primary_fuel = gen_fuel_allocated[
@@ -177,23 +171,24 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     ].drop_duplicates(subset=["plant_id_eia", "generator_id"])[
         ["plant_id_eia", "generator_id", "energy_source_code"]
     ]
-    # rename the energy source code column to gen primary fuel
-    # gen_primary_fuel = gen_primary_fuel.rename(columns={'energy_source_code':'generator_primary_fuel'})
 
     # create a blank dataframe with all of the plant ids to hold primary fuel data
     plant_primary_fuel = gen_fuel_allocated[["plant_id_eia"]].drop_duplicates()
 
-    # calculate the total annual fuel consumption, generation, and capacity by fuel type for each plant
+    # calculate the total annual fuel consumption, generation, and capacity by fuel type
+    #  for each plant
     plant_totals_by_fuel = (
         gen_fuel_allocated.groupby(["plant_id_eia", "energy_source_code"], dropna=False)
-        .sum()[["fuel_consumed_mmbtu", "net_generation_mwh", "capacity_mw"]]
+        .sum()[["fuel_consumed_mmbtu", "net_generation_mwh"]]
         .reset_index()
     )
 
-    # we will calculate primary fuel based on the fuel with the most consumption, generation, and capacity
-    for source in ["fuel_consumed_mmbtu", "capacity_mw", "net_generation_mwh"]:
+    # we will calculate primary fuel based on the fuel with the most consumption, 
+    # generation, and capacity
+    for source in ["fuel_consumed_mmbtu", "net_generation_mwh"]:
 
-        # only keep values greater than zero so that these can be filled by other methods if non-zero
+        # only keep values greater than zero so that these can be filled by other 
+        # methods if non-zero
         primary_fuel_calc = plant_totals_by_fuel[plant_totals_by_fuel[source] > 0]
 
         # identify the fuel type with the maximum value for each plant
@@ -217,7 +212,13 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
             primary_fuel_calc, how="left", on="plant_id_eia", validate="1:1"
         )
 
-    # use the fuel-based primary fuel first, then fill using capacit-based primary fuel, then generation based.
+    # merge the primary fuel into the main table
+    plant_primary_fuel = plant_primary_fuel.merge(
+        primary_fuel_from_capacity, how="left", on="plant_id_eia", validate="1:1"
+    )
+
+    # use the fuel-based primary fuel first, then fill using capacit-based primary fuel, 
+    # then generation based.
     plant_primary_fuel["plant_primary_fuel"] = plant_primary_fuel[
         "primary_fuel_from_fuel_consumed_mmbtu"
     ]
@@ -228,6 +229,9 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
         "plant_primary_fuel"
     ].fillna(plant_primary_fuel["primary_fuel_from_net_generation_mwh"])
 
+    if len(plant_primary_fuel[plant_primary_fuel["plant_primary_fuel"].isna()]) > 0:
+        raise UserWarning("Plant primary fuel table contains missing primary fuels. Update method of `create_primary_fuel_table()` to fix")
+
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
         plant_primary_fuel[["plant_id_eia", "plant_primary_fuel"]],
@@ -237,6 +241,43 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     )
 
     return primary_fuel_table
+
+
+def calculate_capacity_based_primary_fuel(pudl_out):
+    # create a table of primary fuel by nameplate capacity
+    gen_capacity = pudl_out.gens_eia860().loc[
+        :, ["plant_id_eia", "generator_id", "capacity_mw", "energy_source_code_1"]
+    ]
+
+    gen_capacity = (
+        gen_capacity.groupby(["plant_id_eia", "energy_source_code_1"], dropna=False)
+        .sum()["capacity_mw"]
+        .reset_index()
+    )
+
+    # drop the battery portion of any hybrid plants so that we don't accidentally 
+    # identify the primary fuel as storage
+    gen_capacity = gen_capacity[
+        ~(
+            (gen_capacity.duplicated(subset="plant_id_eia", keep=False))
+            & (gen_capacity.energy_source_code_1 == "MWH")
+        )
+    ]
+
+    # find the fuel with the greatest capacity
+    gen_capacity = gen_capacity[
+        gen_capacity.groupby("plant_id_eia", dropna=False)["capacity_mw"].transform(max)
+        == gen_capacity["capacity_mw"]
+    ][["plant_id_eia", "energy_source_code_1"]].rename(
+        columns={"energy_source_code_1": "primary_fuel_from_capacity_mw"}
+    )
+
+    # drop any duplicate entries (if two fuel types have the same nameplate capacity)
+    gen_capacity = gen_capacity[
+        ~(gen_capacity.duplicated(subset="plant_id_eia", keep=False))
+    ]
+
+    return gen_capacity
 
 
 def calculate_ghg_emissions_from_fuel_consumption(

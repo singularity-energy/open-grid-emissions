@@ -1,3 +1,4 @@
+from math import comb
 import src.load_data as load_data
 from src.column_checks import apply_dtypes
 import pandas as pd
@@ -110,6 +111,8 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
         )
     )"""
 
+    combined_data['profile_method'] = "residual"
+
     return combined_data[
         [
             "ba_code",
@@ -119,6 +122,7 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
             "report_date",
             "profile",
             "profile_scaled",
+            "profile_method"
         ]
     ]
 

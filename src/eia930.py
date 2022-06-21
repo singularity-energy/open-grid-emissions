@@ -14,7 +14,6 @@ from gridemissions.workflows import make_dataset
 from gridemissions.eia_api import EBA_data_scraper, load_eia_columns
 
 
-
 def scrape_and_clean_930(year: int, rescrape: bool = True, small: bool = False):
     """
         Scrape and process EIA data. 
@@ -24,63 +23,82 @@ def scrape_and_clean_930(year: int, rescrape: bool = True, small: bool = False):
 
     """
 
-    eia_columns = load_eia_columns()
+    if not os.path.exists("../data/downloads/eia930/EBA_elec.csv"):
+        eia_columns = load_eia_columns()
 
-    # if not small, scrape 2 months before start of year for rolling window cleaning 
-    start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"  
-    # Scrape 1 week if small, else 1 year
-    end = f"{year}0107T23Z" if small else f"{year}1231T23Z"
+        # if not small, scrape 2 months before start of year for rolling window cleaning
+        start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"
+        # Scrape 1 week if small, else 1 year
+        end = f"{year}0107T23Z" if small else f"{year}1231T23Z"
 
-    data_folder = (
-        "../data/downloads/eia930/small/" if small else "../data/downloads/eia930/"
-    )
-    os.makedirs(data_folder, exist_ok=True)
+        data_folder = (
+            "../data/downloads/eia930/small/" if small else "../data/downloads/eia930/"
+        )
+        os.makedirs(data_folder, exist_ok=True)
 
-    # If small, use Chalendar raw file instead of re-downloading all 
-    raw_file = (
-        "../data/downloads/eia930/chalendar/EBA_raw.csv" if small else join(data_folder, "EBA_unadjusted_raw.csv")
-    )
+        # If small, use Chalendar raw file instead of re-downloading all
+        raw_file = (
+            "../data/downloads/eia930/chalendar/EBA_raw.csv"
+            if small
+            else join(data_folder, "EBA_unadjusted_raw.csv")
+        )
 
-    # Scrape 930
-    if rescrape:
-        # Setup scraper
-        print("Scraping EIA data from %s to %s" % (start, end))
-        scraper = EBA_data_scraper()
+        # Scrape 930
+        if rescrape:
+            # Setup scraper
+            print("Scraping EIA data from %s to %s" % (start, end))
+            scraper = EBA_data_scraper()
+            if small:
+                # Just scrape a few columns to make sure API is working
+                eia_columns = [
+                    "EBA.CISO-ALL.NG.H",
+                    "EBA.CISO-ALL.D.H",
+                    "EBA.CISO-ALL.TI.H",
+                ]
+
+            # Scrape
+            df = scraper.scrape(eia_columns, start=start, end=end, split_calls=True)
+
+            # Save
+            if (
+                small
+            ):  # This is just a subset of files, not useful for the rest of processing.
+                df.to_csv(join(data_folder, "EBA_unadjusted_raw_subset.csv"))
+            else:
+                df.to_csv(raw_file)
+
+        else:
+            if not exists(raw_file):
+                raise FileNotFoundError(
+                    f"Not rescraping EIA data, but no scraped file {raw_file}"
+                )
+
+        # Whether freshly scraped or not, read raw data
+        df = pd.read_csv(raw_file, index_col=0, parse_dates=True)
         if small:
-            # Just scrape a few columns to make sure API is working
-            eia_columns = ["EBA.CISO-ALL.NG.H", "EBA.CISO-ALL.D.H", "EBA.CISO-ALL.TI.H"]
+            df = df.loc[start:end]  # Don't worry about processing everything
 
-        # Scrape 
-        df = scraper.scrape(eia_columns, start=start, end=end, split_calls=True)
+        # Adjust
+        print("Adjusting EIA-930 time stamps")
+        df = manual_930_adjust(df)
+        df.to_csv(
+            join(data_folder, "EBA_raw.csv")
+        )  # Will be read by gridemissions workflow
 
-        # Save 
-        if small:  # This is just a subset of files, not useful for the rest of processing.
-            df.to_csv(join(data_folder, "EBA_unadjusted_raw_subset.csv"))
-        else: 
-            df.to_csv(raw_file)
-
+        # Run cleaning
+        print("Running physics-based data cleaning")
+        make_dataset(
+            start,
+            end,
+            file_name="EBA",
+            tmp_folder=data_folder,
+            folder_hist=data_folder,
+            scrape=False,
+            add_ca_fuels=False,
+            calc_consumed=False,
+        )
     else:
-        if not exists(raw_file):
-            raise FileNotFoundError(
-                f"Not rescraping EIA data, but no scraped file {raw_file}"
-            )
-    
-    # Whether freshly scraped or not, read raw data
-    df = pd.read_csv(raw_file, index_col=0, parse_dates=True)
-    if small: 
-        df = df.loc[start:end] # Don't worry about processing everything 
-
-    # Adjust
-    print("Adjusting EIA-930 time stamps")
-    df = manual_930_adjust(df)
-    df.to_csv(
-        join(data_folder, "EBA_raw.csv")
-    )  # Will be read by gridemissions workflow
-
-    # Run cleaning
-    print("Running physics-based data cleaning")
-    make_dataset(start, end, file_name="EBA", tmp_folder=data_folder, 
-        folder_hist=data_folder, scrape=False, add_ca_fuels=False, calc_consumed=False)
+        print("   Skipping EIA-930 scraping/cleaning as already completed.")
 
 
 def reformat_chalendar(raw):
