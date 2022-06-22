@@ -1,4 +1,3 @@
-from math import comb
 import src.load_data as load_data
 from src.column_checks import apply_dtypes
 import pandas as pd
@@ -81,8 +80,6 @@ def calculate_hourly_profiles(
     ] = hourly_profiles.loc[
         hourly_profiles["profile_method"] == "imputed_profile", "imputation_method"
     ]
-    hourly_profiles = hourly_profiles.drop(columns=["imputation_method"])
-
     hourly_profiles = hourly_profiles.drop(columns=["imputation_method"])
 
     # round the data to the nearest tenth
@@ -550,7 +547,7 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     hourly_profiles["cems_profile"] = hourly_profiles["cems_profile"].fillna(
         hourly_profiles["net_generation_mwh"]
     )
-    hourly_profiles = hourly_profiles.drop(columns=["net_generation_mwh", "zero"])
+    hourly_profiles = hourly_profiles.drop(columns=["net_generation_mwh"])
 
     return hourly_profiles
 
