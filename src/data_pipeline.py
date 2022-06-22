@@ -272,12 +272,16 @@ def main():
     # 9. Clean and Reconcile EIA-930 data
     print("Cleaning EIA-930 data")
     # Cleans data in data/downloads/eia930, outputs cleaned file at data/downloads/eia930/balance/EBA_elec.csv
-    eia930.clean_930(year, rescrape=True, small=args.small)
-    # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles. 
-    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if args.small else "../data/downloads/eia930/EBA_elec.csv"
+    # For `small`, always run cleaning so we know it works. For not-small, only run if we haven't before.
+    if (args.small) or not(os.path.exists("../data/downloads/eia930/balance/EBA_elec.csv")):
+        eia930.clean_930(year, small=args.small)
+    else:
+        print("Not re-running 930 data cleaning. If you want to re-run, please delete `../data/downloads/eia930/balance/`")
+    # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
+    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if args.small else "../data/downloads/eia930/balance/EBA_elec.csv"
     eia930_data = eia930.load_chalendar_for_pipeline(
         clean_930_file, year=year
-    )  
+    )
 
     # 10. Calculate Residual Net Generation Profile
     print("Calculating residual net generation profiles from EIA-930")
