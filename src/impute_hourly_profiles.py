@@ -21,6 +21,86 @@ FUEL_NUMBERS = {
 }
 
 
+def calculate_hourly_profiles(
+    cems,
+    eia930_data,
+    plant_attributes,
+    monthly_eia_data_to_shape,
+    year: int,
+    transmission_only=False,
+    ba_column_name="ba_code",
+):
+    residual_profiles = calculate_residual(
+        cems,
+        eia930_data,
+        plant_attributes,
+        year,
+        transmission_only=transmission_only,
+        ba_column_name=ba_column_name,
+    )
+
+    # load profile data and format for use in the pipeline
+    hourly_profiles = impute_missing_hourly_profiles(
+        monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
+    )
+    hourly_profiles = add_missing_cems_profiles(hourly_profiles, cems, plant_attributes)
+
+    # if there are any months that have incomplete cems data, replace the cems profile with na
+    incomplete_cems = hourly_profiles.loc[
+        hourly_profiles["cems_profile"].isna(),
+        ["ba_code", "fuel_category", "report_date"],
+    ].drop_duplicates()
+    hourly_profiles = hourly_profiles.merge(
+        incomplete_cems,
+        how="outer",
+        on=["ba_code", "fuel_category", "report_date"],
+        indicator="source",
+    )
+    hourly_profiles.loc[(hourly_profiles["source"] == "both"), "cems_profile"] = np.NaN
+    hourly_profiles = hourly_profiles.drop(columns="source")
+
+    hourly_profiles["profile"] = np.NaN
+    hourly_profiles["profile_method"] = np.NaN
+    # specify the profile as the best available data
+    for source_column in [
+        "residual_profile",
+        "eia930_profile",
+        "cems_profile",
+        "imputed_profile",
+    ]:
+        hourly_profiles.loc[
+            hourly_profiles["profile"].isna() & ~hourly_profiles[source_column].isna(),
+            "profile_method",
+        ] = source_column
+        hourly_profiles["profile"] = hourly_profiles["profile"].fillna(
+            hourly_profiles[source_column]
+        )
+
+    hourly_profiles.loc[
+        hourly_profiles["profile_method"] == "imputed_profile", "profile_method"
+    ] = hourly_profiles.loc[
+        hourly_profiles["profile_method"] == "imputed_profile", "imputation_method"
+    ]
+    hourly_profiles = hourly_profiles.drop(columns=["imputation_method"])
+
+    hourly_profiles = hourly_profiles.drop(columns=["imputation_method"])
+
+    # round the data to the nearest tenth
+    hourly_profiles["profile"] = hourly_profiles["profile"].round(1)
+
+    print("Summary of methods used to estimate missing hourly profiles:")
+    print(
+        hourly_profiles[["ba_code", "fuel_category", "report_date", "profile_method"]]
+        .drop_duplicates()
+        .drop(columns=["ba_code"])
+        .pivot_table(index="fuel_category", columns="profile_method", aggfunc="count")
+        .fillna(0)
+        .astype(int)
+    )
+
+    return hourly_profiles
+
+
 def aggregate_for_residual(
     cems,
     plant_attributes,
@@ -35,9 +115,9 @@ def aggregate_for_residual(
 
     Utility function for trying different BA aggregations in 930 and 923 data
     """
-    cems_profiles_for_non_930_fuels = aggregate_non_930_fuel_categories(
+    """cems_profiles_for_non_930_fuels = aggregate_non_930_fuel_categories(
         cems, plant_attributes
-    )
+    )"""
 
     if transmission:
         cems = cems[cems["distribution_flag"] == False]
@@ -54,14 +134,10 @@ def aggregate_for_residual(
         cems = cems.rename(columns={"ba_code_physical": "ba_code",})
 
     # clean up the eia930 data before merging
-    cems = cems.rename(
-        columns={
-            "fuel_category_eia930": "fuel_category",
-        }
-    )
+    cems = cems.rename(columns={"fuel_category_eia930": "fuel_category",})
 
     # concatenate the data for the different fuel categories together
-    cems = pd.concat([cems, cems_profiles_for_non_930_fuels], axis=0, ignore_index=True)
+    # cems = pd.concat([cems, cems_profiles_for_non_930_fuels], axis=0, ignore_index=True)
 
     # rename the net generation column to cems profile
     cems = cems.rename(columns={"net_generation_mwh": "cems_profile"})
@@ -131,11 +207,7 @@ def calculate_residual(
     cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
 
     cems_agg = aggregate_for_residual(
-        cems,
-        plant_attributes,
-        "datetime_utc",
-        ba_column_name,
-        transmission_only,
+        cems, plant_attributes, "datetime_utc", ba_column_name, transmission_only,
     )
 
     # clean up the eia930 data before merging
@@ -152,7 +224,7 @@ def calculate_residual(
 
     # combine the data from both sources together
     combined_data = eia930_data.merge(
-        cems_agg, how="outer", on=["ba_code", "fuel_category", "datetime_utc"]
+        cems_agg, how="left", on=["ba_code", "fuel_category", "datetime_utc"]
     )
 
     # if there is no cems data for a ba-fuel, replace missing values with zero
@@ -235,7 +307,7 @@ def create_flat_profile(report_date, ba, fuel):
         columns=["ba_code", "fuel_category"],
     ).reset_index()
 
-    df_temporary["profile"] = 1.0
+    df_temporary["imputed_profile"] = 1.0
     df_temporary["datetime_local"] = df_temporary["datetime_utc"]
     df_temporary["datetime_local"] = df_temporary["datetime_utc"].dt.tz_convert(
         load_data.ba_timezone(ba=ba, type="local")
@@ -265,14 +337,10 @@ def impute_missing_hourly_profiles(
         str
     )
 
-    residual_profiles = residual_profiles.rename(
-        columns={"fuel_category_eia930": "fuel_category"}
-    )
-
     # round the data to the nearest tenth
-    residual_profiles["profile"] = residual_profiles["profile"].round(1)
+    # residual_profiles["profile"] = residual_profiles["profile"].round(1)
 
-    missing_profiles, residual_profiles = identify_missing_profiles(
+    missing_profiles = identify_missing_profiles(
         monthly_eia_data_to_shape, residual_profiles, plant_attributes
     )
 
@@ -314,22 +382,22 @@ def impute_missing_hourly_profiles(
         elif fuel in ["geothermal", "biomass", "waste", "nuclear"]:
             # assign a flat profile
             df_temporary = create_flat_profile(report_date, ba, fuel)
-            df_temporary["profile_method"] = "assumed_flat"
+            df_temporary["imputation_method"] = "assumed_flat"
 
         # For now assume hydro is dispatched with a flat profile
         # TODO improve this assumption
         elif fuel in ["hydro"]:
             df_temporary = create_flat_profile(report_date, ba, fuel)
-            df_temporary["profile_method"] = "assumed_flat"
+            df_temporary["imputation_method"] = "assumed_flat"
         # for any other fossil resources, use a flat profile
         # NOTE: we need to improve this method
         elif fuel in ["natural_gas", "coal", "petroleum"]:
             df_temporary = create_flat_profile(report_date, ba, fuel)
-            df_temporary["profile_method"] = "assumed_flat"
+            df_temporary["imputation_method"] = "assumed_flat"
         elif fuel in ["other"]:
             # assign a flat profile
             df_temporary = create_flat_profile(report_date, ba, fuel)
-            df_temporary["profile_method"] = "assumed_flat"
+            df_temporary["imputation_method"] = "assumed_flat"
         else:
             raise UserWarning(f"Fuel category {fuel} not recognized.")
 
@@ -341,17 +409,8 @@ def impute_missing_hourly_profiles(
 
     hourly_profiles = pd.concat([residual_profiles, hourly_profiles_to_add], axis=0)
 
-    # round the data to the nearest tenth
-    hourly_profiles["profile"] = hourly_profiles["profile"].round(1)
-
-    print("Summary of methods used to estimate missing hourly profiles:")
-    print(
-        hourly_profiles[["ba_code", "fuel_category", "report_date", "profile_method"]]
-        .drop_duplicates()
-        .drop(columns=["ba_code"])
-        .pivot_table(index="fuel_category", columns="profile_method", aggfunc="count")
-        .fillna(0)
-        .astype(int)
+    hourly_profiles["datetime_utc"] = pd.to_datetime(
+        hourly_profiles["datetime_utc"], utc=True
     )
 
     return hourly_profiles
@@ -366,14 +425,15 @@ def identify_missing_profiles(
         "fuel_category",
         "report_date",
     ]
-    ba_fuel_months_with_zero_generation = (
+    """ba_fuel_months_with_zero_generation = (
         residual_profiles.groupby(MONTHLY_GROUP_COLUMNS, dropna=False)
         .sum()
         .reset_index()
     )
     # identify the BA fuel months that have zero reported generation
     ba_fuel_months_with_zero_generation = ba_fuel_months_with_zero_generation.loc[
-        ba_fuel_months_with_zero_generation["profile"] == 0, MONTHLY_GROUP_COLUMNS
+        ba_fuel_months_with_zero_generation["residual_profile"] == 0,
+        MONTHLY_GROUP_COLUMNS,
     ]
 
     # remove residual profiles that are all zeros
@@ -384,7 +444,7 @@ def identify_missing_profiles(
         indicator="source",
     )
     residual_profiles = residual_profiles[residual_profiles["source"] == "left_only"]
-    residual_profiles = residual_profiles.drop(columns="source")
+    residual_profiles = residual_profiles.drop(columns="source")"""
 
     # determine for which BA-fuels we are missing residual profiles
     available_profiles = residual_profiles[MONTHLY_GROUP_COLUMNS].drop_duplicates()
@@ -402,9 +462,10 @@ def identify_missing_profiles(
     )
     # identify ba fuel months where there is no data in the available residual profiles
     missing_profiles = missing_profiles[missing_profiles.source == "left_only"]
+    missing_profiles = missing_profiles.drop(columns="source")
     missing_profiles = missing_profiles.sort_values(by=MONTHLY_GROUP_COLUMNS)
 
-    return missing_profiles, residual_profiles
+    return missing_profiles
 
 
 def average_diba_wind_solar_profiles(
@@ -419,8 +480,9 @@ def average_diba_wind_solar_profiles(
     ]
     if len(df_temporary) == 0:
         # if this error is raised, we might have to implement an approach that uses average values for the wider region
-        raise UserWarning(
-            f"There is no {fuel} data for the balancing authorities interconnected to {ba}"
+        print(f"   There is no {fuel} data in the DIBAs for {ba}: {ba_dibas}")
+        df_temporary = average_national_wind_solar_profiles(
+            residual_profiles, ba, fuel, report_date
         )
     else:
         df_temporary = (
@@ -428,11 +490,14 @@ def average_diba_wind_solar_profiles(
                 ["fuel_category", "datetime_utc", "datetime_local", "report_date",],
                 dropna=False,
             )
-            .mean()
+            .mean()["eia930_profile"]
             .reset_index()
         )
         df_temporary["ba_code"] = ba
-        df_temporary["profile_method"] = "DIBA_average"
+        df_temporary["imputation_method"] = "DIBA_average"
+        df_temporary = df_temporary.rename(
+            columns={"eia930_profile": "imputed_profile"}
+        )
 
     return df_temporary
 
@@ -448,11 +513,12 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
         df_temporary.groupby(
             ["fuel_category", "datetime_local", "report_date",], dropna=False,
         )
-        .mean()
+        .mean()["eia930_profile"]
         .reset_index()
     )
     df_temporary["ba_code"] = ba
-    df_temporary["profile_method"] = "national_average"
+    df_temporary["imputation_method"] = "national_average"
+    df_temporary = df_temporary.rename(columns={"eia930_profile": "imputed_profile"})
 
     # re-localize the datetime_local
     local_tz = load_data.ba_timezone(ba, "local")
@@ -467,6 +533,28 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     return df_temporary
 
 
+def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
+    # add ba-fuel data and aggregate cems by ba-fuel
+    cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
+    cems = (
+        cems.groupby(["ba_code", "fuel_category", "datetime_utc"], dropna=False)
+        .sum()["net_generation_mwh"]
+        .reset_index()
+    )
+
+    # fill missing cems profile data
+    hourly_profiles = hourly_profiles.merge(
+        cems, how="left", on=["ba_code", "fuel_category", "datetime_utc"]
+    )
+
+    hourly_profiles["cems_profile"] = hourly_profiles["cems_profile"].fillna(
+        hourly_profiles["net_generation_mwh"]
+    )
+    hourly_profiles = hourly_profiles.drop(columns=["net_generation_mwh", "zero"])
+
+    return hourly_profiles
+
+
 def convert_profile_to_percent(hourly_profiles):
     """converts hourly timeseries profiles from absolute mwh to percentage of monthly total mwh."""
     # convert the profile so that each hour is a percent of the monthly total
@@ -477,8 +565,11 @@ def convert_profile_to_percent(hourly_profiles):
         "profile_method",
     ]
 
+    monthly_total = hourly_profiles.loc[:, MONTHLY_GROUP_COLUMNS + ["profile"]]
+    monthly_total["profile"] = abs(monthly_total["profile"])
+
     monthly_total = (
-        hourly_profiles.groupby(MONTHLY_GROUP_COLUMNS, dropna=False).sum().reset_index()
+        monthly_total.groupby(MONTHLY_GROUP_COLUMNS, dropna=False).sum().reset_index()
     )
 
     hourly_profiles = hourly_profiles.merge(
@@ -600,7 +691,7 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
 
     # merge the hourly profiles into each plant-month
     shaped_monthly_data = monthly_eia_data_to_shape.merge(
-        hourly_profiles, how="left", on=["report_date", "fuel_category", "ba_code"]
+        hourly_profiles[["report_date", "fuel_category", "ba_code","profile"]], how="left", on=["report_date", "fuel_category", "ba_code"]
     )
 
     # plant-months where there is negative net generation, assign a flat profile

@@ -270,7 +270,7 @@ def main():
     )
     eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
 
-    # 10. Calculate Residual Net Generation Profile
+    # 10. Calculate hourly profiles for monthly EIA data
     print("10. Calculating residual net generation profiles from EIA-930")
 
     # aggregate cems data to subplant level
@@ -279,7 +279,14 @@ def main():
     # drop data from cems that is now in partial_cems
     cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
 
-    residual_profiles = impute_hourly_profiles.calculate_residual(
+    # create a separate dataframe containing only the EIA data that is missing from cems
+    monthly_eia_data_to_shape = eia923_allocated[
+        (eia923_allocated["hourly_data_source"] == "eia")
+        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
+    ]
+    del eia923_allocated
+
+    hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
         cems,
         eia930_data,
         plant_attributes,
@@ -288,24 +295,14 @@ def main():
         ba_column_name="ba_code",
     )
     del eia930_data
+
     output_data.output_intermediate_data(
-        residual_profiles, "residual_profiles", path_prefix, year
+        hourly_profiles, "hourly_profiles", path_prefix, year
     )
 
     # 11. Assign hourly profile to monthly data
     print("11. Assigning hourly profile to monthly EIA-923 data")
-    # create a separate dataframe containing only the EIA data that is missing from cems
-    monthly_eia_data_to_shape = eia923_allocated[
-        (eia923_allocated["hourly_data_source"] == "eia")
-        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
-    ]
-    del eia923_allocated
-    # load profile data and format for use in the pipeline
-    # TODO: once this is in the pipeline (step 10), may not need to read file
-    hourly_profiles = impute_hourly_profiles.impute_missing_hourly_profiles(
-        monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
-    )
-    del residual_profiles
+
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
     # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
