@@ -280,7 +280,12 @@ def main():
     cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
 
     residual_profiles = impute_hourly_profiles.calculate_residual(
-        cems, eia930_data, plant_attributes, year
+        cems,
+        eia930_data,
+        plant_attributes,
+        year,
+        transmission_only=False,
+        ba_column_name="ba_code",
     )
     del eia930_data
     output_data.output_intermediate_data(

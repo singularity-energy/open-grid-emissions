@@ -118,13 +118,14 @@ COLUMNS = {
     },
     "residual_profiles_": {
         "ba_code",
-        "fuel_category_eia930",
+        "fuel_category",
         "datetime_utc",
         "datetime_local",
         "report_date",
-        "profile",
-        "profile_scaled",
-        "profile_method",
+        "eia930_profile",
+        "cems_profile",
+        "residual_profile",
+        "scaled_residual_profile",
     },
     "shaped_eia923_data_": {
         "plant_id_eia",

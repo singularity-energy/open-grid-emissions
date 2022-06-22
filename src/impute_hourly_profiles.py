@@ -22,7 +22,8 @@ FUEL_NUMBERS = {
 
 
 def aggregate_for_residual(
-    data,
+    cems,
+    plant_attributes,
     time_key: str = "datetime_utc",
     ba_key: str = "ba_code",
     transmission: bool = False,
@@ -34,22 +35,71 @@ def aggregate_for_residual(
 
     Utility function for trying different BA aggregations in 930 and 923 data
     """
-    if transmission:
-        data = data[data["distribution_flag"] == False]
+    cems_profiles_for_non_930_fuels = aggregate_non_930_fuel_categories(
+        cems, plant_attributes
+    )
 
-    data = (
-        data.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)[
+    if transmission:
+        cems = cems[cems["distribution_flag"] == False]
+
+    cems = (
+        cems.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)[
             "net_generation_mwh"
         ]
         .sum()
         .reset_index()
-        .rename(columns={"ba_code_physical": "ba_code",})
     )
 
-    return data
+    if ba_key == "ba_code_physical":
+        cems = cems.rename(columns={"ba_code_physical": "ba_code",})
+
+    # clean up the eia930 data before merging
+    cems = cems.rename(
+        columns={
+            "fuel_category_eia930": "fuel_category",
+        }
+    )
+
+    # concatenate the data for the different fuel categories together
+    cems = pd.concat([cems, cems_profiles_for_non_930_fuels], axis=0, ignore_index=True)
+
+    # rename the net generation column to cems profile
+    cems = cems.rename(columns={"net_generation_mwh": "cems_profile"})
+
+    return cems
 
 
-def calculate_residual(cems, eia930_data, plant_attributes, year: int):
+def aggregate_non_930_fuel_categories(cems, plant_attributes):
+
+    # get a list of the fuel categories not in EIA-930
+    fuel_categories_not_in_eia930 = list(
+        set(plant_attributes.fuel_category.unique())
+        - set(plant_attributes.fuel_category_eia930.unique())
+    )
+
+    # create a new dataframe with only these fuels grouped together
+    cems_profiles_for_non_930_fuels = cems.loc[
+        cems["fuel_category"].isin(fuel_categories_not_in_eia930),
+        ["ba_code", "fuel_category", "datetime_utc", "net_generation_mwh"],
+    ]
+    cems_profiles_for_non_930_fuels = (
+        cems_profiles_for_non_930_fuels.groupby(
+            ["ba_code", "fuel_category", "datetime_utc"], dropna=False
+        )
+        .sum()
+        .reset_index()
+    )
+    return cems_profiles_for_non_930_fuels
+
+
+def calculate_residual(
+    cems,
+    eia930_data,
+    plant_attributes,
+    year: int,
+    transmission_only=False,
+    ba_column_name="ba_code",
+):
     """
         calculate_residual
     Inputs: 
@@ -59,6 +109,8 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
             `net_generation_mwh_930`
         `plant_frame` dataframe of static plant data containing columns 
             `plant_id_eia`, `ba_code`, `ba_code_physical`
+        transmission_only: true or false, only use plants that are connected to transmission grid?
+        ba_column_name: string, either "ba_code" or "ba_code_physical" - which BA assignment to use.
     Returns: 
         Dataframe of hourly profiles, containing columns
 
@@ -74,55 +126,56 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
             always <= the 930 data
         3. Multiply all hourly CEMS values by the scaling factor
     """
-    # Options for how to group. Could make command line arguments if needed.
-    # transmission = True and physical BA code is based on EIA-930 instructions
-    TRANSMISSION = False  # use only transmission-level connections?
-    BA_CODE = "ba_code"  # ba_code or ba_code_physical?
 
     # Name column same as 930, hourly_profiles.
     cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
 
-    cems = aggregate_for_residual(
-        cems, "datetime_utc", BA_CODE, transmission=TRANSMISSION
+    cems_agg = aggregate_for_residual(
+        cems,
+        plant_attributes,
+        "datetime_utc",
+        ba_column_name,
+        transmission_only,
     )
-    combined_data = eia930_data.merge(
-        cems, how="left", on=["ba_code", "fuel_category_eia930", "datetime_utc"]
+
+    # clean up the eia930 data before merging
+    eia930_data = eia930_data.rename(
+        columns={
+            "fuel_category_eia930": "fuel_category",
+            "net_generation_mwh_930": "eia930_profile",
+        }
     )
     # only keep rows where local datetime is in the current year
-    combined_data = combined_data[
-        combined_data["datetime_local"].apply(lambda x: x.year) == year
+    eia930_data = eia930_data[
+        eia930_data["datetime_local"].apply(lambda x: x.year) == year
     ]
 
+    # combine the data from both sources together
+    combined_data = eia930_data.merge(
+        cems_agg, how="outer", on=["ba_code", "fuel_category", "datetime_utc"]
+    )
+
     # if there is no cems data for a ba-fuel, replace missing values with zero
-    combined_data["net_generation_mwh"] = combined_data["net_generation_mwh"].fillna(0)
+    combined_data["cems_profile"] = combined_data["cems_profile"].fillna(0)
 
     combined_data = calculate_scaled_residual(combined_data)
 
     # calculate the residual
-    combined_data["profile"] = (
-        combined_data["net_generation_mwh_930"] - combined_data["net_generation_mwh"]
+    combined_data["residual_profile"] = (
+        combined_data["eia930_profile"] - combined_data["cems_profile"]
     )
-
-    # identify the method used to calculate the profile
-    # if the scaling factor is 1, then the profile was not scaled
-    """combined_data = combined_data.assign(
-        profile_method=lambda x: np.where(
-            (x.scaling_factor == 1), "residual", "scaled_residual"
-        )
-    )"""
-
-    combined_data['profile_method'] = "residual"
 
     return combined_data[
         [
             "ba_code",
-            "fuel_category_eia930",
+            "fuel_category",
             "datetime_utc",
             "datetime_local",
             "report_date",
-            "profile",
-            "profile_scaled",
-            "profile_method"
+            "eia930_profile",
+            "cems_profile",
+            "residual_profile",
+            "scaled_residual_profile",
         ]
     ]
 
@@ -130,16 +183,15 @@ def calculate_residual(cems, eia930_data, plant_attributes, year: int):
 def calculate_scaled_residual(combined_data):
     # Find scaling factor
     # only keep data where the cems data is greater than zero
-    scaling_factors = combined_data.copy()[combined_data["net_generation_mwh"] != 0]
+    scaling_factors = combined_data.copy()[combined_data["cems_profile"] != 0]
     # calculate the ratio of 930 net generation to cems net generation
     # if correct, ratio should be >=1
     scaling_factors["scaling_factor"] = (
-        scaling_factors["net_generation_mwh_930"]
-        / scaling_factors["net_generation_mwh"]
+        scaling_factors["eia930_profile"] / scaling_factors["cems_profile"]
     )
     # find the minimum ratio for each ba-fuel
     scaling_factors = (
-        scaling_factors.groupby(["ba_code", "fuel_category_eia930"], dropna=False)[
+        scaling_factors.groupby(["ba_code", "fuel_category"], dropna=False)[
             "scaling_factor"
         ]
         .min()
@@ -152,18 +204,18 @@ def calculate_scaled_residual(combined_data):
     # merge the scaling factor into the combined data
     # for any BA-fuels without a scaling factor, fill with 1 (scale to 100% of the origina data)
     combined_data = combined_data.merge(
-        scaling_factors, how="left", on=["ba_code", "fuel_category_eia930"]
-    ).fillna(1)
+        scaling_factors, how="left", on=["ba_code", "fuel_category"]
+    )
+    combined_data["scaling_factor"] = combined_data["scaling_factor"].fillna(1)
 
     # calculate the scaled cems data
-    combined_data["net_generation_mwh_scaled"] = (
-        combined_data["net_generation_mwh"] * combined_data["scaling_factor"]
+    combined_data["cems_profile_scaled"] = (
+        combined_data["cems_profile"] * combined_data["scaling_factor"]
     )
 
     # calculate the residual
-    combined_data["profile_scaled"] = (
-        combined_data["net_generation_mwh_930"]
-        - combined_data["net_generation_mwh_scaled"]
+    combined_data["scaled_residual_profile"] = (
+        combined_data["eia930_profile"] - combined_data["cems_profile_scaled"]
     )
 
     return combined_data
