@@ -176,7 +176,8 @@ def main():
     # for `small` run, we'll only clean 1 week, so need chalander file for making profiles
     download_data.download_chalendar_files()
     # We use balance files for imputing missing hourly profiles. TODO use cleaned instead?
-    download_data.download_eia930_data(years_to_download=[year])
+    # need last year for rolling data cleaning 
+    download_data.download_eia930_data(years_to_download=[year, year-1])
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(
@@ -270,10 +271,10 @@ def main():
 
     # 9. Clean and Reconcile EIA-930 data
     print("Cleaning EIA-930 data")
-    # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
-    eia930.scrape_and_clean_930(year, rescrape=True, small=small)
+    # Cleans data in data/downloads/eia930, outputs cleaned file at data/downloads/eia930/balance/EBA_elec.csv
+    eia930.clean_930(year, rescrape=True, small=args.small)
     # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles. 
-    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if small else "../data/downloads/eia930/EBA_elec.csv"
+    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if args.small else "../data/downloads/eia930/EBA_elec.csv"
     eia930_data = eia930.load_chalendar_for_pipeline(
         clean_930_file, year=year
     )  
