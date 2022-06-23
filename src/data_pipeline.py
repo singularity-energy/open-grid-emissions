@@ -154,13 +154,14 @@ def main():
             f"../data/results/{path_prefix}validation_metrics/{unit}", exist_ok=True
         )
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
-            for subfolder in ["plant_data","carbon_accounting", "power_sector_data"]:
+            for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
                 os.makedirs(
                     f"../data/results/{path_prefix}/{subfolder}/{time_resolution}/{unit}",
                     exist_ok=True,
                 )
 
     # 1. Download data
+    print("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(
         zenodo_url="https://zenodo.org/record/6349861/files/pudl-v0.6.0-2022-03-12.tgz"
@@ -184,14 +185,17 @@ def main():
     )
 
     # 2. Identify subplants
+    print("2. Identifying subplant IDs")
     # GTN ratios are saved for reloading, as this is computationally intensive
     if not os.path.exists(f"../data/outputs/{year}/subplant_crosswalk.csv"):
-        print("Generating subplant IDs and gross to net calcuations")
+        print("   Generating subplant IDs")
         number_of_years = args.gtn_years
         gross_to_net_generation.identify_subplants(year, number_of_years)
+    else:
+        print("   Subplant IDs already created")
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
-    print("Cleaning EIA-923 data")
+    print("3. Cleaning EIA-923 data")
     eia923_allocated, primary_fuel_table = data_cleaning.clean_eia923(year, args.small)
 
     # Add primary fuel data to each generator
@@ -203,10 +207,11 @@ def main():
     )
 
     # 4. Clean Hourly Data from CEMS
-    print("Cleaning CEMS data")
+    print("4. Cleaning CEMS data")
     cems = data_cleaning.clean_cems(year, args.small)
 
     # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
+    print("5. Loading plant static attributes")
     plant_attributes = data_cleaning.create_plant_attributes_table(
         cems, eia923_allocated, year, primary_fuel_table
     )
@@ -218,7 +223,7 @@ def main():
     )
 
     # 6. Convert CEMS Hourly Gross Generation to Hourly Net Generation
-    print("Converting CEMS gross generation to net generation")
+    print("6. Converting CEMS gross generation to net generation")
     cems, gtn_conversions = data_cleaning.convert_gross_to_net_generation(
         cems, eia923_allocated, plant_attributes
     )
@@ -227,23 +232,22 @@ def main():
     output_data.output_intermediate_data(
         gtn_conversions, "gross_to_net_conversions", path_prefix, year
     )
+    output_data.output_intermediate_data(cems, "cems", path_prefix, year)
 
     # 7. Crosswalk CEMS and EIA data
-    print("Identifying source for hourly data")
+    print("7. Identifying source for hourly data")
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
     )
 
     # 8. Calculate hourly data for partial_cems plants
-    print("Scaling partial CEMS data")
+    print("8. Scaling partial CEMS data")
     (
         partial_cems_scaled,
         eia923_allocated,
     ) = impute_hourly_profiles.scale_partial_cems_data(cems, eia923_allocated)
 
     # Export data cleaned by above for later validation, visualization, analysis
-    print("Exporting intermediate output files")
-    output_data.output_intermediate_data(cems, "cems", path_prefix, year)
     output_data.output_intermediate_data(
         eia923_allocated.drop(columns="plant_primary_fuel"),
         "eia923_allocated",
@@ -254,32 +258,27 @@ def main():
         partial_cems_scaled, "partial_cems_scaled", path_prefix, year
     )
 
+    # 9. Clean and Reconcile EIA-930 data
+    print("9. Cleaning EIA-930 data")
+    # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
+    eia930.scrape_and_clean_930(year, rescrape=True, small=args.small)
+    # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
+    clean_930_file = (
+        "../data/downloads/eia930/chalendar/EBA_elec.csv"
+        if args.small
+        else "../data/downloads/eia930/EBA_elec.csv"
+    )
+    eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
+
+    # 10. Calculate Residual Net Generation Profile
+    print("10. Calculating residual net generation profiles from EIA-930")
+
     # aggregate cems data to subplant level
     cems = data_cleaning.aggregate_cems_to_subplant(cems)
 
-    # 8b. split all data into three non-overlapping dataframes
     # drop data from cems that is now in partial_cems
     cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
 
-    # create a separate dataframe containing only the generators for which we do not have CEMS data
-    monthly_eia_data_to_shape = eia923_allocated[
-        (eia923_allocated["hourly_data_source"] == "eia")
-        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
-    ]
-    del eia923_allocated
-
-    # 9. Clean and Reconcile EIA-930 data
-    print("Cleaning EIA-930 data")
-    # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
-    eia930.scrape_and_clean_930(year, rescrape=True, small=small)
-    # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles. 
-    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if small else "../data/downloads/eia930/EBA_elec.csv"
-    eia930_data = eia930.load_chalendar_for_pipeline(
-        clean_930_file, year=year
-    )  
-
-    # 10. Calculate Residual Net Generation Profile
-    print("Calculating residual net generation profiles from EIA-930")
     residual_profiles = impute_hourly_profiles.calculate_residual(
         cems, eia930_data, plant_attributes, year
     )
@@ -289,7 +288,13 @@ def main():
     )
 
     # 11. Assign hourly profile to monthly data
-    print("Assigning hourly profile to monthly EIA-923 data")
+    print("11. Assigning hourly profile to monthly EIA-923 data")
+    # create a separate dataframe containing only the EIA data that is missing from cems
+    monthly_eia_data_to_shape = eia923_allocated[
+        (eia923_allocated["hourly_data_source"] == "eia")
+        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
+    ]
+    del eia923_allocated
     # load profile data and format for use in the pipeline
     # TODO: once this is in the pipeline (step 10), may not need to read file
     hourly_profiles = impute_hourly_profiles.impute_missing_hourly_profiles(
@@ -314,11 +319,11 @@ def main():
     )
 
     # 12. Combine plant-level data from all sources
+    print("12. Combining and exporting plant-level hourly results")
     # write metadata and remove metadata columns
     cems, partial_cems_scaled, shaped_eia_data = output_data.write_plant_metadata(
         cems, partial_cems_scaled, shaped_eia_data, path_prefix
     )
-
     combined_plant_data = data_cleaning.combine_plant_data(
         cems, partial_cems_scaled, shaped_eia_data
     )
@@ -327,8 +332,8 @@ def main():
     # export to a csv.
     output_data.output_plant_data(combined_plant_data, path_prefix)
 
-    print("Aggregating to BA-fuel")
-    # 12. Aggregate CEMS data to BA-fuel and write power sector results
+    # 13. Aggregate CEMS data to BA-fuel and write power sector results
+    print("13. Creating and exporting BA-level power sector results")
     ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
         combined_plant_data, plant_attributes
     )
@@ -340,11 +345,10 @@ def main():
     # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix)
 
-    # 13. Calculate consumption-based emissions and write carbon accounting results
+    # 14. Calculate consumption-based emissions and write carbon accounting results
+    print("14. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
-        clean_930_file,
-        small=args.small,
-        path_prefix=path_prefix,
+        clean_930_file, small=args.small, path_prefix=path_prefix,
     )
     hourly_consumed_calc.process()
     hourly_consumed_calc.output_data(path_prefix=path_prefix)
