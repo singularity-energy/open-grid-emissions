@@ -45,7 +45,7 @@ def clean_eia923(year, small):
     )
 
     # create a table that identifies the primary fuel of each generator and plant
-    primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated, pudl_out)
+    primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated)
 
     if small:
         gen_fuel_allocated = smallerize_test_data(df=gen_fuel_allocated, random_seed=42)
@@ -156,7 +156,7 @@ def update_energy_source_codes(df):
     return df
 
 
-def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
+def create_primary_fuel_table(gen_fuel_allocated):
     """
     Identifies the primary fuel for each generator and plant
     Gen primary fuel is identified based on the "energy source code 1" identified in EIA-860
@@ -172,7 +172,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
         ["plant_id_eia", "generator_id", "energy_source_code"]
     ]
 
-    # create a blank dataframe with all of the plant ids to hold primary fuel data
+# create a blank dataframe with all of the plant ids to hold primary fuel data
     plant_primary_fuel = gen_fuel_allocated[["plant_id_eia"]].drop_duplicates()
 
     # calculate the total annual fuel consumption, generation, and capacity by fuel type
@@ -578,8 +578,6 @@ def adjust_emissions_for_biomass(df):
         df["n2o_mass_lb_adjusted"] = df["n2o_mass_lb_for_electricity"]
         df.loc[df["energy_source_code"] == "LFG", "n2o_mass_lb_adjusted"] = 0
     # nox gets assigned an adjusted value
-    # this value is based on using NOx emissions from flaring as a baseline, and subtracting this from the actual emissions
-    # to prevent negative emissions, we set the value = 0 if negative
     if "nox_mass_lb_for_electricity" in df.columns:
         df["nox_mass_lb_adjusted"] = df["nox_mass_lb_for_electricity"]
         df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = df.loc[
@@ -591,6 +589,7 @@ def adjust_emissions_for_biomass(df):
             * 0.078
         )
         df.loc[df["nox_mass_lb_adjusted"] < 0, "nox_mass_lb_adjusted"] = 0
+
     if "so2_mass_lb_for_electricity" in df.columns:
         df["so2_mass_lb_adjusted"] = df["so2_mass_lb_for_electricity"]
         df.loc[df["energy_source_code"] == "LFG", "so2_mass_lb_adjusted"] = 0
@@ -629,7 +628,7 @@ def remove_plants(
             ].plant_id_eia.unique()
         )
         print(
-            f"   Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
+            f"Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
         )
         df = df[~df["plant_id_eia"].isin(plants_in_states_to_remove)]
     if steam_only_plants:
@@ -664,7 +663,7 @@ def remove_non_grid_connected_plants(df):
             "plant_id_eia"
         ].unique()
     )
-    print(f"   Removing {num_plants} plants that are not grid-connected")
+    print(f"Removing {num_plants} plants that are not grid-connected")
 
     df = df[~df["plant_id_eia"].isin(ngc_plants)]
 
@@ -739,7 +738,7 @@ def clean_cems(year, small):
 
 
 def smallerize_test_data(df, random_seed=None):
-    print("   Randomly selecting 5% of plants for faster test run.")
+    print("Randomly selecting 5% of plants for faster test run.")
     # Select 5% of plants
     selected_plants = df.plant_id_eia.unique()
     if random_seed is not None:
@@ -764,7 +763,7 @@ def manually_remove_steam_units(df):
     )[["plant_id_eia", "unitid"]]
 
     print(
-        f"   Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
+        f"Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
     )
 
     df = df.merge(
@@ -1475,7 +1474,7 @@ def remove_cems_with_zero_monthly_data(cems):
     )
     # remove any observations with the missing data flag
     print(
-        f"   Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+        f"removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
     cems = cems[cems["missing_data_flag"] != "remove"]
     # drop the missing data flag column
@@ -1533,12 +1532,6 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
             EIA-923 values to scale the partial hourly CEMS data from the other units to match the total value for the entire subplant. This will also calculate a partial subplant scaling factor for each data column (e.g. net generation, fuel consumption) by comparing the total monthly CEMS data to the monthly EIA-923 data.
         3. `eia`: for subplant-months for which no hourly data is reported in CEMS, 
             we will attempt to use EIA-930 data to assign an hourly profile to the monthly EIA-923 data
-    Inputs:
-        eia923_allocated:
-        cems:
-        year:
-    Returns:
-        eia923_allocated with new column `hourly_data_source`
     """
 
     # aggregate cems data to plant-unit-month
@@ -1593,7 +1586,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
         .rename(columns={"unitid": "units_in_subplant"})
     )
 
-    # create a dataframe that counts the number of units reported in CEMS in each subplant-month
+    # identify the number of units reported in CEMS in each subplant-month
     cems_units_reported = (
         cems_monthly.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
@@ -1604,7 +1597,6 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
     )
 
     # merge in the total number of units that exist in each subplant
-    # this will allow us to compare where a subplant-month is missing data from one or more units
     cems_units_reported = cems_units_reported.merge(
         units_in_subplant, how="left", on=["plant_id_eia", "subplant_id"]
     )

@@ -14,7 +14,76 @@ from gridemissions.workflows import make_dataset
 from gridemissions.eia_api import EBA_data_scraper, load_eia_columns
 
 
-def scrape_and_clean_930(year: int, rescrape: bool = True, small: bool = False):
+def balance_to_gridemissions(year: int, small:bool=False):
+    files = ["../data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
+        "../data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv",
+        "../data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
+    ]
+
+    years = [year-1, year, year]
+
+    if small:
+        files = ["../data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv"]
+        years = [year]
+
+    name_map = {'Total Interchange (MW)':"EBA.{}-ALL.TI.H", 
+       'Interchange (MW)':"EBA.{}-{}.ID.H",
+       'Demand (MW) (Adjusted)':"EBA.{}-ALL.D.H",
+       'Net Generation (MW) (Adjusted)':"EBA.{}-ALL.NG.H", 
+       'Net Generation (MW) from Coal':"EBA.{}-ALL.NG.COL.H",
+       'Net Generation (MW) from Natural Gas':"EBA.{}-ALL.NG.NG.H",
+       'Net Generation (MW) from Nuclear':"EBA.{}-ALL.NG.NUC.H",
+       'Net Generation (MW) from All Petroleum Products':"EBA.{}-ALL.NG.OIL.H",
+       'Net Generation (MW) from Hydropower and Pumped Storage':"EBA.{}-ALL.NG.WAT.H",
+       'Net Generation (MW) from Solar': "EBA.{}-ALL.NG.SUN.H",
+       'Net Generation (MW) from Wind':"EBA.{}-ALL.NG.WND.H",
+       'Net Generation (MW) from Other Fuel Sources':"EBA.{}-ALL.NG.OTH.H",
+       'Net Generation (MW) from Unknown Fuel Sources':"EBA.{}-ALL.NG.UNK.H"}
+
+    out = pd.DataFrame()
+    for i, file in enumerate(files): 
+        dat_file = file.format("BALANCE", years[i])
+        int_file = file.format("INTERCHANGE", years[i])
+
+        # Format balance files in series format (for gridemissions)
+        dat = pd.read_csv(dat_file, 
+            usecols=['Balancing Authority', 
+            'UTC Time at End of Hour', 
+            'Total Interchange (MW)',  
+            'Demand (MW) (Adjusted)', 'Net Generation (MW) (Adjusted)', 
+            'Net Generation (MW) from Coal', 'Net Generation (MW) from Natural Gas', 'Net Generation (MW) from Nuclear', 
+            'Net Generation (MW) from All Petroleum Products', 'Net Generation (MW) from Hydropower and Pumped Storage', 
+            'Net Generation (MW) from Solar', 'Net Generation (MW) from Wind', 'Net Generation (MW) from Other Fuel Sources', 
+            'Net Generation (MW) from Unknown Fuel Sources'],
+            parse_dates=["UTC Time at End of Hour"],
+            thousands=',')
+        # Wide to long 
+        dat = dat.melt(id_vars=["Balancing Authority", "UTC Time at End of Hour"])
+        # Find series name 
+        dat["column"] = dat.apply(lambda x: name_map[x.variable].format(x["Balancing Authority"]), axis='columns')
+        # Long to wide 
+        dat = dat[["UTC Time at End of Hour", "value", "column"]].pivot(index="UTC Time at End of Hour", columns="column", values="value")
+
+        # Now for interchange 
+        int = pd.read_csv(int_file, 
+            usecols=['Balancing Authority', 'Directly Interconnected Balancing Authority', 'Interchange (MW)', 'UTC Time at End of Hour'],
+            parse_dates=["UTC Time at End of Hour"], thousands=',')
+        int["column"] = int.apply(lambda x: name_map["Interchange (MW)"].format(x["Balancing Authority"], x["Directly Interconnected Balancing Authority"]), 
+            axis='columns')
+        int = int[["UTC Time at End of Hour", "column", "Interchange (MW)"]].pivot(index="UTC Time at End of Hour", columns="column", values="Interchange (MW)")
+
+        # Combine 
+        dat = pd.concat([dat, int], axis='columns')
+        out = pd.concat([out, dat], axis='index')
+
+    out.index = out.index.tz_localize("UTC")
+    
+    return out 
+
+
+
+
+def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     """
         Scrape and process EIA data. 
     
@@ -23,82 +92,32 @@ def scrape_and_clean_930(year: int, rescrape: bool = True, small: bool = False):
 
     """
 
-    if not os.path.exists("../data/downloads/eia930/EBA_elec.csv"):
-        eia_columns = load_eia_columns()
 
-        # if not small, scrape 2 months before start of year for rolling window cleaning
-        start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"
-        # Scrape 1 week if small, else 1 year
-        end = f"{year}0107T23Z" if small else f"{year}1231T23Z"
+    data_folder = f"../data/outputs/{path_prefix}/eia930/"
 
-        data_folder = (
-            "../data/downloads/eia930/small/" if small else "../data/downloads/eia930/"
-        )
-        os.makedirs(data_folder, exist_ok=True)
+    # Format raw file 
+    df = balance_to_gridemissions(year, small=small)
+    raw_file = data_folder+"eia930_unadjusted_raw.csv"
+    df.to_csv(raw_file)
+    
+    # if not small, scrape 2 months before start of year for rolling window cleaning
+    start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"
+    # Scrape 1 week if small, else 1 year
+    end = f"{year}0107T23Z" if small else f"{year}1231T23Z"
+    if small:
+        df = df.loc[start:end]  # Don't worry about processing everything
 
-        # If small, use Chalendar raw file instead of re-downloading all
-        raw_file = (
-            "../data/downloads/eia930/chalendar/EBA_raw.csv"
-            if small
-            else join(data_folder, "EBA_unadjusted_raw.csv")
-        )
+    # Adjust
+    print("Adjusting EIA-930 time stamps")
+    df = manual_930_adjust(df)
+    df.to_csv(
+        join(data_folder, "eia930_raw.csv")
+    )  # Will be read by gridemissions workflow
 
-        # Scrape 930
-        if rescrape:
-            # Setup scraper
-            print("Scraping EIA data from %s to %s" % (start, end))
-            scraper = EBA_data_scraper()
-            if small:
-                # Just scrape a few columns to make sure API is working
-                eia_columns = [
-                    "EBA.CISO-ALL.NG.H",
-                    "EBA.CISO-ALL.D.H",
-                    "EBA.CISO-ALL.TI.H",
-                ]
-
-            # Scrape
-            df = scraper.scrape(eia_columns, start=start, end=end, split_calls=True)
-
-            # Save
-            if (
-                small
-            ):  # This is just a subset of files, not useful for the rest of processing.
-                df.to_csv(join(data_folder, "EBA_unadjusted_raw_subset.csv"))
-            else:
-                df.to_csv(raw_file)
-
-        else:
-            if not exists(raw_file):
-                raise FileNotFoundError(
-                    f"Not rescraping EIA data, but no scraped file {raw_file}"
-                )
-
-        # Whether freshly scraped or not, read raw data
-        df = pd.read_csv(raw_file, index_col=0, parse_dates=True)
-        if small:
-            df = df.loc[start:end]  # Don't worry about processing everything
-
-        # Adjust
-        print("Adjusting EIA-930 time stamps")
-        df = manual_930_adjust(df)
-        df.to_csv(
-            join(data_folder, "EBA_raw.csv")
-        )  # Will be read by gridemissions workflow
-
-        # Run cleaning
-        print("Running physics-based data cleaning")
-        make_dataset(
-            start,
-            end,
-            file_name="EBA",
-            tmp_folder=data_folder,
-            folder_hist=data_folder,
-            scrape=False,
-            add_ca_fuels=False,
-            calc_consumed=False,
-        )
-    else:
-        print("   Skipping EIA-930 scraping/cleaning as already completed.")
+    # Run cleaning
+    print("Running physics-based data cleaning")
+    make_dataset(start, end, file_name="eia930", tmp_folder=data_folder, 
+        folder_hist=data_folder, scrape=False, add_ca_fuels=False, calc_consumed=False)
 
 
 def reformat_chalendar(raw):
@@ -235,7 +254,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
 
 
 def get_columns(ba: str, columns):
-    GEN_ID = "EBA.{}-ALL.D.H"
+    GEN_ID = "EBA.{}-ALL.NG.H"
     GEN_TYPE_ID = "EBA.{}-ALL.NG.{}.H"
     DEM_ID = "EBA.{}-ALL.D.H"
     SRC = ["COL", "NG", "NUC", "OIL", "OTH", "SUN", "UNK", "WAT", "WND", "GEO", "BIO"]

@@ -790,8 +790,8 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
 
 def scale_partial_cems_data(cems, eia923_allocated):
     """Scales CEMS subplant data for which there is partial units reporting"""
-    SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
-    DATA_COLUMNS = [
+    subplant_keys = ["report_date", "plant_id_eia", "subplant_id"]
+    data_columns = [
         "fuel_consumed_mmbtu",
         "fuel_consumed_for_electricity_mmbtu",
         "net_generation_mwh",
@@ -817,17 +817,17 @@ def scale_partial_cems_data(cems, eia923_allocated):
         eia923_allocated.hourly_data_source == "partial_cems"
     ]
     partial_cems = (
-        partial_cems.groupby(SUBPLANT_KEYS, dropna=False)
-        .sum()[DATA_COLUMNS]
+        partial_cems.groupby(subplant_keys, dropna=False)
+        .sum()[data_columns]
         .reset_index()
     )
 
     # group the cems data by subplant month and merge into partial cems
     cems_monthly = (
-        cems.groupby(SUBPLANT_KEYS, dropna=False).sum()[DATA_COLUMNS].reset_index()
+        cems.groupby(subplant_keys, dropna=False).sum()[data_columns].reset_index()
     )
     partial_cems = partial_cems.merge(
-        cems_monthly, how="left", on=SUBPLANT_KEYS, suffixes=("_eia", "_cems")
+        cems_monthly, how="left", on=subplant_keys, suffixes=("_eia", "_cems")
     )
 
     # compare the fuel consumption values from each source. If the CEMS data
@@ -837,10 +837,10 @@ def scale_partial_cems_data(cems, eia923_allocated):
     # these from the partial cems list
     complete_cems = partial_cems.loc[
         (partial_cems.fuel_consumed_mmbtu_cems >= partial_cems.fuel_consumed_mmbtu_eia),
-        SUBPLANT_KEYS,
+        subplant_keys,
     ]
     eia923_allocated = eia923_allocated.merge(
-        complete_cems, how="outer", on=SUBPLANT_KEYS, indicator="source"
+        complete_cems, how="outer", on=subplant_keys, indicator="source"
     )
     eia923_allocated.loc[
         eia923_allocated["source"] == "both", "hourly_data_source"
@@ -853,11 +853,12 @@ def scale_partial_cems_data(cems, eia923_allocated):
     # create a version of the cems data that is aggregated at the subplant level
     #  and filtered to include only the subplant-months that need to be scaled
     cems_scaled = cems.merge(
-        partial_cems[SUBPLANT_KEYS], how="inner", on=SUBPLANT_KEYS,
+        partial_cems[subplant_keys], how="outer", on=subplant_keys, indicator="source"
     )
+    cems_scaled = cems_scaled[cems_scaled["source"] == "both"].drop(columns=["source"])
     cems_scaled = (
-        cems_scaled.groupby(SUBPLANT_KEYS + ["datetime_utc"], dropna=False)
-        .sum()[DATA_COLUMNS]
+        cems_scaled.groupby(subplant_keys + ["datetime_utc"], dropna=False)
+        .sum()[data_columns]
         .reset_index()
     )
 
@@ -867,8 +868,7 @@ def scale_partial_cems_data(cems, eia923_allocated):
         subplant_id = row.subplant_id
         report_date = row.report_date
 
-        for column in DATA_COLUMNS:
-            # calculate the scaling factor and determine the method
+        for column in data_columns:
             try:
                 scaling_factor = row[f"{column}_eia"] / row[f"{column}_cems"]
                 scaling_method = "multiply_by_cems_value"
@@ -878,11 +878,9 @@ def scale_partial_cems_data(cems, eia923_allocated):
                     scaling_method = "shift_negative_profile"
 
             except ZeroDivisionError:
-                # if both values are zero, set the scaling factor to 1
                 if (row[f"{column}_eia"] == 0) & (row[f"{column}_cems"] == 0):
                     scaling_factor = 1
                     scaling_method = "multiply_by_cems_value"
-                # if the cems version of the data is zero, use the fuel consumption as the profile
                 elif (row[f"{column}_eia"] > 0) & (row[f"{column}_cems"] == 0):
                     scaling_factor = (
                         row[f"{column}_eia"] / row["fuel_consumed_mmbtu_cems"]
@@ -892,7 +890,6 @@ def scale_partial_cems_data(cems, eia923_allocated):
                     scaling_factor = row[f"{column}_eia"] - row[f"{column}_cems"]
                     scaling_method = "shift_negative_profile"
 
-            # apply the scaling method and factor to the hourly cems data
             if scaling_method == "multiply_by_cems_value":
                 cems_scaled.loc[
                     (cems_scaled.report_date == report_date)
