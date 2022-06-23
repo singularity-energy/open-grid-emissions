@@ -47,7 +47,7 @@ def clean_eia923(year, small):
     )
 
     # create a table that identifies the primary fuel of each generator and plant
-    primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated, pudl_out)
+    primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated)
 
     if small:
         gen_fuel_allocated = smallerize_test_data(df=gen_fuel_allocated, random_seed=42)
@@ -158,21 +158,12 @@ def update_energy_source_codes(df):
     return df
 
 
-def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
+def create_primary_fuel_table(gen_fuel_allocated):
     """
     Identifies the primary fuel for each generator and plant
     Gen primary fuel is identified based on the "energy source code 1" identified in EIA-860
     Plant primary fuel is based on the most-consumed fuel at a plant based on allocated heat input
     """
-
-    # add generator nameplate capacity info to the dataframe
-    gen_capacity = pudl_out.gens_eia860().loc[
-        :, ["plant_id_eia", "generator_id", "capacity_mw"]
-    ]
-    gen_fuel_allocated = gen_fuel_allocated.merge(
-        gen_capacity, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
-    )
-
     # get a table of primary energy source codes
     gen_primary_fuel = gen_fuel_allocated[
         gen_fuel_allocated["energy_source_code_num"] == "energy_source_code_1"
@@ -182,61 +173,54 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     # rename the energy source code column to gen primary fuel
     # gen_primary_fuel = gen_primary_fuel.rename(columns={'energy_source_code':'generator_primary_fuel'})
 
-    # create a blank dataframe with all of the plant ids to hold primary fuel data
-    plant_primary_fuel = gen_fuel_allocated[["plant_id_eia"]].drop_duplicates()
-
-    # calculate the total annual fuel consumption, generation, and capacity by fuel type for each plant
-    plant_totals_by_fuel = (
+    # calculate the total annual heat input by fuel type for each plant
+    plant_primary_fuel = (
         gen_fuel_allocated.groupby(["plant_id_eia", "energy_source_code"], dropna=False)
-        .sum()[["fuel_consumed_mmbtu", "net_generation_mwh", "capacity_mw"]]
+        .sum()[["fuel_consumed_mmbtu"]]
         .reset_index()
     )
 
-    # we will calculate primary fuel based on the fuel with the most consumption, generation, and capacity
-    for source in ["fuel_consumed_mmbtu", "capacity_mw", "net_generation_mwh"]:
+    # Dropping rows with zero fuel consumption results in 'NaN'
+    # primary fuels for many plants. Even when there is no fuel consumption for
+    # a plant, we should pick the fuel type that represents the majority of generators.
+    # There seems to be the occasional duplicate row due to multiple modes.
+    # drop the duplicates in order for the many_to_one merge below to succeed.
+    plant_mode_fuel = (
+        gen_primary_fuel.groupby("plant_id_eia", dropna=False)["energy_source_code"]
+        .agg(lambda x: pd.Series.mode(x)[0])
+        .rename("mode_energy_source_code")
+        .reset_index()
+        .drop_duplicates(subset="plant_id_eia", keep="first")
+    )
 
-        # only keep values greater than zero so that these can be filled by other methods if non-zero
-        primary_fuel_calc = plant_totals_by_fuel[plant_totals_by_fuel[source] > 0]
+    # drop rows where there is zero fuel consumed
+    plant_primary_fuel = plant_primary_fuel[plant_primary_fuel.fuel_consumed_mmbtu > 0]
 
-        # identify the fuel type with the maximum value for each plant
-        primary_fuel_calc = primary_fuel_calc[
-            primary_fuel_calc.groupby("plant_id_eia", dropna=False)[source].transform(
-                max
-            )
-            == primary_fuel_calc[source]
-        ][["plant_id_eia", "energy_source_code"]]
+    # identify the energy source code with the greatest fuel consumption for each plant
+    plant_primary_fuel = plant_primary_fuel[
+        plant_primary_fuel.groupby("plant_id_eia", dropna=False)[
+            "fuel_consumed_mmbtu"
+        ].transform(max)
+        == plant_primary_fuel["fuel_consumed_mmbtu"]
+    ][["plant_id_eia", "energy_source_code"]]
 
-        # remove duplicate values (if two fuels are both the maximum)
-        primary_fuel_calc = primary_fuel_calc.drop_duplicates(
-            subset="plant_id_eia", keep=False
-        )
-        primary_fuel_calc = primary_fuel_calc.rename(
-            columns={"energy_source_code": f"primary_fuel_from_{source}"}
-        )
+    plant_primary_fuel = plant_primary_fuel.merge(
+        plant_mode_fuel, how="outer", on="plant_id_eia", validate="1:1",
+    )
 
-        # merge the primary fuel into the main table
-        plant_primary_fuel = plant_primary_fuel.merge(
-            primary_fuel_calc, how="left", on="plant_id_eia", validate="1:1"
-        )
+    # rename the column to plant primary fuel
+    plant_primary_fuel = plant_primary_fuel.rename(
+        columns={"energy_source_code": "plant_primary_fuel"}
+    )
 
-    # use the fuel-based primary fuel first, then fill using capacit-based primary fuel, then generation based.
-    plant_primary_fuel["plant_primary_fuel"] = plant_primary_fuel[
-        "primary_fuel_from_fuel_consumed_mmbtu"
-    ]
     plant_primary_fuel["plant_primary_fuel"] = plant_primary_fuel[
         "plant_primary_fuel"
-    ].fillna(plant_primary_fuel["primary_fuel_from_capacity_mw"])
-    plant_primary_fuel["plant_primary_fuel"] = plant_primary_fuel[
-        "plant_primary_fuel"
-    ].fillna(plant_primary_fuel["primary_fuel_from_net_generation_mwh"])
+    ].fillna(plant_primary_fuel["mode_energy_source_code"])
 
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
-        plant_primary_fuel[["plant_id_eia", "plant_primary_fuel"]],
-        how="left",
-        on="plant_id_eia",
-        validate="many_to_one",
-    )
+        plant_primary_fuel, how="left", on="plant_id_eia", validate="many_to_one"
+    ).drop(columns=["mode_energy_source_code"])
 
     return primary_fuel_table
 
@@ -539,21 +523,9 @@ def adjust_emissions_for_biomass(df):
         df["n2o_mass_lb_adjusted"] = df["n2o_mass_lb_for_electricity"]
         df.loc[df["energy_source_code"] == "LFG", "n2o_mass_lb_adjusted"] = 0
     # nox gets assigned an adjusted value
-    # this value is based on using NOx emissions from flaring as a baseline, and subtracting this from the actual emissions
-    # to prevent negative emissions, we set the value = 0 if negative
     if "nox_mass_lb_for_electricity" in df.columns:
         df["nox_mass_lb_adjusted"] = df["nox_mass_lb_for_electricity"]
-        df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = max(
-            0,
-            df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"]
-            - (
-                df.loc[
-                    df["energy_source_code"] == "LFG",
-                    "fuel_consumed_for_electricity_mmbtu",
-                ]
-                * 0.078
-            ),
-        )
+        df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = 0
     if "so2_mass_lb_for_electricity" in df.columns:
         df["so2_mass_lb_adjusted"] = df["so2_mass_lb_for_electricity"]
         df.loc[df["energy_source_code"] == "LFG", "so2_mass_lb_adjusted"] = 0
@@ -592,7 +564,7 @@ def remove_plants(
             ].plant_id_eia.unique()
         )
         print(
-            f"   Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
+            f"Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
         )
         df = df[~df["plant_id_eia"].isin(plants_in_states_to_remove)]
     if steam_only_plants:
@@ -627,7 +599,7 @@ def remove_non_grid_connected_plants(df):
             "plant_id_eia"
         ].unique()
     )
-    print(f"   Removing {num_plants} plants that are not grid-connected")
+    print(f"Removing {num_plants} plants that are not grid-connected")
 
     df = df[~df["plant_id_eia"].isin(ngc_plants)]
 
@@ -702,7 +674,7 @@ def clean_cems(year, small):
 
 
 def smallerize_test_data(df, random_seed=None):
-    print("   Randomly selecting 5% of plants for faster test run.")
+    print("Randomly selecting 5% of plants for faster test run.")
     # Select 5% of plants
     selected_plants = df.plant_id_eia.unique()
     if random_seed is not None:
@@ -727,7 +699,7 @@ def manually_remove_steam_units(df):
     )[["plant_id_eia", "unitid"]]
 
     print(
-        f"   Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
+        f"Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
     )
 
     df = df.merge(
@@ -1438,7 +1410,7 @@ def remove_cems_with_zero_monthly_data(cems):
     )
     # remove any observations with the missing data flag
     print(
-        f"   Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+        f"removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
     cems = cems[cems["missing_data_flag"] != "remove"]
     # drop the missing data flag column
@@ -1496,12 +1468,6 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
             EIA-923 values to scale the partial hourly CEMS data from the other units to match the total value for the entire subplant. This will also calculate a partial subplant scaling factor for each data column (e.g. net generation, fuel consumption) by comparing the total monthly CEMS data to the monthly EIA-923 data.
         3. `eia`: for subplant-months for which no hourly data is reported in CEMS, 
             we will attempt to use EIA-930 data to assign an hourly profile to the monthly EIA-923 data
-    Inputs:
-        eia923_allocated:
-        cems:
-        year:
-    Returns:
-        eia923_allocated with new column `hourly_data_source`
     """
 
     # aggregate cems data to plant-unit-month
@@ -1556,7 +1522,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
         .rename(columns={"unitid": f"units_in_subplant"})
     )
 
-    # create a dataframe that counts the number of units reported in CEMS in each subplant-month
+    # identify the number of units reported in CEMS in each subplant-month
     cems_units_reported = (
         cems_monthly.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
@@ -1567,7 +1533,6 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
     )
 
     # merge in the total number of units that exist in each subplant
-    # this will allow us to compare where a subplant-month is missing data from one or more units
     cems_units_reported = cems_units_reported.merge(
         units_in_subplant, how="left", on=["plant_id_eia", "subplant_id"]
     )
