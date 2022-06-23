@@ -128,6 +128,7 @@ COLUMNS = {
         "scaled_residual_profile",
         "imputed_profile",
         "profile",
+        "flat_profile",
         "profile_method",
     },
     "shaped_eia923_data_": {

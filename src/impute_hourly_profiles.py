@@ -112,30 +112,6 @@ def select_best_available_profile(hourly_profiles):
     ] = np.NaN
     hourly_profiles = hourly_profiles.drop(columns=["negative_month"])
 
-    # create a filtered version of the eia930 data
-    # identify all months where there is misisng eia930 data (which is filled in with 1.0)
-    hours_with_missing_930_data = (
-        hourly_profiles[hourly_profiles["eia930_profile"] == 1]
-        .groupby(["ba_code", "fuel_category", "report_date"])
-        .count()["eia930_profile"]
-        .reset_index()
-    )
-    # keep the months where there are more than 24 hours of missing data
-    hours_with_missing_930_data = hours_with_missing_930_data[
-        hours_with_missing_930_data["eia930_profile"] > 24
-    ]
-    hourly_profiles = hourly_profiles.merge(
-        hours_with_missing_930_data[["ba_code", "fuel_category", "report_date"]],
-        how="outer",
-        on=["ba_code", "fuel_category", "report_date"],
-        indicator="missing_930",
-    )
-    hourly_profiles["eia930_profile_filtered"] = hourly_profiles["eia930_profile"]
-    hourly_profiles.loc[
-        hourly_profiles["missing_930"] == "both", "eia930_profile_filtered"
-    ] = np.NaN
-    hourly_profiles = hourly_profiles.drop(columns=["negative_month"])
-
     hourly_profiles["profile"] = np.NaN
     hourly_profiles["profile_method"] = np.NaN
     # specify the profile as the best available data
@@ -160,6 +136,9 @@ def select_best_available_profile(hourly_profiles):
     ] = hourly_profiles.loc[
         hourly_profiles["profile_method"] == "imputed_profile", "imputation_method"
     ]
+    hourly_profiles["profile_method"] = hourly_profiles["profile_method"].replace(
+        "residual_profile_filtered", "residual_profile"
+    )
     hourly_profiles = hourly_profiles.drop(
         columns=["imputation_method", "residual_profile_filtered"]
     )
