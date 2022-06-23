@@ -23,12 +23,14 @@ TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
 
 
 def output_intermediate_data(df, file_name, path_prefix, year):
-
+    print("   Exporting {file_name} to data/outputs")
     df.to_csv(f"../data/outputs/{path_prefix}{file_name}_{year}.csv", index=False)
     column_checks.check_columns(f"../data/outputs/{path_prefix}{file_name}_{year}.csv")
 
 
 def output_to_results(df, file_name, subfolder, path_prefix):
+    print(f"   Exporting {file_name} to data/results")
+    
     metric = convert_results(df)
 
     df.to_csv(
