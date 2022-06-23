@@ -58,32 +58,13 @@ def calculate_hourly_profiles(
     hourly_profiles.loc[(hourly_profiles["source"] == "both"), "cems_profile"] = np.NaN
     hourly_profiles = hourly_profiles.drop(columns="source")
 
-    hourly_profiles["profile"] = np.NaN
-    hourly_profiles["profile_method"] = np.NaN
-    # specify the profile as the best available data
-    for source_column in [
-        "residual_profile",
-        "eia930_profile",
-        "cems_profile",
-        "imputed_profile",
-    ]:
-        hourly_profiles.loc[
-            hourly_profiles["profile"].isna() & ~hourly_profiles[source_column].isna(),
-            "profile_method",
-        ] = source_column
-        hourly_profiles["profile"] = hourly_profiles["profile"].fillna(
-            hourly_profiles[source_column]
-        )
-
-    hourly_profiles.loc[
-        hourly_profiles["profile_method"] == "imputed_profile", "profile_method"
-    ] = hourly_profiles.loc[
-        hourly_profiles["profile_method"] == "imputed_profile", "imputation_method"
-    ]
-    hourly_profiles = hourly_profiles.drop(columns=["imputation_method"])
+    hourly_profiles = select_best_available_profile(hourly_profiles)
 
     # round the data to the nearest tenth
     hourly_profiles["profile"] = hourly_profiles["profile"].round(1)
+
+    # add a flat profile for negative generation
+    hourly_profiles["flat_profile"] = 1.0
 
     print("Summary of methods used to estimate missing hourly profiles:")
     print(
@@ -93,6 +74,94 @@ def calculate_hourly_profiles(
         .pivot_table(index="fuel_category", columns="profile_method", aggfunc="count")
         .fillna(0)
         .astype(int)
+    )
+
+    return hourly_profiles
+
+
+def select_best_available_profile(hourly_profiles):
+    """
+    Selects the best available hourly profile from the options available. 
+    The order of preference is:
+        1. If the residual profile does not have a negative total for a month, use that
+        2. If the eia930 profile doesn't have missing data, use that next
+        3. Use the CEMS profile
+        4. Use the imputed profile
+
+    We could create two different profiles - one for positive and one for negative values
+
+    """
+
+    # create a filtered version of the residual profile
+    negative_months = (
+        hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])
+        .sum()["residual_profile"]
+        .reset_index()
+    )
+    negative_months = negative_months[negative_months["residual_profile"] < 0]
+
+    hourly_profiles = hourly_profiles.merge(
+        negative_months[["ba_code", "fuel_category", "report_date"]],
+        how="outer",
+        on=["ba_code", "fuel_category", "report_date"],
+        indicator="negative_month",
+    )
+    hourly_profiles["residual_profile_filtered"] = hourly_profiles["residual_profile"]
+    hourly_profiles.loc[
+        hourly_profiles["negative_month"] == "both", "residual_profile_filtered"
+    ] = np.NaN
+    hourly_profiles = hourly_profiles.drop(columns=["negative_month"])
+
+    # create a filtered version of the eia930 data
+    # identify all months where there is misisng eia930 data (which is filled in with 1.0)
+    hours_with_missing_930_data = (
+        hourly_profiles[hourly_profiles["eia930_profile"] == 1]
+        .groupby(["ba_code", "fuel_category", "report_date"])
+        .count()["eia930_profile"]
+        .reset_index()
+    )
+    # keep the months where there are more than 24 hours of missing data
+    hours_with_missing_930_data = hours_with_missing_930_data[
+        hours_with_missing_930_data["eia930_profile"] > 24
+    ]
+    hourly_profiles = hourly_profiles.merge(
+        hours_with_missing_930_data[["ba_code", "fuel_category", "report_date"]],
+        how="outer",
+        on=["ba_code", "fuel_category", "report_date"],
+        indicator="missing_930",
+    )
+    hourly_profiles["eia930_profile_filtered"] = hourly_profiles["eia930_profile"]
+    hourly_profiles.loc[
+        hourly_profiles["missing_930"] == "both", "eia930_profile_filtered"
+    ] = np.NaN
+    hourly_profiles = hourly_profiles.drop(columns=["negative_month"])
+
+    hourly_profiles["profile"] = np.NaN
+    hourly_profiles["profile_method"] = np.NaN
+    # specify the profile as the best available data
+    for source_column in [
+        "residual_profile_filtered",
+        "eia930_profile",
+        "cems_profile",
+        "imputed_profile",
+    ]:
+        # fill in the name of the method
+        hourly_profiles.loc[
+            hourly_profiles["profile"].isna() & ~hourly_profiles[source_column].isna(),
+            "profile_method",
+        ] = source_column
+        # fill missing values with non-missing values from the filtered profile data
+        hourly_profiles["profile"] = hourly_profiles["profile"].fillna(
+            hourly_profiles[source_column]
+        )
+
+    hourly_profiles.loc[
+        hourly_profiles["profile_method"] == "imputed_profile", "profile_method"
+    ] = hourly_profiles.loc[
+        hourly_profiles["profile_method"] == "imputed_profile", "imputation_method"
+    ]
+    hourly_profiles = hourly_profiles.drop(
+        columns=["imputation_method", "residual_profile_filtered"]
     )
 
     return hourly_profiles
@@ -562,11 +631,10 @@ def convert_profile_to_percent(hourly_profiles):
         "profile_method",
     ]
 
-    monthly_total = hourly_profiles.loc[:, MONTHLY_GROUP_COLUMNS + ["profile"]]
-    monthly_total["profile"] = abs(monthly_total["profile"])
-
     monthly_total = (
-        monthly_total.groupby(MONTHLY_GROUP_COLUMNS, dropna=False).sum().reset_index()
+        hourly_profiles.groupby(MONTHLY_GROUP_COLUMNS, dropna=False)
+        .sum()[["profile", "flat_profile"]]
+        .reset_index()
     )
 
     hourly_profiles = hourly_profiles.merge(
@@ -578,7 +646,12 @@ def convert_profile_to_percent(hourly_profiles):
     hourly_profiles["profile"] = (
         hourly_profiles["profile"] / hourly_profiles["profile_monthly_total"]
     )
-    hourly_profiles = hourly_profiles.drop(columns="profile_monthly_total")
+    hourly_profiles["flat_profile"] = (
+        hourly_profiles["flat_profile"] / hourly_profiles["flat_profile_monthly_total"]
+    )
+    hourly_profiles = hourly_profiles.drop(
+        columns=["profile_monthly_total", "flat_profile_monthly_total"]
+    )
 
     return hourly_profiles
 
@@ -688,14 +761,27 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
 
     # merge the hourly profiles into each plant-month
     shaped_monthly_data = monthly_eia_data_to_shape.merge(
-        hourly_profiles[["report_date", "fuel_category", "ba_code","profile"]], how="left", on=["report_date", "fuel_category", "ba_code"]
+        hourly_profiles[
+            [
+                "ba_code",
+                "fuel_category",
+                "datetime_utc",
+                "report_date",
+                "profile",
+                "flat_profile",
+                "profile_method",
+            ]
+        ],
+        how="left",
+        on=["report_date", "fuel_category", "ba_code"],
     )
 
     # plant-months where there is negative net generation, assign a flat profile
-    # to do this, we assign each hour an equal share of the total number of hours in the month
     shaped_monthly_data.loc[
         shaped_monthly_data["net_generation_mwh"] < 0, "profile"
-    ] = 1 / (shaped_monthly_data["report_date"].dt.daysinmonth * 24)
+    ] = shaped_monthly_data.loc[
+        shaped_monthly_data["net_generation_mwh"] < 0, "flat_profile"
+    ]
     # update the method column
     shaped_monthly_data.loc[
         shaped_monthly_data["net_generation_mwh"] < 0, "profile_method"

@@ -219,7 +219,7 @@ def main():
         plant_attributes, "plant_static_attributes", path_prefix, year
     )
     output_data.output_to_results(
-        plant_attributes, "plant_static_attributes", "plant_data/", path_prefix,
+        plant_attributes, "plant_static_attributes", "plant_data/", path_prefix, year
     )
 
     # 6. Convert CEMS Hourly Gross Generation to Hourly Net Generation
@@ -324,7 +324,7 @@ def main():
     print("12. Combining and exporting plant-level hourly results")
     # write metadata and remove metadata columns
     cems, partial_cems_scaled, shaped_eia_data = output_data.write_plant_metadata(
-        cems, partial_cems_scaled, shaped_eia_data, path_prefix
+        cems, partial_cems_scaled, shaped_eia_data, path_prefix, year
     )
     combined_plant_data = data_cleaning.combine_plant_data(
         cems, partial_cems_scaled, shaped_eia_data
@@ -345,7 +345,7 @@ def main():
     output_data.write_generated_averages(ba_fuel_data, path_prefix, year)
 
     # Output final data: per-ba hourly generation and rate
-    output_data.write_power_sector_results(ba_fuel_data, path_prefix)
+    output_data.write_power_sector_results(ba_fuel_data, path_prefix, year)
 
     # 14. Calculate consumption-based emissions and write carbon accounting results
     print("14. Calculating and exporting consumption-based results")

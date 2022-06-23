@@ -28,21 +28,21 @@ def output_intermediate_data(df, file_name, path_prefix, year):
     column_checks.check_columns(f"../data/outputs/{path_prefix}{year}/{file_name}_{year}.csv")
 
 
-def output_to_results(df, file_name, subfolder, path_prefix):
-    print(f"   Exporting {file_name} to data/results{path_prefix}{subfolder}")
+def output_to_results(df, file_name, subfolder, path_prefix, year):
+    print(f"   Exporting {file_name} to data/results{path_prefix}/{year}/{subfolder}")
     
     metric = convert_results(df)
 
     df.to_csv(
-        f"../data/results/{path_prefix}{subfolder}us_units/{file_name}.csv", index=False
+        f"../data/results/{path_prefix}{year}/{subfolder}us_units/{file_name}.csv", index=False
     )
     metric.to_csv(
-        f"../data/results/{path_prefix}{subfolder}metric_units/{file_name}.csv",
+        f"../data/results/{path_prefix}{year}/{subfolder}metric_units/{file_name}.csv",
         index=False,
     )
 
 
-def output_plant_data(df, path_prefix):
+def output_plant_data(df, path_prefix, year):
     """
     Helper function for plant-level output. 
     Output for each time granularity, and output separately for real and synthetic plants
@@ -61,8 +61,8 @@ def output_plant_data(df, path_prefix):
         else:  # No resampling needed, already hourly
             df_resampled = df
         # Separately save real and aggregate plants
-        output_to_results(df_resampled[df_resampled.plant_id_eia > 900000], "synthetic_plant_generation", f"plant_data/{time}/", path_prefix)
-        output_to_results(df_resampled[df_resampled.plant_id_eia < 900000], "CEMS_plant_generation", f"plant_data/{time}/", path_prefix)
+        output_to_results(df_resampled[df_resampled.plant_id_eia > 900000], "synthetic_plant_generation", f"plant_data/{time}/", path_prefix, year)
+        output_to_results(df_resampled[df_resampled.plant_id_eia < 900000], "CEMS_plant_generation", f"plant_data/{time}/", path_prefix, year)
         
 
 def convert_results(df):
@@ -127,7 +127,7 @@ def write_generated_averages(ba_fuel_data, path_prefix, year):
     )
 
 
-def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
+def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix, year):
     """Outputs metadata for each subplant-hour."""
 
     KEY_COLUMNS = [
@@ -143,9 +143,9 @@ def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
     ]
 
     # identify the source
-    cems["data_source"] = "CEMS reported"
+    cems["data_source"] = "CEMS"
     partial_cems["data_source"] = "partial CEMS/EIA"
-    shaped_eia_data["data_source"] = "EIA imputed"
+    shaped_eia_data["data_source"] = "EIA"
 
     # identify net generation method
     cems = cems.rename(columns={"gtn_method": "net_generation_method"})
@@ -171,7 +171,7 @@ def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
     # concat the metadata into a one file and export
     metadata = pd.concat([cems_meta, partial_cems_meta, shaped_eia_data_meta], axis=0)
 
-    output_to_results(metadata, "plant_metadata", "plant_data/", path_prefix)
+    output_to_results(metadata, "plant_metadata", "plant_data/", path_prefix, year)
 
     # drop the metadata columns from each dataframe
     cems = cems.drop(columns=METADATA_COLUMNS)
@@ -181,7 +181,7 @@ def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
     return cems, partial_cems, shaped_eia_data
 
 
-def write_power_sector_results(ba_fuel_data, path_prefix):
+def write_power_sector_results(ba_fuel_data, path_prefix, year):
     """
     Helper function to write combined data by BA
     """
@@ -290,6 +290,6 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
 
             # export to a csv
             output_to_results(
-                ba_table_time, ba, f"power_sector_data/{time_resolution}/", path_prefix
+                ba_table_time, ba, f"power_sector_data/{time_resolution}/", path_prefix, year
             )
 
