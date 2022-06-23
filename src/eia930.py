@@ -107,7 +107,7 @@ def balance_to_gridemissions(year: int, small:bool=False):
 
 
 
-def clean_930(year: int, small: bool = False):
+def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     """
         Scrape and process EIA data. 
     
@@ -116,33 +116,30 @@ def clean_930(year: int, small: bool = False):
 
     """
 
-    data_folder = (
-        "../data/downloads/eia930/balance/small/" if small else "../data/downloads/eia930/balance/"
-    )
-    os.makedirs(data_folder, exist_ok=True)
+    data_folder = f"../data/outputs/{path_prefix}/eia930/"
 
     # Format raw file 
     df = balance_to_gridemissions(year, small=small)
-    raw_file = data_folder+"EBA_unadjusted_raw.csv"
+    raw_file = data_folder+"eia930_unadjusted_raw.csv"
     df.to_csv(raw_file)
     
-    # if not small, scrape 2 months before start of year for rolling window cleaning 
-    start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"  
+    # if not small, scrape 2 months before start of year for rolling window cleaning
+    start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"
     # Scrape 1 week if small, else 1 year
     end = f"{year}0107T23Z" if small else f"{year}1231T23Z"
-    if small: 
-        df = df.loc[start:end] # Don't worry about processing everything 
+    if small:
+        df = df.loc[start:end]  # Don't worry about processing everything
 
     # Adjust
     print("Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
     df.to_csv(
-        join(data_folder, "EBA_raw.csv")
+        join(data_folder, "eia930_raw.csv")
     )  # Will be read by gridemissions workflow
 
     # Run cleaning
     print("Running physics-based data cleaning")
-    make_dataset(start, end, file_name="EBA", tmp_folder=data_folder, 
+    make_dataset(start, end, file_name="eia930", tmp_folder=data_folder, 
         folder_hist=data_folder, scrape=False, add_ca_fuels=False, calc_consumed=False)
 
 

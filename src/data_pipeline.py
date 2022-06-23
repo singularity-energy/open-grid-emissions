@@ -147,6 +147,7 @@ def main():
     path_prefix += f"{year}/"
     os.makedirs("../data/downloads", exist_ok=True)
     os.makedirs(f"../data/outputs/{path_prefix}", exist_ok=True)
+    os.makedirs(f"../data/outputs/{path_prefix}/eia930", exist_ok=True)
     os.makedirs(f"../data/results/{path_prefix}", exist_ok=True)
     for unit in ["us_units", "metric_units"]:
         os.makedirs(f"../data/results/{path_prefix}/plant_data/{unit}", exist_ok=True)
@@ -271,14 +272,14 @@ def main():
 
     # 9. Clean and Reconcile EIA-930 data
     print("Cleaning EIA-930 data")
-    # Cleans data in data/downloads/eia930, outputs cleaned file at data/downloads/eia930/balance/EBA_elec.csv
+    # Cleans data in data/downloads/eia930, outputs cleaned file at data/output/eia930/eia930_elec.csv
     # For `small`, always run cleaning so we know it works. For not-small, only run if we haven't before.
-    if (args.small) or not(os.path.exists("../data/downloads/eia930/balance/EBA_elec.csv")):
-        eia930.clean_930(year, small=args.small)
+    if (args.small) or not(os.path.exists("../data/outputs/eia930/eia930_elec.csv")):
+        eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
     else:
-        print("Not re-running 930 data cleaning. If you want to re-run, please delete `../data/downloads/eia930/balance/`")
+        print("Not re-running 930 data cleaning. If you want to re-run, please delete `../data/outputs/eia930/`")
     # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
-    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if args.small else "../data/downloads/eia930/balance/EBA_elec.csv"
+    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if args.small else "../data/outputs/eia930/eia930_elec.csv"
     eia930_data = eia930.load_chalendar_for_pipeline(
         clean_930_file, year=year
     )
