@@ -13,30 +13,6 @@ os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = "../config/gridemissions.json"
 from gridemissions.workflows import make_dataset
 from gridemissions.eia_api import EBA_data_scraper, load_eia_columns
 
-# Map from 923 fuel types (added to cems data in data_pipeline)
-# to 930 fuel types
-# Based on EIA 923 instructions:
-# https://www.eia.gov/survey/form/eia_923/instructions.pdf
-fuel_code_map = {
-    "NG": "NG",
-    "BIT": "COL",  # bituminous
-    "SUB": "COL",  # subbituminous
-    "BLQ": "OTH",  # black liquor
-    "RC": "COL",  # refined coal
-    "WDS": "OTH",  # wood / wood waste solids
-    "SUN": "SUN",  # solar. TODO: why is this in cems???
-    "KER": "OIL",  # kerosene
-    "RFO": "OIL",  # residual fuel oil
-    "JF": "OIL",  # jet fuel
-    "DFO": "OIL",  # distillate fuel oil
-    "SGC": "NG",  # synthetic gas derived from coal ???
-    "LIG": "COL",  # lignite coal
-    "OG": "NG",  # other gas
-    "PC": "COL",  # petroleum coke
-    "BFG": "NG",  # blast furnace gas
-    "WC": "COL",
-}  # waste coal
-
 
 def balance_to_gridemissions(year: int, small:bool=False):
     files = ["../data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
@@ -115,6 +91,7 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
         `year`: Year to process. Prior years, downloaded from chalendar-hosted files, are used for rolling cleaning
 
     """
+
 
     data_folder = f"../data/outputs/{path_prefix}/eia930/"
 
