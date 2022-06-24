@@ -263,12 +263,15 @@ def main():
     # 9. Clean and Reconcile EIA-930 data
     print("9. Cleaning EIA-930 data")
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
-    eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
+    if args.small or not (os.path.exists(f"../data/outputs/{path_prefix}/eia930/eia930_elec.csv")):
+        eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
+    else:
+        print(f"    Not re-running 930 cleaning. If you'd like to re-run, please delete data/outputs/{path_prefix}/eia930/")
     # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
     clean_930_file = (
         "../data/downloads/eia930/chalendar/EBA_elec.csv"
         if args.small
-        else "../data/outputs/eia930/EBA_elec.csv"
+        else f"../data/outputs/{path_prefix}/eia930/eia930_elec.csv"
     )
     eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
 
@@ -325,6 +328,9 @@ def main():
     # Export data
     output_data.output_intermediate_data(
         shaped_eia_data, "shaped_eia923_data", path_prefix, year
+    )
+    output_data.output_intermediate_data(
+        plant_attributes, "plant_attributes_with_synthetic", path_prefix, year
     )
 
     # 12. Combine plant-level data from all sources

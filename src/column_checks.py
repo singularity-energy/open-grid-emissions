@@ -116,6 +116,18 @@ COLUMNS = {
         "timezone",
         "data_availability",
     },
+    "plant_attributes_with_synthetic_": {
+        "plant_id_eia",
+        "plant_primary_fuel",
+        "fuel_category",
+        "fuel_category_eia930",
+        "ba_code",
+        "ba_code_physical",
+        "state",
+        "distribution_flag",
+        "timezone",
+        "data_availability",
+    },
     "hourly_profiles_": {
         "ba_code",
         "fuel_category",

@@ -77,6 +77,9 @@ def balance_to_gridemissions(year: int, small:bool=False):
         out = pd.concat([out, dat], axis='index')
 
     out.index = out.index.tz_localize("UTC")
+    # Balance files are all inclusive, so hours at boundaries (July 1, Jan 1) are duplicated. 
+    # Drop those duplicate rows
+    out = out[~out.index.duplicated(keep='first')]
     
     return out 
 
