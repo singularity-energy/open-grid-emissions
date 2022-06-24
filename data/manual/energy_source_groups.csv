@@ -18,7 +18,7 @@ BFG,Blast Furnace Gas,natural_gas,natural_gas,other_fossil,natural_gas
 NG,Natural Gas,natural_gas,natural_gas,gas,natural_gas
 OG,Other Gas,natural_gas,natural_gas,other_fossil,natural_gas
 PRG,Process Gas,natural_gas,natural_gas,other,natural_gas
-PG,Propane Gas,petroleum_products,petroleum,gas,petroleum
+PG,Propane Gas,petroleum_products,petroleum_products,gas,petroleum
 NUC,Nuclear,nuclear,nuclear,nuclear,nuclear
 WAT,Hydroelectric / Pumped Storage,hydro,hydro,hydro,hydro
 WDS,Wood/Wood Waste Solids,wood,other,biomass,biomass

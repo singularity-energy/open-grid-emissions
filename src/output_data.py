@@ -24,16 +24,11 @@ TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
 
 def output_intermediate_data(df, file_name, path_prefix, year):
 
-    print(f"   Exporting {file_name} to data/outputs")
-
     df.to_csv(f"../data/outputs/{path_prefix}{file_name}_{year}.csv", index=False)
     column_checks.check_columns(f"../data/outputs/{path_prefix}{file_name}_{year}.csv")
 
 
 def output_to_results(df, file_name, subfolder, path_prefix):
-
-    print(f"   Exporting {file_name} to data/results{path_prefix}{subfolder}")
-
     metric = convert_results(df)
 
     df.to_csv(
@@ -56,12 +51,7 @@ def output_plant_data(df, path_prefix):
         if time != "hourly":
             df_resampled = (
                 df.groupby("plant_id_eia")
-                .resample(
-                    TIME_RESOLUTIONS[time],
-                    on="datetime_utc",
-                    closed="left",
-                    label="left",
-                )
+                .resample(TIME_RESOLUTIONS[time], on="datetime_utc", closed='left', label='left')
                 .sum()
                 .drop(columns="plant_id_eia")
                 .reset_index()
@@ -69,19 +59,9 @@ def output_plant_data(df, path_prefix):
         else:  # No resampling needed, already hourly
             df_resampled = df
         # Separately save real and aggregate plants
-        output_to_results(
-            df_resampled[df_resampled.plant_id_eia > 900000],
-            "synthetic_plant_generation",
-            f"plant_data/{time}/",
-            path_prefix,
-        )
-        output_to_results(
-            df_resampled[df_resampled.plant_id_eia < 900000],
-            "CEMS_plant_generation",
-            f"plant_data/{time}/",
-            path_prefix,
-        )
-
+        output_to_results(df_resampled[df_resampled.plant_id_eia > 900000], "synthetic_plant_generation", f"plant_data/{time}/", path_prefix)
+        output_to_results(df_resampled[df_resampled.plant_id_eia < 900000], "CEMS_plant_generation", f"plant_data/{time}/", path_prefix)
+        
 
 def convert_results(df):
     """
@@ -111,7 +91,7 @@ def convert_results(df):
     return converted
 
 
-def write_generated_averages(ba_fuel_data, path_prefix):
+def write_generated_averages(ba_fuel_data, path_prefix, year):
     avg_fuel_type_production = (
         ba_fuel_data.groupby(["fuel_category"]).sum().reset_index()
     )
@@ -138,7 +118,10 @@ def write_generated_averages(ba_fuel_data, path_prefix):
                 )  # TODO: temporary placeholder while solar is broken. Eventually there should be no NaNs.
             )
     output_intermediate_data(
-        avg_fuel_type_production, "annual_generation_averages_by_fuel", path_prefix,
+        avg_fuel_type_production,
+        "annual_generation_averages_by_fuel",
+        path_prefix,
+        year,
     )
 
 
@@ -158,9 +141,9 @@ def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
     ]
 
     # identify the source
-    cems["data_source"] = "CEMS"
+    cems["data_source"] = "CEMS reported"
     partial_cems["data_source"] = "partial CEMS/EIA"
-    shaped_eia_data["data_source"] = "EIA"
+    shaped_eia_data["data_source"] = "EIA imputed"
 
     # identify net generation method
     cems = cems.rename(columns={"gtn_method": "net_generation_method"})

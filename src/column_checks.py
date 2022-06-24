@@ -116,19 +116,13 @@ COLUMNS = {
         "timezone",
         "data_availability",
     },
-    "hourly_profiles_": {
+    "residual_profiles_": {
         "ba_code",
-        "fuel_category",
+        "fuel_category_eia930",
         "datetime_utc",
         "datetime_local",
         "report_date",
-        "eia930_profile",
-        "cems_profile",
-        "residual_profile",
-        "scaled_residual_profile",
-        "imputed_profile",
         "profile",
-        "flat_profile",
         "profile_method",
     },
     "shaped_eia923_data_": {

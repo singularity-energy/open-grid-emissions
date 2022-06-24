@@ -64,12 +64,11 @@ def calculate_gtn_conversions(year, number_of_years):
         gross_gen_data=cems_monthly,
         net_gen_data=gen_fuel_allocated,
         agg_level="subplant",
-        year=year,
     )
 
     # calculate monthly ratios at plant level
     gross_to_net_ratio(
-        gross_gen_data=cems_monthly, net_gen_data=gen_fuel_allocated, agg_level="plant", year=year,
+        gross_gen_data=cems_monthly, net_gen_data=gen_fuel_allocated, agg_level="plant"
     )
 
 
@@ -427,7 +426,7 @@ def gross_to_net_regression(gross_gen_data, net_gen_data, agg_level):
     )
 
 
-def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
+def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level):
 
     if agg_level == "plant":
         plant_aggregation_columns = ["plant_id_eia"]
@@ -449,7 +448,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     # load the activation and retirement dates into the data
     subplant_crosswalk = pd.read_csv(
-        f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
+        f"../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes()
     )
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,

@@ -216,7 +216,7 @@ def main():
         plant_attributes, "plant_static_attributes", path_prefix, year
     )
     output_data.output_to_results(
-        plant_attributes, "plant_static_attributes", "plant_data/", path_prefix
+        plant_attributes, "plant_static_attributes", "plant_data/", path_prefix,
     )
 
     # 6. Convert CEMS Hourly Gross Generation to Hourly Net Generation
@@ -256,22 +256,6 @@ def main():
         partial_cems_scaled, "partial_cems_scaled", path_prefix, year
     )
 
-
-    # 9. Clean and Reconcile EIA-930 data
-    print("9. Cleaning EIA-930 data")
-    # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
-    eia930.scrape_and_clean_930(year, rescrape=True, small=args.small)
-    # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
-    clean_930_file = (
-        "../data/downloads/eia930/chalendar/EBA_elec.csv"
-        if args.small
-        else "../data/downloads/eia930/EBA_elec.csv"
-    )
-    eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
-
-    # 10. Calculate hourly profiles for monthly EIA data
-    print("10. Calculating residual net generation profiles from EIA-930")
-
     # aggregate cems data to subplant level
     cems = data_cleaning.aggregate_cems_to_subplant(cems)
 
@@ -279,33 +263,47 @@ def main():
     # drop data from cems that is now in partial_cems
     cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
 
-
-    # create a separate dataframe containing only the EIA data that is missing from cems
+    # create a separate dataframe containing only the generators for which we do not have CEMS data
     monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
         & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
     del eia923_allocated
 
+    # 9. Clean and Reconcile EIA-930 data
+    print("Cleaning EIA-930 data")
 
-    hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
-        cems,
-        eia930_data,
-        plant_attributes,
-        monthly_eia_data_to_shape,
-        year,
-        transmission_only=False,
-        ba_column_name="ba_code",
+    # Cleans data in data/downloads/eia930, outputs cleaned file at data/output/eia930/eia930_elec.csv
+    # For `small`, always run cleaning so we know it works. For not-small, only run if we haven't before.
+    if (args.small) or not(os.path.exists("../data/outputs/eia930/eia930_elec.csv")):
+        eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
+    else:
+        print("Not re-running 930 data cleaning. If you want to re-run, please delete `../data/outputs/eia930/`")
+    # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
+    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if args.small else "../data/outputs/eia930/eia930_elec.csv"
+    eia930_data = eia930.load_chalendar_for_pipeline(
+        clean_930_file, year=year
+    )
+
+
+    # 10. Calculate Residual Net Generation Profile
+    print("Calculating residual net generation profiles from EIA-930")
+    residual_profiles = impute_hourly_profiles.calculate_residual(
+        cems, eia930_data, plant_attributes, year
     )
     del eia930_data
-
     output_data.output_intermediate_data(
-        hourly_profiles, "hourly_profiles", path_prefix, year
+        residual_profiles, "residual_profiles", path_prefix, year
     )
 
     # 11. Assign hourly profile to monthly data
-    print("11. Assigning hourly profile to monthly EIA-923 data")
-
+    print("Assigning hourly profile to monthly EIA-923 data")
+    # load profile data and format for use in the pipeline
+    # TODO: once this is in the pipeline (step 10), may not need to read file
+    hourly_profiles = impute_hourly_profiles.impute_missing_hourly_profiles(
+        monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
+    )
+    del residual_profiles
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
     # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
@@ -345,7 +343,7 @@ def main():
     del combined_plant_data
 
     # Output intermediate data: produced per-fuel annual averages
-    output_data.write_generated_averages(ba_fuel_data, path_prefix)
+    output_data.write_generated_averages(ba_fuel_data, path_prefix, year)
 
     # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix)

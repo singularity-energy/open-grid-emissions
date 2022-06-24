@@ -350,7 +350,7 @@ def load_epa_eia_crosswalk(year):
 
 
 def load_gross_to_net_data(
-    level, conversion_type, threshold_column, lower_threshold, upper_threshold, year
+    level, conversion_type, threshold_column, lower_threshold, upper_threshold
 ):
     """
     Loads gross-to-net generation conversion factors calculated in `gross_to_net_generation`.
@@ -386,7 +386,7 @@ def load_gross_to_net_data(
     # if loading regression data, add a count of units in each subplant to the regression results
     if conversion_type == "regression":
         subplant_crosswalk = pd.read_csv(
-            f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
+            "../data/outputs/subplant_crosswalk.csv", dtype=get_dtypes()
         )
         subplant_crosswalk = subplant_crosswalk[
             ["plant_id_eia", "unitid", "subplant_id"]
