@@ -108,7 +108,7 @@ def convert_results(df):
     return converted
 
 
-def write_generated_averages(ba_fuel_data, path_prefix):
+def write_generated_averages(ba_fuel_data, year, path_prefix):
     avg_fuel_type_production = (
         ba_fuel_data.groupby(["fuel_category"]).sum().reset_index()
     )
@@ -135,7 +135,7 @@ def write_generated_averages(ba_fuel_data, path_prefix):
                 )  # TODO: temporary placeholder while solar is broken. Eventually there should be no NaNs.
             )
     output_intermediate_data(
-        avg_fuel_type_production, "annual_generation_averages_by_fuel", path_prefix,
+        avg_fuel_type_production, "annual_generation_averages_by_fuel", path_prefix, year
     )
 
 

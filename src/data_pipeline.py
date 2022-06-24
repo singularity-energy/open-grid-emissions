@@ -263,12 +263,12 @@ def main():
     # 9. Clean and Reconcile EIA-930 data
     print("9. Cleaning EIA-930 data")
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
-    eia930.scrape_and_clean_930(year, rescrape=True, small=args.small)
+    eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
     # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
     clean_930_file = (
         "../data/downloads/eia930/chalendar/EBA_elec.csv"
         if args.small
-        else "../data/downloads/eia930/EBA_elec.csv"
+        else "../data/outputs/eia930/EBA_elec.csv"
     )
     eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
 
@@ -287,20 +287,6 @@ def main():
         & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
     del eia923_allocated
-
-    # 9. Clean and Reconcile EIA-930 data
-    print("Cleaning EIA-930 data")
-    # Cleans data in data/downloads/eia930, outputs cleaned file at data/output/eia930/eia930_elec.csv
-    # For `small`, always run cleaning so we know it works. For not-small, only run if we haven't before.
-    if (args.small) or not(os.path.exists("../data/outputs/eia930/eia930_elec.csv")):
-        eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
-    else:
-        print("Not re-running 930 data cleaning. If you want to re-run, please delete `../data/outputs/eia930/`")
-    # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
-    clean_930_file = "../data/downloads/eia930/chalendar/EBA_elec.csv" if args.small else "../data/outputs/eia930/eia930_elec.csv"
-    eia930_data = eia930.load_chalendar_for_pipeline(
-        clean_930_file, year=year
-    )
 
     # 10. Calculate Residual Net Generation Profile
     print("Calculating residual net generation profiles from EIA-930")
@@ -363,7 +349,7 @@ def main():
     del combined_plant_data
 
     # Output intermediate data: produced per-fuel annual averages
-    output_data.write_generated_averages(ba_fuel_data, path_prefix)
+    output_data.write_generated_averages(ba_fuel_data, year, path_prefix)
 
     # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix)
