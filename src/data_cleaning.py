@@ -183,11 +183,11 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
         .reset_index()
     )
 
-    # we will calculate primary fuel based on the fuel with the most consumption, 
+    # we will calculate primary fuel based on the fuel with the most consumption,
     # generation, and capacity
     for source in ["fuel_consumed_mmbtu", "net_generation_mwh"]:
 
-        # only keep values greater than zero so that these can be filled by other 
+        # only keep values greater than zero so that these can be filled by other
         # methods if non-zero
         primary_fuel_calc = plant_totals_by_fuel[plant_totals_by_fuel[source] > 0]
 
@@ -217,7 +217,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
         primary_fuel_from_capacity, how="left", on="plant_id_eia", validate="1:1"
     )
 
-    # use the fuel-based primary fuel first, then fill using capacit-based primary fuel, 
+    # use the fuel-based primary fuel first, then fill using capacit-based primary fuel,
     # then generation based.
     plant_primary_fuel["plant_primary_fuel"] = plant_primary_fuel[
         "primary_fuel_from_fuel_consumed_mmbtu"
@@ -230,7 +230,9 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     ].fillna(plant_primary_fuel["primary_fuel_from_net_generation_mwh"])
 
     if len(plant_primary_fuel[plant_primary_fuel["plant_primary_fuel"].isna()]) > 0:
-        raise UserWarning("Plant primary fuel table contains missing primary fuels. Update method of `create_primary_fuel_table()` to fix")
+        raise UserWarning(
+            "Plant primary fuel table contains missing primary fuels. Update method of `create_primary_fuel_table()` to fix"
+        )
 
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
@@ -255,7 +257,7 @@ def calculate_capacity_based_primary_fuel(pudl_out):
         .reset_index()
     )
 
-    # drop the battery portion of any hybrid plants so that we don't accidentally 
+    # drop the battery portion of any hybrid plants so that we don't accidentally
     # identify the primary fuel as storage
     gen_capacity = gen_capacity[
         ~(
@@ -831,6 +833,20 @@ def assign_fuel_type_to_cems(cems, year):
 
     # merge in the reported fuel type
     cems = cems.merge(fuel_types, how="left", on=["plant_id_epa", "unitid"])
+
+    # fill missing fuel codes for plants that only have a single fuel type
+    single_fuel_plants = (
+        fuel_types.drop_duplicates(subset=["plant_id_epa", "energy_source_code"])
+        .drop_duplicates(subset=["plant_id_epa"], keep=False)
+        .drop(columns="unitid")
+    )
+    cems = cems.merge(
+        single_fuel_plants, how="left", on=["plant_id_epa"], suffixes=(None, "_plant")
+    )
+    cems["energy_source_code"] = cems["energy_source_code"].fillna(
+        cems["energy_source_code_plant"]
+    )
+    cems = cems.drop(columns="energy_source_code_plant")
 
     # TODO: fill fuel codes for plants that only have a single fossil type identified in EIA
     cems = fill_missing_fuel_for_single_fuel_plant_months(cems, year)
@@ -2198,6 +2214,36 @@ def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_tab
         validate="1:1",
     )
 
+    # identify any CEMS-only plants that are missing a primary fuel assignment
+    plants_missing_primary_fuel = list(
+        cems_plants.loc[cems_plants["plant_primary_fuel"].isna(), "plant_id_eia"]
+    )
+
+    # calculate primary fuel for each of these missing plants
+    cems_primary_fuel = cems.loc[
+        cems["plant_id_eia"].isin(plants_missing_primary_fuel),
+        ["plant_id_eia", "energy_source_code", "fuel_consumed_mmbtu"],
+    ]
+
+    # calculate the total fuel consumption by fuel type and keep the fuel code with the largest fuel consumption
+    cems_primary_fuel = (
+        cems_primary_fuel.groupby(["plant_id_eia", "energy_source_code"], dropna=False)
+        .sum()
+        .reset_index()
+        .sort_values(by="fuel_consumed_mmbtu", ascending=False)
+        .drop_duplicates(subset="plant_id_eia", keep="first")
+        .drop(columns="fuel_consumed_mmbtu")
+    )
+
+    # merge the cems primary fuel back in and use it to fill any missing fuel codes
+    cems_plants = cems_plants.merge(
+        cems_primary_fuel, how="left", on="plant_id_eia", validate="1:1",
+    )
+    cems_plants["plant_primary_fuel"] = cems_plants["plant_primary_fuel"].fillna(
+        cems_plants["energy_source_code"]
+    )
+    cems_plants = cems_plants.drop(columns="energy_source_code")
+
     # concat the two lists together
     plant_attributes = eia_plants.merge(
         cems_plants,
@@ -2247,6 +2293,28 @@ def assign_ba_code_to_plant(df, year):
         df with a new column for 'ba_code' and 'state'
     """
 
+    plant_ba = create_plant_ba_table(year)[
+        ["plant_id_eia", "ba_code", "ba_code_physical", "state"]
+    ]
+
+    # merge the ba code into the dataframe
+    df = df.merge(plant_ba, how="left", on="plant_id_eia",)
+
+    if len(df[df["ba_code"].isna()]) > 0:
+        print("   Warning: the following plants are missing ba_code:")
+        print(df[df["ba_code"].isna()])
+
+    # replace missing ba codes with NA
+    df["ba_code"] = df["ba_code"].fillna("NA")
+    df["ba_code_physical"] = df["ba_code_physical"].fillna("NA")
+
+    return df
+
+
+def create_plant_ba_table(year):
+    """
+    Creates a table assigning a ba_code and physical ba code to each plant id.
+    """
     pudl_out = load_data.initialize_pudl_out(year=year)
 
     plant_ba = pudl_out.plants_eia860().loc[
@@ -2266,6 +2334,21 @@ def assign_ba_code_to_plant(df, year):
     plant_ba["balancing_authority_code_eia"] = plant_ba[
         "balancing_authority_code_eia"
     ].astype(object)
+
+    # add plants from the plants_entity table in case any are missing from EIA-860
+    plants_entity_ba = load_data.load_pudl_table("plants_entity_eia")[
+        ["plant_id_eia", "balancing_authority_code_eia", "state"]
+    ]
+    plant_ba = plant_ba.merge(
+        plants_entity_ba, how="outer", on="plant_id_eia", suffixes=(None, "_entity")
+    )
+    plant_ba["balancing_authority_code_eia"] = plant_ba[
+        "balancing_authority_code_eia"
+    ].fillna(plant_ba["balancing_authority_code_eia_entity"])
+    plant_ba["state"] = plant_ba["state"].fillna(plant_ba["state_entity"].astype(str))
+    plant_ba["balancing_authority_code_eia"] = plant_ba[
+        "balancing_authority_code_eia"
+    ].fillna(value=np.NaN)
 
     # specify a ba code for certain utilities
     utility_as_ba_code = {
@@ -2355,7 +2438,6 @@ def assign_ba_code_to_plant(df, year):
         6283: "None",
         57206: "None",
         10093: "None",
-        52106: "PAMS",
     }  # TODO: Tesoro Hawaii has no BA assigned, but is connected to the HECO transmission grid - investigate further
 
     plant_ba["ba_code"].update(plant_ba["plant_id_eia"].map(manual_ba_corrections))
@@ -2380,18 +2462,7 @@ def assign_ba_code_to_plant(df, year):
     )
     plant_ba["ba_code_physical"].update(plant_ba["ba_code_physical_map"])
 
-    # merge the ba code into the dataframe
-    df = df.merge(
-        plant_ba.loc[:, ["plant_id_eia", "ba_code", "ba_code_physical", "state"]],
-        how="left",
-        on="plant_id_eia",
-    )
-
-    # replace missing ba codes with NA
-    df["ba_code"] = df["ba_code"].fillna("NA")
-    df["ba_code_physical"] = df["ba_code_physical"].fillna("NA")
-
-    return df
+    return plant_ba
 
 
 def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):

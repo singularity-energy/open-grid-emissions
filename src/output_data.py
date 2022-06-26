@@ -29,7 +29,7 @@ def output_intermediate_data(df, file_name, path_prefix, year):
 
 
 def output_to_results(df, file_name, subfolder, path_prefix):
-    print(f"   Exporting {file_name} to data/results{path_prefix}{subfolder}")
+    print(f"   Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
     metric = convert_results(df)
 
@@ -135,7 +135,10 @@ def write_generated_averages(ba_fuel_data, year, path_prefix):
                 )  # TODO: temporary placeholder while solar is broken. Eventually there should be no NaNs.
             )
     output_intermediate_data(
-        avg_fuel_type_production, "annual_generation_averages_by_fuel", path_prefix, year
+        avg_fuel_type_production,
+        "annual_generation_averages_by_fuel",
+        path_prefix,
+        year,
     )
 
 

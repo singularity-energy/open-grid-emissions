@@ -282,10 +282,12 @@ def load_epa_eia_crosswalk(year):
     crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
     crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
-    # change the id to an int
-    # NOTE: because of NA values, the column is a float, and cannot be
-    # converted to int unless the NAs are removed
-    # crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].astype(int)
+    # some eia plant ids are missing. Let us assume that the EIA and EPA plant ids match in this case
+    crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].fillna(
+        crosswalk["CAMD_PLANT_ID"]
+    )
+    # change the id to an int now that no plant ids are missing
+    crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].astype(int)
 
     # rename the columns
     crosswalk = crosswalk.rename(
@@ -333,18 +335,34 @@ def load_epa_eia_crosswalk(year):
         "../data/manual/epa_eia_crosswalk_manual.csv", dtype=get_dtypes()
     ).drop(columns=["notes"])
 
-    # merge the energy source code from EIA-860
+    # load EIA-860 data
     pudl_out = initialize_pudl_out(year=year)
+    gen_esc_860 = pudl_out.gens_eia860()[
+        ["plant_id_eia", "generator_id", "energy_source_code_1"]
+    ]
+
+    # merge the energy source code from EIA-860
     crosswalk_manual = crosswalk_manual.merge(
-        pudl_out.gens_eia860()[
-            ["plant_id_eia", "generator_id", "energy_source_code_1"]
-        ],
-        how="left",
-        on=["plant_id_eia", "generator_id"],
+        gen_esc_860, how="left", on=["plant_id_eia", "generator_id"],
     ).rename(columns={"energy_source_code_1": "energy_source_code_eia"})
 
     # concat this data with the main table
     crosswalk = pd.concat([crosswalk, crosswalk_manual], axis=0,)
+
+    # merge in any plants that are missing from the EPA crosswalk but appear in EIA-860
+    crosswalk = crosswalk.merge(
+        gen_esc_860, how="outer", on=["plant_id_eia", "generator_id"]
+    )
+    crosswalk["plant_id_epa"] = crosswalk["plant_id_epa"].fillna(
+        crosswalk["plant_id_eia"]
+    )
+    crosswalk["energy_source_code_eia"] = crosswalk["energy_source_code_eia"].fillna(
+        crosswalk["energy_source_code_1"]
+    )
+    crosswalk["energy_source_code_epa"] = crosswalk["energy_source_code_epa"].fillna(
+        crosswalk["energy_source_code_1"]
+    )
+    crosswalk = crosswalk.drop(columns=["energy_source_code_1"])
 
     return crosswalk
 
