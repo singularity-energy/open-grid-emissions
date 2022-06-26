@@ -14,76 +14,107 @@ from gridemissions.workflows import make_dataset
 from gridemissions.eia_api import EBA_data_scraper, load_eia_columns
 
 
-def balance_to_gridemissions(year: int, small:bool=False):
-    files = ["../data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
+def balance_to_gridemissions(year: int, small: bool = False):
+    files = [
+        "../data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
         "../data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv",
         "../data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
     ]
 
-    years = [year-1, year, year]
+    years = [year - 1, year, year]
 
     if small:
         files = ["../data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv"]
         years = [year]
 
-    name_map = {'Total Interchange (MW)':"EBA.{}-ALL.TI.H", 
-       'Interchange (MW)':"EBA.{}-{}.ID.H",
-       'Demand (MW) (Adjusted)':"EBA.{}-ALL.D.H",
-       'Net Generation (MW) (Adjusted)':"EBA.{}-ALL.NG.H", 
-       'Net Generation (MW) from Coal':"EBA.{}-ALL.NG.COL.H",
-       'Net Generation (MW) from Natural Gas':"EBA.{}-ALL.NG.NG.H",
-       'Net Generation (MW) from Nuclear':"EBA.{}-ALL.NG.NUC.H",
-       'Net Generation (MW) from All Petroleum Products':"EBA.{}-ALL.NG.OIL.H",
-       'Net Generation (MW) from Hydropower and Pumped Storage':"EBA.{}-ALL.NG.WAT.H",
-       'Net Generation (MW) from Solar': "EBA.{}-ALL.NG.SUN.H",
-       'Net Generation (MW) from Wind':"EBA.{}-ALL.NG.WND.H",
-       'Net Generation (MW) from Other Fuel Sources':"EBA.{}-ALL.NG.OTH.H",
-       'Net Generation (MW) from Unknown Fuel Sources':"EBA.{}-ALL.NG.UNK.H"}
+    name_map = {
+        "Total Interchange (MW)": "EBA.{}-ALL.TI.H",
+        "Interchange (MW)": "EBA.{}-{}.ID.H",
+        "Demand (MW) (Adjusted)": "EBA.{}-ALL.D.H",
+        "Net Generation (MW) (Adjusted)": "EBA.{}-ALL.NG.H",
+        "Net Generation (MW) from Coal": "EBA.{}-ALL.NG.COL.H",
+        "Net Generation (MW) from Natural Gas": "EBA.{}-ALL.NG.NG.H",
+        "Net Generation (MW) from Nuclear": "EBA.{}-ALL.NG.NUC.H",
+        "Net Generation (MW) from All Petroleum Products": "EBA.{}-ALL.NG.OIL.H",
+        "Net Generation (MW) from Hydropower and Pumped Storage": "EBA.{}-ALL.NG.WAT.H",
+        "Net Generation (MW) from Solar": "EBA.{}-ALL.NG.SUN.H",
+        "Net Generation (MW) from Wind": "EBA.{}-ALL.NG.WND.H",
+        "Net Generation (MW) from Other Fuel Sources": "EBA.{}-ALL.NG.OTH.H",
+        "Net Generation (MW) from Unknown Fuel Sources": "EBA.{}-ALL.NG.UNK.H",
+    }
 
     out = pd.DataFrame()
-    for i, file in enumerate(files): 
+    for i, file in enumerate(files):
         dat_file = file.format("BALANCE", years[i])
         int_file = file.format("INTERCHANGE", years[i])
 
         # Format balance files in series format (for gridemissions)
-        dat = pd.read_csv(dat_file, 
-            usecols=['Balancing Authority', 
-            'UTC Time at End of Hour', 
-            'Total Interchange (MW)',  
-            'Demand (MW) (Adjusted)', 'Net Generation (MW) (Adjusted)', 
-            'Net Generation (MW) from Coal', 'Net Generation (MW) from Natural Gas', 'Net Generation (MW) from Nuclear', 
-            'Net Generation (MW) from All Petroleum Products', 'Net Generation (MW) from Hydropower and Pumped Storage', 
-            'Net Generation (MW) from Solar', 'Net Generation (MW) from Wind', 'Net Generation (MW) from Other Fuel Sources', 
-            'Net Generation (MW) from Unknown Fuel Sources'],
+        dat = pd.read_csv(
+            dat_file,
+            usecols=[
+                "Balancing Authority",
+                "UTC Time at End of Hour",
+                "Total Interchange (MW)",
+                "Demand (MW) (Adjusted)",
+                "Net Generation (MW) (Adjusted)",
+                "Net Generation (MW) from Coal",
+                "Net Generation (MW) from Natural Gas",
+                "Net Generation (MW) from Nuclear",
+                "Net Generation (MW) from All Petroleum Products",
+                "Net Generation (MW) from Hydropower and Pumped Storage",
+                "Net Generation (MW) from Solar",
+                "Net Generation (MW) from Wind",
+                "Net Generation (MW) from Other Fuel Sources",
+                "Net Generation (MW) from Unknown Fuel Sources",
+            ],
             parse_dates=["UTC Time at End of Hour"],
-            thousands=',')
-        # Wide to long 
+            thousands=",",
+        )
+        # Wide to long
         dat = dat.melt(id_vars=["Balancing Authority", "UTC Time at End of Hour"])
-        # Find series name 
-        dat["column"] = dat.apply(lambda x: name_map[x.variable].format(x["Balancing Authority"]), axis='columns')
-        # Long to wide 
-        dat = dat[["UTC Time at End of Hour", "value", "column"]].pivot(index="UTC Time at End of Hour", columns="column", values="value")
+        # Find series name
+        dat["column"] = dat.apply(
+            lambda x: name_map[x.variable].format(x["Balancing Authority"]),
+            axis="columns",
+        )
+        # Long to wide
+        dat = dat[["UTC Time at End of Hour", "value", "column"]].pivot(
+            index="UTC Time at End of Hour", columns="column", values="value"
+        )
 
-        # Now for interchange 
-        int = pd.read_csv(int_file, 
-            usecols=['Balancing Authority', 'Directly Interconnected Balancing Authority', 'Interchange (MW)', 'UTC Time at End of Hour'],
-            parse_dates=["UTC Time at End of Hour"], thousands=',')
-        int["column"] = int.apply(lambda x: name_map["Interchange (MW)"].format(x["Balancing Authority"], x["Directly Interconnected Balancing Authority"]), 
-            axis='columns')
-        int = int[["UTC Time at End of Hour", "column", "Interchange (MW)"]].pivot(index="UTC Time at End of Hour", columns="column", values="Interchange (MW)")
+        # Now for interchange
+        int = pd.read_csv(
+            int_file,
+            usecols=[
+                "Balancing Authority",
+                "Directly Interconnected Balancing Authority",
+                "Interchange (MW)",
+                "UTC Time at End of Hour",
+            ],
+            parse_dates=["UTC Time at End of Hour"],
+            thousands=",",
+        )
+        int["column"] = int.apply(
+            lambda x: name_map["Interchange (MW)"].format(
+                x["Balancing Authority"],
+                x["Directly Interconnected Balancing Authority"],
+            ),
+            axis="columns",
+        )
+        int = int[["UTC Time at End of Hour", "column", "Interchange (MW)"]].pivot(
+            index="UTC Time at End of Hour", columns="column", values="Interchange (MW)"
+        )
 
-        # Combine 
-        dat = pd.concat([dat, int], axis='columns')
-        out = pd.concat([out, dat], axis='index')
+        # Combine
+        dat = pd.concat([dat, int], axis="columns")
+        out = pd.concat([out, dat], axis="index")
 
     out.index = out.index.tz_localize("UTC")
-    # Balance files are all inclusive, so hours at boundaries (July 1, Jan 1) are duplicated. 
+    # Balance files are all inclusive, so hours at boundaries (July 1, Jan 1) are duplicated.
     # Drop those duplicate rows
-    out = out[~out.index.duplicated(keep='first')]
-    
-    return out 
+    out = out[~out.index.duplicated(keep="first")]
 
-
+    return out
 
 
 def clean_930(year: int, small: bool = False, path_prefix: str = ""):
@@ -97,11 +128,11 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
 
     data_folder = f"../data/outputs/{path_prefix}/eia930/"
 
-    # Format raw file 
+    # Format raw file
     df = balance_to_gridemissions(year, small=small)
-    raw_file = data_folder+"eia930_unadjusted_raw.csv"
+    raw_file = data_folder + "eia930_unadjusted_raw.csv"
     df.to_csv(raw_file)
-    
+
     # if not small, scrape 2 months before start of year for rolling window cleaning
     start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"
     # Scrape 1 week if small, else 1 year
@@ -118,8 +149,16 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
 
     # Run cleaning
     print("Running physics-based data cleaning")
-    make_dataset(start, end, file_name="eia930", tmp_folder=data_folder, 
-        folder_hist=data_folder, scrape=False, add_ca_fuels=False, calc_consumed=False)
+    make_dataset(
+        start,
+        end,
+        file_name="eia930",
+        tmp_folder=data_folder,
+        folder_hist=data_folder,
+        scrape=False,
+        add_ca_fuels=False,
+        calc_consumed=False,
+    )
 
 
 def reformat_chalendar(raw):
@@ -206,7 +245,6 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     data = data[~data["ba_code"].isin(foreign_bas)]
 
     # create a local datetime column
-    # TODO: Convert to local prevailing time, not local standard time
     data["datetime_local"] = data["datetime_utc"]
     for ba in list(data["ba_code"].unique()):
         data.loc[data.ba_code == ba, "datetime_local"] = data.loc[
