@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 
 import src.load_data as load_data
+import src.impute_hourly_profiles as impute_hourly_profiles
 from src.column_checks import get_dtypes
 
 
@@ -116,7 +117,8 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv", dtype=get_dtypes()
+        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv",
+        dtype=get_dtypes(),
     )
     id_map = dict(
         zip(
@@ -332,14 +334,17 @@ def co2_source_metric(cems, partial_cems, monthly_eia_data_to_shape):
     """Calculates what percent of CO2 emissions mass came from each source."""
     # determine the source of the co2 data
     co2_from_eia = (
-        partial_cems["co2_mass_lb"].sum() + monthly_eia_data_to_shape["co2_mass_lb"].sum()
+        partial_cems["co2_mass_lb"].sum()
+        + monthly_eia_data_to_shape["co2_mass_lb"].sum()
     )
     co2_from_eia = pd.DataFrame(
         [{"co2_mass_measurement_code": "EIA Calculated", "co2_mass_lb": co2_from_eia}]
     )
 
     co2_from_cems = (
-        cems.groupby("co2_mass_measurement_code", dropna=False)["co2_mass_lb"].sum().reset_index()
+        cems.groupby("co2_mass_measurement_code", dropna=False)["co2_mass_lb"]
+        .sum()
+        .reset_index()
     )
     co2_from_cems["co2_mass_measurement_code"] = "CEMS " + co2_from_cems[
         "co2_mass_measurement_code"
@@ -355,7 +360,7 @@ def co2_source_metric(cems, partial_cems, monthly_eia_data_to_shape):
 
 def net_generation_method_metric(cems, partial_cems, monthly_eia_data_to_shape):
     """Calculates what percent of net generation mwh was calculated using each method."""
-    
+
     # determine the method for the net generation data
     data_metric = "net_generation_mwh"
 
@@ -388,7 +393,9 @@ def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     profile_from_cems = cems[data_metric].sum()
     profile_from_partial_cems = partial_cems[data_metric].sum()
     profile_from_eia = (
-        shaped_eia_data.groupby("profile_method", dropna=False)[data_metric].sum().reset_index()
+        shaped_eia_data.groupby("profile_method", dropna=False)[data_metric]
+        .sum()
+        .reset_index()
     )
 
     profile_from_cems = pd.DataFrame(
@@ -404,3 +411,145 @@ def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     )
     profile_source = profile_source.round(2)
     return profile_source
+
+
+def validate_diba_imputation_method(hourly_profiles, year):
+
+    # only keep wind and solar data
+    data_to_validate = hourly_profiles[
+        (hourly_profiles["fuel_category"].isin(["wind", "solar"]))
+        & (~hourly_profiles["eia930_profile"].isna())
+    ]
+    data_to_validate = data_to_validate[
+        [
+            "ba_code",
+            "fuel_category",
+            "datetime_utc",
+            "datetime_local",
+            "report_date",
+            "eia930_profile",
+        ]
+    ]
+
+    profiles_to_impute = data_to_validate[
+        ["ba_code", "fuel_category", "report_date"]
+    ].drop_duplicates()
+
+    dibas = load_data.load_diba_data(year)
+
+    # create an hourly datetime series in local time for each ba/fuel type
+    hourly_profiles_to_add = []
+
+    for index, row in profiles_to_impute.iterrows():
+        ba = row["ba_code"]
+        fuel = row["fuel_category"]
+        report_date = row["report_date"]
+
+        # for wind and solar, average the wind and solar generation profiles from
+        # nearby interconnected BAs
+        if fuel in ["wind", "solar"]:
+            # get a list of diba located in the same region and located in the same time zone
+            ba_dibas = list(
+                dibas.loc[
+                    (dibas.ba_code == ba)
+                    & (dibas.ba_region == dibas.diba_region)
+                    & (dibas.timezone_local == dibas.timezone_local_diba),
+                    "diba_code",
+                ].unique()
+            )
+            if len(ba_dibas) > 0:
+                df_temporary = impute_hourly_profiles.average_diba_wind_solar_profiles(
+                    data_to_validate, ba, fuel, report_date, ba_dibas
+                )
+            # if there are no neighboring DIBAs, calculate a national average profile
+            else:
+                pass
+
+        hourly_profiles_to_add.append(df_temporary)
+
+    hourly_profiles_to_add = pd.concat(
+        hourly_profiles_to_add, axis=0, ignore_index=True
+    )
+
+    # calculate the correlations
+    compare_method = data_to_validate.merge(
+        hourly_profiles_to_add,
+        how="left",
+        on=[
+            "fuel_category",
+            "datetime_utc",
+            "datetime_local",
+            "report_date",
+            "ba_code",
+        ],
+    )
+
+    compare_method = (
+        compare_method.groupby(["fuel_category", "report_date", "ba_code"])
+        .corr()
+        .reset_index()
+    )
+    compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
+
+    return compare_method
+
+
+def validate_national_imputation_method(hourly_profiles):
+
+    # only keep wind and solar data
+    data_to_validate = hourly_profiles[
+        (hourly_profiles["fuel_category"].isin(["wind", "solar"]))
+        & (~hourly_profiles["eia930_profile"].isna())
+    ]
+    data_to_validate = data_to_validate[
+        [
+            "ba_code",
+            "fuel_category",
+            "datetime_utc",
+            "datetime_local",
+            "report_date",
+            "eia930_profile",
+        ]
+    ]
+
+    profiles_to_impute = data_to_validate[
+        ["ba_code", "fuel_category", "report_date"]
+    ].drop_duplicates()
+
+    # create an hourly datetime series in local time for each ba/fuel type
+    hourly_profiles_to_add = []
+
+    for index, row in profiles_to_impute.iterrows():
+        ba = row["ba_code"]
+        fuel = row["fuel_category"]
+        report_date = row["report_date"]
+
+        # for wind and solar, average the wind and solar generation profiles from
+        # nearby interconnected BAs
+        if fuel in ["wind", "solar"]:
+            # get a list of diba located in the same region and located in the same time zone
+            df_temporary = impute_hourly_profiles.average_national_wind_solar_profiles(
+                data_to_validate, ba, fuel, report_date
+            )
+
+        hourly_profiles_to_add.append(df_temporary)
+
+    hourly_profiles_to_add = pd.concat(
+        hourly_profiles_to_add, axis=0, ignore_index=True
+    )
+
+    # calculate the correlations
+    compare_method = data_to_validate.merge(
+        hourly_profiles_to_add,
+        how="left",
+        on=["fuel_category", "datetime_utc", "report_date", "ba_code"],
+    )
+
+    compare_method = (
+        compare_method.groupby(["fuel_category", "report_date", "ba_code"])
+        .corr()
+        .reset_index()
+    )
+    compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
+
+    return compare_method
