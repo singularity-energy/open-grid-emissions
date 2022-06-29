@@ -92,55 +92,94 @@ def select_best_available_profile(hourly_profiles):
 
     """
 
-    # create a filtered version of the residual profile
-    negative_months = (
+    # create a filtered version of the residual profile, removing months where the residual contains negative values
+    residual_filter = (
         hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])
-        .sum()["residual_profile"]
+        .min()["residual_profile"]
         .reset_index()
     )
-    negative_months = negative_months[negative_months["residual_profile"] < 0]
+    residual_filter = residual_filter[residual_filter["residual_profile"] < 0]
 
     hourly_profiles = hourly_profiles.merge(
-        negative_months[["ba_code", "fuel_category", "report_date"]],
+        residual_filter[["ba_code", "fuel_category", "report_date"]],
         how="outer",
         on=["ba_code", "fuel_category", "report_date"],
-        indicator="negative_month",
+        indicator="negative_filter",
     )
     hourly_profiles["residual_profile_filtered"] = hourly_profiles["residual_profile"]
     hourly_profiles.loc[
-        hourly_profiles["negative_month"] == "both", "residual_profile_filtered"
+        hourly_profiles["negative_filter"] == "both", "residual_profile_filtered"
     ] = np.NaN
-    hourly_profiles = hourly_profiles.drop(columns=["negative_month"])
+    hourly_profiles = hourly_profiles.drop(columns=["negative_filter"])
+
+    # implement a filter on the shifted residual profile so that we don't use it if greater than the eia930 data
+    shifted_filter = (
+        hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])
+        .sum()
+        .reset_index()
+    )
+    shifted_filter = shifted_filter.loc[
+        shifted_filter["shifted_residual_profile"] > shifted_filter["eia930_profile"],
+        ["ba_code", "fuel_category", "report_date"],
+    ]
+
+    hourly_profiles = hourly_profiles.merge(
+        shifted_filter,
+        how="outer",
+        on=["ba_code", "fuel_category", "report_date"],
+        indicator="shifted_filter",
+    )
+    # create a new filtered column, replacing filtered values with nan
+    hourly_profiles["shifted_residual_profile_filtered"] = hourly_profiles[
+        "shifted_residual_profile"
+    ]
+    hourly_profiles.loc[
+        hourly_profiles["shifted_filter"] == "both", "shifted_residual_profile_filtered"
+    ] = np.NaN
+    hourly_profiles = hourly_profiles.drop(columns=["shifted_filter"])
+
+    # pick the profile
 
     hourly_profiles["profile"] = np.NaN
     hourly_profiles["profile_method"] = np.NaN
     # specify the profile as the best available data
-    for source_column in [
+    profile_hierarchy = [
         "residual_profile_filtered",
+        "shifted_residual_profile_filtered",
         "eia930_profile",
         "cems_profile",
         "imputed_profile",
-    ]:
+    ]
+    for profile in profile_hierarchy:
         # fill in the name of the method
         hourly_profiles.loc[
-            hourly_profiles["profile"].isna() & ~hourly_profiles[source_column].isna(),
+            hourly_profiles["profile"].isna() & ~hourly_profiles[profile].isna(),
             "profile_method",
-        ] = source_column
+        ] = profile
         # fill missing values with non-missing values from the filtered profile data
         hourly_profiles["profile"] = hourly_profiles["profile"].fillna(
-            hourly_profiles[source_column]
+            hourly_profiles[profile]
         )
 
+    # for imputed profiles, identify the specific imputation method
     hourly_profiles.loc[
         hourly_profiles["profile_method"] == "imputed_profile", "profile_method"
     ] = hourly_profiles.loc[
         hourly_profiles["profile_method"] == "imputed_profile", "imputation_method"
     ]
+    # replace the filtered method names with the regular method name
     hourly_profiles["profile_method"] = hourly_profiles["profile_method"].replace(
-        "residual_profile_filtered", "residual_profile"
+        {
+            "shifted_residual_profile_filtered": "shifted_residual_profile",
+            "residual_profile_filtered": "residual_profile",
+        }
     )
     hourly_profiles = hourly_profiles.drop(
-        columns=["imputation_method", "residual_profile_filtered"]
+        columns=[
+            "imputation_method",
+            "residual_profile_filtered",
+            "shifted_residual_profile_filtered",
+        ]
     )
 
     return hourly_profiles
@@ -273,9 +312,16 @@ def calculate_residual(
     )
 
     # if there is no cems data for a ba-fuel, and there is eia profile data replace missing values with zero
-    combined_data.loc[~combined_data["eia930_profile"].isna(), "cems_profile"] = combined_data.loc[~combined_data["eia930_profile"].isna(), "cems_profile"].fillna(0)
+    combined_data.loc[
+        ~combined_data["eia930_profile"].isna(), "cems_profile"
+    ] = combined_data.loc[
+        ~combined_data["eia930_profile"].isna(), "cems_profile"
+    ].fillna(
+        0
+    )
 
     combined_data = calculate_scaled_residual(combined_data)
+    combined_data = calculate_shifted_residual(combined_data)
 
     # calculate the residual
     combined_data["residual_profile"] = (
@@ -293,6 +339,7 @@ def calculate_residual(
             "cems_profile",
             "residual_profile",
             "scaled_residual_profile",
+            "shifted_residual_profile",
         ]
     ]
 
@@ -308,9 +355,9 @@ def calculate_scaled_residual(combined_data):
     )
     # find the minimum ratio for each ba-fuel
     scaling_factors = (
-        scaling_factors.groupby(["ba_code", "fuel_category"], dropna=False)[
-            "scaling_factor"
-        ]
+        scaling_factors.groupby(
+            ["ba_code", "fuel_category", "report_date"], dropna=False
+        )["scaling_factor"]
         .min()
         .reset_index()
     )
@@ -321,7 +368,7 @@ def calculate_scaled_residual(combined_data):
     # merge the scaling factor into the combined data
     # for any BA-fuels without a scaling factor, fill with 1 (scale to 100% of the origina data)
     combined_data = combined_data.merge(
-        scaling_factors, how="left", on=["ba_code", "fuel_category"]
+        scaling_factors, how="left", on=["ba_code", "fuel_category", "report_date"]
     )
     combined_data["scaling_factor"] = combined_data["scaling_factor"].fillna(1)
 
@@ -333,6 +380,47 @@ def calculate_scaled_residual(combined_data):
     # calculate the residual
     combined_data["scaled_residual_profile"] = (
         combined_data["eia930_profile"] - combined_data["cems_profile_scaled"]
+    )
+
+    return combined_data
+
+
+def calculate_shifted_residual(combined_data):
+    # Find scaling factor
+    # only keep data where the cems data is greater than zero
+    scaling_factors = combined_data.copy()[combined_data["cems_profile"] != 0]
+    # calculate the ratio of 930 net generation to cems net generation
+    # if correct, ratio should be >=1
+    scaling_factors["shift_factor"] = (
+        scaling_factors["eia930_profile"] - scaling_factors["cems_profile"]
+    )
+    # find the minimum factor for each ba-fuel
+    scaling_factors = (
+        scaling_factors.groupby(
+            ["ba_code", "fuel_category", "report_date"], dropna=False
+        )["shift_factor"]
+        .min()
+        .reset_index()
+    )
+
+    # only keep scaling factors < 0, which means the data needs to be scaled
+    scaling_factors = scaling_factors[scaling_factors["shift_factor"] < 0]
+
+    # merge the scaling factor into the combined data
+    # for any BA-fuels without a scaling factor, fill with 1 (scale to 100% of the origina data)
+    combined_data = combined_data.merge(
+        scaling_factors, how="left", on=["ba_code", "fuel_category", "report_date"]
+    )
+    combined_data["shift_factor"] = combined_data["shift_factor"].fillna(0)
+
+    # calculate the scaled cems data
+    combined_data["cems_profile_shifted"] = (
+        combined_data["cems_profile"] + combined_data["shift_factor"]
+    )
+
+    # calculate the residual
+    combined_data["shifted_residual_profile"] = (
+        combined_data["eia930_profile"] - combined_data["cems_profile_shifted"]
     )
 
     return combined_data
@@ -582,10 +670,30 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     # add ba-fuel data and aggregate cems by ba-fuel
     cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
     cems = (
-        cems.groupby(["ba_code", "fuel_category", "datetime_utc"], dropna=False)
+        cems.groupby(
+            ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
+        )
         .sum()["net_generation_mwh"]
         .reset_index()
     )
+    # remove months where there is zero generation reported
+    months_with_zero_data = (
+        cems.groupby(["ba_code", "fuel_category", "report_date"], dropna=False)
+        .sum()["net_generation_mwh"]
+        .reset_index()
+    )
+    months_with_zero_data = months_with_zero_data.loc[
+        months_with_zero_data["net_generation_mwh"] == 0,
+        ["ba_code", "fuel_category", "report_date"],
+    ]
+    cems = cems.merge(
+        months_with_zero_data,
+        how="outer",
+        on=["ba_code", "fuel_category", "report_date"],
+        indicator="zero_filter",
+    )
+    cems = cems[cems["zero_filter"] != "both"]
+    cems = cems.drop(columns=["zero_filter", "report_date"])
 
     # fill missing cems profile data
     hourly_profiles = hourly_profiles.merge(

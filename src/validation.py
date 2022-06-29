@@ -553,3 +553,28 @@ def validate_national_imputation_method(hourly_profiles):
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
 
     return compare_method
+
+
+def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape):
+    # aggregate data to ba fuel month
+    shaped_data_agg = shaped_eia_data.groupby(
+        ["ba_code", "fuel_category", "report_date"], dropna=False
+    ).sum()[["net_generation_mwh", "fuel_consumed_mmbtu"]]
+    eia_data_agg = monthly_eia_data_to_shape.groupby(
+        ["ba_code", "fuel_category", "report_date"], dropna=False
+    ).sum()[["net_generation_mwh", "fuel_consumed_mmbtu"]]
+
+    # calculate the difference between the two datasets
+    compare = (shaped_data_agg - eia_data_agg).round(0)
+
+    if compare.sum().sum() > 0:
+        print(
+            compare[
+                (compare["net_generation_mwh"] != 0)
+                | (compare["fuel_consumed_mmbtu"] != 0)
+            ]
+        )
+        raise UserWarning(
+            "The EIA process is changing the monthly total values compared to reported EIA values. This process should only shape the data, not alter it."
+        )
+
