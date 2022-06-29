@@ -111,12 +111,37 @@ def load_egrid_plant_file(year):
     return egrid_plant
 
 
+def load_egrid_ba_file(year):
+    # load egrid BA totals
+    egrid_ba = pd.read_excel(
+        f"../data/downloads/egrid/egrid{year}_data.xlsx",
+        sheet_name=f"BA{str(year)[-2:]}",
+        header=1,
+        usecols=["BANAME", "BACODE", "BAHTIANT", "BANGENAN", "BACO2AN"],
+    )
+    # rename the columns
+    egrid_ba = egrid_ba.rename(
+        columns={
+            "BANAME": "ba_name",
+            "BACODE": "ba_code",
+            "BAHTIANT": "fuel_consumed_for_electricity_mmbtu",
+            "BANGENAN": "net_generation_mwh",
+            "BACO2AN": "co2_mass_lb_adjusted",
+        }
+    )
+    egrid_ba = egrid_ba.sort_values(by="ba_code", ascending=True)
+    egrid_ba["co2_mass_lb_adjusted"] = egrid_ba["co2_mass_lb_adjusted"] * 2000
+
+    return egrid_ba
+
+
 def add_egrid_plant_id(df, from_id, to_id):
     # For plants that have different EPA and EIA plant IDs, the plant ID in eGRID is usually the EPA ID, but sometimes the EIA ID
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv", dtype=get_dtypes()
+        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv",
+        dtype=get_dtypes(),
     )
     id_map = dict(
         zip(
@@ -332,14 +357,17 @@ def co2_source_metric(cems, partial_cems, monthly_eia_data_to_shape):
     """Calculates what percent of CO2 emissions mass came from each source."""
     # determine the source of the co2 data
     co2_from_eia = (
-        partial_cems["co2_mass_lb"].sum() + monthly_eia_data_to_shape["co2_mass_lb"].sum()
+        partial_cems["co2_mass_lb"].sum()
+        + monthly_eia_data_to_shape["co2_mass_lb"].sum()
     )
     co2_from_eia = pd.DataFrame(
         [{"co2_mass_measurement_code": "EIA Calculated", "co2_mass_lb": co2_from_eia}]
     )
 
     co2_from_cems = (
-        cems.groupby("co2_mass_measurement_code", dropna=False)["co2_mass_lb"].sum().reset_index()
+        cems.groupby("co2_mass_measurement_code", dropna=False)["co2_mass_lb"]
+        .sum()
+        .reset_index()
     )
     co2_from_cems["co2_mass_measurement_code"] = "CEMS " + co2_from_cems[
         "co2_mass_measurement_code"
@@ -355,7 +383,7 @@ def co2_source_metric(cems, partial_cems, monthly_eia_data_to_shape):
 
 def net_generation_method_metric(cems, partial_cems, monthly_eia_data_to_shape):
     """Calculates what percent of net generation mwh was calculated using each method."""
-    
+
     # determine the method for the net generation data
     data_metric = "net_generation_mwh"
 
@@ -388,7 +416,9 @@ def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     profile_from_cems = cems[data_metric].sum()
     profile_from_partial_cems = partial_cems[data_metric].sum()
     profile_from_eia = (
-        shaped_eia_data.groupby("profile_method", dropna=False)[data_metric].sum().reset_index()
+        shaped_eia_data.groupby("profile_method", dropna=False)[data_metric]
+        .sum()
+        .reset_index()
     )
 
     profile_from_cems = pd.DataFrame(

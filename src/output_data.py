@@ -49,35 +49,52 @@ def output_plant_data(df, path_prefix):
 
     Note: plant-level does not include rates, so all aggregation is summation. 
     """
-    for time in TIME_RESOLUTIONS.keys():
-        if time != "hourly":
-            df_resampled = (
-                df.groupby("plant_id_eia")
-                .resample(
-                    TIME_RESOLUTIONS[time],
-                    on="datetime_utc",
-                    closed="left",
-                    label="left",
-                )
-                .sum()
-                .drop(columns="plant_id_eia")
-                .reset_index()
-            )
-        else:  # No resampling needed, already hourly
-            df_resampled = df
-        # Separately save real and aggregate plants
-        output_to_results(
-            df_resampled[df_resampled.plant_id_eia > 900000],
-            "synthetic_plant_generation",
-            f"plant_data/{time}/",
-            path_prefix,
-        )
-        output_to_results(
-            df_resampled[df_resampled.plant_id_eia < 900000],
-            "CEMS_plant_generation",
-            f"plant_data/{time}/",
-            path_prefix,
-        )
+    # output hourly data
+    # Separately save real and aggregate plants
+    output_to_results(
+        df[df.plant_id_eia > 900000],
+        "synthetic_plant_generation",
+        f"plant_data/hourly/",
+        path_prefix,
+    )
+    output_to_results(
+        df[df.plant_id_eia < 900000],
+        "CEMS_plant_generation",
+        f"plant_data/hourly/",
+        path_prefix,
+    )
+
+    # output monthly data
+    df = df.groupby(["plant_id_eia", "report_date"], dropna=False).sum().reset_index()
+    # Separately save real and aggregate plants
+    output_to_results(
+        df[df.plant_id_eia > 900000],
+        "synthetic_plant_generation",
+        f"plant_data/hourly/",
+        path_prefix,
+    )
+    output_to_results(
+        df[df.plant_id_eia < 900000],
+        "CEMS_plant_generation",
+        f"plant_data/hourly/",
+        path_prefix,
+    )
+
+    # output annual data
+    df = df.groupby(["plant_id_eia"], dropna=False).sum().reset_index()
+    # Separately save real and aggregate plants
+    output_to_results(
+        df[df.plant_id_eia > 900000],
+        "synthetic_plant_generation",
+        f"plant_data/hourly/",
+        path_prefix,
+    )
+    output_to_results(
+        df[df.plant_id_eia < 900000],
+        "CEMS_plant_generation",
+        f"plant_data/hourly/",
+        path_prefix,
+    )
 
 
 def convert_results(df):
@@ -249,62 +266,72 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         # round all values to one decimal place
         ba_table = ba_table.round(2)
 
-        # All below here needs to be repeated per time resolution
-        for time_resolution in TIME_RESOLUTIONS.keys():
-            if time_resolution == "hourly":  # no adjustment needed
-                ba_table_time = ba_table.copy(deep=True)
-            else:  # Resample each fuel type
-                ba_table_time = pd.DataFrame()
-                for f in ba_table.fuel_category.unique():
-                    # Sum numeric columns, take first of other columns
-                    how_to_resample = {c: "sum" for c in data_columns}
-                    how_to_resample["fuel_category"] = "first"
-                    fuel = ba_table.loc[ba_table.fuel_category == f]
-                    fuel = (
-                        fuel.resample(
-                            TIME_RESOLUTIONS[time_resolution],
-                            label="left",
-                            closed="left",
-                            on="datetime_utc",
-                        )
-                        .agg(how_to_resample)
-                        .reset_index()
-                    )
-                    ba_table_time = pd.concat([ba_table_time, fuel], axis="index")
-
+        def add_generated_emission_rate_columns(df):
             for emission_type in ["_for_electricity", "_adjusted"]:
                 for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
-                    ba_table_time[
-                        f"generated_{emission}_rate_lb_per_mwh{emission_type}"
-                    ] = (
+                    df[f"generated_{emission}_rate_lb_per_mwh{emission_type}"] = (
                         (
-                            ba_table_time[f"{emission}_mass_lb{emission_type}"]
-                            / ba_table_time["net_generation_mwh"]
+                            df[f"{emission}_mass_lb{emission_type}"]
+                            / df["net_generation_mwh"]
                         )
                         .fillna(0)
                         .replace(np.inf, np.NaN)
                         .replace(-np.inf, np.NaN)
                     )
+            return df
 
-            # create a local datetime column
-            try:
-                local_tz = load_data.ba_timezone(ba, "local")
-                ba_table_time["datetime_local"] = ba_table_time[
-                    "datetime_utc"
-                ].dt.tz_convert(local_tz)
-            # TODO: figure out what to do for missing ba
-            except ValueError:
-                ba_table_time["datetime_local"] = pd.NaT
+        # output the hourly data
+        ba_table_hourly = add_generated_emission_rate_columns(ba_table)
 
-            # re-order columns
-            ba_table_time = ba_table_time[
-                ["fuel_category", "datetime_local", "datetime_utc"]
-                + data_columns
-                + GENERATED_EMISSION_RATE_COLS
-            ]
+        # create a local datetime column
+        try:
+            local_tz = load_data.ba_timezone(ba, "local")
+            ba_table_hourly["datetime_local"] = ba_table_hourly[
+                "datetime_utc"
+            ].dt.tz_convert(local_tz)
+        # TODO: figure out what to do for missing ba
+        except ValueError:
+            ba_table_hourly["datetime_local"] = pd.NaT
 
-            # export to a csv
-            output_to_results(
-                ba_table_time, ba, f"power_sector_data/{time_resolution}/", path_prefix
-            )
+        # re-order columns
+        ba_table_hourly = ba_table_hourly[
+            ["fuel_category", "datetime_local", "datetime_utc"]
+            + data_columns
+            + GENERATED_EMISSION_RATE_COLS
+        ]
+
+        # export to a csv
+        output_to_results(
+            ba_table_hourly, ba, f"power_sector_data/hourly/", path_prefix
+        )
+
+        # aggregate data to monthly
+        ba_table_monthly = (
+            ba_table.groupby(["fuel_category", "report_date"], dropna=False)
+            .sum()
+            .reset_index()
+        )
+        ba_table_monthly = add_generated_emission_rate_columns(ba_table_monthly)
+        # re-order columns
+        ba_table_monthly = ba_table_monthly[
+            ["fuel_category", "report_date"]
+            + data_columns
+            + GENERATED_EMISSION_RATE_COLS
+        ]
+        output_to_results(
+            ba_table_monthly, ba, f"power_sector_data/monthly/", path_prefix
+        )
+
+        # aggregate data to annual
+        ba_table_annual = (
+            ba_table.groupby(["fuel_category"], dropna=False).sum().reset_index()
+        )
+        ba_table_annual = add_generated_emission_rate_columns(ba_table_annual)
+        # re-order columns
+        ba_table_annual = ba_table_annual[
+            ["fuel_category"] + data_columns + GENERATED_EMISSION_RATE_COLS
+        ]
+        output_to_results(
+            ba_table_annual, ba, f"power_sector_data/annual/", path_prefix
+        )
 
