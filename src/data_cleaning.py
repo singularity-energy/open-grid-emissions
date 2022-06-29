@@ -2110,7 +2110,7 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
     )
     ba_fuel_data = (
         ba_fuel_data.groupby(
-            ["ba_code", "fuel_category", "datetime_utc"], dropna=False
+            ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
         )[data_columns]
         .sum()
         .reset_index()
@@ -2136,6 +2136,7 @@ def combine_plant_data(cems, partial_cems, shaped_eia_data):
     KEY_COLUMNS = [
         "plant_id_eia",
         "datetime_utc",
+        "report_date",
     ]
 
     DATA_COLUMNS = [

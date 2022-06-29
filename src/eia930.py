@@ -287,6 +287,49 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     return data
 
 
+def remove_imputed_ones(eia930_data):
+
+    # round all the values to the nearest whole MWh
+    eia930_data["net_generation_mwh_930"] = eia930_data["net_generation_mwh_930"].round(
+        0
+    )
+    # replace all 1.0 values with zero
+    print(
+        f"replacing {len(eia930_data[eia930_data['net_generation_mwh_930'] == 1])} imputed 1 values with 0"
+    )
+    eia930_data["net_generation_mwh_930"] = eia930_data[
+        "net_generation_mwh_930"
+    ].replace(1, 0)
+
+    return eia930_data
+
+
+def remove_months_with_zero_data(eia930_data):
+    # remove data where the entire month is zero
+    zero_data = (
+        eia930_data.groupby(["ba_code", "fuel_category_eia930", "report_date"])
+        .sum()
+        .reset_index()
+    )
+
+    zero_data = zero_data[zero_data["net_generation_mwh_930"] == 0].drop(
+        columns="net_generation_mwh_930"
+    )
+
+    # filter these ba-fuel-months out of the eia930 data
+    eia930_data = eia930_data.merge(
+        zero_data,
+        how="outer",
+        on=["ba_code", "fuel_category_eia930", "report_date"],
+        indicator="zero_filter",
+    )
+    eia930_data = eia930_data[eia930_data["zero_filter"] == "left_only"].drop(
+        columns="zero_filter"
+    )
+
+    return eia930_data
+
+
 ###########################################################
 # Code for adjusting 930 data in gridemissions format
 #

@@ -272,8 +272,8 @@ def calculate_residual(
         cems_agg, how="left", on=["ba_code", "fuel_category", "datetime_utc"]
     )
 
-    # if there is no cems data for a ba-fuel, replace missing values with zero
-    combined_data["cems_profile"] = combined_data["cems_profile"].fillna(0)
+    # if there is no cems data for a ba-fuel, and there is eia profile data replace missing values with zero
+    combined_data.loc[~combined_data["eia930_profile"].isna(), "cems_profile"] = combined_data.loc[~combined_data["eia930_profile"].isna(), "cems_profile"].fillna(0)
 
     combined_data = calculate_scaled_residual(combined_data)
 

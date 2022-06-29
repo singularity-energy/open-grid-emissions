@@ -70,13 +70,13 @@ def output_plant_data(df, path_prefix):
     output_to_results(
         df[df.plant_id_eia > 900000],
         "synthetic_plant_generation",
-        f"plant_data/hourly/",
+        f"plant_data/monthly/",
         path_prefix,
     )
     output_to_results(
         df[df.plant_id_eia < 900000],
         "CEMS_plant_generation",
-        f"plant_data/hourly/",
+        f"plant_data/monthly/",
         path_prefix,
     )
 
@@ -86,13 +86,13 @@ def output_plant_data(df, path_prefix):
     output_to_results(
         df[df.plant_id_eia > 900000],
         "synthetic_plant_generation",
-        f"plant_data/hourly/",
+        f"plant_data/annual/",
         path_prefix,
     )
     output_to_results(
         df[df.plant_id_eia < 900000],
         "CEMS_plant_generation",
-        f"plant_data/hourly/",
+        f"plant_data/annual/",
         path_prefix,
     )
 

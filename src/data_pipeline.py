@@ -278,6 +278,9 @@ def main():
         else f"../data/outputs/{path_prefix}/eia930/eia930_elec.csv"
     )
     eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
+    # until we can fix the physics reconciliation, we need to apply some post-processing steps
+    eia930_data = eia930.remove_imputed_ones(eia930_data)
+    eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
     # 10. Calculate hourly profiles for monthly EIA data
     print("10. Calculating residual net generation profiles from EIA-930")
