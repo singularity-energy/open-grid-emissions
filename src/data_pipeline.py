@@ -346,6 +346,9 @@ def main():
         plant_attributes, "plant_attributes_with_synthetic", path_prefix, year
     )
 
+    # validate that the shaping did not alter data at the monthly level
+    validation.validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape)
+
     # 12. Combine plant-level data from all sources
     print("12. Combining and exporting plant-level hourly results")
     # write metadata and remove metadata columns
