@@ -36,7 +36,7 @@ def load_egrid_plant_file(year):
         columns={
             "BACODE": "ba_code",
             "PSTATABB": "state",
-            "PLPRMFL": "energy_source_code",
+            "PLPRMFL": "plant_primary_fuel",
             "ORISPL": "plant_id_egrid",
             "PNAME": "plant_name",
             "UNHTIT": "fuel_consumed_mmbtu",
@@ -53,16 +53,16 @@ def load_egrid_plant_file(year):
     # if egrid has a missing value for co2 for a clean plant, replace with zero
     clean_fuels = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
     egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb_adjusted"
+        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb_adjusted"
     ] = egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb_adjusted"
+        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb_adjusted"
     ].fillna(
         0
     )
     egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb"
     ] = egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb"
     ].fillna(
         0
     )
@@ -74,7 +74,7 @@ def load_egrid_plant_file(year):
             "state",
             "plant_id_egrid",
             "plant_name",
-            "energy_source_code",
+            "plant_primary_fuel",
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
