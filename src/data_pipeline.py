@@ -298,6 +298,12 @@ def main():
     ]
     del eia923_allocated
 
+    # combine and export plant data at monthly and annual level
+    monthly_plant_data = data_cleaning.combine_plant_data(cems, partial_cems_scaled, monthly_eia_data_to_shape, "monthly")
+    output_data.output_plant_data(monthly_plant_data, path_prefix, "monthly")
+    output_data.output_plant_data(monthly_plant_data, path_prefix, "annual")
+    del monthly_plant_data
+
     # 10. Calculate Residual Net Generation Profile
     print("Calculating residual net generation profiles from EIA-930")
     # residual_profiles = impute_hourly_profiles.calculate_residual(
@@ -347,12 +353,12 @@ def main():
         cems, partial_cems_scaled, shaped_eia_data, path_prefix
     )
     combined_plant_data = data_cleaning.combine_plant_data(
-        cems, partial_cems_scaled, shaped_eia_data
+        cems, partial_cems_scaled, shaped_eia_data, "hourly"
     )
     del shaped_eia_data, cems, partial_cems_scaled  # free memory back to python
 
     # export to a csv.
-    output_data.output_plant_data(combined_plant_data, path_prefix)
+    output_data.output_plant_data(combined_plant_data, path_prefix, "hourly")
 
     # 13. Aggregate CEMS data to BA-fuel and write power sector results
     print("13. Creating and exporting BA-level power sector results")

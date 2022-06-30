@@ -42,59 +42,46 @@ def output_to_results(df, file_name, subfolder, path_prefix):
     )
 
 
-def output_plant_data(df, path_prefix):
+def output_plant_data(df, path_prefix, resolution):
     """
     Helper function for plant-level output. 
     Output for each time granularity, and output separately for real and synthetic plants
 
     Note: plant-level does not include rates, so all aggregation is summation. 
     """
-    # output hourly data
-    # Separately save real and aggregate plants
-    output_to_results(
-        df[df.plant_id_eia > 900000],
-        "synthetic_plant_generation",
-        f"plant_data/hourly/",
-        path_prefix,
-    )
-    output_to_results(
-        df[df.plant_id_eia < 900000],
-        "CEMS_plant_generation",
-        f"plant_data/hourly/",
-        path_prefix,
-    )
-
-    # output monthly data
-    df = df.groupby(["plant_id_eia", "report_date"], dropna=False).sum().reset_index()
-    # Separately save real and aggregate plants
-    output_to_results(
-        df[df.plant_id_eia > 900000],
-        "synthetic_plant_generation",
-        f"plant_data/monthly/",
-        path_prefix,
-    )
-    output_to_results(
-        df[df.plant_id_eia < 900000],
-        "CEMS_plant_generation",
-        f"plant_data/monthly/",
-        path_prefix,
-    )
-
-    # output annual data
-    df = df.groupby(["plant_id_eia"], dropna=False).sum().reset_index()
-    # Separately save real and aggregate plants
-    output_to_results(
-        df[df.plant_id_eia > 900000],
-        "synthetic_plant_generation",
-        f"plant_data/annual/",
-        path_prefix,
-    )
-    output_to_results(
-        df[df.plant_id_eia < 900000],
-        "CEMS_plant_generation",
-        f"plant_data/annual/",
-        path_prefix,
-    )
+    if resolution == "hourly":
+        # output hourly data
+        # Separately save real and aggregate plants
+        output_to_results(
+            df[df.plant_id_eia > 900000],
+            "synthetic_plant_data",
+            f"plant_data/hourly/",
+            path_prefix,
+        )
+        output_to_results(
+            df[df.plant_id_eia < 900000],
+            "CEMS_plant_data",
+            f"plant_data/hourly/",
+            path_prefix,
+        )
+    elif resolution == "monthly":
+        # output monthly data
+        output_to_results(
+            df,
+            "plant_data",
+            "plant_data/monthly/",
+            path_prefix,
+        )
+    elif resolution == "annual":
+        # output annual data
+        df = df.groupby(["plant_id_eia"], dropna=False).sum().reset_index()
+        # Separately save real and aggregate plants
+        output_to_results(
+            df,
+            "plant_data",
+            "plant_data/annual/",
+            path_prefix,
+        )
 
 
 def convert_results(df):

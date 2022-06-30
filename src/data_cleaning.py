@@ -2118,26 +2118,32 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
     return ba_fuel_data
 
 
-def combine_plant_data(cems, partial_cems, shaped_eia_data):
+def combine_plant_data(cems, partial_cems, eia_data, resolution):
     """
     Combines final hourly subplant data from each source into a single dataframe.
     Inputs:
         Pandas dataframes of shaped or original hourly data
+        resolution: string, either 'monthly' or 'hourly'
 
     Note: returns dask dataframe (not used before this point in pipeline) because of data size
 
     """
-    # Convert to dask because we are about to make a GIANT dataframe
-    # 2,900,000 rows/partition leads to approx 1GB chunk size
-    # cems = dd.from_pandas(cems, npartitions=20)
-    # partial_cems = dd.from_pandas(partial_cems, npartitions=20)
-    # shaped_eia_data = dd.from_pandas(shaped_eia_data, npartitions=20)
 
-    KEY_COLUMNS = [
-        "plant_id_eia",
-        "datetime_utc",
-        "report_date",
-    ]
+    if resolution == "hourly":
+        KEY_COLUMNS = [
+            "plant_id_eia",
+            "datetime_utc",
+            "report_date",
+        ]
+    elif resolution == "monthly":
+        KEY_COLUMNS = [
+            "plant_id_eia",
+            "report_date",
+        ]
+    else:
+        raise UserWarning(
+            "arg 'resolution' for `combine_plant_data` must be either 'monthly' or 'hourly'"
+        )
 
     DATA_COLUMNS = [
         "gross_generation_mwh",
@@ -2175,13 +2181,15 @@ def combine_plant_data(cems, partial_cems, shaped_eia_data):
         .sum()
         .reset_index()[[col for col in partial_cems.columns if col in ALL_COLUMNS]]
     )
-    shaped_eia_data = shaped_eia_data[
-        [col for col in shaped_eia_data.columns if col in ALL_COLUMNS]
-    ]
+    eia_data = (
+        eia_data.groupby(KEY_COLUMNS, dropna=False,)
+        .sum()
+        .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
+    )
 
     # concat together
     combined_plant_data = pd.concat(
-        [cems, partial_cems, shaped_eia_data], axis=0, ignore_index=True, copy=False
+        [cems, partial_cems, eia_data], axis=0, ignore_index=True, copy=False
     )
 
     # groupby plant
