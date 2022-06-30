@@ -150,7 +150,7 @@ KEYS["N2O"] = {
 }
 
 
-def get_average_emission_factors(prefix: str = ""):
+def get_average_emission_factors(prefix: str = "", year:int = 2020):
     """
         Edit EMISSIONS dict with per-fuel, per-adjustment, per-poll emission factors.
         Used to fill in emissions from BAs outside of US, where we have generation by
@@ -159,7 +159,7 @@ def get_average_emission_factors(prefix: str = ""):
         Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
-        f"../data/outputs/{prefix}annual_generation_averages_by_fuel_2020.csv",
+        f"../data/outputs/{prefix}annual_generation_averages_by_fuel_{year}.csv",
         index_col="fuel_category",
     )
     efs = {}
@@ -171,7 +171,7 @@ def get_average_emission_factors(prefix: str = ""):
                 column = get_rate_column(pol, adjustment, generated=True)
                 if FUEL_TYPE_MAP[fuel] not in genavg.index:
                     print(
-                        f"WARNING: fuel {FUEL_TYPE_MAP[fuel]} not found in file annual_generation_averages_by_fuel_2020.csv, using average"
+                        f"WARNING: fuel {FUEL_TYPE_MAP[fuel]} not found in file annual_generation_averages_by_fuel_{year}.csv, using average"
                     )
                     efs[pol][adjustment][fuel] = genavg.loc["total", column]
                 else:
@@ -207,7 +207,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         fixed.regions = regions  # make sure we only use our data regions. TODO: not needed if clean up cols in _replace_generation
 
         # Overwrite emission factors object
-        self.emissions_factors = get_average_emission_factors(self.prefix)
+        self.emissions_factors = get_average_emission_factors(self.prefix, self.year)
 
         super().__init__(fixed, poll)
 

@@ -991,7 +991,7 @@ def scale_partial_cems_data(cems, eia923_allocated):
                     scaling_factor = 1
                     scaling_method = "multiply_by_cems_value"
                 # if the cems version of the data is zero, use the fuel consumption as the profile
-                elif (row[f"{column}_eia"] > 0) & (row[f"{column}_cems"] == 0):
+                elif (row[f"{column}_eia"] > 0) & (row[f"{column}_cems"] == 0) & (row["fuel_consumed_mmbtu_cems"] != 0):
                     scaling_factor = (
                         row[f"{column}_eia"] / row["fuel_consumed_mmbtu_cems"]
                     )
