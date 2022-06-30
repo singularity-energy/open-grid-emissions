@@ -138,6 +138,7 @@ COLUMNS = {
         "cems_profile",
         "residual_profile",
         "scaled_residual_profile",
+        "shifted_residual_profile",
         "imputed_profile",
         "profile",
         "flat_profile",
