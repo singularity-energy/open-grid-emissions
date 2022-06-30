@@ -124,7 +124,7 @@ def crosswalk_epa_eia_plant_ids(cems, year):
 
     # create a table that matches EPA plant and unit IDs to an EIA plant ID
     plant_id_crosswalk = psdc[
-        ["plant_id_epa", "unitid", "plant_id_eia", "generator_id"]
+        ["plant_id_epa", "unitid", "plant_id_eia"]
     ].drop_duplicates()
 
     # only keep plant ids where the two are different
@@ -133,7 +133,7 @@ def crosswalk_epa_eia_plant_ids(cems, year):
     ].dropna()
 
     # match plant_id_eia on plant_id_epa and unitid
-    cems = cems.merge(plant_id_crosswalk, how="left", on=["plant_id_epa", "unitid"])
+    cems = cems.merge(plant_id_crosswalk, how="left", on=["plant_id_epa", "unitid"], validate="m:1")
 
     # if the merge resulted in any missing plant_id associations, fill with the plant_id_epa, assuming that they are the same
     cems["plant_id_eia"] = cems["plant_id_eia"].fillna(cems["plant_id_epa"])

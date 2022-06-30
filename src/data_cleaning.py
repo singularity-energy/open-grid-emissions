@@ -702,6 +702,10 @@ def clean_cems(year, small):
     # add a report date
     cems = add_report_date(cems)
 
+    # remove data for any unit-months where there are incomplete data reported
+    # this is generally when there is a single observation reported for an entire month
+    cems = remove_incomplete_unit_months(cems)
+
     # TODO: identify and remove any hourly values that appear to be outliers
 
     # add a fuel type to each observation
@@ -824,6 +828,37 @@ def add_report_date(df):
     df = df.drop(columns=["timezone"])
 
     return df
+
+
+def remove_incomplete_unit_months(cems):
+
+    # get a count of how many hours are reported in each month for each unit
+    unit_hours_in_month = (
+        cems[["plant_id_eia", "report_date", "unitid", "datetime_utc"]]
+        .groupby(["plant_id_eia", "report_date", "unitid"], dropna=False)
+        .count()
+        .reset_index()
+    )
+
+    # identify months where there is not complete data
+    # The fewest number of hours in a month is 28*24 = 672
+    unit_months_to_remove = unit_hours_in_month[
+        unit_hours_in_month["datetime_utc"] < 600
+    ].drop(columns="datetime_utc")
+
+    print(f"   Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data")
+
+    cems = cems.merge(
+        unit_months_to_remove,
+        how="outer",
+        on=["plant_id_eia", "report_date", "unitid"],
+        validate="m:1",
+        indicator="to_remove",
+    )
+
+    cems = cems[cems["to_remove"] != "both"].drop(columns="to_remove")
+
+    return cems
 
 
 def assign_fuel_type_to_cems(cems, year):
@@ -1689,8 +1724,20 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes):
     )
     # count the number of units in each subplant
     units_in_subplant = cems[
-        ["plant_id_eia", "subplant_id", "report_date", "unitid"]
-    ].drop_duplicates()
+        ["plant_id_eia", "subplant_id", "report_date", "unitid", "datetime_utc"]
+    ]
+    # get a count of how many hours are reported in each month for each unit
+    units_in_subplant = (
+        units_in_subplant.groupby(
+            ["plant_id_eia", "subplant_id", "report_date", "unitid"], dropna=False
+        )
+        .count()
+        .reset_index()
+    )
+    # remove any units where there is a single hour reported for a month.
+    # this is likely due to an error in assigning the report date
+    units_in_subplant = units_in_subplant[units_in_subplant["datetime_utc"] > 1]
+    # now get a count of the number of units in each subplant-month
     units_in_subplant = (
         units_in_subplant.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
@@ -1698,7 +1745,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes):
         .count()
         .reset_index()
         .rename(columns={"unitid": "units_in_subplant"})
-    )
+    ).drop(columns="datetime_utc")
     cems = cems.merge(
         units_in_subplant, how="left", on=["plant_id_eia", "subplant_id", "report_date"]
     )
