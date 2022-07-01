@@ -139,19 +139,28 @@ def update_energy_source_codes(df):
     """
     Manually update fuel source codes
     """
-    # refinery with energy source = OTH, change to OG
-    df.loc[
-        (df["plant_id_eia"] == 50626) & (df["energy_source_code"] == "OTH"),
-        "energy_source_code",
-    ] = "OG"
-    df.loc[
-        (df["plant_id_eia"] == 56139) & (df["energy_source_code"] == "OTH"),
-        "energy_source_code",
-    ] = "OG"
-    df.loc[
-        (df["plant_id_eia"] == 59073) & (df["energy_source_code"] == "OTH"),
-        "energy_source_code",
-    ] = "OG"
+    # load the table of updated fuel types
+    updated_esc = pd.read_csv("../data/manual/updated_oth_energy_source_codes.csv")
+
+    for index, row in updated_esc.iterrows():
+        plant_id = row["plant_id_eia"]
+        updated_code = row["updated_energy_source_code"]
+        df.loc[
+            (df["plant_id_eia"] == plant_id) & (df["energy_source_code"] == "OTH"),
+            "energy_source_code",
+        ] = updated_code
+
+    # print warning if any plants are still other
+    plants_with_other_fuel = df[df["energy_source_code"] == "OTH"]
+    if len(plants_with_other_fuel) > 0:
+        print(
+            "WARNING: After cleaning energy source codes, some generation is still OTH"
+        )
+        print("This will lead to incorrect emissions calculations.")
+        print(
+            f"Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}"
+        )
+        print("Assign a fuel type in `data_cleaning.update_energy_source_codes`")
 
     return df
 
@@ -645,7 +654,7 @@ def remove_plants(
 def remove_non_grid_connected_plants(df):
     """
     Removes any records from a dataframe associated with plants that are not connected to the electricity grid
-    Inputs: 
+    Inputs:
         df: any pandas dataframe containing the column 'plant_id_eia'
     Returns:
         df: pandas dataframe with non-grid connected plants removed
@@ -846,7 +855,9 @@ def remove_incomplete_unit_months(cems):
         unit_hours_in_month["datetime_utc"] < 600
     ].drop(columns="datetime_utc")
 
-    print(f"   Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data")
+    print(
+        f"   Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
+    )
 
     cems = cems.merge(
         unit_months_to_remove,
@@ -885,6 +896,9 @@ def assign_fuel_type_to_cems(cems, year):
 
     # TODO: fill fuel codes for plants that only have a single fossil type identified in EIA
     cems = fill_missing_fuel_for_single_fuel_plant_months(cems, year)
+
+    # update
+    cems = update_energy_source_codes(cems)
 
     return cems
 
@@ -974,62 +988,59 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     return df
 
 
-def calculate_co2_eq_mass(
-    df, ipcc_version="AR5", gwp_horizon=100, ar5_climate_carbon_feedback=False
-):
+def calculate_co2e_mass(df, year, gwp_horizon=100, ar5_climate_carbon_feedback=True):
     """
     Calculate CO2-equivalent emissions from CO2, CH4, and N2O. This is done
     by choosing one of the IPCC's emission factors for CH4 and N2O.
 
-    Inputs:
-        df: Should contain at least: ['co2_mass_lb', 'ch4_mass_lb', 'n2o_mass_lb']
-    
+
     If the `fuel_consumed_for_electricity_units` column is available, we also
     compute the adjusted emissions.
     """
     df_gwp = load_data.load_ipcc_gwp()
 
-    if ipcc_version not in ("SAR", "TAR", "AR4", "AR5"):
-        raise ValueError("Unsupported option for `ipcc_version`.")
-    if gwp_horizon not in (20, 100):
-        raise ValueError(
-            "Only 20-year and 100-year global warming potentials are supported."
-        )
-    if ar5_climate_carbon_feedback and ipcc_version not in ("AR5"):
-        raise ValueError("Climate carbon feedback (CCF) is only available for AR5.")
+    # use the most recent AR that was available in the given year
+    ipcc_version = df_gwp.loc[df_gwp["year"] <= year, "year"].max()
 
-    if ar5_climate_carbon_feedback:
-        ipcc_version += "f"
+    # use the most recent AR that was available in the given year
+    most_recent_AR_year = df_gwp.loc[df_gwp["year"] <= year, "year"].max()
 
-    ch4_gwp_factor = df_gwp.loc[ipcc_version][f"ch4_{gwp_horizon}_year"].astype(float)
-    n2o_gwp_factor = df_gwp.loc[ipcc_version][f"n2o_{gwp_horizon}_year"].astype(float)
+    # identify the AR
+    ipcc_version = list(
+        df_gwp.loc[df_gwp["year"] == most_recent_AR_year, "ipcc_version"].unique()
+    )
+    if len(ipcc_version) > 1:
+        if "AR5" in ipcc_version and ar5_climate_carbon_feedback:
+            ipcc_version = "AR5_cc"
+        elif "AR5" in ipcc_version and not ar5_climate_carbon_feedback:
+            ipcc_version = "AR5_cc"
+    else:
+        ipcc_version = ipcc_version[0]
 
-    if (
-        "co2_mass_lb" not in df.columns
-        or "ch4_mass_lb" not in df.columns
-        or "n2o_mass_lb" not in df.columns
-    ):
-        raise ValueError(
-            "Make sure the input dataframe has emissions data for CO2, CH4, and N2O."
-        )
+    gwp_to_use = df_gwp[df_gwp.ipcc_version == ipcc_version]
 
-    df["co2_eq_mass_lb"] = (
-        df["co2_mass_lb"]
-        + ch4_gwp_factor * df["ch4_mass_lb"]
-        + n2o_gwp_factor * df["n2o_mass_lb"]
+    ch4_gwp = gwp_to_use.loc[
+        (gwp_to_use.gwp_horizon == gwp_horizon) & (gwp_to_use.gas == "ch4"), "gwp",
+    ].item()
+    n2o_gwp = gwp_to_use.loc[
+        (gwp_to_use.gwp_horizon == gwp_horizon) & (gwp_to_use.gas == "n2o"), "gwp",
+    ].item()
+
+    df["co2e_mass_lb"] = (
+        df["co2_mass_lb"] + ch4_gwp * df["ch4_mass_lb"] + n2o_gwp * df["n2o_mass_lb"]
     )
 
     if "co2_mass_lb_adjusted" in df:
-        df["co2_eq_mass_lb_adjusted"] = (
+        df["co2e_mass_lb_adjusted"] = (
             df["co2_mass_lb_adjusted"]
-            + ch4_gwp_factor * df["ch4_mass_lb_adjusted"]
-            + n2o_gwp_factor * df["n2o_mass_lb_adjusted"]
+            + ch4_gwp * df["ch4_mass_lb_adjusted"]
+            + n2o_gwp * df["n2o_mass_lb_adjusted"]
         )
     if "co2_mass_lb_for_electricity" in df:
-        df["co2_eq_mass_lb_for_electricity"] = (
+        df["co2e_mass_lb_for_electricity"] = (
             df["co2_mass_lb_for_electricity"]
-            + ch4_gwp_factor * df["ch4_mass_lb_for_electricity"]
-            + n2o_gwp_factor * df["n2o_mass_lb_for_electricity"]
+            + ch4_gwp * df["ch4_mass_lb_for_electricity"]
+            + n2o_gwp * df["n2o_mass_lb_for_electricity"]
         )
 
     return df
@@ -1044,7 +1055,7 @@ def calculate_nox_from_fuel_consumption(
     Inputs:
         df: Should contain the following columns:
             [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
-    
+
     If the `fuel_consumed_for_electricity_units` column is available, we also
     compute the adjusted emissions.
     """
@@ -1155,7 +1166,7 @@ def calculate_so2_from_fuel_consumption(
     Inputs:
         df: Should contain the following columns:
             [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
-    
+
     If the `fuel_consumed_for_electricity_units` column is available, we also
     compute the adjusted emissions.
     """
@@ -1579,10 +1590,10 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
     Possible categories:
         1. `cems`: For subplant-months for which we have hourly CEMS data for all CEMS units that make up that subplant,
             we will use the hourly values reported in CEMS. (Add a validation check for the net generation and fuel consumption totals)
-        2. `partial_cems`: For subplant-months for which we have hourly CEMS data 
-            for only some of the CEMS units that make up a subplant, we will use the reported 
+        2. `partial_cems`: For subplant-months for which we have hourly CEMS data
+            for only some of the CEMS units that make up a subplant, we will use the reported
             EIA-923 values to scale the partial hourly CEMS data from the other units to match the total value for the entire subplant. This will also calculate a partial subplant scaling factor for each data column (e.g. net generation, fuel consumption) by comparing the total monthly CEMS data to the monthly EIA-923 data.
-        3. `eia`: for subplant-months for which no hourly data is reported in CEMS, 
+        3. `eia`: for subplant-months for which no hourly data is reported in CEMS,
             we will attempt to use EIA-930 data to assign an hourly profile to the monthly EIA-923 data
     Inputs:
         eia923_allocated:
@@ -2407,63 +2418,10 @@ def create_plant_ba_table(year):
     ].fillna(value=np.NaN)
 
     # specify a ba code for certain utilities
-    utility_as_ba_code = {
-        "Anchorage Municipal Light and Power": "AMPL",
-        "Arizona Public Service Co": "AZPS",
-        "Associated Electric Coop, Inc": "AECI",
-        "Avista Corp": "AVA",
-        "Avangrid Renewables Inc": "AVRN",
-        "Bonneville Power Administration": "BPAT",
-        "Bonneville Power Admin": "BPAT",
-        "Chugach Electric Assn Inc": "CEA",
-        "Duke Energy Carolinas, LLC": "DUK",
-        "Duke Energy Florida, Inc": "FPC",
-        "Duke Energy Florida, LLC": "FPC",
-        "Duke Energy Progress - (NC)": "CPLE",
-        "El Paso Electric Co": "EPE",
-        "Florida Power & Light Co": "FPL",
-        "Florida Power &amp; Light Co": "FPL",
-        "Gainesville Regional Utilities": "GVL",
-        "Hawaiian Electric Co Inc": "HECO",
-        "Hawaii Electric Light Co Inc": "HECO",
-        "City of Homestead - (FL)": "HST",
-        "Imperial Irrigation District": "IID",
-        "JEA": "JEA",
-        "Kentucky Utilities Co": "LGEE",
-        "Los Angeles Department of Water & Power": "LDWP",
-        "Louisville Gas & Electric Co": "LGEE",
-        "Nevada Power Co": "NEVP",
-        "New Smyrna Beach City of": "NSB",
-        "NorthWestern Corporation": "NWMT",
-        "NorthWestern Energy": "NWMT",
-        "NorthWestern Energy - (SD)": "NWMT",
-        "NorthWestern Energy LLC - (MT)": "NWMT",
-        "Ohio Valley Electric Corp": "OVEC",
-        "Portland General Electric Co": "PGE",
-        "Portland General Electric Company": "PGE",
-        "PowerSouth Energy Cooperative": "AEC",
-        "Public Service Co of Colorado": "PSCO",
-        "Public Service Co of NM": "PNM",
-        "PUD No 1 of Chelan County": "CHPD",
-        "PUD No 1 of Douglas County": "DOPD",
-        "PUD No 2 of Grant County": "GCPD",
-        "Puget Sound Energy Inc": "PSEI",
-        "Sacramento Municipal Util Dist": "BANC",
-        "Salt River Project": "SRP",
-        "Seminole Electric Cooperative Inc": "SEC",
-        "South Carolina Electric&Gas Company": "SCEG",
-        "South Carolina Electric & Gas Co": "SCEG",
-        "South Carolina Electric &amp; Gas Co": "SCEG",
-        "South Carolina Electric&amp;Gas Company": "SCEG",
-        "South Carolina Public Service Authority": "SC",
-        "South Carolina Public Service Auth": "SC",
-        "Southwestern Power Administration": "SPA",
-        "Tacoma City of": "TPWR",
-        "Tampa Electric Co": "TEC",
-        "Tennessee Valley Authority": "TVA",
-        "Tucson Electric Power Co": "TEPC",
-        "Turlock Irrigation District": "TIDC",
-    }
+    utility_as_ba_code = pd.read_csv("../data/manual/utility_name_ba_code_map.csv")
+    utility_as_ba_code = dict(
+        zip(utility_as_ba_code["name"], utility_as_ba_code["ba_code"],)
+    )
 
     # fill missing BA codes first based on the BA name, then utility name, then on the transmisison owner name
     plant_ba["balancing_authority_code_eia"] = plant_ba[
@@ -2485,19 +2443,28 @@ def create_plant_ba_table(year):
     # TODO: Remove this once the PUDL issue is fixed
     # As of 4/16/22, there are currently a few incorrect BA assignments in the pudl tables (see https://github.com/catalyst-cooperative/pudl/issues/1584)
     # thus, we will manually correct some of the BA codes based on data in the most recent EIA forms
-    manual_ba_corrections = {
-        57698: "BANC",
-        7966: "SWPP",
-        6292: "None",
-        7367: "None",
-        55966: "None",
-        6283: "None",
-        57206: "None",
-        10093: "None",
-    }  # TODO: Tesoro Hawaii has no BA assigned, but is connected to the HECO transmission grid - investigate further
+    manual_ba_corrections = pd.read_csv(
+        "../data/manual/corrected_bas_to_patch_pudl.csv"
+    )
+    manual_ba_corrections = dict(
+        zip(
+            manual_ba_corrections["plant_id_eia"],
+            manual_ba_corrections["corrected_ba_code"],
+        )
+    )
 
     plant_ba["ba_code"].update(plant_ba["plant_id_eia"].map(manual_ba_corrections))
     plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
+
+    # get a list of all of the BAs that retired prior to the current year
+    retired_bas = load_data.load_ba_reference()[["ba_code", "retirement_date"]]
+    retired_bas = list(
+        retired_bas.loc[
+            retired_bas["retirement_date"].dt.year < year, "ba_code"
+        ].unique()
+    )
+    # if there are any plants that have been assigned to a retired BA, set its BA code as missing
+    plant_ba.loc[plant_ba["ba_code"].isin(retired_bas), "ba_code"] = np.NaN
 
     # for plants without a BA code assign the miscellaneous BA code based on the state
     plant_ba["ba_code"] = plant_ba["ba_code"].fillna(plant_ba["state"] + "MS")
@@ -2634,4 +2601,3 @@ def aggregate_cems_to_subplant(cems):
     cems = apply_dtypes(cems)
 
     return cems
-

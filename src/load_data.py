@@ -133,7 +133,9 @@ def crosswalk_epa_eia_plant_ids(cems, year):
     ].dropna()
 
     # match plant_id_eia on plant_id_epa and unitid
-    cems = cems.merge(plant_id_crosswalk, how="left", on=["plant_id_epa", "unitid"], validate="m:1")
+    cems = cems.merge(
+        plant_id_crosswalk, how="left", on=["plant_id_epa", "unitid"], validate="m:1"
+    )
 
     # if the merge resulted in any missing plant_id associations, fill with the plant_id_epa, assuming that they are the same
     cems["plant_id_eia"] = cems["plant_id_eia"].fillna(cems["plant_id_epa"])
@@ -437,9 +439,7 @@ def load_gross_to_net_data(
 
 def load_ipcc_gwp():
     """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
-    return pd.read_csv(
-        "../data/manual/ipcc_gwp.csv", index_col="ipcc_version", dtype=get_dtypes()
-    )
+    return pd.read_csv("../data/manual/ipcc_gwp.csv", dtype=get_dtypes())
 
 
 def load_raw_eia930_data(year, description):

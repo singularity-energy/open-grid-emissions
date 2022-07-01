@@ -29,6 +29,7 @@ def output_intermediate_data(df, file_name, path_prefix, year):
 
 
 def output_to_results(df, file_name, subfolder, path_prefix):
+
     print(f"   Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
     metric = convert_results(df)
@@ -44,10 +45,10 @@ def output_to_results(df, file_name, subfolder, path_prefix):
 
 def output_plant_data(df, path_prefix, resolution):
     """
-    Helper function for plant-level output. 
+    Helper function for plant-level output.
     Output for each time granularity, and output separately for real and synthetic plants
 
-    Note: plant-level does not include rates, so all aggregation is summation. 
+    Note: plant-level does not include rates, so all aggregation is summation.
     """
     if resolution == "hourly":
         # output hourly data
@@ -55,32 +56,26 @@ def output_plant_data(df, path_prefix, resolution):
         output_to_results(
             df[df.plant_id_eia > 900000],
             "synthetic_plant_data",
-            f"plant_data/hourly/",
+            "plant_data/hourly/",
             path_prefix,
         )
         output_to_results(
             df[df.plant_id_eia < 900000],
             "CEMS_plant_data",
-            f"plant_data/hourly/",
+            "plant_data/hourly/",
             path_prefix,
         )
     elif resolution == "monthly":
         # output monthly data
         output_to_results(
-            df,
-            "plant_data",
-            "plant_data/monthly/",
-            path_prefix,
+            df, "plant_data", "plant_data/monthly/", path_prefix,
         )
     elif resolution == "annual":
         # output annual data
         df = df.groupby(["plant_id_eia"], dropna=False).sum().reset_index()
         # Separately save real and aggregate plants
         output_to_results(
-            df,
-            "plant_data",
-            "plant_data/annual/",
-            path_prefix,
+            df, "plant_data", "plant_data/annual/", path_prefix,
         )
 
 
@@ -190,7 +185,7 @@ def write_plant_metadata(cems, partial_cems, shaped_eia_data, path_prefix):
     # concat the metadata into a one file and export
     metadata = pd.concat([cems_meta, partial_cems_meta, shaped_eia_data_meta], axis=0)
 
-    output_to_results(metadata, "plant_metadata", "plant_data/", path_prefix)
+    metadata.to_csv(f"../data/results/{path_prefix}plant_data/plant_metadata.csv")
 
     # drop the metadata columns from each dataframe
     cems = cems.drop(columns=METADATA_COLUMNS)
@@ -288,9 +283,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         ]
 
         # export to a csv
-        output_to_results(
-            ba_table_hourly, ba, f"power_sector_data/hourly/", path_prefix
-        )
+        output_to_results(ba_table_hourly, ba, "power_sector_data/hourly/", path_prefix)
 
         # aggregate data to monthly
         ba_table_monthly = (
@@ -306,7 +299,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
             + GENERATED_EMISSION_RATE_COLS
         ]
         output_to_results(
-            ba_table_monthly, ba, f"power_sector_data/monthly/", path_prefix
+            ba_table_monthly, ba, "power_sector_data/monthly/", path_prefix
         )
 
         # aggregate data to annual
@@ -318,7 +311,4 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         ba_table_annual = ba_table_annual[
             ["fuel_category"] + data_columns + GENERATED_EMISSION_RATE_COLS
         ]
-        output_to_results(
-            ba_table_annual, ba, f"power_sector_data/annual/", path_prefix
-        )
-
+        output_to_results(ba_table_annual, ba, "power_sector_data/annual/", path_prefix)
