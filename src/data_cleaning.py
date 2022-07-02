@@ -156,7 +156,7 @@ def update_energy_source_codes(df):
         print(
             "WARNING: After cleaning energy source codes, some generation is still OTH"
         )
-        print("This will lead to incorrect emissions calculations.")
+        print("This may lead to incorrect emissions calculations.")
         print(
             f"Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}"
         )
