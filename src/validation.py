@@ -36,7 +36,7 @@ def load_egrid_plant_file(year):
         columns={
             "BACODE": "ba_code",
             "PSTATABB": "state",
-            "PLPRMFL": "energy_source_code",
+            "PLPRMFL": "plant_primary_fuel",
             "ORISPL": "plant_id_egrid",
             "PNAME": "plant_name",
             "UNHTIT": "fuel_consumed_mmbtu",
@@ -53,16 +53,16 @@ def load_egrid_plant_file(year):
     # if egrid has a missing value for co2 for a clean plant, replace with zero
     clean_fuels = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
     egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb_adjusted"
+        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb_adjusted"
     ] = egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb_adjusted"
+        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb_adjusted"
     ].fillna(
         0
     )
     egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb"
     ] = egrid_plant.loc[
-        egrid_plant["energy_source_code"].isin(clean_fuels), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb"
     ].fillna(
         0
     )
@@ -74,7 +74,7 @@ def load_egrid_plant_file(year):
             "state",
             "plant_id_egrid",
             "plant_name",
-            "energy_source_code",
+            "plant_primary_fuel",
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
@@ -110,6 +110,30 @@ def load_egrid_plant_file(year):
     egrid_plant = add_egrid_plant_id(egrid_plant, from_id="egrid", to_id="eia")
 
     return egrid_plant
+
+
+def load_egrid_ba_file(year):
+    # load egrid BA totals
+    egrid_ba = pd.read_excel(
+        f"../data/downloads/egrid/egrid{year}_data.xlsx",
+        sheet_name=f"BA{str(year)[-2:]}",
+        header=1,
+        usecols=["BANAME", "BACODE", "BAHTIANT", "BANGENAN", "BACO2AN"],
+    )
+    # rename the columns
+    egrid_ba = egrid_ba.rename(
+        columns={
+            "BANAME": "ba_name",
+            "BACODE": "ba_code",
+            "BAHTIANT": "fuel_consumed_for_electricity_mmbtu",
+            "BANGENAN": "net_generation_mwh",
+            "BACO2AN": "co2_mass_lb_adjusted",
+        }
+    )
+    egrid_ba = egrid_ba.sort_values(by="ba_code", ascending=True)
+    egrid_ba["co2_mass_lb_adjusted"] = egrid_ba["co2_mass_lb_adjusted"] * 2000
+
+    return egrid_ba
 
 
 def add_egrid_plant_id(df, from_id, to_id):

@@ -5,7 +5,7 @@ Run from `src` as `python data_pipeline.py` after installing conda environment
 
 Optional arguments are --year (default 2020), --gtn_years (default 5)
 
-# Overview of Data Pipeline 
+# Overview of Data Pipeline
 
 ## Data Used
 EPA Continuous Emissions Monitoring System (CEMS) data
@@ -25,16 +25,16 @@ EPA-EIA Power Sector Data Crosswalk
  - How we use it: To match data between CEMS and EIA-923
 
 EIA Form 930 / Hourly Electric Grid Monitor
- - What is it: Reported hourly net generation by fuel category, demand, and interchange for each Balancing Area in the U.S. 
+ - What is it: Reported hourly net generation by fuel category, demand, and interchange for each Balancing Area in the U.S.
  - How we use it: To assign an hourly profile to the monthly generation and fuel data reported in EIA-923
 
 EPA eGRID database
- - What is it: Reports annual-level generation and emissions statistics at the plant and BA level 
+ - What is it: Reports annual-level generation and emissions statistics at the plant and BA level
  - How we use it: to validate our outputs
 
 ## Process
 1. Download data, including CEMS (via PUDL), EIA Forms 860 and 923 (via PUDL), EPA-EIA Power Sector Data Crosswalk, EIA-930 data
-    - Downloads are cached on first run so do not need to be redownloaded  
+    - Downloads are cached on first run so do not need to be redownloaded
 2. Identify subplants and gross-to-net generation factors using multiple years of historical data.
     - Using Power Sector Data Crosswalk, identify distinct subplant clusters of EPA units and EIA generators in each plant
     - Using multiple years of generation data from CEMS and EIA-923, run linear regressions of net generation on gross generation at teh subplant and plant level
@@ -91,23 +91,17 @@ EPA eGRID database
 
 
 # import packages
-import numpy as np
-import pandas as pd
 import argparse
 import os
 
+# import local modules
 # # Tell python where to look for modules.
 import sys
-
 sys.path.append("../../hourly-egrid/")
-
-# import local modules
 import src.download_data as download_data
-import src.load_data as load_data
 import src.data_cleaning as data_cleaning
 import src.gross_to_net_generation as gross_to_net_generation
 import src.impute_hourly_profiles as impute_hourly_profiles
-import src.column_checks as column_checks
 import src.eia930 as eia930
 import src.validation as validation
 import src.output_data as output_data
@@ -116,7 +110,7 @@ import src.consumed as consumed
 
 def get_args():
     """
-    Specify arguments here. 
+    Specify arguments here.
     Returns dictionary of {arg_name: arg_value}
     """
     parser = argparse.ArgumentParser()
@@ -220,9 +214,6 @@ def main():
     output_data.output_intermediate_data(
         plant_attributes, "plant_static_attributes", path_prefix, year
     )
-    output_data.output_to_results(
-        plant_attributes, "plant_static_attributes", "plant_data/", path_prefix
-    )
 
     # 6. Convert CEMS Hourly Gross Generation to Hourly Net Generation
     print("6. Converting CEMS gross generation to net generation")
@@ -260,8 +251,31 @@ def main():
         partial_cems_scaled, "partial_cems_scaled", path_prefix, year
     )
 
+    print("9. Exporting monthly and annual plant-level results")
+
+    # aggregate cems data to subplant level
+    cems = data_cleaning.aggregate_cems_to_subplant(cems)
+
+    # drop data from cems that is now in partial_cems
+    cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
+
+    # create a separate dataframe containing only the EIA data that is missing from cems
+    monthly_eia_data_to_shape = eia923_allocated[
+        (eia923_allocated["hourly_data_source"] == "eia")
+        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
+    ]
+    del eia923_allocated
+
+    # combine and export plant data at monthly and annual level
+    monthly_plant_data = data_cleaning.combine_plant_data(
+        cems, partial_cems_scaled, monthly_eia_data_to_shape, "monthly"
+    )
+    output_data.output_plant_data(monthly_plant_data, path_prefix, "monthly")
+    output_data.output_plant_data(monthly_plant_data, path_prefix, "annual")
+    del monthly_plant_data
+
     # 9. Clean and Reconcile EIA-930 data
-    print("9. Cleaning EIA-930 data")
+    print("10. Cleaning EIA-930 data")
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
     if args.small or not (
         os.path.exists(f"../data/outputs/{path_prefix}/eia930/eia930_elec.csv")
@@ -283,25 +297,8 @@ def main():
     eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
     # 10. Calculate hourly profiles for monthly EIA data
-    print("10. Calculating residual net generation profiles from EIA-930")
-
-    # aggregate cems data to subplant level
-    cems = data_cleaning.aggregate_cems_to_subplant(cems)
-
-    # drop data from cems that is now in partial_cems
-    cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
-
-    # create a separate dataframe containing only the EIA data that is missing from cems
-    monthly_eia_data_to_shape = eia923_allocated[
-        (eia923_allocated["hourly_data_source"] == "eia")
-        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
-    ]
-    del eia923_allocated
-
+    print("11. Estimating hourly residual generation profiles")
     # 10. Calculate Residual Net Generation Profile
-    print("Calculating residual net generation profiles from EIA-930")
-    # residual_profiles = impute_hourly_profiles.calculate_residual(
-    #     cems, eia930_data, plant_attributes, year
     hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
         cems,
         eia930_data,
@@ -318,7 +315,7 @@ def main():
     )
 
     # 11. Assign hourly profile to monthly data
-    print("11. Assigning hourly profile to monthly EIA-923 data")
+    print("12. Assigning hourly profile to monthly EIA-923 data")
 
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
 
@@ -336,29 +333,29 @@ def main():
     output_data.output_intermediate_data(
         shaped_eia_data, "shaped_eia923_data", path_prefix, year
     )
-    output_data.output_intermediate_data(
-        plant_attributes, "plant_attributes_with_synthetic", path_prefix, year
+    plant_attributes.to_csv(
+        f"../data/results/{path_prefix}plant_data/plant_static_attributes.csv"
     )
 
     # validate that the shaping did not alter data at the monthly level
     validation.validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape)
 
     # 12. Combine plant-level data from all sources
-    print("12. Combining and exporting plant-level hourly results")
+    print("13. Combining and exporting plant-level hourly results")
     # write metadata and remove metadata columns
     cems, partial_cems_scaled, shaped_eia_data = output_data.write_plant_metadata(
         cems, partial_cems_scaled, shaped_eia_data, path_prefix
     )
     combined_plant_data = data_cleaning.combine_plant_data(
-        cems, partial_cems_scaled, shaped_eia_data
+        cems, partial_cems_scaled, shaped_eia_data, "hourly"
     )
     del shaped_eia_data, cems, partial_cems_scaled  # free memory back to python
 
     # export to a csv.
-    output_data.output_plant_data(combined_plant_data, path_prefix)
+    output_data.output_plant_data(combined_plant_data, path_prefix, "hourly")
 
     # 13. Aggregate CEMS data to BA-fuel and write power sector results
-    print("13. Creating and exporting BA-level power sector results")
+    print("14. Creating and exporting BA-level power sector results")
     ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
         combined_plant_data, plant_attributes
     )
@@ -371,7 +368,7 @@ def main():
     output_data.write_power_sector_results(ba_fuel_data, path_prefix)
 
     # 14. Calculate consumption-based emissions and write carbon accounting results
-    print("14. Calculating and exporting consumption-based results")
+    print("15. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
         clean_930_file, small=args.small, path_prefix=path_prefix,
     )
