@@ -81,7 +81,7 @@ def calculate_hourly_profiles(
 
 def select_best_available_profile(hourly_profiles):
     """
-    Selects the best available hourly profile from the options available. 
+    Selects the best available hourly profile from the options available.
     The order of preference is:
         1. If the residual profile does not have a negative total for a month, use that
         2. If the eia930 profile doesn't have missing data, use that next
@@ -194,8 +194,8 @@ def aggregate_for_residual(
 ):
     """
         aggregate_for_residual()
-    Inputs: 
-        data: dataframe with time_key, ba_key, "fuel_category_eia930", "net_generation_mwh" and "distribution_flag" columns 
+    Inputs:
+        data: dataframe with time_key, ba_key, "fuel_category_eia930", "net_generation_mwh" and "distribution_flag" columns
 
     Utility function for trying different BA aggregations in 930 and 923 data
     """
@@ -204,7 +204,7 @@ def aggregate_for_residual(
     )"""
 
     if transmission:
-        cems = cems[cems["distribution_flag"] == False]
+        cems = cems[cems["distribution_flag"] is False]
 
     cems = (
         cems.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)[
@@ -215,10 +215,10 @@ def aggregate_for_residual(
     )
 
     if ba_key == "ba_code_physical":
-        cems = cems.rename(columns={"ba_code_physical": "ba_code",})
+        cems = cems.rename(columns={"ba_code_physical": "ba_code"})
 
     # clean up the eia930 data before merging
-    cems = cems.rename(columns={"fuel_category_eia930": "fuel_category",})
+    cems = cems.rename(columns={"fuel_category_eia930": "fuel_category"})
 
     # concatenate the data for the different fuel categories together
     # cems = pd.concat([cems, cems_profiles_for_non_930_fuels], axis=0, ignore_index=True)
@@ -262,27 +262,27 @@ def calculate_residual(
 ):
     """
         calculate_residual
-    Inputs: 
+    Inputs:
         `cems`: dataframe of CEMS hourly plant-level data containing columns
             `plant_id_eia`
-        `eia930`: dataframe of 930 hourly BA-level data containing columns 
+        `eia930`: dataframe of 930 hourly BA-level data containing columns
             `net_generation_mwh_930`
-        `plant_frame` dataframe of static plant data containing columns 
+        `plant_frame` dataframe of static plant data containing columns
             `plant_id_eia`, `ba_code`, `ba_code_physical`
         transmission_only: true or false, only use plants that are connected to transmission grid?
         ba_column_name: string, either "ba_code" or "ba_code_physical" - which BA assignment to use.
-    Returns: 
+    Returns:
         Dataframe of hourly profiles, containing columns
 
-    Scaling: 
+    Scaling:
     If the residual is ever negative, we want to scale the cems net generation data to
-    always be less than or equal to the 930 net generation. 
+    always be less than or equal to the 930 net generation.
     To do this, we'll try scaling the data as a percentage:
         1. For each hour, calculate the ratio between 930 NG and CEMS NG.
-        2. For each BA-fuel, find the minimum ratio. If the minimum ratio is >= 1, 
-            it means that 930 is always greater than CEMS and doesn't need to be 
-            scaled. For any BA-fuels where the ratio is < 1, we will use this as a 
-            scaling factor to scale the CEMS data such that the scaled data is 
+        2. For each BA-fuel, find the minimum ratio. If the minimum ratio is >= 1,
+            it means that 930 is always greater than CEMS and doesn't need to be
+            scaled. For any BA-fuels where the ratio is < 1, we will use this as a
+            scaling factor to scale the CEMS data such that the scaled data is
             always <= the 930 data
         3. Multiply all hourly CEMS values by the scaling factor
     """
@@ -620,7 +620,7 @@ def average_diba_wind_solar_profiles(
     else:
         df_temporary = (
             df_temporary.groupby(
-                ["fuel_category", "datetime_utc", "datetime_local", "report_date",],
+                ["fuel_category", "datetime_utc", "datetime_local", "report_date"],
                 dropna=False,
             )
             .mean()["eia930_profile"]
@@ -644,7 +644,7 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     df_temporary["datetime_local"] = df_temporary["datetime_local"].str[:-6]
     df_temporary = (
         df_temporary.groupby(
-            ["fuel_category", "datetime_local", "report_date",], dropna=False,
+            ["fuel_category", "datetime_local", "report_date"], dropna=False,
         )
         .mean()["eia930_profile"]
         .reset_index()
@@ -746,7 +746,7 @@ def convert_profile_to_percent(hourly_profiles):
 def get_synthetic_plant_id_from_ba_fuel(df):
     """
         Return artificial plant code. Max real plant is 64663
-        Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the 
+        Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the
         two-digit fuel number
 
         df must contain `ba_code` and `fuel_category`
@@ -819,9 +819,9 @@ def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
 def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles):
     """
     Uses monthly-level EIA data and assigns an hourly profile
-    Intended for calling after `monthly_eia_data_to_ba` 
-    Inputs: 
-        shaped_monthly_data: a dataframe that contains monthly total net generation, 
+    Intended for calling after `monthly_eia_data_to_ba`
+    Inputs:
+        shaped_monthly_data: a dataframe that contains monthly total net generation,
             fuel consumption, and co2 data, along with columns for report_date and ba_code
     """
     # specify columns containing monthly data that should be distributed to hourly
@@ -991,7 +991,11 @@ def scale_partial_cems_data(cems, eia923_allocated):
                     scaling_factor = 1
                     scaling_method = "multiply_by_cems_value"
                 # if the cems version of the data is zero, use the fuel consumption as the profile
-                elif (row[f"{column}_eia"] > 0) & (row[f"{column}_cems"] == 0) & (row["fuel_consumed_mmbtu_cems"] != 0):
+                elif (
+                    (row[f"{column}_eia"] > 0)
+                    & (row[f"{column}_cems"] == 0)
+                    & (row["fuel_consumed_mmbtu_cems"] != 0)
+                ):
                     scaling_factor = (
                         row[f"{column}_eia"] / row["fuel_consumed_mmbtu_cems"]
                     )

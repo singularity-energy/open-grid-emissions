@@ -19,7 +19,7 @@ def identify_subplants(year, number_of_years):
     start_year = year - (number_of_years - 1)
     end_year = year
 
-    print("Creating subplant IDs")
+    print("   Creating subplant IDs")
     # load 5 years of monthly data from CEMS and EIA-923
     cems_monthly, gen_fuel_allocated = load_monthly_gross_and_net_generation(
         start_year, end_year
@@ -69,7 +69,10 @@ def calculate_gtn_conversions(year, number_of_years):
 
     # calculate monthly ratios at plant level
     gross_to_net_ratio(
-        gross_gen_data=cems_monthly, net_gen_data=gen_fuel_allocated, agg_level="plant", year=year,
+        gross_gen_data=cems_monthly,
+        net_gen_data=gen_fuel_allocated,
+        agg_level="plant",
+        year=year,
     )
 
 
@@ -89,7 +92,7 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
     )
 
     # allocate net generation and heat input to each generator-fuel grouping
-    print("Allocating EIA-923 generation data")
+    print("   Allocating EIA-923 generation data")
     gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
         pudl_out, drop_interim_cols=True
     )
@@ -106,7 +109,7 @@ def load_cems_gross_generation(start_year, end_year):
     cems_all = []
 
     for year in range(start_year, end_year + 1):
-        print(f"loading {year} CEMS data")
+        print(f"   loading {year} CEMS data")
         # specify the path to the CEMS data
         cems_path = f"../data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
 
@@ -233,7 +236,6 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
     Returns:
         exports the subplant crosswalk to a csv file
         cems_monthly and gen_fuel_allocated with subplant_id added
-    
     """
 
     ids = cems_monthly[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
@@ -503,7 +505,7 @@ def model_gross_to_net(df):
     """
     Performs a linear regression model of monthly gross to net generation.
 
-    Performs recursive outlier removal up to two times if the absolute value of 
+    Performs recursive outlier removal up to two times if the absolute value of
     the studentizes residual > 3
 
     Args:
@@ -581,4 +583,3 @@ def model_gross_to_net(df):
 
         except ValueError:
             pass
-

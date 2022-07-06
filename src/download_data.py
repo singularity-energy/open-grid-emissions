@@ -204,4 +204,3 @@ def download_epa_psdc(psdc_url):
         with open(f"../data/downloads/epa/{filename}", "wb") as fd:
             for chunk in r.iter_content(chunk_size=1024):
                 fd.write(chunk)
-
