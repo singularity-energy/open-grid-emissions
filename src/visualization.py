@@ -2,7 +2,6 @@
 Helper functions for visualization
 
 """
-import numpy as np
 import pandas as pd
 
 """

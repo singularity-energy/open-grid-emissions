@@ -1,21 +1,21 @@
 """
-Check columns for standard data files output by data_pipeline. 
+Check columns for standard data files output by data_pipeline.
 
 Since file names and column names are hardcoded across several files, calling these checks
-during file creation (data_pipeline.py) ensures that changes to file names and 
-column names are not made accidentally. 
+during file creation (data_pipeline.py) ensures that changes to file names and
+column names are not made accidentally.
 
-To make an intentional change in a file or column name, search the project for all 
+To make an intentional change in a file or column name, search the project for all
 uses of that column/file, update all of them to the new column name, and then change
-the name here. 
+the name here.
 
-To add a column, add the name here. 
+To add a column, add the name here.
 
-To remove a column, search the project for all uses of that column and remove 
-those files or uses, then remove it here. 
+To remove a column, search the project for all uses of that column and remove
+those files or uses, then remove it here.
 
-After any change, re-run data_pipeline to regenerate all files and re-run these 
-checks. 
+After any change, re-run data_pipeline to regenerate all files and re-run these
+checks.
 """
 
 COLUMNS = {
