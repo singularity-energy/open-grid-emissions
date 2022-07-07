@@ -20,12 +20,11 @@ def identify_subplants(year, number_of_years):
     end_year = year
 
     print("   Creating subplant IDs")
-    # load 5 years of monthly data from CEMS and EIA-923
-    cems_monthly, gen_fuel_allocated = load_monthly_gross_and_net_generation(
-        start_year, end_year
-    )
+    # load 5 years of monthly data from CEMS
+    cems_monthly = load_cems_gross_generation(start_year, end_year)
+
     # add subplant ids to the data
-    generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated)
+    generate_subplant_ids(start_year, end_year, cems_monthly)
 
 
 def calculate_gtn_conversions(year, number_of_years):
@@ -221,7 +220,7 @@ def manual_crosswalk_updates(crosswalk):
     return crosswalk
 
 
-def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated):
+def generate_subplant_ids(start_year, end_year, cems_monthly):
     """
     Groups units and generators into unique subplant groups.
 
@@ -246,6 +245,9 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
     # update the crosswalk with manual matches
     crosswalk = manual_crosswalk_updates(crosswalk)
 
+    # strip leading zeros
+    crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
+
     # filter the crosswalk to drop any units that don't exist in CEMS
     filtered_crosswalk = epa_crosswalk.filter_crosswalk(crosswalk, ids)[
         [
@@ -263,10 +265,10 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
     filtered_crosswalk["EIA_PLANT_ID"] = filtered_crosswalk["EIA_PLANT_ID"].astype(int)
 
     # filter to generators that exist in the EIA data
-    # get a list of unique generators in the EIA-923 data
-    unique_eia_ids = gen_fuel_allocated[
-        ["plant_id_eia", "generator_id"]
-    ].drop_duplicates()
+    # load a list of unique generator ids that exist in EIA
+    pudl_out = load_data.initialize_pudl_out(year=None)
+    gens_eia860 = pudl_out.gens_eia860()
+    unique_eia_ids = gens_eia860[["plant_id_eia", "generator_id"]].drop_duplicates()
     filtered_crosswalk = unique_eia_ids.merge(
         filtered_crosswalk,
         left_on=["plant_id_eia", "generator_id"],

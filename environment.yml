@@ -8,12 +8,10 @@ dependencies:
   - flake8 # linter
   - ipykernel
   - matplotlib
-  - missingno
   - notebook
   - numpy
   - openpyxl
   - pandas
-  - pathlib
   - pip
   - plotly
   - pyarrow
@@ -24,7 +22,6 @@ dependencies:
   - tabulate
 
   - cvxpy # used by gridemissions
-
 
   - setuptools # used for pudl
   - geopandas # used for pudl
