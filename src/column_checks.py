@@ -298,6 +298,7 @@ def get_dtypes():
         "net_generation_mwh": "float64",
         "prime_mover_code": "str",
         "hourly_data_source": "category",
+        "nox_control_id":"str",
     }
 
     return dtypes_to_use

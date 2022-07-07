@@ -1050,6 +1050,11 @@ def calculate_nox_from_fuel_consumption(
     """
     Calculate NOx emissions from fuel consumption data.
 
+    Apply emission rates in the following order based on availability:
+       1. boiler-specific ozone-season nox emission rates reported in eia923 schedule 8C
+       2. boiler-specific annual nox emission rates reported in eia923 scehdule 8C
+       3. fuel, prime mover, and boiler firing type specific emission factors
+
     Inputs:
         df: Should contain the following columns:
             [`plant_id_eia`, `report_date`, `fuel_consumed_units`, `energy_source_code`, `prime_mover_code`]
