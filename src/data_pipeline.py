@@ -377,7 +377,7 @@ def main():
     ####################################################################################
     print("16. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
-        clean_930_file, small=args.small, path_prefix=path_prefix,
+        clean_930_file, year=year, small=args.small, path_prefix=path_prefix,
     )
     hourly_consumed_calc.process()
     hourly_consumed_calc.output_data(path_prefix=path_prefix)

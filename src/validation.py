@@ -958,7 +958,7 @@ def segment_plants_by_known_issues(
     )
 
 
-def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant):
+def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
     # load the EIA generator fuel data
     IDX_PM_ESC = [
         "report_date",
@@ -1026,11 +1026,6 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant):
     ] = 0
 
     # add cems data so that we can compare fuel totals
-    cems = pd.read_csv(
-        f"../data/outputs/{year}/cems_{year}.csv",
-        dtype=get_dtypes(),
-        parse_dates=["report_date"],
-    )
     cems_total = cems.copy()[["plant_id_eia", metric]]
     cems_total["plant_id_egrid"] = cems_total["plant_id_eia"]
     cems_total["plant_id_egrid"].update(
