@@ -1,17 +1,15 @@
 import pandas as pd
 import re
 from datetime import timedelta
-import src.data_cleaning as data_cleaning
 import src.load_data as load_data
 from src.column_checks import get_dtypes
 import os
-from os.path import join, exists
+from os.path import join
 
 # Tell gridemissions where to find config before we load gridemissions
 os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = "../config/gridemissions.json"
 
 from gridemissions.workflows import make_dataset
-from gridemissions.eia_api import EBA_data_scraper, load_eia_columns
 
 
 def balance_to_gridemissions(year: int, small: bool = False):
@@ -119,9 +117,9 @@ def balance_to_gridemissions(year: int, small: bool = False):
 
 def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     """
-        Scrape and process EIA data. 
-    
-    Arguments: 
+        Scrape and process EIA data.
+
+    Arguments:
         `year`: Year to process. Prior years, downloaded from chalendar-hosted files, are used for rolling cleaning
 
     """
@@ -141,14 +139,14 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
         df = df.loc[start:end]  # Don't worry about processing everything
 
     # Adjust
-    print("Adjusting EIA-930 time stamps")
+    print("   Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
     df.to_csv(
         join(data_folder, "eia930_raw.csv")
     )  # Will be read by gridemissions workflow
 
     # Run cleaning
-    print("Running physics-based data cleaning")
+    print("   Running physics-based data cleaning")
     make_dataset(
         start,
         end,
@@ -393,7 +391,7 @@ def manual_930_adjust(raw: pd.DataFrame):
             - PJM: + 1 hour
             - CISO: + 1 hour
             - TEPC: + 1 hour
-            - SC: -4 hours during daylight savings hours; -5 hours during 
+            - SC: -4 hours during daylight savings hours; -5 hours during
                 standard hours (this happens to = the Eastern <-> UTC offset)
         - Interchange
             - PJM: + 4 hours
@@ -404,7 +402,7 @@ def manual_930_adjust(raw: pd.DataFrame):
                     Oct 31, 2019, 4:00 UTC
                 - this is all interchange partners except OVEC, and excluding
                     total interchange
-            - PJM-OVEC, all time. Based on OVEC demand - generation, OVEC 
+            - PJM-OVEC, all time. Based on OVEC demand - generation, OVEC
                 should be a net exporter to PJM
                 - Note: OVEC's data repeats daily starting in 2018...
     - Make all start-of-hour

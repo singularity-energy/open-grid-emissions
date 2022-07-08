@@ -24,6 +24,7 @@ def load_egrid_plant_file(year):
             "UNCO2",
             "UNHTIT",
             "PLCO2AN",
+            "CHPFLAG",
         ],
     )
     # calculate total net generation from reported renewable and nonrenewable generation
@@ -43,6 +44,7 @@ def load_egrid_plant_file(year):
             "PLHTIANT": "fuel_consumed_for_electricity_mmbtu",
             "UNCO2": "co2_mass_lb",  # this is actually in tons, but we are converting in the next step
             "PLCO2AN": "co2_mass_lb_adjusted",  # this is actually in tons, but we are converting in the next step
+            "CHPFLAG": "chp_flag",
         }
     )
 
@@ -75,6 +77,7 @@ def load_egrid_plant_file(year):
             "plant_id_egrid",
             "plant_name",
             "plant_primary_fuel",
+            "chp_flag",
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
@@ -602,3 +605,442 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape):
             "The EIA process is changing the monthly total values compared to reported EIA values. This process should only shape the data, not alter it."
         )
 
+
+def compare_plant_level_results_to_egrid(
+    plant_data, egrid_plant, PLANTS_MISSING_FROM_EGRID
+):
+    # standardize column names and index so that the two dfs can be divided
+    calculated_to_compare = (
+        plant_data.groupby("plant_id_egrid", dropna=False)
+        .sum()
+        .drop(columns=["plant_id_eia"])
+    )
+
+    # drop the plants that have no data in eGRID
+    plants_with_no_data_in_egrid = list(
+        egrid_plant[
+            egrid_plant[
+                [
+                    "net_generation_mwh",
+                    "fuel_consumed_mmbtu",
+                    "fuel_consumed_for_electricity_mmbtu",
+                    "co2_mass_lb",
+                    "co2_mass_lb_adjusted",
+                ]
+            ].sum(axis=1)
+            == 0
+        ]["plant_id_egrid"]
+    )
+    egrid_plant = egrid_plant[
+        ~egrid_plant["plant_id_eia"].isin(plants_with_no_data_in_egrid)
+    ]
+
+    egrid_to_compare = egrid_plant.set_index(["plant_id_egrid"]).drop(
+        columns=["ba_code", "state", "plant_name", "plant_id_eia"]
+    )
+    # only keep plants that are in the comparison data
+    egrid_to_compare = egrid_to_compare[
+        egrid_to_compare.index.isin(list(calculated_to_compare.index.unique()))
+    ]
+
+    # divide calculated value by egrid value
+    compared = (
+        calculated_to_compare.div(egrid_to_compare)
+        .merge(
+            egrid_plant[["plant_id_egrid", "plant_name", "ba_code", "state"]],
+            how="left",
+            left_index=True,
+            right_on="plant_id_egrid",
+        )
+        .set_index("plant_id_egrid")
+    )
+    compared["plant_name"] = compared["plant_name"].fillna("unknown")
+
+    # create a dataframe that merges the two sources of data together
+    compared_merged = calculated_to_compare.merge(
+        egrid_to_compare, how="left", on="plant_id_egrid", suffixes=("_calc", "_egrid")
+    )
+
+    # for each column, change missing values to zero if both values are zero (only nan b/c divide by zero)
+    for col in [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb_adjusted",
+        "co2_mass_lb",
+    ]:
+        # identify plants with zero values for both
+        plant_ids = list(
+            compared_merged[
+                (compared_merged[f"{col}_calc"] == 0)
+                & (compared_merged[f"{col}_egrid"] == 0)
+            ].index
+        )
+        compared.loc[compared.index.isin(plant_ids), col] = 1
+
+    # for each column, categorize the data based on how far it is off from egrid
+    for col in [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb_adjusted",
+        "co2_mass_lb",
+    ]:
+        # add a new column
+        compared[f"{col}_status"] = pd.cut(
+            x=compared[col],
+            bins=[
+                -999999999,
+                -0.0001,
+                0.5,
+                0.9,
+                0.99,
+                0.9999,
+                1,
+                1.0001,
+                1.01,
+                1.1,
+                1.5,
+                999999999,
+            ],
+            labels=[
+                "negative",
+                "<50%",
+                "-50% to -10%",
+                "-10% to -1%",
+                "+/-1%",
+                "!exact",
+                "!exact",
+                "+/-1%",
+                "+1% to 10%",
+                "+10% to 50%",
+                ">50%",
+            ],
+            ordered=False,
+        )
+        # replace any missing values with missing
+        compared[f"{col}_status"] = compared[f"{col}_status"].astype(str)
+        compared[f"{col}_status"] = compared[f"{col}_status"].fillna("missing")
+        compared[f"{col}_status"] = compared[f"{col}_status"].replace("nan", "missing")
+        compared.loc[
+            (compared.index.isin(PLANTS_MISSING_FROM_EGRID)), f"{col}_status"
+        ] = "not_in_egrid"
+
+        # identify which plants are missing from egrid vs calculated values
+    for col in [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb_adjusted",
+        "co2_mass_lb",
+    ]:
+        # identify plants that are missing in egrid
+        plants_missing_egrid = list(
+            compared_merged[
+                (compared_merged[f"{col}_calc"] > 0)
+                & (compared_merged[f"{col}_egrid"].isna())
+            ].index
+        )
+        compared.loc[
+            compared.index.isin(plants_missing_egrid), f"{col}_status"
+        ] = "missing_in_egrid"
+        # identify plants that are missing from our calculations
+        plants_missing_calc = list(
+            compared_merged[
+                (compared_merged[f"{col}_calc"].isna())
+                & (compared_merged[f"{col}_egrid"] > 0)
+            ].index
+        )
+        compared.loc[
+            compared.index.isin(plants_missing_calc), f"{col}_status"
+        ] = "missing_in_calc"
+        # identify where our calculations are missing a zero value
+        plants_missing_zero_calc = list(
+            compared_merged[
+                (compared_merged[f"{col}_calc"].isna())
+                & (compared_merged[f"{col}_egrid"] == 0)
+            ].index
+        )
+        compared.loc[
+            compared.index.isin(plants_missing_zero_calc), f"{col}_status"
+        ] = "calc_missing_zero_value_from_egrid"
+        # identify where egrid has a missing value instead of a zero
+        plants_missing_zero_egrid = list(
+            compared_merged[
+                (compared_merged[f"{col}_calc"] == 0)
+                & (compared_merged[f"{col}_egrid"].isna())
+            ].index
+        )
+        compared.loc[
+            compared.index.isin(plants_missing_zero_egrid), f"{col}_status"
+        ] = "egrid_missing_zero_value_from_calc"
+        # identify where egrid has a zero value where we have a positive value
+        plants_incorrect_zero_egrid = list(
+            compared_merged[
+                (compared_merged[f"{col}_calc"] > 0)
+                & (compared_merged[f"{col}_egrid"] == 0)
+            ].index
+        )
+        compared.loc[
+            compared.index.isin(plants_incorrect_zero_egrid), f"{col}_status"
+        ] = "calc_positive_but_egrid_zero"
+
+    # create a dataframe that counts how many plants are in each category
+    comparison_count = []
+    for col in [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb_adjusted",
+        "co2_mass_lb",
+    ]:
+        count = (
+            compared.groupby(f"{col}_status", dropna=False)
+            .count()["plant_name"]
+            .rename(col)
+        )
+        count.index = count.index.rename("status")
+        comparison_count.append(count)
+
+    comparison_count = pd.concat(comparison_count, axis=1).fillna(0).astype(int)
+    comparison_count = pd.concat(
+        [comparison_count, pd.DataFrame(comparison_count.sum().rename("Total")).T],
+        axis=0,
+    )
+    return comparison_count, compared
+
+
+def identify_plants_missing_from_our_calculations(
+    egrid_plant, annual_plant_results, year
+):
+    # identify any plants that are in egrid but not our totals, and any plants that are in our totals, but not egrid
+    PLANTS_MISSING_FROM_CALCULATION = list(
+        set(egrid_plant["plant_id_eia"].unique())
+        - set(annual_plant_results["plant_id_eia"].unique())
+    )
+
+    # Which plants are included in eGRID but are missing from our calculations?
+    missing_from_calc = egrid_plant[
+        egrid_plant["plant_id_egrid"].isin(PLANTS_MISSING_FROM_CALCULATION)
+    ]
+
+    # see if any of these plants are retired
+    generators_eia860 = load_data.load_pudl_table("generators_eia860", year=year)
+    missing_from_calc.merge(
+        generators_eia860[
+            [
+                "plant_id_eia",
+                "operational_status",
+                "current_planned_operating_date",
+                "retirement_date",
+            ]
+        ].drop_duplicates(),
+        how="left",
+        on="plant_id_eia",
+    )
+
+    return missing_from_calc, PLANTS_MISSING_FROM_CALCULATION
+
+
+def identify_plants_missing_from_egrid(egrid_plant, annual_plant_results):
+    # Which plants are in our calculations, but are missing from eGRID?
+    PLANTS_MISSING_FROM_EGRID = list(
+        set(annual_plant_results["plant_id_egrid"].unique())
+        - set(egrid_plant["plant_id_egrid"].unique())
+    )
+
+    plant_names = load_data.load_pudl_table("plants_entity_eia")[
+        ["plant_id_eia", "plant_name_eia", "sector_name_eia"]
+    ]
+    missing_from_egrid = annual_plant_results[
+        annual_plant_results["plant_id_egrid"].isin(PLANTS_MISSING_FROM_EGRID)
+    ].merge(plant_names, how="left", on="plant_id_eia")
+
+    return missing_from_egrid, PLANTS_MISSING_FROM_EGRID
+
+
+def segment_plants_by_known_issues(
+    annual_plant_results,
+    egrid_plant,
+    eia923_allocated,
+    pudl_out,
+    PLANTS_MISSING_FROM_EGRID,
+):
+    all_other_plants = annual_plant_results.copy()
+
+    # missing plants
+    missing_plants = annual_plant_results[
+        annual_plant_results["plant_id_eia"].isin(PLANTS_MISSING_FROM_EGRID)
+    ]
+    all_other_plants = all_other_plants[
+        ~all_other_plants["plant_id_eia"].isin(
+            list(missing_plants.plant_id_eia.unique())
+        )
+    ]
+
+    # geothermal
+    geothermal_plants = annual_plant_results[
+        annual_plant_results["plant_primary_fuel"] == "GEO"
+    ]
+    all_other_plants = all_other_plants[
+        ~all_other_plants["plant_id_eia"].isin(
+            list(geothermal_plants.plant_id_eia.unique())
+        )
+    ]
+
+    # nuclear
+    nuclear_plants = annual_plant_results[
+        annual_plant_results["plant_primary_fuel"] == "NUC"
+    ]
+    all_other_plants = all_other_plants[
+        ~all_other_plants["plant_id_eia"].isin(
+            list(nuclear_plants.plant_id_eia.unique())
+        )
+    ]
+
+    # fuel cells
+    gens_eia860 = pudl_out.gens_eia860()
+    PLANTS_WITH_FUEL_CELLS = list(
+        gens_eia860.loc[
+            gens_eia860["prime_mover_code"] == "FC", "plant_id_eia"
+        ].unique()
+    )
+    fuel_cell_plants = annual_plant_results[
+        annual_plant_results["plant_id_eia"].isin(PLANTS_WITH_FUEL_CELLS)
+    ]
+    all_other_plants = all_other_plants[
+        ~all_other_plants["plant_id_eia"].isin(
+            list(fuel_cell_plants.plant_id_eia.unique())
+        )
+    ]
+
+    # ozone season reporters
+    # identify all of the plants with generators that report data from both EIA and CEMS
+    multi_source_reporters = eia923_allocated[
+        ["plant_id_eia", "generator_id", "hourly_data_source"]
+    ].drop_duplicates()
+    MULTI_SOURCE_PLANTS = list(
+        multi_source_reporters.loc[
+            multi_source_reporters.duplicated(
+                subset=["plant_id_eia", "generator_id"], keep=False
+            ),
+            "plant_id_eia",
+        ].unique()
+    )
+    ozone_season_plants = annual_plant_results[
+        annual_plant_results["plant_id_eia"].isin(MULTI_SOURCE_PLANTS)
+    ]
+    all_other_plants = all_other_plants[
+        ~all_other_plants["plant_id_eia"].isin(
+            list(ozone_season_plants.plant_id_eia.unique())
+        )
+    ]
+
+    # CHP plants
+    PLANTS_WITH_CHP = list(
+        egrid_plant.loc[egrid_plant["chp_flag"] == "Yes", "plant_id_eia"].unique()
+    )
+    chp_plants = annual_plant_results[
+        annual_plant_results["plant_id_eia"].isin(PLANTS_WITH_CHP)
+    ]
+    all_other_plants = all_other_plants[
+        ~all_other_plants["plant_id_eia"].isin(list(chp_plants.plant_id_eia.unique()))
+    ]
+
+    return (
+        missing_plants,
+        geothermal_plants,
+        nuclear_plants,
+        fuel_cell_plants,
+        ozone_season_plants,
+        chp_plants,
+        all_other_plants,
+    )
+
+
+def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
+    # load the EIA generator fuel data
+    IDX_PM_ESC = [
+        "report_date",
+        "plant_id_eia",
+        "energy_source_code",
+        "prime_mover_code",
+    ]
+    gf = pudl_out.gf_eia923().loc[
+        :,
+        IDX_PM_ESC
+        + [
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+        ],
+    ]
+
+    # add egrid plant ids
+    egrid_crosswalk = pd.read_csv(
+        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv"
+    )
+    eia_to_egrid_id = dict(
+        zip(
+            list(egrid_crosswalk["plant_id_eia"]),
+            list(egrid_crosswalk["plant_id_egrid"]),
+        )
+    )
+    gf["plant_id_egrid"] = gf["plant_id_eia"]
+    gf["plant_id_egrid"].update(gf["plant_id_egrid"].map(eia_to_egrid_id))
+
+    # calculate an annual total for each plant
+    gf_total = gf.groupby(["plant_id_egrid"]).sum().reset_index()
+
+    # choose a metric to compare
+    metric = "fuel_consumed_mmbtu"
+
+    # merge the annual EIA-923 data into the egrid data
+    egrid_eia_comparison = (
+        egrid_plant[
+            ["plant_id_egrid", "plant_name", "ba_code", "plant_primary_fuel", metric]
+        ]
+        .merge(
+            gf_total[["plant_id_egrid", metric]],
+            how="outer",
+            on="plant_id_egrid",
+            suffixes=("_egrid", "_eia923"),
+            indicator="source",
+        )
+        .round(0)
+    )
+    egrid_eia_comparison[f"{metric}_egrid"] = egrid_eia_comparison[
+        f"{metric}_egrid"
+    ].fillna(0)
+    # calculate an absolute difference and percent difference between the two values
+    egrid_eia_comparison["difference"] = (
+        egrid_eia_comparison[f"{metric}_egrid"]
+        - egrid_eia_comparison[f"{metric}_eia923"]
+    )
+    egrid_eia_comparison["percent_difference"] = (
+        egrid_eia_comparison[f"{metric}_egrid"]
+        - egrid_eia_comparison[f"{metric}_eia923"]
+    ) / egrid_eia_comparison[f"{metric}_eia923"]
+    egrid_eia_comparison.loc[
+        egrid_eia_comparison["difference"] == 0, "percent_difference"
+    ] = 0
+
+    # add cems data so that we can compare fuel totals
+    cems_total = cems.copy()[["plant_id_eia", metric]]
+    cems_total["plant_id_egrid"] = cems_total["plant_id_eia"]
+    cems_total["plant_id_egrid"].update(
+        cems_total["plant_id_egrid"].map(eia_to_egrid_id)
+    )
+    cems_total = (
+        cems_total.groupby("plant_id_egrid")
+        .sum()[metric]
+        .reset_index()
+        .rename(columns={metric: f"{metric}_cems"})
+    )
+
+    # merge cems data into egrid
+    egrid_eia_comparison = egrid_eia_comparison.merge(
+        cems_total, how="outer", on="plant_id_egrid"
+    )
+
+    return egrid_eia_comparison

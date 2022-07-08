@@ -68,7 +68,7 @@ def clean_eia923(year, small):
     )
 
     # adjust emissions for CHP
-    gen_fuel_allocated = adjust_emissions_for_CHP(gen_fuel_allocated)
+    gen_fuel_allocated = adjust_fuel_and_emissions_for_CHP(gen_fuel_allocated)
 
     # adjust emissions for biomass
     gen_fuel_allocated = adjust_emissions_for_biomass(gen_fuel_allocated)
@@ -488,11 +488,16 @@ def identify_geothermal_generator_geotype(year):
     return geothermal_geotype
 
 
-def adjust_emissions_for_CHP(df):
+def adjust_fuel_and_emissions_for_CHP(df):
     """Allocates total emissions for electricity generation."""
 
     # calculate the electric allocation factor
     df = calculate_electric_allocation_factor(df)
+
+    # overwrite the fuel consumed for electricity value using the allocation factor
+    df["fuel_consumed_for_electricity_mmbtu"] = (
+        df["fuel_consumed_mmbtu"] * df["electric_allocation_factor"]
+    )
 
     if "co2_mass_lb" in df.columns:
         df["co2_mass_lb_for_electricity"] = (
@@ -521,6 +526,11 @@ def adjust_emissions_for_CHP(df):
 
 
 def calculate_electric_allocation_factor(df):
+    """
+    Calculates an electric allocation factor for CHP plants based on the formula in the eGRID2020 technical guide.
+
+    Requires a dataframe with the following columns: net_generation_mwh, fuel_consumed_mmbtu, fuel_consumed_for_electricity_mmbtu
+    """
 
     mwh_to_mmbtu = 3.412142
 
@@ -531,12 +541,7 @@ def calculate_electric_allocation_factor(df):
     )
 
     # convert generation to mmbtu
-    try:
-        df["generation_mmbtu"] = df["net_generation_mwh"] * mwh_to_mmbtu
-    # for CEMS use gross generation
-    # TODO: investigate if this works correctly
-    except KeyError:
-        df["generation_mmbtu"] = df["gross_generation_mwh"] * mwh_to_mmbtu
+    df["generation_mmbtu"] = df["net_generation_mwh"] * mwh_to_mmbtu
 
     # calculate the electric allocation factor
     # 0.75 is an assumed efficiency factor used by eGRID
@@ -734,13 +739,6 @@ def clean_cems(year, small):
     # although this data could be considered to be accurately reported, let's remove it so that we can double check against the eia data
     # TODO: check if any of these observations are from geothermal generators
     cems = remove_cems_with_zero_monthly_data(cems)
-
-    # calculated CHP-adjusted emissions
-    cems = calculate_electric_fuel_consumption_for_cems(cems)
-    cems = adjust_emissions_for_CHP(cems)
-
-    # calculate biomass-adjusted emissions
-    cems = adjust_emissions_for_biomass(cems)
 
     # add subplant id
     subplant_crosswalk = pd.read_csv(
@@ -1501,7 +1499,7 @@ def fill_cems_missing_co2(cems, year):
 
 def remove_cems_with_zero_monthly_data(cems):
     """
-    Identifies months where zero generation, heat input, or emissions are reported 
+    Identifies months where zero generation or heat inputare reported.
     from each unit and removes associated hours from CEMS so that these can be filled using the eia923 data
     Inputs:
         cems: pandas dataframe of hourly cems data containing columns "plant_id_eia", "unitid" and "report_date"
@@ -1511,15 +1509,7 @@ def remove_cems_with_zero_monthly_data(cems):
     # calculate the totals reported in each month
     cems_with_zero_monthly_emissions = cems.groupby(
         ["plant_id_eia", "unitid", "report_date"], dropna=False
-    ).sum()[
-        [
-            "co2_mass_lb",
-            "nox_mass_lb",
-            "so2_mass_lb",
-            "gross_generation_mwh",
-            "fuel_consumed_mmbtu",
-        ]
-    ]
+    ).sum()[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
     # identify unit-months where zero emissions reported
     cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[
         cems_with_zero_monthly_emissions.sum(axis=1) == 0
@@ -1546,41 +1536,92 @@ def remove_cems_with_zero_monthly_data(cems):
     return cems
 
 
-def calculate_electric_fuel_consumption_for_cems(cems, drop_interim_columns=True):
-    """
-    Calculates the portion of fuel consumption and CO2 emissions for electricity for each hour in CEMS.
-    """
-    # factors to convert to MMBTU
-    mwh_to_mmbtu = 3.412142
-    klb_to_mmbtu = 1.194  # NOTE: this might differ for each plant
+def adjust_cems_emissions(cems, eia923_allocated):
+    # calculated CHP-adjusted emissions
+    cems = adjust_cems_for_chp(cems, eia923_allocated)
 
-    # calculate total heat output
-    cems["heat_output_mmbtu"] = (cems["gross_generation_mwh"] * mwh_to_mmbtu) + (
-        cems["steam_load_1000_lb"] * klb_to_mmbtu
+    # calculate biomass-adjusted emissions
+    cems = adjust_emissions_for_biomass(cems)
+
+    return cems
+
+
+def adjust_cems_for_chp(cems, eia923_allocated):
+    """
+    Adjusts CEMS fuel consumption and emissions data for CHP.
+
+    Steps:
+        1. Calculate the ratio between `fuel_consumed_for_electricity_mmbtu` and `fuel_consumed_mmbtu` in EIA-923
+        2. Use this ratio to calculate a `fuel_consumed_for_electricity_mmbtu` from the `fuel_consumed_mmbtu` data reported in CEMS
+        3. Calculate an electric allocation factor using the fuel and net generation data
+        4. Use the allocation factor to adjust emissions and fuel consumption
+    Args:
+        cems: dataframe of hourly cems data after cleaning and gross to net calculations
+        eia923_allocated: dataframe of EIA-923 data after allocation
+    """
+    # calculate a subplant fuel ratio
+    subplant_fuel_ratio = (
+        eia923_allocated.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )
+        .sum()[["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]]
+        .reset_index()
+    )
+    subplant_fuel_ratio["subplant_fuel_ratio"] = (
+        subplant_fuel_ratio["fuel_consumed_for_electricity_mmbtu"]
+        / subplant_fuel_ratio["fuel_consumed_mmbtu"]
+    )
+    subplant_fuel_ratio.loc[
+        (subplant_fuel_ratio["fuel_consumed_for_electricity_mmbtu"] == 0)
+        & (subplant_fuel_ratio["fuel_consumed_mmbtu"] == 0),
+        "subplant_fuel_ratio",
+    ] = 1
+    # calculate a plant fuel ratio to fill missing values where there is not a matching subplant in CEMS
+    plant_fuel_ratio = (
+        eia923_allocated.groupby(["plant_id_eia", "report_date"], dropna=False)
+        .sum()[["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]]
+        .reset_index()
+    )
+    plant_fuel_ratio["plant_fuel_ratio"] = (
+        plant_fuel_ratio["fuel_consumed_for_electricity_mmbtu"]
+        / plant_fuel_ratio["fuel_consumed_mmbtu"]
+    )
+    plant_fuel_ratio.loc[
+        (plant_fuel_ratio["fuel_consumed_for_electricity_mmbtu"] == 0)
+        & (plant_fuel_ratio["fuel_consumed_mmbtu"] == 0),
+        "plant_fuel_ratio",
+    ] = 1
+
+    # merge the fuel ratios into cems and fill missing subplant ratios with plant ratios
+    cems = cems.merge(
+        subplant_fuel_ratio[
+            ["plant_id_eia", "subplant_id", "report_date", "subplant_fuel_ratio"]
+        ],
+        how="left",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+    )
+    cems = cems.merge(
+        plant_fuel_ratio[["plant_id_eia", "report_date", "plant_fuel_ratio"]],
+        how="left",
+        on=["plant_id_eia", "report_date"],
+    )
+    cems["subplant_fuel_ratio"] = cems["subplant_fuel_ratio"].fillna(
+        cems["plant_fuel_ratio"]
     )
 
-    # calculate the fraction of heat input for electricity
-    cems["frac_electricity"] = (cems["gross_generation_mwh"] * mwh_to_mmbtu) / cems[
-        "heat_output_mmbtu"
-    ]
-    # where both of these terms are zero, change the fraction to 1
-    cems.loc[
-        (cems.gross_generation_mwh == 0) & (cems.heat_output_mmbtu == 0),
-        "frac_electricity",
-    ] = cems.loc[
-        (cems.gross_generation_mwh == 0) & (cems.heat_output_mmbtu == 0),
-        "frac_electricity",
-    ].fillna(
-        1
-    )
+    # if there are any missing ratios, assume that the ratio is 1
+    cems["subplant_fuel_ratio"] = cems["subplant_fuel_ratio"].fillna(1)
 
-    # calculate fuel consumed for electricity and co2 adjusted
+    # calculate fuel_consumed_for_electricity_mmbtu
     cems["fuel_consumed_for_electricity_mmbtu"] = (
-        cems["fuel_consumed_mmbtu"] * cems["frac_electricity"]
+        cems["fuel_consumed_mmbtu"] * cems["subplant_fuel_ratio"]
     )
 
-    if drop_interim_columns:
-        cems = cems.drop(columns=["heat_output_mmbtu", "frac_electricity"])
+    # remove intermediate columns
+    cems = cems.drop(columns=["subplant_fuel_ratio", "plant_fuel_ratio"])
+
+    # add adjusted emissions columns
+    cems = adjust_fuel_and_emissions_for_CHP(cems)
 
     return cems
 
@@ -1709,7 +1750,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes):
     Converts hourly gross generation in CEMS to hourly net generation by calculating a gross to net generation ratio
     Inputs:
 
-    Returns: 
+    Returns:
         cems df with an added column for net_generation_mwh and a column indicated the method used to calculate net generation
     """
 
@@ -1986,139 +2027,6 @@ def convert_gtn_using_regression(gtn_conversion, level):
     gtn_conversion.loc[values_to_fill, "gtn_method"] = f"{level}_regression"
 
     return gtn_conversion
-
-
-def impute_missing_hourly_net_generation(cems, gen_fuel_allocated):
-    """
-    Where CEMS reports hourly heat content but no hourly generation, and EIA reports that there is positive net generation,
-    impute the missing net generation values based on the hourly heat input.
-    We calculate "heat rates" for both steam load and electricity load from EIA data
-    We then adjust the hourly heat data to account for steam load
-
-    NOTE: 4/21/22: this has been modified to only inpute net generation for plants that also do not report steam input
-    In some cases, these are actually just steam only generators
-    Unless we match on units using the crosswalk, we should not use this to impute data
-    """
-    # calculate total values for each plant-month in CEMS and EIA
-    cems_monthly = (
-        cems.groupby(["plant_id_eia", "report_date"], dropna=False)
-        .sum()[
-            [
-                "gross_generation_mwh",
-                "steam_load_1000_lb",
-                "fuel_consumed_mmbtu",
-                "co2_mass_lb",
-            ]
-        ]
-        .reset_index()
-    )
-    eia_monthly = (
-        gen_fuel_allocated.groupby(["plant_id_eia", "report_date"], dropna=False)
-        .sum()
-        .reset_index()
-    )
-
-    # identify all plant months that report no generation but have heat input and have no steam production
-    missing_generation = cems_monthly[
-        (cems_monthly["gross_generation_mwh"] == 0)
-        & (cems_monthly["fuel_consumed_mmbtu"] > 0)
-        & (cems_monthly["steam_load_1000_lb"] == 0)
-    ]
-    # merge in the EIA net generation data
-    missing_generation = missing_generation.merge(
-        eia_monthly[
-            [
-                "plant_id_eia",
-                "report_date",
-                "net_generation_mwh",
-                "fuel_consumed_mmbtu",
-                "fuel_consumed_for_electricity_mmbtu",
-            ]
-        ],
-        how="left",
-        on=["plant_id_eia", "report_date"],
-        suffixes=("_cems", "_eia"),
-    )
-
-    # only keep plant-months where zero gross generation was reported, but EIA reports positive net generation
-    # ignore negative net generation for now
-    missing_generation = missing_generation[
-        missing_generation["net_generation_mwh"] > 0
-    ]
-
-    # scale the EIA-reported heat input by the heat input reported in CEMS
-    missing_generation["heat_scaling_factor"] = (
-        missing_generation["fuel_consumed_mmbtu_cems"]
-        / missing_generation["fuel_consumed_mmbtu_eia"]
-    )
-
-    # calculate a heat rate for steam
-    # missing_generation['steam_heat_rate_mmbtu_per_klb'] = (missing_generation['fuel_consumed_mmbtu'] - missing_generation['fuel_consumed_for_electricity_mmbtu']) / missing_generation['steam_load_1000_lb'] * missing_generation['heat_scaling_factor']
-    # missing_generation['steam_heat_rate_mmbtu_per_klb'] = missing_generation['steam_heat_rate_mmbtu_per_klb'].fillna(0)
-
-    # calculate a heat rate for electricity
-    missing_generation["heat_to_netgen_mwh_per_mmbtu"] = missing_generation[
-        "net_generation_mwh"
-    ] / (
-        missing_generation["fuel_consumed_for_electricity_mmbtu"]
-        * missing_generation["heat_scaling_factor"]
-    )
-
-    # get a list of all of the plants that have missing net gen that needs to be imputed
-    plants_missing_net_gen = list(missing_generation.plant_id_eia.unique())
-
-    cems_ng_imputation = cems[cems["plant_id_eia"].isin(plants_missing_net_gen)]
-
-    # save the original index to assist with updating the original data later
-    cems_index = cems_ng_imputation.index
-
-    # merge in the factors
-    # cems_ng_imputation = cems_ng_imputation.merge(missing_generation[['plant_id_eia','report_date','steam_heat_rate_mmbtu_per_klb','heat_to_netgen_mwh_per_mmbtu']], how='left', on=['plant_id_eia','report_date'])
-    cems_ng_imputation = cems_ng_imputation.merge(
-        missing_generation[
-            ["plant_id_eia", "report_date", "heat_to_netgen_mwh_per_mmbtu"]
-        ],
-        how="left",
-        on=["plant_id_eia", "report_date"],
-    )
-
-    # calculate hourly heat content for electricity
-    # cems_ng_imputation['heat_content_for_electricity_mmbtu'] = cems_ng_imputation['fuel_consumed_mmbtu'] - (cems_ng_imputation['steam_load_1000_lb'].fillna(0) * cems_ng_imputation['steam_heat_rate_mmbtu_per_klb'])
-
-    # convert heat input to net generation
-    # cems_ng_imputation['net_generation_mwh'] = cems_ng_imputation['heat_content_for_electricity_mmbtu'] * cems_ng_imputation['heat_to_netgen_mwh_per_mmbtu']
-    cems_ng_imputation["net_generation_mwh"] = (
-        cems_ng_imputation["fuel_consumed_mmbtu"]
-        * cems_ng_imputation["heat_to_netgen_mwh_per_mmbtu"]
-    )
-
-    # drop intermediate columns
-    # cems_ng_imputation = cems_ng_imputation.drop(columns=['steam_heat_rate_mmbtu_per_klb','heat_to_netgen_mwh_per_mmbtu'])
-    cems_ng_imputation = cems_ng_imputation.drop(
-        columns=["heat_to_netgen_mwh_per_mmbtu"]
-    )
-
-    # if there are missing values where heat content is also zero, fill with zero
-    cems_ng_imputation.loc[
-        cems_ng_imputation["fuel_consumed_mmbtu"] == 0, "net_generation_mwh"
-    ] = cems_ng_imputation.loc[
-        cems_ng_imputation["fuel_consumed_mmbtu"] == 0, "net_generation_mwh"
-    ].fillna(
-        0
-    )
-
-    # change the net gen method
-    cems_ng_imputation["net_gen_method"] = "imputed_from_fuel_consumption"
-    cems_ng_imputation.loc[
-        cems_ng_imputation["net_generation_mwh"].isna(), "net_gen_method"
-    ] = np.NaN
-
-    # add the original index and update
-    cems_ng_imputation.index = cems_index
-    cems["net_generation_mwh"].update(cems_ng_imputation["net_generation_mwh"])
-    cems["net_gen_method"].update(cems_ng_imputation["net_gen_method"])
-
-    return cems
 
 
 def filter_unique_cems_data(cems, partial_cems):

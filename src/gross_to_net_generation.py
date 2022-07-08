@@ -19,13 +19,12 @@ def identify_subplants(year, number_of_years):
     start_year = year - (number_of_years - 1)
     end_year = year
 
-    print("Creating subplant IDs")
-    # load 5 years of monthly data from CEMS and EIA-923
-    cems_monthly, gen_fuel_allocated = load_monthly_gross_and_net_generation(
-        start_year, end_year
-    )
+    print("   Creating subplant IDs")
+    # load 5 years of monthly data from CEMS
+    cems_monthly = load_cems_gross_generation(start_year, end_year)
+
     # add subplant ids to the data
-    generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated)
+    generate_subplant_ids(start_year, end_year, cems_monthly)
 
 
 def calculate_gtn_conversions(year, number_of_years):
@@ -69,7 +68,10 @@ def calculate_gtn_conversions(year, number_of_years):
 
     # calculate monthly ratios at plant level
     gross_to_net_ratio(
-        gross_gen_data=cems_monthly, net_gen_data=gen_fuel_allocated, agg_level="plant", year=year,
+        gross_gen_data=cems_monthly,
+        net_gen_data=gen_fuel_allocated,
+        agg_level="plant",
+        year=year,
     )
 
 
@@ -89,7 +91,7 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
     )
 
     # allocate net generation and heat input to each generator-fuel grouping
-    print("Allocating EIA-923 generation data")
+    print("   Allocating EIA-923 generation data")
     gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
         pudl_out, drop_interim_cols=True
     )
@@ -106,7 +108,7 @@ def load_cems_gross_generation(start_year, end_year):
     cems_all = []
 
     for year in range(start_year, end_year + 1):
-        print(f"loading {year} CEMS data")
+        print(f"   loading {year} CEMS data")
         # specify the path to the CEMS data
         cems_path = f"../data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
 
@@ -218,7 +220,7 @@ def manual_crosswalk_updates(crosswalk):
     return crosswalk
 
 
-def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated):
+def generate_subplant_ids(start_year, end_year, cems_monthly):
     """
     Groups units and generators into unique subplant groups.
 
@@ -233,7 +235,6 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
     Returns:
         exports the subplant crosswalk to a csv file
         cems_monthly and gen_fuel_allocated with subplant_id added
-    
     """
 
     ids = cems_monthly[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
@@ -243,6 +244,9 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
 
     # update the crosswalk with manual matches
     crosswalk = manual_crosswalk_updates(crosswalk)
+
+    # strip leading zeros
+    crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # filter the crosswalk to drop any units that don't exist in CEMS
     filtered_crosswalk = epa_crosswalk.filter_crosswalk(crosswalk, ids)[
@@ -261,10 +265,10 @@ def generate_subplant_ids(start_year, end_year, cems_monthly, gen_fuel_allocated
     filtered_crosswalk["EIA_PLANT_ID"] = filtered_crosswalk["EIA_PLANT_ID"].astype(int)
 
     # filter to generators that exist in the EIA data
-    # get a list of unique generators in the EIA-923 data
-    unique_eia_ids = gen_fuel_allocated[
-        ["plant_id_eia", "generator_id"]
-    ].drop_duplicates()
+    # load a list of unique generator ids that exist in EIA
+    pudl_out = load_data.initialize_pudl_out(year=None)
+    gens_eia860 = pudl_out.gens_eia860()
+    unique_eia_ids = gens_eia860[["plant_id_eia", "generator_id"]].drop_duplicates()
     filtered_crosswalk = unique_eia_ids.merge(
         filtered_crosswalk,
         left_on=["plant_id_eia", "generator_id"],
@@ -503,7 +507,7 @@ def model_gross_to_net(df):
     """
     Performs a linear regression model of monthly gross to net generation.
 
-    Performs recursive outlier removal up to two times if the absolute value of 
+    Performs recursive outlier removal up to two times if the absolute value of
     the studentizes residual > 3
 
     Args:
@@ -581,4 +585,3 @@ def model_gross_to_net(df):
 
         except ValueError:
             pass
-

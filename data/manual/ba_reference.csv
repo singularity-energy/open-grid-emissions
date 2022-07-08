@@ -210,7 +210,7 @@ WR,Western Resources dba Westar Energy,,,,Yes,1/1/2004,4/1/2015,,,,FERC,208
 WWA,"NaturEner Wind Watch, LLC",generation_only,US/Mountain,US/Mountain,Yes,7/1/2013,,"CECD, LLC",,,EIA & FERC,209
 YAD,"Alcoa Power Generating, Inc. - Yadkin Division",generation_only,US/Eastern,US/Eastern,Yes,1/1/2004,,"Yadkin, Inc.",,,EIA & FERC,210
 AKMS,No Balancing Authority - Alaska,miscellaneous,US/Alaska,US/Alaska,Yes,,,,,,,902
-CAMS,No Balancing Authority - California,miscellaneous,US/Pacific,US/Pacific,Yes,,,,,,,945
+CAMS,No Balancing Authority - California,miscellaneous,US/Pacific,US/Pacific,Yes,,,,,,,906
 HIMS,No Balancing Authority - Hawaii,miscellaneous,US/Hawaii,US/Hawaii,Yes,,,,,,,915
 INMS,No Balancing Authority - Indiana,miscellaneous,US/Eastern,US/Eastern,Yes,,,,,,,918
 MOMS,No Balancing Authority - Missouri,miscellaneous,US/Central,US/Central,Yes,,,,,,,929
