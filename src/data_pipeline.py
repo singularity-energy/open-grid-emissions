@@ -370,7 +370,7 @@ def main():
     # 14. Calculate consumption-based emissions and write carbon accounting results
     print("15. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
-        clean_930_file, small=args.small, path_prefix=path_prefix,
+        clean_930_file, small=args.small, path_prefix=path_prefix, year=year
     )
     hourly_consumed_calc.process()
     hourly_consumed_calc.output_data(path_prefix=path_prefix)
