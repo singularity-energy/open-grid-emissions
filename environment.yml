@@ -3,11 +3,9 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - dask
   - black
   - flake8 # linter
   - ipykernel
-  - matplotlib
   - notebook
   - numpy
   - openpyxl
@@ -19,9 +17,9 @@ dependencies:
   - requests
   - sqlalchemy
   - statsmodels
-  - tabulate
 
   - cvxpy # used by gridemissions
+  - seaborn # used by gridemissions
 
   - setuptools # used for pudl
   - geopandas # used for pudl
