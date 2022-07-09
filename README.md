@@ -47,7 +47,7 @@ Installation requires that the conda channel-priority be set to "flexible". This
 so if you've never manually changed this, you shouldn't have to worry about this. However, 
 if you receive an error message like "Found conflicts!" when trying to install the environment,
 try setting your channel priority to flexible by running the following command:
-`conda config --set channel-priority flexible` and then re-running the above commands.
+`conda config --set channel_priority flexible` and then re-running the above commands.
 
 ## Running the Data Pipeline
 
