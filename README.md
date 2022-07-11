@@ -38,9 +38,16 @@ To also include packages used in testing and development, run `pipenv install --
 
 Open anaconda prompt, use `cd` to navigate to the directory where your local files are stored (e.g. "GitHub/hourly-egrid"), and then run:
 
-```bash
+```
+conda update conda
 conda env create -f environment.yml
 ```
+
+Installation requires that the conda channel-priority be set to "flexible". This is the default behavior, 
+so if you've never manually changed this, you shouldn't have to worry about this. However, 
+if you receive an error message like "Found conflicts!" when trying to install the environment,
+try setting your channel priority to flexible by running the following command:
+`conda config --set channel_priority flexible` and then re-running the above commands.
 
 ## Running the Data Pipeline
 
