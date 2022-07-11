@@ -669,6 +669,17 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
 def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     # add ba-fuel data and aggregate cems by ba-fuel
     cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
+
+    # Count unique plants: after grouping by BA we will remove where n_unique_plants < 3
+    cems_count = (
+        cems.groupby(
+            ["ba_code", "fuel_category", "report_date"]
+        )["plant_id_eia"]
+        .nunique()
+        .reset_index()
+        .rename(columns={"plant_id_eia": "n_unique_plants"})
+    )
+
     cems = (
         cems.groupby(
             ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
@@ -676,6 +687,12 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
         .sum()["net_generation_mwh"]
         .reset_index()
     )
+
+    # Remove data where too few plants
+    cems = cems.merge(cems_count, how='left', on=["ba_code", "fuel_category", "report_date"])
+    cems.loc[cems["n_unique_plants"] < 3, "net_generation_mwh"] = np.nan
+    cems = cems.drop(columns=["n_unique_plants"])
+
     # remove months where there is zero generation reported
     months_with_zero_data = (
         cems.groupby(["ba_code", "fuel_category", "report_date"], dropna=False)
