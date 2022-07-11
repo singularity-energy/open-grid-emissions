@@ -3,8 +3,10 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - black
-  - flake8 # linter
+  - black # development: code formatting
+  - cvxpy # used by gridemissions
+  - flake8 # development: linter
+  - geopandas # used for pudl
   - ipykernel
   - notebook
   - numpy
@@ -13,22 +15,18 @@ dependencies:
   - pip
   - plotly
   - pyarrow
-  - python
-  - requests
+  - pygeos # used for pudl
+  - python>=3.10,<3.11 # require 3.10.x for compatibility with pudl
+  - python-snappy # used for pudl
+  - requests>=2.28.1
+  - seaborn # used by gridemissions
+  - setuptools # used for pudl
   - sqlalchemy
+  - sqlite # used for pudl
   - statsmodels
 
-  - cvxpy # used by gridemissions
-  - seaborn # used by gridemissions
-
-  - setuptools # used for pudl
-  - geopandas # used for pudl
-  - pygeos  # used for pudl
-  - python-snappy # used for pudl
-  - sqlite # used for pudl
-
   - pip:
-    #- --editable ../pudl #NOTE: this is for Greg's use for development
-    - git+https://github.com/grgmiller/pudl.git@allocate_fuel#egg=catalystcoop.pudl
-    # - --editable ../gridemissions # NOTE: for Gailin's development use 
-    - git+https://github.com/gailin-p/gridemissions#egg=gridemissions
+      #- --editable ../pudl #NOTE: this is for Greg's use for development
+      - git+https://github.com/grgmiller/pudl.git@allocate_fuel#egg=catalystcoop.pudl
+      # - --editable ../gridemissions # NOTE: for Gailin's development use
+      - git+https://github.com/gailin-p/gridemissions#egg=gridemissions
