@@ -85,7 +85,7 @@ def select_best_available_profile(hourly_profiles):
     The order of preference is:
         1. If the residual profile does not have a negative total for a month, use that
         2. If the eia930 profile doesn't have missing data, use that next
-        3. Use the CEMS profile
+        3. If there are at least 3 CEMS plants available, use the combined CEMS profile
         4. Use the imputed profile
 
     We could create two different profiles - one for positive and one for negative values
@@ -704,6 +704,8 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
         hourly_profiles["net_generation_mwh"]
     )
     hourly_profiles = hourly_profiles.drop(columns=["net_generation_mwh"])
+
+    # Gailin TODO: Where the number of CEMS plants with data is < 3, drop 
 
     return hourly_profiles
 
