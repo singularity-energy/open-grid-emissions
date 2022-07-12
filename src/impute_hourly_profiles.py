@@ -673,7 +673,7 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     # Count unique plants: after grouping by BA we will remove where n_unique_plants < 3
     cems_count = (
         cems.groupby(
-            ["ba_code", "fuel_category", "report_date"]
+            ["ba_code", "fuel_category", "report_date"], dropna=False
         )["plant_id_eia"]
         .nunique()
         .reset_index()
@@ -721,8 +721,6 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
         hourly_profiles["net_generation_mwh"]
     )
     hourly_profiles = hourly_profiles.drop(columns=["net_generation_mwh"])
-
-    # Gailin TODO: Where the number of CEMS plants with data is < 3, drop 
 
     return hourly_profiles
 
