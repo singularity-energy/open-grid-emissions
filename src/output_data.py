@@ -8,13 +8,15 @@ GENERATED_EMISSION_RATE_COLS = [
     "generated_co2_rate_lb_per_mwh_for_electricity",
     "generated_ch4_rate_lb_per_mwh_for_electricity",
     "generated_n2o_rate_lb_per_mwh_for_electricity",
+    "generated_co2e_rate_lb_per_mwh_for_electricity",
     "generated_nox_rate_lb_per_mwh_for_electricity",
     "generated_so2_rate_lb_per_mwh_for_electricity",
-    "generated_co2_rate_lb_per_mwh_adjusted",
-    "generated_ch4_rate_lb_per_mwh_adjusted",
-    "generated_n2o_rate_lb_per_mwh_adjusted",
-    "generated_nox_rate_lb_per_mwh_adjusted",
-    "generated_so2_rate_lb_per_mwh_adjusted",
+    "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
+    "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
+    "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
+    "generated_co2e_rate_lb_per_mwh_for_electricity_adjusted",
+    "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
+    "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
 ]
 
 UNIT_CONVERSIONS = {"lb": ("kg", 0.453592), "mmbtu": ("GJ", 1.055056)}
@@ -68,14 +70,20 @@ def output_plant_data(df, path_prefix, resolution):
     elif resolution == "monthly":
         # output monthly data
         output_to_results(
-            df, "plant_data", "plant_data/monthly/", path_prefix,
+            df,
+            "plant_data",
+            "plant_data/monthly/",
+            path_prefix,
         )
     elif resolution == "annual":
         # output annual data
         df = df.groupby(["plant_id_eia"], dropna=False).sum().reset_index()
         # Separately save real and aggregate plants
         output_to_results(
-            df, "plant_data", "plant_data/annual/", path_prefix,
+            df,
+            "plant_data",
+            "plant_data/annual/",
+            path_prefix,
         )
 
 
@@ -117,7 +125,7 @@ def write_generated_averages(ba_fuel_data, year, path_prefix):
     avg_fuel_type_production = pd.concat([avg_fuel_type_production, total], axis=0)
 
     # Find rates
-    for emission_type in ["_for_electricity", "_adjusted"]:
+    for emission_type in ["_for_electricity", "_adjusted", "_for_electricity_adjusted"]:
         for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
             avg_fuel_type_production[
                 f"generated_{emission}_rate_lb_per_mwh{emission_type}"
@@ -207,18 +215,27 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         "co2_mass_lb",
         "ch4_mass_lb",
         "n2o_mass_lb",
+        "co2e_mass_lb",
         "nox_mass_lb",
         "so2_mass_lb",
         "co2_mass_lb_for_electricity",
         "ch4_mass_lb_for_electricity",
         "n2o_mass_lb_for_electricity",
+        "co2e_mass_lb_for_electricity",
         "nox_mass_lb_for_electricity",
         "so2_mass_lb_for_electricity",
         "co2_mass_lb_adjusted",
         "ch4_mass_lb_adjusted",
         "n2o_mass_lb_adjusted",
+        "co2e_mass_lb_adjusted",
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
+        "co2_mass_lb_for_electricity_adjusted",
+        "ch4_mass_lb_for_electricity_adjusted",
+        "n2o_mass_lb_for_electricity_adjusted",
+        "co2e_mass_lb_for_electricity_adjusted",
+        "nox_mass_lb_for_electricity_adjusted",
+        "so2_mass_lb_for_electricity_adjusted",
     ]
 
     for ba in list(ba_fuel_data.ba_code.unique()):
@@ -249,7 +266,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         ba_table = ba_table.round(2)
 
         def add_generated_emission_rate_columns(df):
-            for emission_type in ["_for_electricity", "_adjusted"]:
+            for emission_type in ["_for_electricity", "_adjusted", "_for_electricity_adjusted"]:
                 for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
                     df[f"generated_{emission}_rate_lb_per_mwh{emission_type}"] = (
                         (
