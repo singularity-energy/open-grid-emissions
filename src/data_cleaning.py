@@ -11,6 +11,37 @@ import src.load_data as load_data
 from src.column_checks import get_dtypes, apply_dtypes
 
 
+DATA_COLUMNS = [
+    "net_generation_mwh",
+    "fuel_consumed_mmbtu",
+    "fuel_consumed_for_electricity_mmbtu",
+    "co2_mass_lb",
+    "ch4_mass_lb",
+    "n2o_mass_lb",
+    "co2e_mass_lb",
+    "nox_mass_lb",
+    "so2_mass_lb",
+    "co2_mass_lb_for_electricity",
+    "ch4_mass_lb_for_electricity",
+    "n2o_mass_lb_for_electricity",
+    "co2e_mass_lb_for_electricity",
+    "nox_mass_lb_for_electricity",
+    "so2_mass_lb_for_electricity",
+    "co2_mass_lb_adjusted",
+    "ch4_mass_lb_adjusted",
+    "n2o_mass_lb_adjusted",
+    "co2e_mass_lb_adjusted",
+    "nox_mass_lb_adjusted",
+    "so2_mass_lb_adjusted",
+    "co2_mass_lb_for_electricity_adjusted",
+    "ch4_mass_lb_for_electricity_adjusted",
+    "n2o_mass_lb_for_electricity_adjusted",
+    "co2e_mass_lb_for_electricity_adjusted",
+    "nox_mass_lb_for_electricity_adjusted",
+    "so2_mass_lb_for_electricity_adjusted",
+]
+
+
 def identify_subplants(year, number_of_years):
     """This is the coordinating function for loading and calculating subplant IDs, GTN regressions, and GTN ratios."""
     start_year = year - (number_of_years - 1)
@@ -282,36 +313,6 @@ def clean_eia923(year, small):
         gen_fuel_allocated, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
 
-    DATA_COLUMNS = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-    ]
-
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
         gen_fuel_allocated,
@@ -369,13 +370,15 @@ def update_energy_source_codes(df):
             "energy_source_code",
         ] = updated_code
 
-    # print warning if any plants are still other
-    plants_with_other_fuel = df[df["energy_source_code"] == "OTH"]
+    # print warning if any plants are still other and have nonzero fuel consumption
+    plants_with_other_fuel = df[
+        (df["energy_source_code"] == "OTH") & (df["fuel_consumed_mmbtu"] > 0)
+    ]
     if len(plants_with_other_fuel) > 0:
         print(
-            "WARNING: After cleaning energy source codes, some generation is still OTH"
+            "WARNING: After cleaning energy source codes, some fuel consumption is still associated with an 'OTH' fuel type."
         )
-        print("This may lead to incorrect emissions calculations.")
+        print("This will lead to incorrect emissions calculations.")
         print(
             f"Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}"
         )
@@ -2017,35 +2020,6 @@ def filter_unique_cems_data(cems, partial_cems):
 
 
 def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
-    data_columns = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-    ]
 
     ba_fuel_data = combined_plant_data.merge(
         plant_frame, how="left", on=["plant_id_eia"]
@@ -2053,7 +2027,7 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
     ba_fuel_data = (
         ba_fuel_data.groupby(
             ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
-        )[data_columns]
+        )[DATA_COLUMNS]
         .sum()
         .reset_index()
     )
@@ -2086,38 +2060,6 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution):
         raise UserWarning(
             "arg 'resolution' for `combine_plant_data` must be either 'monthly' or 'hourly'"
         )
-
-    DATA_COLUMNS = [
-        "gross_generation_mwh",
-        "net_generation_mwh",
-        "steam_load_1000_lb",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-    ]
 
     ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
 
@@ -2475,7 +2417,7 @@ def aggregate_cems_to_subplant(cems):
 
     GROUPBY_COLUMNS = ["plant_id_eia", "subplant_id", "datetime_utc", "report_date"]
 
-    DATA_COLUMNS = [
+    cems_columns_to_aggregate = [
         "gross_generation_mwh",
         "steam_load_1000_lb",
         "fuel_consumed_mmbtu",
@@ -2491,7 +2433,11 @@ def aggregate_cems_to_subplant(cems):
         "so2_mass_lb_adjusted",
     ]
 
-    cems = cems.groupby(GROUPBY_COLUMNS, dropna=False).sum()[DATA_COLUMNS].reset_index()
+    cems = (
+        cems.groupby(GROUPBY_COLUMNS, dropna=False)
+        .sum()[cems_columns_to_aggregate]
+        .reset_index()
+    )
 
     cems = apply_dtypes(cems)
 

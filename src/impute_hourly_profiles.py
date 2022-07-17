@@ -19,6 +19,36 @@ FUEL_NUMBERS = {
     "wind": "12",
 }
 
+DATA_COLUMNS = [
+    "fuel_consumed_mmbtu",
+    "fuel_consumed_for_electricity_mmbtu",
+    "net_generation_mwh",
+    "co2_mass_lb",
+    "ch4_mass_lb",
+    "n2o_mass_lb",
+    "co2e_mass_lb",
+    "nox_mass_lb",
+    "so2_mass_lb",
+    "co2_mass_lb_for_electricity",
+    "ch4_mass_lb_for_electricity",
+    "n2o_mass_lb_for_electricity",
+    "co2e_mass_lb_for_electricity",
+    "nox_mass_lb_for_electricity",
+    "so2_mass_lb_for_electricity",
+    "co2_mass_lb_adjusted",
+    "ch4_mass_lb_adjusted",
+    "n2o_mass_lb_adjusted",
+    "co2e_mass_lb_adjusted",
+    "nox_mass_lb_adjusted",
+    "so2_mass_lb_adjusted",
+    "co2_mass_lb_for_electricity_adjusted",
+    "ch4_mass_lb_for_electricity_adjusted",
+    "n2o_mass_lb_for_electricity_adjusted",
+    "co2e_mass_lb_for_electricity_adjusted",
+    "nox_mass_lb_for_electricity_adjusted",
+    "so2_mass_lb_for_electricity_adjusted",
+]
+
 
 def calculate_hourly_profiles(
     cems,
@@ -862,27 +892,6 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
         shaped_monthly_data: a dataframe that contains monthly total net generation,
             fuel consumption, and co2 data, along with columns for report_date and ba_code
     """
-    # specify columns containing monthly data that should be distributed to hourly
-    DATA_COLUMNS = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-    ]
 
     # merge the hourly profiles into each plant-month
     shaped_monthly_data = monthly_eia_data_to_shape.merge(
@@ -942,35 +951,6 @@ def shape_partial_cems_data(cems, eia923_allocated):
         partial_cems_scaled: dataframe with hourly data from EIA scaled using partial cems data
     """
     SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
-    DATA_COLUMNS = [
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "net_generation_mwh",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-    ]
 
     # identify all of the partial cems plants and group by subplant-month
     eia_data_to_shape = eia923_allocated.loc[

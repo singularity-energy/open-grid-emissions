@@ -119,20 +119,21 @@ def calculate_gross_to_net_conversion_factors(
             "gross_generation_mwh",
         ]
     ]
-    # identify the lowest hourly gross generation value in a month
+    # identify the 2nd percentile lowest hourly gross generation value in a month
     min_gross = (
         gross_gen_data.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
         )
-        .agg({"gross_generation_mwh": "min"})
+        .agg({"gross_generation_mwh": lambda x: x.quantile(0.02)})
         .reset_index()
         .rename(columns={"gross_generation_mwh": "minimum_gross_generation_mwh"})
     )
+    # identify the 98th percentile highest hourly gross generation value in a month
     max_gross = (
         gross_gen_data.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
         )
-        .agg({"gross_generation_mwh": "max"})
+        .agg({"gross_generation_mwh": lambda x: x.quantile(0.98)})
         .reset_index()
         .rename(columns={"gross_generation_mwh": "maximum_gross_generation_mwh"})
     )

@@ -125,7 +125,7 @@ def write_generated_averages(ba_fuel_data, year, path_prefix):
     avg_fuel_type_production = pd.concat([avg_fuel_type_production, total], axis=0)
 
     # Find rates
-    for emission_type in ["_for_electricity", "_adjusted", "_for_electricity_adjusted"]:
+    for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
         for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
             avg_fuel_type_production[
                 f"generated_{emission}_rate_lb_per_mwh{emission_type}"
@@ -266,7 +266,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
         ba_table = ba_table.round(2)
 
         def add_generated_emission_rate_columns(df):
-            for emission_type in ["_for_electricity", "_adjusted", "_for_electricity_adjusted"]:
+            for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
                 for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
                     df[f"generated_{emission}_rate_lb_per_mwh{emission_type}"] = (
                         (
