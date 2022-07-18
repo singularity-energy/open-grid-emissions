@@ -96,7 +96,7 @@ FUEL_TYPE_MAP = {
 
 POLLS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 
-ADJUSTMENTS = ["adjusted", "for_electricity"]
+ADJUSTMENTS = ["for_electricity", "for_electricity_adjusted"]
 
 # Unused by us, but parent class wants to know
 for pol in POLLS:
