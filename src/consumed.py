@@ -94,7 +94,7 @@ FUEL_TYPE_MAP = {
     "BIO": "biomass",
 }
 
-POLLS = ["CO2", "CH4", "N2O", "NOX", "SO2"]
+POLLS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 
 ADJUSTMENTS = ["adjusted", "for_electricity"]
 
@@ -154,11 +154,11 @@ KEYS["N2O"] = {
 
 def get_average_emission_factors(prefix: str = "", year: int = 2020):
     """
-        Edit EMISSIONS dict with per-fuel, per-adjustment, per-poll emission factors.
-        Used to fill in emissions from BAs outside of US, where we have generation by
-        fuel (from gridemissions) but no hourly-egrid data
+    Edit EMISSIONS dict with per-fuel, per-adjustment, per-poll emission factors.
+    Used to fill in emissions from BAs outside of US, where we have generation by
+    fuel (from gridemissions) but no hourly-egrid data
 
-        Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
+    Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
         f"../data/outputs/{prefix}annual_generation_averages_by_fuel_{year}.csv",
@@ -215,7 +215,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
 
     def _drop_pol_cols(self, poll):
         """
-            For repeated processing with different pols, need to drop pollutant columns
+        For repeated processing with different pols, need to drop pollutant columns
 
         """
         pol_cols = [c for c in self.df.columns if c[0 : len(poll)] == poll]
@@ -258,9 +258,9 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
 
     def output_data(self, path_prefix: str):
         """
-            Run after process.
-            Follows output_data format for results files.
-            Outputs per-ba consumed emissions and rate data
+        Run after process.
+        Follows output_data format for results files.
+        Outputs per-ba consumed emissions and rate data
         """
         for ba in self.output_regions:
             dat = self.output_dat[ba]
@@ -294,14 +294,14 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
 
     def _replace_generation(self):
         """
-            Helper function to set up generation and rate data.
-            1) Find list of regions to use
-            2) Drop columns: all columns from regions we are not using, all generation columns
-            3) Load default values from eGRID for zero rates (TODO: Fix once we know that zero rates are real)
-            4/5) Load hourly generation data into BaData structure using KEYS as columns
-                 Load hourly rate data into rates data structure using `<ba>_<GENERATED_EMISSION_RATE_COLS>` as columns
+        Helper function to set up generation and rate data.
+        1) Find list of regions to use
+        2) Drop columns: all columns from regions we are not using, all generation columns
+        3) Load default values from eGRID for zero rates (TODO: Fix once we know that zero rates are real)
+        4/5) Load hourly generation data into BaData structure using KEYS as columns
+             Load hourly rate data into rates data structure using `<ba>_<GENERATED_EMISSION_RATE_COLS>` as columns
 
-            TODO: make demand sum of generation and net interchange
+        TODO: make demand sum of generation and net interchange
         """
 
         # 1: Find region list
