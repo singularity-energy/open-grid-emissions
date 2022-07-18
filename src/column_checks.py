@@ -245,7 +245,7 @@ COLUMNS = {
         "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
         "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
         "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_co2e_rate_lb_per_mwh_for_electricity_adjusted",
         "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
         "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
     },

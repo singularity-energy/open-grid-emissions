@@ -2072,14 +2072,16 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution):
         .sum()
         .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
     )
-    partial_cems = (
-        partial_cems.groupby(
-            KEY_COLUMNS,
-            dropna=False,
+    # don't group if there is no data in the dataframe
+    if len(partial_cems) > 0:
+        partial_cems = (
+            partial_cems.groupby(
+                KEY_COLUMNS,
+                dropna=False,
+            )
+            .sum()
+            .reset_index()[[col for col in partial_cems.columns if col in ALL_COLUMNS]]
         )
-        .sum()
-        .reset_index()[[col for col in partial_cems.columns if col in ALL_COLUMNS]]
-    )
     eia_data = (
         eia_data.groupby(
             KEY_COLUMNS,

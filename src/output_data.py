@@ -126,7 +126,7 @@ def write_generated_averages(ba_fuel_data, year, path_prefix):
 
     # Find rates
     for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
-        for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
+        for emission in ["co2", "ch4", "n2o", "co2e", "nox", "so2"]:
             avg_fuel_type_production[
                 f"generated_{emission}_rate_lb_per_mwh{emission_type}"
             ] = (
