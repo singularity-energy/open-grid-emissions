@@ -150,6 +150,12 @@ KEYS["N2O"] = {
     "TI": "N2O_%s_TI",
     "ID": "N2O_%s-%s_ID",
 }
+KEYS["CO2E"] = {
+    "D": "CO2E_%s_D",
+    "NG": "CO2E_%s_NG",
+    "TI": "CO2E_%s_TI",
+    "ID": "CO2E_%s-%s_ID",
+}
 
 
 def get_average_emission_factors(prefix: str = "", year: int = 2020):
