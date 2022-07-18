@@ -267,7 +267,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix):
 
         def add_generated_emission_rate_columns(df):
             for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
-                for emission in ["co2", "ch4", "n2o", "nox", "so2"]:
+                for emission in ["co2", "ch4", "n2o", "co2e", "nox", "so2"]:
                     df[f"generated_{emission}_rate_lb_per_mwh{emission_type}"] = (
                         (
                             df[f"{emission}_mass_lb{emission_type}"]
