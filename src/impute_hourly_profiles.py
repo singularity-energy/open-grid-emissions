@@ -234,9 +234,6 @@ def aggregate_for_residual(
 
     Utility function for trying different BA aggregations in 930 and 923 data
     """
-    """cems_profiles_for_non_930_fuels = aggregate_non_930_fuel_categories(
-        cems, plant_attributes
-    )"""
 
     # add the partial cems data
     cems = pd.concat([cems, partial_cems], axis=0)
@@ -246,6 +243,19 @@ def aggregate_for_residual(
 
     if transmission:
         cems = cems[cems["distribution_flag"] is False]
+
+    # ensure that there are no missing fuel categories in the cems data associated with nonzero generation data
+    missing_fuel_category = cems[
+        (cems["fuel_category_eia930"].isna()) & (cems["net_generation_mwh"] != 0)
+    ]
+    if len(missing_fuel_category) > 0:
+        print(
+            "Warning: The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
+        )
+        print(missing_fuel_category[["plant_id_eia", "subplant_id"]].drop_duplicates())
+        raise UserWarning(
+            "The missing fuel categories must be fixed before proceeding."
+        )
 
     cems = (
         cems.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)[

@@ -192,12 +192,16 @@ def test_for_negative_values(df):
     columns_to_test = [
         col for col in columns_that_should_be_positive if col in df.columns
     ]
+    negative_warnings = 0
     for column in columns_to_test:
         negative_test = df[df[column] < 0]
         if not negative_test.empty:
             print(
                 f"Warning: There are {len(negative_test)} records where {column} is negative. Check `negative_test` for complete list"
             )
+            negative_warnings += 1
+    if negative_warnings > 0:
+        raise UserWarning("The above negative values are errors and must be fixed")
     return negative_test
 
 
@@ -222,7 +226,7 @@ def test_chp_allocation(df):
         df["fuel_consumed_for_electricity_mmbtu"] > df["fuel_consumed_mmbtu"]
     ]
     if not chp_allocation_test.empty:
-        print(
+        raise UserWarning(
             f"Warning: There are {len(chp_allocation_test)} records where fuel consumed for electricity is greater than total fuel consumption. Check `chp_allocation_test` for complete list"
         )
 
@@ -419,29 +423,29 @@ def net_generation_method_metric(cems, partial_cems, monthly_eia_data_to_shape):
 
 def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     """Calculates the percentage of data whose hourly profile was determined by method"""
-    data_metric = "co2_mass_lb"
+    data_metrics = ["net_generation_mwh", "co2_mass_lb"]
 
     # determine the source of the hourly profile
-    profile_from_cems = cems[data_metric].sum()
-    profile_from_partial_cems = partial_cems[data_metric].sum()
+    profile_from_cems = cems[data_metrics].sum()
+    profile_from_cems["profile_method"] = "cems_reported"
+    profile_from_partial_cems = partial_cems[data_metrics].sum()
+    profile_from_partial_cems["profile_method"] = "eia_shaped_partial_cems"
     profile_from_eia = (
-        shaped_eia_data.groupby("profile_method", dropna=False)[data_metric]
+        shaped_eia_data.groupby("profile_method", dropna=False)[data_metrics]
         .sum()
         .reset_index()
     )
-
-    profile_from_cems = pd.DataFrame(
-        [
-            {"profile_method": "cems", data_metric: profile_from_cems},
-            {"profile_method": "partial_cems", data_metric: profile_from_partial_cems},
-        ]
+    profile_from_eia["profile_method"] = (
+        "eia_shaped_" + profile_from_eia["profile_method"]
     )
 
-    profile_source = pd.concat([profile_from_cems, profile_from_eia])
-    profile_source["percent"] = (
-        profile_source[data_metric] / profile_source[data_metric].sum() * 100
+    profile_source = pd.concat(
+        [profile_from_cems, profile_from_partial_cems, profile_from_eia]
     )
-    profile_source = profile_source.round(2)
+    profile_source = profile_source.set_index("profile_method")
+    profile_source = profile_source / profile_source.sum(axis=0)
+    profile_source = profile_source.reset_index()
+
     return profile_source
 
 
@@ -523,7 +527,13 @@ def validate_diba_imputation_method(hourly_profiles, year):
     )
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
 
-    compare_method.groupby(["fuel_category"]).mean()["imputed_profile"]
+    compare_method = compare_method.groupby(["fuel_category", "ba_code"]).mean()[
+        "imputed_profile"
+    ]
+
+    compare_method = compare_method.rename(
+        columns={"imputed_profile": "average_correlation_coefficient"}
+    )
 
     return compare_method
 
@@ -586,7 +596,13 @@ def validate_national_imputation_method(hourly_profiles):
     )
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
 
-    compare_method.groupby(["fuel_category"]).mean()["imputed_profile"]
+    compare_method = compare_method.groupby(["fuel_category", "ba_code"]).mean()[
+        "imputed_profile"
+    ]
+
+    compare_method = compare_method.rename(
+        columns={"imputed_profile": "average_correlation_coefficient"}
+    )
 
     return compare_method
 
@@ -1116,6 +1132,7 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
             print(
                 f"Warning: There are {len(all_overlap)} subplant-months that exist in shaped EIA data, CEMS data, and partial CEMS data."
             )
+        raise UserWarning("The above overlaps must be fixed before proceeding.")
 
 
 def identify_percent_of_data_by_input_source(cems, partial_cems, eia_only_data, year):
@@ -1163,6 +1180,10 @@ def identify_percent_of_data_by_input_source(cems, partial_cems, eia_only_data, 
     )
     source_of_input_data = source_of_input_data.groupby("source").sum()
     source_of_input_data = source_of_input_data / source_of_input_data.sum(axis=0)
+
+    source_of_input_data = source_of_input_data.reset_index()
+
+    return source_of_input_data
 
 
 def identify_cems_gtn_method(cems):

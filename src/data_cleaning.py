@@ -1108,8 +1108,6 @@ def assign_fuel_type_to_cems(cems, year):
     # update
     cems = update_energy_source_codes(cems)
 
-    validation.test_for_missing_energy_source_code(cems)
-
     return cems
 
 
@@ -1618,6 +1616,16 @@ def fill_cems_missing_co2(cems, year):
         "co2_mass_lb",
     ] = np.NaN
 
+    # check that all records with missing co2 have a non-missing energy source code
+    missing_esc = cems[
+        (cems["energy_source_code"].isna()) & (cems["co2_mass_lb"].isna())
+    ]
+    if len(missing_esc) > 0:
+        print(
+            f"Warning: the following units are missing co2 data and energy source codes"
+        )
+        print(missing_esc[["plant_id_eia", "unitid"]].drop_duplicates())
+
     # create a new df with all observations with missing co2 data
     missing_co2 = cems[cems["co2_mass_lb"].isnull()]
 
@@ -1714,6 +1722,13 @@ def fill_cems_missing_co2(cems, year):
 
     # update the co2 mass measurement code
     cems.loc[missing_co2.index, "co2_mass_measurement_code"] = "Imputed"
+
+    # check that there are no missing co2 values left
+    still_missing_co2 = cems[cems["co2_mass_lb"].isna()]
+    if len(still_missing_co2) > 0:
+        raise UserWarning(
+            "There are still misssing CO2 values remaining after filling missing CO2 values in CEMS"
+        )
 
     return cems
 

@@ -47,14 +47,14 @@ def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
         )
 
 
-def output_validation_metrics(df, file_name, path_prefix, skip_outputs):
+def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
     if not skip_outputs:
         print(
-            f"   Exporting {file_name} to data/results/{path_prefix}validation_metrics"
+            f"   Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
         )
 
         df.to_csv(
-            f"../data/results/{path_prefix}validation_metrics/{file_name}.csv",
+            f"../data/results/{path_prefix}data_quality_metrics/{file_name}.csv",
             index=False,
         )
 
@@ -75,12 +75,14 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs):
                 "synthetic_plant_data",
                 "plant_data/hourly/",
                 path_prefix,
+                skip_outputs,
             )
             output_to_results(
                 df[df.plant_id_eia < 900000],
                 "CEMS_plant_data",
                 "plant_data/hourly/",
                 path_prefix,
+                skip_outputs,
             )
         elif resolution == "monthly":
             # output monthly data
@@ -89,6 +91,7 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs):
                 "plant_data",
                 "plant_data/monthly/",
                 path_prefix,
+                skip_outputs,
             )
         elif resolution == "annual":
             # output annual data
@@ -99,6 +102,7 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs):
                 "plant_data",
                 "plant_data/annual/",
                 path_prefix,
+                skip_outputs,
             )
 
 
@@ -162,6 +166,7 @@ def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
             "annual_generation_averages_by_fuel",
             path_prefix,
             year,
+            skip_outputs,
         )
 
 
@@ -329,7 +334,11 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
 
             # export to a csv
             output_to_results(
-                ba_table_hourly, ba, "power_sector_data/hourly/", path_prefix
+                ba_table_hourly,
+                ba,
+                "power_sector_data/hourly/",
+                path_prefix,
+                skip_outputs,
             )
 
             # aggregate data to monthly
@@ -346,7 +355,11 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 + GENERATED_EMISSION_RATE_COLS
             ]
             output_to_results(
-                ba_table_monthly, ba, "power_sector_data/monthly/", path_prefix
+                ba_table_monthly,
+                ba,
+                "power_sector_data/monthly/",
+                path_prefix,
+                skip_outputs,
             )
 
             # aggregate data to annual
@@ -359,5 +372,9 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 ["fuel_category"] + data_columns + GENERATED_EMISSION_RATE_COLS
             ]
             output_to_results(
-                ba_table_annual, ba, "power_sector_data/annual/", path_prefix
+                ba_table_annual,
+                ba,
+                "power_sector_data/annual/",
+                path_prefix,
+                skip_outputs,
             )

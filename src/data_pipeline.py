@@ -153,7 +153,7 @@ def main():
     for unit in ["us_units", "metric_units"]:
         os.makedirs(f"../data/results/{path_prefix}/plant_data/{unit}", exist_ok=True)
         os.makedirs(
-            f"../data/results/{path_prefix}validation_metrics/{unit}", exist_ok=True
+            f"../data/results/{path_prefix}data_quality_metrics/{unit}", exist_ok=True
         )
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
@@ -227,7 +227,11 @@ def main():
         cems, eia923_allocated, year, primary_fuel_table
     )
     output_data.output_intermediate_data(
-        plant_attributes, "plant_static_attributes", path_prefix, year, args.skip_outputs
+        plant_attributes,
+        "plant_static_attributes",
+        path_prefix,
+        year,
+        args.skip_outputs,
     )
 
     # 6. Crosswalk CEMS and EIA data
@@ -255,7 +259,8 @@ def main():
         eia923_allocated.drop(columns="plant_primary_fuel"),
         "eia923_allocated",
         path_prefix,
-        year, args.skip_outputs
+        year,
+        args.skip_outputs,
     )
     output_data.output_intermediate_data(
         partial_cems, "partial_cems", path_prefix, year, args.skip_outputs
@@ -268,14 +273,19 @@ def main():
         cems, eia923_allocated, plant_attributes, year
     )
     # calculate the percent of gross generation converted using each method
-    output_data.output_validation_metrics(
+    output_data.output_data_quality_metrics(
         validation.identify_cems_gtn_method(cems),
         "cems_gross_to_net_methods",
-        path_prefix, args.skip_outputs
+        path_prefix,
+        args.skip_outputs,
     )
     # export the gtn conversion data
     output_data.output_intermediate_data(
-        gtn_conversions, "gross_to_net_conversions", path_prefix, year, args.skip_outputs
+        gtn_conversions,
+        "gross_to_net_conversions",
+        path_prefix,
+        year,
+        args.skip_outputs,
     )
 
     # 10. Adjust CEMS emission data for CHP
@@ -285,7 +295,9 @@ def main():
     cems = data_cleaning.calculate_co2e_mass(
         cems, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
-    output_data.output_intermediate_data(cems, "cems", path_prefix, year, args.skip_outputs)
+    output_data.output_intermediate_data(
+        cems, "cems", path_prefix, year, args.skip_outputs
+    )
 
     # 11. Export monthly and annual plant-level results
     ####################################################################################
@@ -296,19 +308,24 @@ def main():
         & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
     del eia923_allocated
-    output_data.output_validation_metrics(
+    output_data.output_data_quality_metrics(
         validation.identify_percent_of_data_by_input_source(
             cems, partial_cems, monthly_eia_data_to_shape, year
         ),
         "input_data_source",
-        path_prefix, args.skip_outputs
+        path_prefix,
+        args.skip_outputs,
     )
     # combine and export plant data at monthly and annual level
     monthly_plant_data = data_cleaning.combine_plant_data(
         cems, partial_cems, monthly_eia_data_to_shape, "monthly", True
     )
-    output_data.output_plant_data(monthly_plant_data, path_prefix, "monthly", args.skip_outputs)
-    output_data.output_plant_data(monthly_plant_data, path_prefix, "annual", args.skip_outputs)
+    output_data.output_plant_data(
+        monthly_plant_data, path_prefix, "monthly", args.skip_outputs
+    )
+    output_data.output_plant_data(
+        monthly_plant_data, path_prefix, "annual", args.skip_outputs
+    )
     del monthly_plant_data
 
     # 12. Clean and Reconcile EIA-930 data
@@ -349,15 +366,17 @@ def main():
     )
     del eia930_data
     # validate how well the wind and solar imputation methods work
-    output_data.output_validation_metrics(
+    output_data.output_data_quality_metrics(
         validation.validate_diba_imputation_method(hourly_profiles, year),
         "diba_imputation_performance",
-        path_prefix, args.skip_outputs
+        path_prefix,
+        args.skip_outputs,
     )
-    output_data.output_validation_metrics(
+    output_data.output_data_quality_metrics(
         validation.validate_national_imputation_method(hourly_profiles),
         "national_imputation_performance",
-        path_prefix, args.skip_outputs
+        path_prefix,
+        args.skip_outputs,
     )
     output_data.output_intermediate_data(
         hourly_profiles, "hourly_profiles", path_prefix, year, args.skip_outputs
@@ -377,10 +396,11 @@ def main():
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
         monthly_eia_data_to_shape, hourly_profiles
     )
-    output_data.output_validation_metrics(
+    output_data.output_data_quality_metrics(
         validation.hourly_profile_source_metric(cems, partial_cems, shaped_eia_data),
         "hourly_profile_method",
-        path_prefix, args.skip_outputs
+        path_prefix,
+        args.skip_outputs,
     )
     # Export data
     output_data.output_intermediate_data(
@@ -405,7 +425,9 @@ def main():
     )
     del shaped_eia_data, cems, partial_cems  # free memory back to python
     # export to a csv.
-    output_data.output_plant_data(combined_plant_data, path_prefix, "hourly", args.skip_outputs)
+    output_data.output_plant_data(
+        combined_plant_data, path_prefix, "hourly", args.skip_outputs
+    )
 
     # 16. Aggregate CEMS data to BA-fuel and write power sector results
     ####################################################################################
@@ -415,7 +437,9 @@ def main():
     )
     del combined_plant_data
     # Output intermediate data: produced per-fuel annual averages
-    output_data.write_generated_averages(ba_fuel_data, year, path_prefix, args.skip_outputs)
+    output_data.write_generated_averages(
+        ba_fuel_data, year, path_prefix, args.skip_outputs
+    )
     # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix, args.skip_outputs)
 

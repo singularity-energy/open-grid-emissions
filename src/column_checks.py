@@ -283,7 +283,7 @@ def check_columns(df, file_name):
     Given a file name and a dataframe to export, check that its columns are as expected.
     """
 
-    cols = list(df.columns)
+    cols = set(list(df.columns))
     # Get expected columns
     if file_name not in COLUMNS:
         raise ValueError(
