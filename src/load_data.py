@@ -1,5 +1,7 @@
 import pandas as pd
+import numpy as np
 import sqlalchemy as sa
+import warnings
 
 import pudl.output.pudltabl
 
@@ -144,6 +146,130 @@ def crosswalk_epa_eia_plant_ids(cems, year):
     cems["plant_id_eia"] = cems["plant_id_eia"].astype(int)
 
     return cems
+
+
+def load_cems_gross_generation(start_year, end_year):
+    """Loads hourly CEMS gross generation data for multiple years."""
+    cems_all = []
+
+    for year in range(start_year, end_year + 1):
+        print(f"   loading {year} CEMS data")
+        # specify the path to the CEMS data
+        cems_path = f"../data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
+
+        # specify the columns to use from the CEMS database
+        cems_columns = [
+            "plant_id_eia",
+            "unitid",
+            "unit_id_epa",
+            "operating_datetime_utc",
+            "operating_time_hours",
+            "gross_load_mw",
+        ]
+
+        # load the CEMS data
+        cems = pd.read_parquet(cems_path, columns=cems_columns)
+
+        # only keep values when the plant was operating
+        # this will help speed up calculations and allow us to add this data back later
+        cems = cems[(cems["gross_load_mw"] > 0) | (cems["operating_time_hours"] > 0)]
+
+        # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE
+        # column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
+        # rename the heat content column to use the convention used in the EIA data
+        cems = cems.rename(
+            columns={
+                "plant_id_eia": "plant_id_epa",
+                "operating_datetime_utc": "datetime_utc",
+            }
+        )
+
+        # if the unitid has any leading zeros, remove them
+        cems["unitid"] = cems["unitid"].str.lstrip("0")
+
+        # crosswalk the plant IDs and add a plant_id_eia column
+        cems = crosswalk_epa_eia_plant_ids(cems, year)
+
+        # fill any missing values for operating time or steam load with zero
+        cems["operating_time_hours"] = cems["operating_time_hours"].fillna(0)
+
+        # calculate gross generation by multiplying gross_load_mw by operating_time_hours
+        cems["gross_generation_mwh"] = (
+            cems["gross_load_mw"] * cems["operating_time_hours"]
+        )
+
+        # add a report date
+        cems = add_report_date(cems)
+
+        cems = cems[
+            [
+                "plant_id_eia",
+                "unitid",
+                "unit_id_epa",
+                "report_date",
+                "gross_generation_mwh",
+            ]
+        ]
+
+        # group data by plant, unit, month
+        cems = cems.groupby(
+            ["plant_id_eia", "unitid", "unit_id_epa", "report_date"], dropna=False
+        ).sum()
+
+        cems_all.append(cems)
+
+    cems = pd.concat(cems_all, axis=0).reset_index()
+
+    return cems
+
+
+def add_report_date(df):
+    """
+    Add a report date column to the cems data based on the plant's local timezone
+
+    Args:
+        df (pd.Dataframe): dataframe containing 'plant_id_eia' and 'datetime_utc' columns
+    Returns:
+        Original dataframe with 'report_date' column added
+    """
+    plants_entity_eia = load_pudl_table("plants_entity_eia")
+
+    # get timezone
+    df = df.merge(
+        plants_entity_eia[["plant_id_eia", "timezone"]], how="left", on="plant_id_eia"
+    )
+
+    # create a datetimeindex from the datetime_utc column
+    datetime_utc = pd.DatetimeIndex(df["datetime_utc"])
+
+    # create blank column to hold local datetimes
+    df["report_date"] = np.NaN
+
+    # get list of unique timezones
+    timezones = list(df["timezone"].unique())
+
+    # convert UTC to the local timezone
+    for tz in timezones:
+        tz_mask = df["timezone"] == tz  # find all rows where the tz matches
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Converting to PeriodArray/Index representation will drop timezone information.",
+            )
+            df.loc[tz_mask, "report_date"] = (
+                datetime_utc[tz_mask]
+                .tz_convert(tz)  # convert to local time
+                .to_series(index=df[tz_mask].index)  # convert to a series
+                .dt.to_period("M")
+                .dt.to_timestamp()  # convert to a YYYY-MM-01 stamp
+            )
+
+    df["report_date"] = pd.to_datetime(df["report_date"])
+
+    # drop the operating_datetime_local column
+    df = df.drop(columns=["timezone"])
+
+    return df
 
 
 def load_pudl_table(table_name, year=None):

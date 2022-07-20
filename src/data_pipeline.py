@@ -197,7 +197,7 @@ def main():
     if not os.path.exists(f"../data/outputs/{year}/subplant_crosswalk.csv"):
         print("   Generating subplant IDs")
         number_of_years = args.gtn_years
-        gross_to_net_generation.identify_subplants(year, number_of_years)
+        data_cleaning.identify_subplants(year, number_of_years)
     else:
         print("   Subplant IDs already created")
 
@@ -218,6 +218,9 @@ def main():
     print("4. Cleaning CEMS data")
     cems = data_cleaning.clean_cems(year, args.small)
 
+    # calculate biomass-adjusted emissions while cems data is at the unit level
+    cems = data_cleaning.adjust_emissions_for_biomass(cems)
+
     # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
     ####################################################################################
     print("5. Loading plant static attributes")
@@ -228,37 +231,26 @@ def main():
         plant_attributes, "plant_static_attributes", path_prefix, year
     )
 
-    # 6. Convert CEMS Hourly Gross Generation to Hourly Net Generation
+    # 6. Crosswalk CEMS and EIA data
     ####################################################################################
-    print("6. Converting CEMS gross generation to net generation")
-    cems, gtn_conversions = data_cleaning.convert_gross_to_net_generation(
-        cems, eia923_allocated, plant_attributes
-    )
-    # export the gtn conversion data
-    output_data.output_intermediate_data(
-        gtn_conversions, "gross_to_net_conversions", path_prefix, year
-    )
-
-    # 7. Adjust CEMS emission data for CHP and biomass
-    ####################################################################################
-    print("7. Adjusting CEMS emissions for CHP and biomass")
-    cems = data_cleaning.adjust_cems_emissions(cems, eia923_allocated)
-    output_data.output_intermediate_data(cems, "cems", path_prefix, year)
-
-    # 8. Crosswalk CEMS and EIA data
-    ####################################################################################
-    print("8. Identifying source for hourly data")
+    print("6. Identifying source for hourly data")
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
     )
 
-    # 9. Calculate hourly data for partial_cems plants
+    # 7. Aggregating CEMS data to subplant
     ####################################################################################
-    print("9. Scaling partial CEMS data")
+    print("7. Aggregating CEMS data from unit to subplant")
+    # aggregate cems data to subplant level
+    cems = data_cleaning.aggregate_cems_to_subplant(cems)
+
+    # 8. Calculate hourly data for partial_cems plants
+    ####################################################################################
+    print("8. Shaping partial CEMS data")
     (
-        partial_cems_scaled,
-        eia923_allocated,
-    ) = impute_hourly_profiles.scale_partial_cems_data(cems, eia923_allocated)
+        cems,
+        partial_cems,
+    ) = impute_hourly_profiles.shape_partial_cems_data(cems, eia923_allocated)
     # Export data cleaned by above for later validation, visualization, analysis
     output_data.output_intermediate_data(
         eia923_allocated.drop(columns="plant_primary_fuel"),
@@ -267,15 +259,32 @@ def main():
         year,
     )
     output_data.output_intermediate_data(
-        partial_cems_scaled, "partial_cems_scaled", path_prefix, year
+        partial_cems, "partial_cems", path_prefix, year
     )
 
+    # 9. Convert CEMS Hourly Gross Generation to Hourly Net Generation
     ####################################################################################
-    print("10. Exporting monthly and annual plant-level results")
-    # aggregate cems data to subplant level
-    cems = data_cleaning.aggregate_cems_to_subplant(cems)
-    # drop data from cems that is now in partial_cems
-    cems = data_cleaning.filter_unique_cems_data(cems, partial_cems_scaled)
+    print("9. Converting CEMS gross generation to net generation")
+    cems, gtn_conversions = gross_to_net_generation.convert_gross_to_net_generation(
+        cems, eia923_allocated, plant_attributes, year
+    )
+    # export the gtn conversion data
+    output_data.output_intermediate_data(
+        gtn_conversions, "gross_to_net_conversions", path_prefix, year
+    )
+
+    # 10. Adjust CEMS emission data for CHP
+    ####################################################################################
+    print("10. Adjusting CEMS emissions for CHP")
+    cems = data_cleaning.adjust_cems_for_chp(cems, eia923_allocated)
+    cems = data_cleaning.calculate_co2e_mass(
+        cems, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
+    )
+    output_data.output_intermediate_data(cems, "cems", path_prefix, year)
+
+    # 11. Export monthly and annual plant-level results
+    ####################################################################################
+    print("11. Exporting monthly and annual plant-level results")
     # create a separate dataframe containing only the EIA data that is missing from cems
     monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
@@ -284,15 +293,15 @@ def main():
     del eia923_allocated
     # combine and export plant data at monthly and annual level
     monthly_plant_data = data_cleaning.combine_plant_data(
-        cems, partial_cems_scaled, monthly_eia_data_to_shape, "monthly"
+        cems, partial_cems, monthly_eia_data_to_shape, "monthly"
     )
     output_data.output_plant_data(monthly_plant_data, path_prefix, "monthly")
     output_data.output_plant_data(monthly_plant_data, path_prefix, "annual")
     del monthly_plant_data
 
-    # 11. Clean and Reconcile EIA-930 data
+    # 12. Clean and Reconcile EIA-930 data
     ####################################################################################
-    print("11. Cleaning EIA-930 data")
+    print("12. Cleaning EIA-930 data")
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
     if (
         args.small
@@ -318,11 +327,12 @@ def main():
     eia930_data = eia930.remove_imputed_ones(eia930_data)
     eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
-    # 12. Calculate hourly profiles for monthly EIA data
+    # 13. Calculate hourly profiles for monthly EIA data
     ####################################################################################
-    print("12. Estimating hourly residual generation profiles")
+    print("13. Estimating hourly profiles for EIA data")
     hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
         cems,
+        partial_cems,
         eia930_data,
         plant_attributes,
         monthly_eia_data_to_shape,
@@ -336,9 +346,9 @@ def main():
         hourly_profiles, "hourly_profiles", path_prefix, year
     )
 
-    # 13. Assign hourly profile to monthly data
+    # 14. Assign hourly profile to monthly data
     ####################################################################################
-    print("13. Assigning hourly profile to monthly EIA-923 data")
+    print("14. Assigning hourly profiles to monthly EIA-923 data")
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
     # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
     (
@@ -360,23 +370,23 @@ def main():
     # validate that the shaping did not alter data at the monthly level
     validation.validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape)
 
-    # 14. Combine plant-level data from all sources
+    # 15. Combine plant-level data from all sources
     ####################################################################################
-    print("14. Combining and exporting plant-level hourly results")
+    print("15. Combining and exporting plant-level hourly results")
     # write metadata and remove metadata columns
-    cems, partial_cems_scaled, shaped_eia_data = output_data.write_plant_metadata(
-        cems, partial_cems_scaled, shaped_eia_data, path_prefix
+    cems, partial_cems, shaped_eia_data = output_data.write_plant_metadata(
+        cems, partial_cems, shaped_eia_data, path_prefix
     )
     combined_plant_data = data_cleaning.combine_plant_data(
-        cems, partial_cems_scaled, shaped_eia_data, "hourly"
+        cems, partial_cems, shaped_eia_data, "hourly"
     )
-    del shaped_eia_data, cems, partial_cems_scaled  # free memory back to python
+    del shaped_eia_data, cems, partial_cems  # free memory back to python
     # export to a csv.
     output_data.output_plant_data(combined_plant_data, path_prefix, "hourly")
 
-    # 15. Aggregate CEMS data to BA-fuel and write power sector results
+    # 16. Aggregate CEMS data to BA-fuel and write power sector results
     ####################################################################################
-    print("15. Creating and exporting BA-level power sector results")
+    print("16. Creating and exporting BA-level power sector results")
     ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
         combined_plant_data, plant_attributes
     )
@@ -386,9 +396,9 @@ def main():
     # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix)
 
-    # 16. Calculate consumption-based emissions and write carbon accounting results
+    # 17. Calculate consumption-based emissions and write carbon accounting results
     ####################################################################################
-    print("16. Calculating and exporting consumption-based results")
+    print("17. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
         clean_930_file,
         year=year,
