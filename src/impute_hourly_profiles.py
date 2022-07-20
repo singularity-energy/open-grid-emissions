@@ -1,5 +1,6 @@
 import src.load_data as load_data
 from src.column_checks import apply_dtypes
+import src.output_data as output_data
 import pandas as pd
 import numpy as np
 
@@ -28,6 +29,7 @@ def calculate_hourly_profiles(
     year: int,
     transmission_only=False,
     ba_column_name="ba_code",
+    use_flat: bool = False,
 ):
     residual_profiles = calculate_residual(
         cems,
@@ -65,6 +67,11 @@ def calculate_hourly_profiles(
 
     # add a flat profile for negative generation
     hourly_profiles["flat_profile"] = 1.0
+
+    # use flat profile?
+    if use_flat:
+        hourly_profiles["profile"] = hourly_profiles["flat_profile"]
+        hourly_profiles["profile_method"] = "flat_profile"
 
     print("Summary of methods used to estimate missing hourly profiles:")
     print(
@@ -291,7 +298,11 @@ def calculate_residual(
     cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
 
     cems_agg = aggregate_for_residual(
-        cems, plant_attributes, "datetime_utc", ba_column_name, transmission_only,
+        cems,
+        plant_attributes,
+        "datetime_utc",
+        ba_column_name,
+        transmission_only,
     )
 
     # clean up the eia930 data before merging
@@ -591,7 +602,10 @@ def identify_missing_profiles(
         MONTHLY_GROUP_COLUMNS
     ].drop_duplicates()
     missing_profiles = ba_fuel_to_distribute.merge(
-        available_profiles, how="outer", on=MONTHLY_GROUP_COLUMNS, indicator="source",
+        available_profiles,
+        how="outer",
+        on=MONTHLY_GROUP_COLUMNS,
+        indicator="source",
     )
     # identify ba fuel months where there is no data in the available residual profiles
     missing_profiles = missing_profiles[missing_profiles.source == "left_only"]
@@ -644,7 +658,8 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     df_temporary["datetime_local"] = df_temporary["datetime_local"].str[:-6]
     df_temporary = (
         df_temporary.groupby(
-            ["fuel_category", "datetime_local", "report_date"], dropna=False,
+            ["fuel_category", "datetime_local", "report_date"],
+            dropna=False,
         )
         .mean()["eia930_profile"]
         .reset_index()
@@ -672,9 +687,7 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
 
     # Count unique plants: after grouping by BA we will remove where n_unique_plants < 3
     cems_count = (
-        cems.groupby(
-            ["ba_code", "fuel_category", "report_date"]
-        )["plant_id_eia"]
+        cems.groupby(["ba_code", "fuel_category", "report_date"])["plant_id_eia"]
         .nunique()
         .reset_index()
         .rename(columns={"plant_id_eia": "n_unique_plants"})
@@ -689,7 +702,9 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     )
 
     # Remove data where too few plants
-    cems = cems.merge(cems_count, how='left', on=["ba_code", "fuel_category", "report_date"])
+    cems = cems.merge(
+        cems_count, how="left", on=["ba_code", "fuel_category", "report_date"]
+    )
     cems.loc[cems["n_unique_plants"] < 3, "net_generation_mwh"] = np.nan
     cems = cems.drop(columns=["n_unique_plants"])
 
@@ -722,7 +737,7 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     )
     hourly_profiles = hourly_profiles.drop(columns=["net_generation_mwh"])
 
-    # Gailin TODO: Where the number of CEMS plants with data is < 3, drop 
+    # Gailin TODO: Where the number of CEMS plants with data is < 3, drop
 
     return hourly_profiles
 
@@ -764,11 +779,11 @@ def convert_profile_to_percent(hourly_profiles):
 
 def get_synthetic_plant_id_from_ba_fuel(df):
     """
-        Return artificial plant code. Max real plant is 64663
-        Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the
-        two-digit fuel number
+    Return artificial plant code. Max real plant is 64663
+    Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the
+    two-digit fuel number
 
-        df must contain `ba_code` and `fuel_category`
+    df must contain `ba_code` and `fuel_category`
     """
 
     # load the ba reference table with all of the ba number ids
@@ -793,13 +808,15 @@ def get_synthetic_plant_id_from_ba_fuel(df):
     return df
 
 
-def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
+def aggregate_eia_data_to_ba_fuel(
+    monthly_eia_data_to_shape, plant_attributes, path_prefix: str, year: int
+):
     """
-        Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
-        using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
-        and YY=fuel (see `impute_hourly_profiles.get_synthetic_plant_id_from_ba_fuel`)
+    Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
+    using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
+    and YY=fuel (see `impute_hourly_profiles.get_synthetic_plant_id_from_ba_fuel`)
 
-        Add new artificial plants to plant_attributes frame.
+    Add new artificial plants to plant_attributes frame.
     """
 
     # Note: currently using ba_code, could alternatively use ba_code_physical
@@ -808,6 +825,20 @@ def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
         plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
         how="left",
         on="plant_id_eia",
+    )
+
+    # Identify plants that will be aggregated to each plant
+    plants_list = (
+        eia_agg.groupby(["ba_code", "report_date", "fuel_category"], dropna=False)[
+            "plant_id_eia"
+        ]
+        .unique()
+        .reset_index()
+        .rename(columns={"plant_id_eia": "aggregated_plants"})
+    )
+    plants_list = get_synthetic_plant_id_from_ba_fuel(plants_list)
+    output_data.output_intermediate_data(
+        plants_list, "synthetic_aggregated_plants", path_prefix, year
     )
 
     # Group
@@ -980,7 +1011,9 @@ def scale_partial_cems_data(cems, eia923_allocated):
     # create a version of the cems data that is aggregated at the subplant level
     #  and filtered to include only the subplant-months that need to be scaled
     cems_scaled = cems.merge(
-        partial_cems[SUBPLANT_KEYS], how="inner", on=SUBPLANT_KEYS,
+        partial_cems[SUBPLANT_KEYS],
+        how="inner",
+        on=SUBPLANT_KEYS,
     )
     cems_scaled = (
         cems_scaled.groupby(SUBPLANT_KEYS + ["datetime_utc"], dropna=False)

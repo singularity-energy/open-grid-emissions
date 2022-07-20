@@ -218,6 +218,13 @@ COLUMNS = {
         "plant_primary_fuel",
         "annual_fuel_ratio",
     },
+    "synthetic_aggregated_plants_": {
+        "plant_id_eia",
+        "report_date",
+        "fuel_category",
+        "ba_code",
+        "aggregated_plants",
+    },
 }
 
 
