@@ -426,10 +426,12 @@ def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     data_metrics = ["net_generation_mwh", "co2_mass_lb"]
 
     # determine the source of the hourly profile
-    profile_from_cems = cems[data_metrics].sum()
+    profile_from_cems = pd.DataFrame(cems[data_metrics].sum(axis=0)).T
     profile_from_cems["profile_method"] = "cems_reported"
-    profile_from_partial_cems = partial_cems[data_metrics].sum()
+
+    profile_from_partial_cems = pd.DataFrame(partial_cems[data_metrics].sum(axis=0)).T
     profile_from_partial_cems["profile_method"] = "eia_shaped_partial_cems"
+
     profile_from_eia = (
         shaped_eia_data.groupby("profile_method", dropna=False)[data_metrics]
         .sum()
