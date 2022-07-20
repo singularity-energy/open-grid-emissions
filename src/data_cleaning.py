@@ -282,6 +282,7 @@ def clean_eia923(year, small):
     )
 
     validation.test_for_missing_energy_source_code(gen_fuel_allocated)
+    validation.test_for_negative_values(gen_fuel_allocated)
 
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated, pudl_out)
@@ -1622,7 +1623,7 @@ def fill_cems_missing_co2(cems, year):
     ]
     if len(missing_esc) > 0:
         print(
-            f"Warning: the following units are missing co2 data and energy source codes"
+            f"Warning: the following units are missing co2 data and energy source codes. This may be because they burn multiple fuels."
         )
         print(missing_esc[["plant_id_eia", "unitid"]].drop_duplicates())
 

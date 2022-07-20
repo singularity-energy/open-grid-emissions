@@ -966,7 +966,7 @@ def shape_partial_cems_data(cems, eia923_allocated):
 
     Returns:
         cems_data: cems dataframe with partial_cems subplant-months removed
-        partial_cems_scaled: dataframe with hourly data from EIA scaled using partial cems data
+        partial_cems_shaped: dataframe with hourly data from EIA scaled using partial cems data
     """
     SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
 
@@ -1013,7 +1013,7 @@ def shape_partial_cems_data(cems, eia923_allocated):
             suffixes=(None, "_cems"),
         )
 
-        partial_cems_scaled = partial_cems_data.copy()
+        partial_cems_shaped = partial_cems_data.copy()
 
         # shape the cems data
         for index, row in eia_data_to_shape.iterrows():
@@ -1033,8 +1033,8 @@ def shape_partial_cems_data(cems, eia923_allocated):
 
                 # if both values are zero, do nothing since the profile is already zero
                 if (row[eia_column] == 0) & (row[cems_total_column] == 0):
-                    partial_cems_scaled = set_value_to_zero(
-                        partial_cems_scaled,
+                    partial_cems_shaped = set_value_to_zero(
+                        partial_cems_shaped,
                         partial_cems_data,
                         report_date,
                         plant_id,
@@ -1049,8 +1049,8 @@ def shape_partial_cems_data(cems, eia923_allocated):
                 ):
                     cems_column = "fuel_consumed_mmbtu"
                     scaling_factor = row[eia_column] / row["fuel_consumed_mmbtu_cems"]
-                    partial_cems_scaled = scale_data(
-                        partial_cems_scaled,
+                    partial_cems_shaped = scale_data(
+                        partial_cems_shaped,
                         partial_cems_data,
                         report_date,
                         plant_id,
@@ -1066,8 +1066,8 @@ def shape_partial_cems_data(cems, eia923_allocated):
                     & (row["fuel_consumed_mmbtu_cems"] == 0)
                 ):
                     shift_factor = row[eia_column] - row[cems_total_column]
-                    partial_cems_scaled = shift_data(
-                        partial_cems_scaled,
+                    partial_cems_shaped = shift_data(
+                        partial_cems_shaped,
                         partial_cems_data,
                         report_date,
                         plant_id,
@@ -1079,8 +1079,8 @@ def shape_partial_cems_data(cems, eia923_allocated):
                 # if the eia value is negative (should only be for net generation), shift data
                 elif row[eia_column] < 0:
                     shift_factor = row[eia_column] - row[cems_total_column]
-                    partial_cems_scaled = shift_data(
-                        partial_cems_scaled,
+                    partial_cems_shaped = shift_data(
+                        partial_cems_shaped,
                         partial_cems_data,
                         report_date,
                         plant_id,
@@ -1096,8 +1096,8 @@ def shape_partial_cems_data(cems, eia923_allocated):
                     & (row[cems_total_column] > 0)
                 ):
                     shift_factor = row[eia_column] - row[cems_total_column]
-                    partial_cems_scaled = shift_data(
-                        partial_cems_scaled,
+                    partial_cems_shaped = shift_data(
+                        partial_cems_shaped,
                         partial_cems_data,
                         report_date,
                         plant_id,
@@ -1109,8 +1109,8 @@ def shape_partial_cems_data(cems, eia923_allocated):
                 # if both values are positive, scale the data
                 elif (row[eia_column] >= 0) & (row[cems_total_column] > 0):
                     scaling_factor = row[eia_column] / row[cems_total_column]
-                    partial_cems_scaled = scale_data(
-                        partial_cems_scaled,
+                    partial_cems_shaped = scale_data(
+                        partial_cems_shaped,
                         partial_cems_data,
                         report_date,
                         plant_id,
@@ -1126,7 +1126,7 @@ def shape_partial_cems_data(cems, eia923_allocated):
 
         # validate that the scaled totals match
         validate = (
-            partial_cems_scaled.groupby(
+            partial_cems_shaped.groupby(
                 ["plant_id_eia", "subplant_id", "report_date"], dropna=False
             )
             .sum()[["fuel_consumed_mmbtu", "net_generation_mwh"]]
@@ -1161,24 +1161,24 @@ def shape_partial_cems_data(cems, eia923_allocated):
         ):
             raise UserWarning("Partial CEMS scaled totals do not match EIA data")
 
-        partial_cems_scaled = partial_cems_scaled.drop(
+        partial_cems_shaped = partial_cems_shaped.drop(
             columns=["steam_load_1000_lb", "gross_generation_mwh"]
         )
 
-        partial_cems_scaled = apply_dtypes(partial_cems_scaled)
+        partial_cems_shaped = apply_dtypes(partial_cems_shaped)
     else:
-        partial_cems_scaled = pd.DataFrame(
+        partial_cems_shaped = pd.DataFrame(
             columns=(
                 ["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
                 + DATA_COLUMNS
             )
         )
 
-    return cems, partial_cems_scaled
+    return cems, partial_cems_shaped
 
 
 def set_value_to_zero(
-    partial_cems_scaled,
+    partial_cems_shaped,
     partial_cems_data,
     report_date,
     plant_id,
@@ -1186,18 +1186,18 @@ def set_value_to_zero(
     eia_column,
 ):
     """Used by `scale_partial_cems_data` to set a shaped value to all zeros."""
-    partial_cems_scaled.loc[
-        (partial_cems_scaled.report_date == report_date)
-        & (partial_cems_scaled.plant_id_eia == plant_id)
-        & (partial_cems_scaled.subplant_id == subplant_id),
+    partial_cems_shaped.loc[
+        (partial_cems_shaped.report_date == report_date)
+        & (partial_cems_shaped.plant_id_eia == plant_id)
+        & (partial_cems_shaped.subplant_id == subplant_id),
         eia_column,
     ] = 0
 
-    return partial_cems_scaled
+    return partial_cems_shaped
 
 
 def scale_data(
-    partial_cems_scaled,
+    partial_cems_shaped,
     partial_cems_data,
     report_date,
     plant_id,
@@ -1207,10 +1207,10 @@ def scale_data(
     scaling_factor,
 ):
     """Used by `scale_partial_cems_data` to shape data using a scaling factor."""
-    partial_cems_scaled.loc[
-        (partial_cems_scaled.report_date == report_date)
-        & (partial_cems_scaled.plant_id_eia == plant_id)
-        & (partial_cems_scaled.subplant_id == subplant_id),
+    partial_cems_shaped.loc[
+        (partial_cems_shaped.report_date == report_date)
+        & (partial_cems_shaped.plant_id_eia == plant_id)
+        & (partial_cems_shaped.subplant_id == subplant_id),
         eia_column,
     ] = (
         partial_cems_data.loc[
@@ -1222,11 +1222,11 @@ def scale_data(
         * scaling_factor
     )
 
-    return partial_cems_scaled
+    return partial_cems_shaped
 
 
 def shift_data(
-    partial_cems_scaled,
+    partial_cems_shaped,
     partial_cems_data,
     report_date,
     plant_id,
@@ -1248,10 +1248,10 @@ def shift_data(
     # divide the scaling factor by the number of hours to get the hourly shift
     hourly_shift = shift_factor / number_of_hours
     # add the shift factor to the hourly profile
-    partial_cems_scaled.loc[
-        (partial_cems_scaled.report_date == report_date)
-        & (partial_cems_scaled.plant_id_eia == plant_id)
-        & (partial_cems_scaled.subplant_id == subplant_id),
+    partial_cems_shaped.loc[
+        (partial_cems_shaped.report_date == report_date)
+        & (partial_cems_shaped.plant_id_eia == plant_id)
+        & (partial_cems_shaped.subplant_id == subplant_id),
         eia_column,
     ] = (
         partial_cems_data.loc[
@@ -1263,4 +1263,4 @@ def shift_data(
         + hourly_shift
     )
 
-    return partial_cems_scaled
+    return partial_cems_shaped

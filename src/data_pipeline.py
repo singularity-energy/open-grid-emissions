@@ -150,11 +150,9 @@ def main():
     os.makedirs(f"../data/outputs/{path_prefix}", exist_ok=True)
     os.makedirs(f"../data/outputs/{path_prefix}/eia930", exist_ok=True)
     os.makedirs(f"../data/results/{path_prefix}", exist_ok=True)
+    os.makedirs(f"../data/results/{path_prefix}data_quality_metrics", exist_ok=True)
     for unit in ["us_units", "metric_units"]:
         os.makedirs(f"../data/results/{path_prefix}/plant_data/{unit}", exist_ok=True)
-        os.makedirs(
-            f"../data/results/{path_prefix}data_quality_metrics/{unit}", exist_ok=True
-        )
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
                 os.makedirs(

@@ -527,9 +527,11 @@ def validate_diba_imputation_method(hourly_profiles, year):
     )
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
 
-    compare_method = compare_method.groupby(["fuel_category", "ba_code"]).mean()[
-        "imputed_profile"
-    ]
+    compare_method = (
+        compare_method.groupby(["fuel_category", "ba_code"])
+        .mean()["imputed_profile"]
+        .reset_index()
+    )
 
     compare_method = compare_method.rename(
         columns={"imputed_profile": "average_correlation_coefficient"}
@@ -596,9 +598,11 @@ def validate_national_imputation_method(hourly_profiles):
     )
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
 
-    compare_method = compare_method.groupby(["fuel_category", "ba_code"]).mean()[
-        "imputed_profile"
-    ]
+    compare_method = (
+        compare_method.groupby(["fuel_category", "ba_code"])
+        .mean()["imputed_profile"]
+        .reset_index()
+    )
 
     compare_method = compare_method.rename(
         columns={"imputed_profile": "average_correlation_coefficient"}
@@ -1093,12 +1097,15 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
 
     data_overlap = eia_only_data.merge(
         cems_data, how="outer", on=["plant_id_eia", "subplant_id", "report_date"]
-    ).fillna(0)
+    )
     data_overlap = data_overlap.merge(
         partial_cems_data,
         how="outer",
         on=["plant_id_eia", "subplant_id", "report_date"],
-    ).fillna(0)
+    )
+    data_overlap[["in_eia", "in_cems", "in_partial_cems"]] = data_overlap[
+        ["in_eia", "in_cems", "in_partial_cems"]
+    ].fillna(0)
     data_overlap["number_of_locations"] = (
         data_overlap["in_eia"]
         + data_overlap["in_cems"]
