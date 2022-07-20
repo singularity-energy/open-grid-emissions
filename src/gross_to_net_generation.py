@@ -12,6 +12,7 @@ import pudl.output.pudltabl
 # import other modules
 import src.load_data as load_data
 import src.data_cleaning as data_cleaning
+import src.validation as validation
 from src.column_checks import get_dtypes
 
 
@@ -99,6 +100,8 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
             "annual_fuel_ratio",
         ]
     )
+
+    validation.validate_gross_to_net_conversion(cems, eia923_allocated)
 
     return cems, gtn_conversions
 

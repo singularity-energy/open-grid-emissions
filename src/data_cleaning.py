@@ -8,6 +8,7 @@ import pudl.analysis.epa_crosswalk as epa_crosswalk
 import pudl.output.pudltabl
 
 import src.load_data as load_data
+import src.validation as validation
 from src.column_checks import get_dtypes, apply_dtypes
 
 
@@ -280,6 +281,8 @@ def clean_eia923(year, small):
         1
     )
 
+    validation.test_for_missing_energy_source_code(gen_fuel_allocated)
+
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated, pudl_out)
 
@@ -351,6 +354,9 @@ def clean_eia923(year, small):
 
     gen_fuel_allocated = apply_dtypes(gen_fuel_allocated)
     primary_fuel_table = apply_dtypes(primary_fuel_table)
+
+    # run validation checks on EIA-923 data
+    validation.test_for_negative_values(gen_fuel_allocated)
 
     return gen_fuel_allocated, primary_fuel_table
 
@@ -768,6 +774,8 @@ def adjust_fuel_and_emissions_for_CHP(df):
 
     df = df.drop(columns=["electric_allocation_factor"])
 
+    validation.test_chp_allocation(df)
+
     return df
 
 
@@ -987,11 +995,14 @@ def clean_cems(year, small):
     # TODO: check if any of these observations are from geothermal generators
     cems = remove_cems_with_zero_monthly_data(cems)
 
+    validation.test_for_negative_values(cems)
+
     # add subplant id
     subplant_crosswalk = pd.read_csv(
         f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
     )[["plant_id_eia", "unitid", "subplant_id"]].drop_duplicates()
     cems = cems.merge(subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"])
+    validation.test_for_missing_subplant_id(cems)
 
     cems = apply_dtypes(cems)
 
@@ -1096,6 +1107,8 @@ def assign_fuel_type_to_cems(cems, year):
 
     # update
     cems = update_energy_source_codes(cems)
+
+    validation.test_for_missing_energy_source_code(cems)
 
     return cems
 
@@ -2034,7 +2047,7 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
     return ba_fuel_data
 
 
-def combine_plant_data(cems, partial_cems, eia_data, resolution):
+def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False):
     """
     Combines final hourly subplant data from each source into a single dataframe.
     Inputs:
@@ -2062,6 +2075,11 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution):
         )
 
     ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
+
+    if validate:
+        validation.ensure_non_overlapping_data_from_all_sources(
+            cems, partial_cems, eia_data
+        )
 
     # group data by plant-hour and filter columns
     cems = (

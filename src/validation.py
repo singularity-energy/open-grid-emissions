@@ -160,7 +160,38 @@ def add_egrid_plant_id(df, from_id, to_id):
     return df
 
 
-def test_for_negative_values(df, columns_to_test):
+def test_for_negative_values(df):
+    columns_that_should_be_positive = [
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "co2e_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "ch4_mass_lb_for_electricity",
+        "n2o_mass_lb_for_electricity",
+        "co2e_mass_lb_for_electricity",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb_for_electricity",
+        "co2_mass_lb_adjusted",
+        "ch4_mass_lb_adjusted",
+        "n2o_mass_lb_adjusted",
+        "co2e_mass_lb_adjusted",
+        "nox_mass_lb_adjusted",
+        "so2_mass_lb_adjusted",
+        "co2_mass_lb_for_electricity_adjusted",
+        "ch4_mass_lb_for_electricity_adjusted",
+        "n2o_mass_lb_for_electricity_adjusted",
+        "co2e_mass_lb_for_electricity_adjusted",
+        "nox_mass_lb_for_electricity_adjusted",
+        "so2_mass_lb_for_electricity_adjusted",
+    ]
+    columns_to_test = [
+        col for col in columns_that_should_be_positive if col in df.columns
+    ]
     for column in columns_to_test:
         negative_test = df[df[column] < 0]
         if not negative_test.empty:
@@ -230,7 +261,7 @@ def test_for_missing_incorrect_prime_movers(df, year):
         on=["plant_id_eia", "generator_id"],
         suffixes=("_allocated", "_eia860"),
     )
-    incorrect_pm_test[
+    incorrect_pm_test = incorrect_pm_test[
         incorrect_pm_test["prime_mover_code_allocated"]
         != incorrect_pm_test["prime_mover_code_eia860"]
     ]
@@ -318,10 +349,12 @@ def test_for_outlier_heat_rates(df):
 
 
 def test_for_missing_energy_source_code(df):
-    missing_esc_test = df[df["energy_source_code"].isna()]
+    missing_esc_test = df[
+        (df["energy_source_code"].isna()) & (df["fuel_consumed_mmbtu"] > 0)
+    ]
     if not missing_esc_test.empty:
         print(
-            f"Warning: There are {len(missing_esc_test)} records where there is a missing energy source code. Check `missing_esc_test` for complete list"
+            f"Warning: There are {len(missing_esc_test)} records where there is a missing energy source code associated with non-zero fuel consumption. Check `missing_esc_test` for complete list"
         )
 
     return missing_esc_test
@@ -343,7 +376,7 @@ def test_for_missing_subplant_id(df):
     missing_subplant_test = df[df["subplant_id"].isna()]
     if not missing_subplant_test.empty:
         print(
-            f"Warning: There are {len(missing_subplant_test)} records without a subplant ID. See `missing_subplant_test` for details"
+            f"Warning: There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID. See `missing_subplant_test` for details"
         )
     return missing_subplant_test
 
@@ -355,34 +388,6 @@ def test_gtn_results(df):
             f"Warning: There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
         )
     return gtn_test
-
-
-def co2_source_metric(cems, partial_cems, monthly_eia_data_to_shape):
-    """Calculates what percent of CO2 emissions mass came from each source."""
-    # determine the source of the co2 data
-    co2_from_eia = (
-        partial_cems["co2_mass_lb"].sum()
-        + monthly_eia_data_to_shape["co2_mass_lb"].sum()
-    )
-    co2_from_eia = pd.DataFrame(
-        [{"co2_mass_measurement_code": "EIA Calculated", "co2_mass_lb": co2_from_eia}]
-    )
-
-    co2_from_cems = (
-        cems.groupby("co2_mass_measurement_code", dropna=False)["co2_mass_lb"]
-        .sum()
-        .reset_index()
-    )
-    co2_from_cems["co2_mass_measurement_code"] = "CEMS " + co2_from_cems[
-        "co2_mass_measurement_code"
-    ].astype(str)
-
-    co2_source = pd.concat([co2_from_cems, co2_from_eia])
-    co2_source["percent"] = (
-        co2_source["co2_mass_lb"] / co2_source["co2_mass_lb"].sum() * 100
-    )
-    co2_source = co2_source.round(2)
-    return co2_source
 
 
 def net_generation_method_metric(cems, partial_cems, monthly_eia_data_to_shape):
@@ -486,7 +491,7 @@ def validate_diba_imputation_method(hourly_profiles, year):
             )
             if len(ba_dibas) > 0:
                 df_temporary = impute_hourly_profiles.average_diba_wind_solar_profiles(
-                    data_to_validate, ba, fuel, report_date, ba_dibas
+                    data_to_validate, ba, fuel, report_date, ba_dibas, True
                 )
             # if there are no neighboring DIBAs, calculate a national average profile
             else:
@@ -517,6 +522,8 @@ def validate_diba_imputation_method(hourly_profiles, year):
         .reset_index()
     )
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
+
+    compare_method.groupby(["fuel_category"]).mean()["imputed_profile"]
 
     return compare_method
 
@@ -578,6 +585,8 @@ def validate_national_imputation_method(hourly_profiles):
         .reset_index()
     )
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
+
+    compare_method.groupby(["fuel_category"]).mean()["imputed_profile"]
 
     return compare_method
 
@@ -1044,3 +1053,170 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
     )
 
     return egrid_eia_comparison
+
+
+def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
+    if "hourly_data_source" in eia_data.columns:
+        eia_only_data = eia_data.loc[
+            eia_data["hourly_data_source"] == "eia",
+            ["plant_id_eia", "subplant_id", "report_date"],
+        ].drop_duplicates()
+    else:
+        eia_only_data = eia_data[
+            ["plant_id_eia", "subplant_id", "report_date"]
+        ].drop_duplicates()
+    eia_only_data["in_eia"] = 1
+
+    cems_data = cems[["plant_id_eia", "subplant_id", "report_date"]].drop_duplicates()
+    cems_data["in_cems"] = 1
+
+    partial_cems_data = partial_cems[
+        ["plant_id_eia", "subplant_id", "report_date"]
+    ].drop_duplicates()
+    partial_cems_data["in_partial_cems"] = 1
+
+    data_overlap = eia_only_data.merge(
+        cems_data, how="outer", on=["plant_id_eia", "subplant_id", "report_date"]
+    ).fillna(0)
+    data_overlap = data_overlap.merge(
+        partial_cems_data,
+        how="outer",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+    ).fillna(0)
+    data_overlap["number_of_locations"] = (
+        data_overlap["in_eia"]
+        + data_overlap["in_cems"]
+        + data_overlap["in_partial_cems"]
+    )
+
+    if len(data_overlap[data_overlap["number_of_locations"] > 1]) > 0:
+        eia_cems_overlap = data_overlap[
+            (data_overlap["in_eia"] == 1) & (data_overlap["in_cems"] == 1)
+        ]
+        if len(eia_cems_overlap) > 0:
+            print(
+                f"Warning: There are {len(eia_cems_overlap)} subplant-months that exist in both shaped EIA data and CEMS"
+            )
+        eia_pc_overlap = data_overlap[
+            (data_overlap["in_eia"] == 1) & (data_overlap["in_partial_cems"] == 1)
+        ]
+        if len(eia_pc_overlap) > 0:
+            print(
+                f"Warning: There are {len(eia_pc_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
+            )
+        cems_pc_overlap = data_overlap[
+            (data_overlap["in_cems"] == 1) & (data_overlap["in_partial_cems"] == 1)
+        ]
+        if len(cems_pc_overlap) > 0:
+            print(
+                f"Warning: There are {len(cems_pc_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
+            )
+        all_overlap = data_overlap[data_overlap["number_of_locations"] == 3]
+        if len(all_overlap) > 0:
+            print(
+                f"Warning: There are {len(all_overlap)} subplant-months that exist in shaped EIA data, CEMS data, and partial CEMS data."
+            )
+
+
+def identify_percent_of_data_by_input_source(cems, partial_cems, eia_only_data, year):
+    data_sources = {
+        "cems": cems,
+        "partial_cems": partial_cems,
+        "eia": eia_only_data,
+    }
+    if year % 4 == 0:
+        hours_in_year = 8784
+    else:
+        hours_in_year = 8760
+    source_of_input_data = []
+    for name, df in data_sources.items():
+        if name == "eia":
+            subplant_data = df.groupby(
+                ["plant_id_eia", "subplant_id"], dropna=False
+            ).sum()[
+                ["net_generation_mwh", "co2_mass_lb", "co2_mass_lb_for_electricity"]
+            ]
+            subplant_hours = len(subplant_data) * hours_in_year
+        else:
+            subplant_data = df.groupby(
+                ["plant_id_eia", "subplant_id", "datetime_utc"], dropna=False
+            ).sum()[
+                ["net_generation_mwh", "co2_mass_lb", "co2_mass_lb_for_electricity"]
+            ]
+            subplant_hours = len(subplant_data)
+        summary = pd.DataFrame.from_dict(
+            {
+                "source": [name],
+                "subplant_hours": [subplant_hours],
+                "net_generation_mwh": [subplant_data["net_generation_mwh"].sum()],
+                "co2_mass_lb": [subplant_data["co2_mass_lb"].sum()],
+                "co2_mass_lb_for_electricity": [
+                    subplant_data["co2_mass_lb_for_electricity"].sum()
+                ],
+            }
+        )
+        source_of_input_data.append(summary)
+    source_of_input_data = pd.concat(source_of_input_data)
+
+    source_of_input_data["source"] = source_of_input_data["source"].replace(
+        "partial_cems", "eia"
+    )
+    source_of_input_data = source_of_input_data.groupby("source").sum()
+    source_of_input_data = source_of_input_data / source_of_input_data.sum(axis=0)
+
+
+def identify_cems_gtn_method(cems):
+    method_summary = cems.groupby("gtn_method", dropna=False).sum()[
+        "gross_generation_mwh"
+    ]
+    method_summary = method_summary / method_summary.sum(axis=0)
+    method_summary = method_summary.reset_index()
+    method_summary["gtn_method"] = method_summary["gtn_method"].astype(str)
+    method_summary = method_summary.sort_values(by="gtn_method", axis=0)
+    return method_summary
+
+
+def validate_gross_to_net_conversion(cems, eia923_allocated):
+    "checks whether the calculated net generation matches the reported net generation from EIA-923 at the annual plant level."
+    # merge together monthly subplant totals from EIA and calculated from CEMS
+    eia_netgen = (
+        eia923_allocated.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )
+        .sum(min_count=1)["net_generation_mwh"]
+        .reset_index()
+        .dropna(subset="net_generation_mwh")
+    )
+    calculated_netgen = (
+        cems.groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)
+        .sum()["net_generation_mwh"]
+        .reset_index()
+    )
+    validated_ng = eia_netgen.merge(
+        calculated_netgen,
+        how="inner",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        suffixes=("_eia", "_calc"),
+    )
+
+    validated_ng = validated_ng.groupby("plant_id_eia").sum()[
+        ["net_generation_mwh_eia", "net_generation_mwh_calc"]
+    ]
+
+    validated_ng = validated_ng.round(3)
+    validated_ng = validated_ng[
+        validated_ng[["net_generation_mwh_eia", "net_generation_mwh_calc"]].sum(axis=1)
+        != 0
+    ]
+
+    validated_ng["pct_error"] = (
+        validated_ng["net_generation_mwh_calc"] - validated_ng["net_generation_mwh_eia"]
+    ) / validated_ng["net_generation_mwh_eia"]
+
+    cems_net_not_equal_to_eia = validated_ng[validated_ng["pct_error"] != 0]
+
+    if len(cems_net_not_equal_to_eia) > 0:
+        print(
+            f"Warning: There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
+        )
+        print(cems_net_not_equal_to_eia)

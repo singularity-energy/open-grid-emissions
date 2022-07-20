@@ -1,4 +1,6 @@
 import src.load_data as load_data
+import src.validation as validation
+import src.output_data as output_data
 from src.column_checks import apply_dtypes
 import pandas as pd
 import numpy as np
@@ -650,7 +652,7 @@ def identify_missing_profiles(
 
 
 def average_diba_wind_solar_profiles(
-    residual_profiles, ba, fuel, report_date, ba_dibas
+    residual_profiles, ba, fuel, report_date, ba_dibas, validation_run=False
 ):
 
     # calculate the average generation profile for the fuel in all neighboring DIBAs
@@ -659,7 +661,7 @@ def average_diba_wind_solar_profiles(
         & (residual_profiles["fuel_category"] == fuel)
         & (residual_profiles["report_date"] == report_date)
     ]
-    if len(df_temporary) == 0:
+    if len(df_temporary) == 0 and not validation_run:
         # if this error is raised, we might have to implement an approach that uses average values for the wider region
         print(f"   There is no {fuel} data in the DIBAs for {ba}: {ba_dibas}")
         df_temporary = average_national_wind_solar_profiles(
@@ -832,17 +834,19 @@ def get_synthetic_plant_id_from_ba_fuel(df):
     # make sure the ba codes are strings
     df["ba_code"] = df["ba_code"].astype(str)
     # create a new column with the synthetic plant ids
-    df["plant_id_eia"] = df.apply(
+    df["plant_id_synthetic"] = df.apply(
         lambda row: f"9{ba_numbers[row['ba_code']]}{FUEL_NUMBERS[row['fuel_category']]}",
         axis=1,
     )
     # convert to an int32 column
-    df["plant_id_eia"] = df["plant_id_eia"].astype("Int32")
+    df["plant_id_synthetic"] = df["plant_id_synthetic"].astype("Int32")
 
     return df
 
 
-def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
+def aggregate_eia_data_to_ba_fuel(
+    monthly_eia_data_to_shape, plant_attributes, path_prefix
+):
     """
     Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
     using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
@@ -859,27 +863,31 @@ def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
         on="plant_id_eia",
     )
 
-    # Group
-    eia_agg = (
-        eia_agg.groupby(["ba_code", "report_date", "fuel_category"], dropna=False)
-        .sum()
-        .reset_index()
-        .drop(columns=["plant_id_eia", "subplant_id"])
-    )
-
     # Make nan BA "None" so equality test works
     eia_agg.ba_code = eia_agg.ba_code.replace(np.nan, None)
 
+    # create a column with synthetic plant ids
     eia_agg = get_synthetic_plant_id_from_ba_fuel(eia_agg)
 
-    # Add BA code and fuel type for synthetic plants into plant_attributes.
-    # Note: We leave nan/NA values for all other columns, as the plants composing each synthetic plant may have a combination of values
-    to_add = (
-        eia_agg.groupby("plant_id_eia")
-        .first()
-        .reset_index()[["plant_id_eia", "ba_code", "fuel_category"]]
+    # create a table that maps plant_id_eia to plant_id_synthetic
+    synthetic_id_map = eia_agg[["plant_id_synthetic", "plant_id_eia"]].drop_duplicates()
+
+    # Group
+    eia_agg = (
+        eia_agg.groupby(
+            ["plant_id_synthetic", "ba_code", "report_date", "fuel_category"],
+            dropna=False,
+        )
+        .sum()
+        .reset_index()
+        .drop(columns=["plant_id_eia", "subplant_id"])
+        .rename(columns={"plant_id_synthetic": "plant_id_eia"})
     )
-    plant_attributes = pd.concat([plant_attributes, to_add])
+
+    # Add BA code and fuel type for synthetic plants into plant_attributes.
+    plant_attributes.merge(
+        synthetic_id_map, how="left", on="plant_id_eia", validate="1:1"
+    )
 
     return eia_agg, plant_attributes
 
@@ -971,16 +979,14 @@ def shape_partial_cems_data(cems, eia923_allocated):
             on=SUBPLANT_KEYS,
             indicator="data_source",
         )
-        partial_cems_data = cems[cems["data_source"] == "both"].drop(
-            columns=["data_source"]
-        )
-        cems_data = cems[cems["data_source"] == "left_only"].drop(
-            columns=["data_source"]
-        )
         if len(cems[cems["data_source"] == "right_only"]) > 0:
             raise UserWarning(
                 " At least one subplant-month identified as partial_cems does not exist in the cems data."
             )
+        partial_cems_data = (
+            cems[cems["data_source"] == "both"].copy().drop(columns=["data_source"])
+        )
+        cems = cems[cems["data_source"] == "left_only"].drop(columns=["data_source"])
 
         # merge cems gross generation and fuel consumption totals into the EIA totals
         # these will be used to scale the EIA data
@@ -1151,7 +1157,6 @@ def shape_partial_cems_data(cems, eia923_allocated):
 
         partial_cems_scaled = apply_dtypes(partial_cems_scaled)
     else:
-        cems_data = cems
         partial_cems_scaled = pd.DataFrame(
             columns=(
                 ["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
@@ -1159,7 +1164,7 @@ def shape_partial_cems_data(cems, eia923_allocated):
             )
         )
 
-    return cems_data, partial_cems_scaled
+    return cems, partial_cems_scaled
 
 
 def set_value_to_zero(
