@@ -128,6 +128,12 @@ def get_args():
         type=bool,
         default=False,
     )
+    parser.add_argument(
+        "--flat",
+        help="Use flat hourly profiles?",
+        type=bool,
+        default=False,
+    )
 
     args = parser.parse_args()
     return args
@@ -139,6 +145,7 @@ def main():
 
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
+    path_prefix += "flat/" if args.flat else ""
     path_prefix += f"{year}/"
     os.makedirs("../data/downloads", exist_ok=True)
     os.makedirs(f"../data/outputs/{path_prefix}", exist_ok=True)
@@ -287,18 +294,23 @@ def main():
     ####################################################################################
     print("11. Cleaning EIA-930 data")
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
-    if args.small or not (
-        os.path.exists(f"../data/outputs/{path_prefix}/eia930/eia930_elec.csv")
+    if (
+        args.small
+        or (not args.flat)
+        or not (os.path.exists(f"../data/outputs/{path_prefix}/eia930/eia930_elec.csv"))
     ):
         eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
+    elif args.flat:
+        print("    Not running 930 cleaning because we'll be using a flat profile.")
     else:
         print(
             f"    Not re-running 930 cleaning. If you'd like to re-run, please delete data/outputs/{path_prefix}/eia930/"
         )
+
     # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
     clean_930_file = (
         "../data/downloads/eia930/chalendar/EBA_elec.csv"
-        if args.small
+        if (args.small or args.flat)
         else f"../data/outputs/{path_prefix}/eia930/eia930_elec.csv"
     )
     eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
@@ -317,6 +329,7 @@ def main():
         year,
         transmission_only=False,
         ba_column_name="ba_code",
+        use_flat=args.flat,
     )
     del eia930_data
     output_data.output_intermediate_data(
@@ -332,7 +345,7 @@ def main():
         monthly_eia_data_to_shape,
         plant_attributes,
     ) = impute_hourly_profiles.aggregate_eia_data_to_ba_fuel(
-        monthly_eia_data_to_shape, plant_attributes
+        monthly_eia_data_to_shape, plant_attributes, path_prefix, year
     )
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
         monthly_eia_data_to_shape, hourly_profiles
@@ -377,7 +390,10 @@ def main():
     ####################################################################################
     print("16. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
-        clean_930_file, year=year, small=args.small, path_prefix=path_prefix,
+        clean_930_file,
+        year=year,
+        small=args.small,
+        path_prefix=path_prefix,
     )
     hourly_consumed_calc.process()
     hourly_consumed_calc.output_data(path_prefix=path_prefix)
