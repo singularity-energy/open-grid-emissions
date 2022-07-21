@@ -94,42 +94,42 @@ FUEL_TYPE_MAP = {
     "BIO": "biomass",
 }
 
-POLLS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
+POLLUTANTS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 
 ADJUSTMENTS = ["for_electricity", "for_electricity_adjusted"]
 
 # Unused by us, but parent class wants to know
-for pol in POLLS:
+for pol in POLLUTANTS:
     EMISSIONS_FACTORS[pol] = np.nan
 
 
-def get_column(poll: str, adjustment: str, ba: str = ""):
+def get_column(pollutant: str, adjustment: str, ba: str = ""):
     """
     Return output file column name for a pollutant and adjustment type
     Returns mass columns, not rate columns
     """
-    assert poll in POLLS
+    assert pollutant in POLLUTANTS
     assert adjustment in ADJUSTMENTS
     if ba == "":  # no BA, looking for output file column
-        column = poll.lower() + "_mass_lb_" + adjustment
+        column = pollutant.lower() + "_mass_lb_" + adjustment
         assert column in EMISSION_COLS
     else:
-        column = ba + "_" + poll.lower() + "_mass_lb_" + adjustment
+        column = ba + "_" + pollutant.lower() + "_mass_lb_" + adjustment
     return column
 
 
-def get_rate_column(poll: str, adjustment: str, generated: bool = True, ba: str = ""):
+def get_rate_column(pollutant: str, adjustment: str, generated: bool = True, ba: str = ""):
     """
     Return either generated or consumed output file rate column
-    for pollutant `poll` and adjustment `adjustment`
+    for pollutant `pollutant` and adjustment `adjustment`
     """
-    assert poll in POLLS
+    assert pollutant in POLLUTANTS
     assert adjustment in ADJUSTMENTS
     if generated:
-        column = "generated_" + poll.lower() + "_rate_lb_per_mwh_" + adjustment
+        column = "generated_" + pollutant.lower() + "_rate_lb_per_mwh_" + adjustment
         assert column in GENERATED_EMISSION_RATE_COLS
     else:
-        column = "consumed_" + poll.lower() + "_rate_lb_per_mwh_" + adjustment
+        column = "consumed_" + pollutant.lower() + "_rate_lb_per_mwh_" + adjustment
         assert column in CONSUMED_EMISSION_RATE_COLS
     if ba != "":  # For internal column use, add ba
         column = ba + "_" + column
@@ -160,18 +160,18 @@ KEYS["CO2E"] = {
 
 def get_average_emission_factors(prefix: str = "", year: int = 2020):
     """
-    Edit EMISSIONS dict with per-fuel, per-adjustment, per-poll emission factors.
+    Edit EMISSIONS dict with per-fuel, per-adjustment, per-pollutant emission factors.
     Used to fill in emissions from BAs outside of US, where we have generation by
     fuel (from gridemissions) but no hourly-egrid data
 
-    Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
+    Structure: EMISSIONS_FACTORS[pollutant][adjustment][fuel]
     """
     genavg = pd.read_csv(
         f"../data/outputs/{prefix}annual_generation_averages_by_fuel_{year}.csv",
         index_col="fuel_category",
     )
     efs = {}
-    for pol in POLLS:
+    for pol in POLLUTANTS:
         efs[pol] = {}
         for adjustment in ADJUSTMENTS:
             efs[pol][adjustment] = {}
@@ -191,7 +191,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
     def __init__(
         self,
         path_930,
-        poll="CO2",
+        pollutant="CO2",
         adjustment="for_electricity",
         year: int = 2020,
         small: bool = False,
@@ -206,7 +206,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         self.year = year
         self.small = small
         self.prefix = path_prefix
-        self.poll = poll
+        self.pollutant = pollutant
         self.adjustment = adjustment  # "for_electricity" or "adjusted"
 
         data, rates, regions = self._replace_generation()
@@ -217,14 +217,14 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         # Overwrite emission factors object
         self.emissions_factors = get_average_emission_factors(self.prefix, self.year)
 
-        super().__init__(fixed, poll)
+        super().__init__(fixed, pollutant)
 
-    def _drop_pol_cols(self, poll):
+    def _drop_pol_cols(self, pollutant):
         """
         For repeated processing with different pols, need to drop pollutant columns
 
         """
-        pol_cols = [c for c in self.df.columns if c[0 : len(poll)] == poll]
+        pol_cols = [c for c in self.df.columns if c[0 : len(pollutant)] == pollutant]
         self.df.drop(columns=pol_cols, inplace=True)
 
     def process(self):
@@ -240,11 +240,11 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
             )
         # Run process for all adjustments and pollutants
 
-        for pol in POLLS:
+        for pol in POLLUTANTS:
             for adj in ADJUSTMENTS:
                 self.adjustment = adj
-                self.poll = pol
-                self.KEY_poll = KEYS[pol]
+                self.pollutant = pol
+                self.KEY_pollutant = KEYS[pol]
                 print(f"Running {adj}, {pol}")
                 super().process()
                 # After processing, add columns to output
@@ -284,7 +284,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
                 ).sum()[EMISSION_COLS + ["net_consumed_mwh"]]
 
                 # Calculate rates from summed emissions, consumption
-                for pol in POLLS:
+                for pol in POLLUTANTS:
                     for adj in ADJUSTMENTS:
                         rate_col = get_rate_column(pol, adj, generated=False)
                         emission_col = get_column(pol, adj)
@@ -395,11 +395,11 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
                     zeros, f"EBA.{ba}-ALL.NG.H"
                 ]
 
-                for poll in POLLS:
+                for pollutant in POLLUTANTS:
                     for adjustment in ADJUSTMENTS:
-                        col_name = get_rate_column(poll, adjustment, ba=ba)
+                        col_name = get_rate_column(pollutant, adjustment, ba=ba)
                         rates_cols[col_name] = new[
-                            get_rate_column(self.poll, self.adjustment, generated=True)
+                            get_rate_column(self.pollutant, self.adjustment, generated=True)
                         ]
                         # TODO Some of our rates are eroneously zero. Replace with eGRID rates for now
                         rates_cols[col_name].replace(
@@ -415,7 +415,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         Overwrite production emission calculation
         to use hourly emission rates
 
-        Creates columns with name `self.KEY_poll["NG"] % ba` with hourly rates
+        Creates columns with name `self.KEY_pollutant["NG"] % ba` with hourly rates
         """
         for ba in self.regions:
             # For import regions, we don't use our own data, so use same EF logic as parent class.
@@ -424,16 +424,16 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
                 gen_cols = [
                     (src, col) for src, col in gen_cols if col in self.df.columns
                 ]
-                self.df.loc[:, self.KEY_poll["NG"] % ba] = self.df.apply(
+                self.df.loc[:, self.KEY_pollutant["NG"] % ba] = self.df.apply(
                     lambda x: sum(
-                        self.emissions_factors[self.poll][self.adjustment][src] * x[col]
+                        self.emissions_factors[self.pollutant][self.adjustment][src] * x[col]
                         for src, col in gen_cols
                     ),
                     axis=1,
                 )
             # Otherwise, use hourly rates and net generation numbers
             else:
-                rate_col = get_rate_column(self.poll, self.adjustment, ba=ba)
-                self.df.loc[:, self.KEY_poll["NG"] % ba] = (
+                rate_col = get_rate_column(self.pollutant, self.adjustment, ba=ba)
+                self.df.loc[:, self.KEY_pollutant["NG"] % ba] = (
                     self.rates[rate_col] * self.df[f"EBA.{ba}-ALL.NG.H"]
                 )

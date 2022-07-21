@@ -153,7 +153,7 @@ def load_cems_gross_generation(start_year, end_year):
     cems_all = []
 
     for year in range(start_year, end_year + 1):
-        print(f"   loading {year} CEMS data")
+        print(f"    loading {year} CEMS data")
         # specify the path to the CEMS data
         cems_path = f"../data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
 
