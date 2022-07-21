@@ -19,9 +19,40 @@ FUEL_NUMBERS = {
     "wind": "12",
 }
 
+DATA_COLUMNS = [
+    "fuel_consumed_mmbtu",
+    "fuel_consumed_for_electricity_mmbtu",
+    "net_generation_mwh",
+    "co2_mass_lb",
+    "ch4_mass_lb",
+    "n2o_mass_lb",
+    "co2e_mass_lb",
+    "nox_mass_lb",
+    "so2_mass_lb",
+    "co2_mass_lb_for_electricity",
+    "ch4_mass_lb_for_electricity",
+    "n2o_mass_lb_for_electricity",
+    "co2e_mass_lb_for_electricity",
+    "nox_mass_lb_for_electricity",
+    "so2_mass_lb_for_electricity",
+    "co2_mass_lb_adjusted",
+    "ch4_mass_lb_adjusted",
+    "n2o_mass_lb_adjusted",
+    "co2e_mass_lb_adjusted",
+    "nox_mass_lb_adjusted",
+    "so2_mass_lb_adjusted",
+    "co2_mass_lb_for_electricity_adjusted",
+    "ch4_mass_lb_for_electricity_adjusted",
+    "n2o_mass_lb_for_electricity_adjusted",
+    "co2e_mass_lb_for_electricity_adjusted",
+    "nox_mass_lb_for_electricity_adjusted",
+    "so2_mass_lb_for_electricity_adjusted",
+]
+
 
 def calculate_hourly_profiles(
     cems,
+    partial_cems,
     eia930_data,
     plant_attributes,
     monthly_eia_data_to_shape,
@@ -31,6 +62,7 @@ def calculate_hourly_profiles(
 ):
     residual_profiles = calculate_residual(
         cems,
+        partial_cems,
         eia930_data,
         plant_attributes,
         year,
@@ -85,7 +117,7 @@ def select_best_available_profile(hourly_profiles):
     The order of preference is:
         1. If the residual profile does not have a negative total for a month, use that
         2. If the eia930 profile doesn't have missing data, use that next
-        3. Use the CEMS profile
+        3. If there are at least 3 CEMS plants available, use the combined CEMS profile
         4. Use the imputed profile
 
     We could create two different profiles - one for positive and one for negative values
@@ -187,6 +219,7 @@ def select_best_available_profile(hourly_profiles):
 
 def aggregate_for_residual(
     cems,
+    partial_cems,
     plant_attributes,
     time_key: str = "datetime_utc",
     ba_key: str = "ba_code",
@@ -202,6 +235,12 @@ def aggregate_for_residual(
     """cems_profiles_for_non_930_fuels = aggregate_non_930_fuel_categories(
         cems, plant_attributes
     )"""
+
+    # add the partial cems data
+    cems = pd.concat([cems, partial_cems], axis=0)
+
+    # merge in plant attributes
+    cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
 
     if transmission:
         cems = cems[cems["distribution_flag"] is False]
@@ -254,6 +293,7 @@ def aggregate_non_930_fuel_categories(cems, plant_attributes):
 
 def calculate_residual(
     cems,
+    partial_cems,
     eia930_data,
     plant_attributes,
     year: int,
@@ -287,11 +327,13 @@ def calculate_residual(
         3. Multiply all hourly CEMS values by the scaling factor
     """
 
-    # Name column same as 930, hourly_profiles.
-    cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
-
     cems_agg = aggregate_for_residual(
-        cems, plant_attributes, "datetime_utc", ba_column_name, transmission_only,
+        cems,
+        partial_cems,
+        plant_attributes,
+        "datetime_utc",
+        ba_column_name,
+        transmission_only,
     )
 
     # clean up the eia930 data before merging
@@ -347,7 +389,7 @@ def calculate_residual(
 def calculate_scaled_residual(combined_data):
     # Find scaling factor
     # only keep data where the cems data is greater than zero
-    scaling_factors = combined_data.copy()[combined_data["cems_profile"] != 0]
+    scaling_factors = combined_data.copy()[combined_data["cems_profile"] > 0]
     # calculate the ratio of 930 net generation to cems net generation
     # if correct, ratio should be >=1
     scaling_factors["scaling_factor"] = (
@@ -363,7 +405,10 @@ def calculate_scaled_residual(combined_data):
     )
 
     # only keep scaling factors < 1, which means the data needs to be scaled
-    scaling_factors = scaling_factors[scaling_factors["scaling_factor"] < 1]
+    scaling_factors = scaling_factors[
+        (scaling_factors["scaling_factor"] < 1)
+        & (scaling_factors["scaling_factor"] > 0)
+    ]
 
     # merge the scaling factor into the combined data
     # for any BA-fuels without a scaling factor, fill with 1 (scale to 100% of the origina data)
@@ -591,7 +636,10 @@ def identify_missing_profiles(
         MONTHLY_GROUP_COLUMNS
     ].drop_duplicates()
     missing_profiles = ba_fuel_to_distribute.merge(
-        available_profiles, how="outer", on=MONTHLY_GROUP_COLUMNS, indicator="source",
+        available_profiles,
+        how="outer",
+        on=MONTHLY_GROUP_COLUMNS,
+        indicator="source",
     )
     # identify ba fuel months where there is no data in the available residual profiles
     missing_profiles = missing_profiles[missing_profiles.source == "left_only"]
@@ -644,7 +692,8 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     df_temporary["datetime_local"] = df_temporary["datetime_local"].str[:-6]
     df_temporary = (
         df_temporary.groupby(
-            ["fuel_category", "datetime_local", "report_date"], dropna=False,
+            ["fuel_category", "datetime_local", "report_date"],
+            dropna=False,
         )
         .mean()["eia930_profile"]
         .reset_index()
@@ -669,6 +718,17 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
 def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     # add ba-fuel data and aggregate cems by ba-fuel
     cems = cems.merge(plant_attributes, how="left", on="plant_id_eia")
+
+    # Count unique plants: after grouping by BA we will remove where n_unique_plants < 3
+    cems_count = (
+        cems.groupby(["ba_code", "fuel_category", "report_date"], dropna=False)[
+            "plant_id_eia"
+        ]
+        .nunique()
+        .reset_index()
+        .rename(columns={"plant_id_eia": "n_unique_plants"})
+    )
+
     cems = (
         cems.groupby(
             ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
@@ -676,6 +736,14 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
         .sum()["net_generation_mwh"]
         .reset_index()
     )
+
+    # Remove data where too few plants
+    cems = cems.merge(
+        cems_count, how="left", on=["ba_code", "fuel_category", "report_date"]
+    )
+    cems.loc[cems["n_unique_plants"] < 3, "net_generation_mwh"] = np.nan
+    cems = cems.drop(columns=["n_unique_plants"])
+
     # remove months where there is zero generation reported
     months_with_zero_data = (
         cems.groupby(["ba_code", "fuel_category", "report_date"], dropna=False)
@@ -745,11 +813,11 @@ def convert_profile_to_percent(hourly_profiles):
 
 def get_synthetic_plant_id_from_ba_fuel(df):
     """
-        Return artificial plant code. Max real plant is 64663
-        Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the
-        two-digit fuel number
+    Return artificial plant code. Max real plant is 64663
+    Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the
+    two-digit fuel number
 
-        df must contain `ba_code` and `fuel_category`
+    df must contain `ba_code` and `fuel_category`
     """
 
     # load the ba reference table with all of the ba number ids
@@ -776,11 +844,11 @@ def get_synthetic_plant_id_from_ba_fuel(df):
 
 def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
     """
-        Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
-        using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
-        and YY=fuel (see `impute_hourly_profiles.get_synthetic_plant_id_from_ba_fuel`)
+    Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
+    using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
+    and YY=fuel (see `impute_hourly_profiles.get_synthetic_plant_id_from_ba_fuel`)
 
-        Add new artificial plants to plant_attributes frame.
+    Add new artificial plants to plant_attributes frame.
     """
 
     # Note: currently using ba_code, could alternatively use ba_code_physical
@@ -824,27 +892,6 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
         shaped_monthly_data: a dataframe that contains monthly total net generation,
             fuel consumption, and co2 data, along with columns for report_date and ba_code
     """
-    # specify columns containing monthly data that should be distributed to hourly
-    DATA_COLUMNS = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-    ]
 
     # merge the hourly profiles into each plant-month
     shaped_monthly_data = monthly_eia_data_to_shape.merge(
@@ -896,173 +943,309 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
     return shaped_monthly_data
 
 
-def scale_partial_cems_data(cems, eia923_allocated):
-    """Scales CEMS subplant data for which there is partial units reporting"""
+def shape_partial_cems_data(cems, eia923_allocated):
+    """Scales CEMS subplant data for which there is partial units reporting.
+
+    Returns:
+        cems_data: cems dataframe with partial_cems subplant-months removed
+        partial_cems_scaled: dataframe with hourly data from EIA scaled using partial cems data
+    """
     SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
-    DATA_COLUMNS = [
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "net_generation_mwh",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-    ]
 
     # identify all of the partial cems plants and group by subplant-month
-    partial_cems = eia923_allocated.loc[
+    eia_data_to_shape = eia923_allocated.loc[
         eia923_allocated.hourly_data_source == "partial_cems"
     ]
-    partial_cems = (
-        partial_cems.groupby(SUBPLANT_KEYS, dropna=False)
-        .sum()[DATA_COLUMNS]
-        .reset_index()
-    )
+    # if there is no data in the partial cems dataframe, skip.
+    if len(eia_data_to_shape) > 0:
+        eia_data_to_shape = (
+            eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)
+            .sum()[DATA_COLUMNS]
+            .reset_index()
+        )
 
-    # group the cems data by subplant month and merge into partial cems
-    cems_monthly = (
-        cems.groupby(SUBPLANT_KEYS, dropna=False).sum()[DATA_COLUMNS].reset_index()
-    )
-    partial_cems = partial_cems.merge(
-        cems_monthly, how="left", on=SUBPLANT_KEYS, suffixes=("_eia", "_cems")
-    )
+        # split the cems data into partial cems and cems
+        cems = cems.merge(
+            eia_data_to_shape[SUBPLANT_KEYS],
+            how="outer",
+            on=SUBPLANT_KEYS,
+            indicator="data_source",
+        )
+        partial_cems_data = cems[cems["data_source"] == "both"].drop(
+            columns=["data_source"]
+        )
+        cems_data = cems[cems["data_source"] == "left_only"].drop(
+            columns=["data_source"]
+        )
+        if len(cems[cems["data_source"] == "right_only"]) > 0:
+            raise UserWarning(
+                " At least one subplant-month identified as partial_cems does not exist in the cems data."
+            )
 
-    # compare the fuel consumption values from each source. If the CEMS data
-    # actually represents only partial data, the CEMS-reported values should be
-    # less than the EIA values. Where the CEMS-reported values are greater than
-    # the EIA-reported values, change the flag back to cems only, and remove
-    # these from the partial cems list
-    complete_cems = partial_cems.loc[
-        (partial_cems.fuel_consumed_mmbtu_cems >= partial_cems.fuel_consumed_mmbtu_eia),
-        SUBPLANT_KEYS,
-    ]
-    eia923_allocated = eia923_allocated.merge(
-        complete_cems, how="outer", on=SUBPLANT_KEYS, indicator="source"
-    )
-    eia923_allocated.loc[
-        eia923_allocated["source"] == "both", "hourly_data_source"
-    ] = "cems"
-    eia923_allocated = eia923_allocated.drop(columns="source")
-    partial_cems = partial_cems[
-        (partial_cems.fuel_consumed_mmbtu_cems < partial_cems.fuel_consumed_mmbtu_eia)
-    ]
+        # merge cems gross generation and fuel consumption totals into the EIA totals
+        # these will be used to scale the EIA data
+        partial_cems_totals = (
+            partial_cems_data.groupby(SUBPLANT_KEYS, dropna=False)
+            .sum()[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
+            .reset_index()
+        )
+        eia_data_to_shape = eia_data_to_shape.merge(
+            partial_cems_totals,
+            how="left",
+            on=SUBPLANT_KEYS,
+            validate="1:1",
+            suffixes=(None, "_cems"),
+        )
 
-    # create a version of the cems data that is aggregated at the subplant level
-    #  and filtered to include only the subplant-months that need to be scaled
-    cems_scaled = cems.merge(
-        partial_cems[SUBPLANT_KEYS], how="inner", on=SUBPLANT_KEYS,
-    )
-    cems_scaled = (
-        cems_scaled.groupby(SUBPLANT_KEYS + ["datetime_utc"], dropna=False)
-        .sum()[DATA_COLUMNS]
-        .reset_index()
-    )
+        partial_cems_scaled = partial_cems_data.copy()
 
-    # scale the cems data
-    for index, row in partial_cems.iterrows():
-        plant_id = row.plant_id_eia
-        subplant_id = row.subplant_id
-        report_date = row.report_date
+        # shape the cems data
+        for index, row in eia_data_to_shape.iterrows():
+            plant_id = row.plant_id_eia
+            subplant_id = row.subplant_id
+            report_date = row.report_date
 
-        for column in DATA_COLUMNS:
-            # calculate the scaling factor and determine the method
-            try:
-                scaling_factor = row[f"{column}_eia"] / row[f"{column}_cems"]
-                scaling_method = "multiply_by_cems_value"
+            for eia_column in DATA_COLUMNS:
+                # we will shape net generation data based on the cems gross gen profile
+                if eia_column == "net_generation_mwh":
+                    cems_total_column = "gross_generation_mwh"
+                    cems_column = "gross_generation_mwh"
+                # all other fuel and emissions data will be shaped using the fuel profile
+                else:
+                    cems_total_column = "fuel_consumed_mmbtu_cems"
+                    cems_column = "fuel_consumed_mmbtu"
 
-                if scaling_factor < 0:
-                    scaling_factor = row[f"{column}_eia"] - row[f"{column}_cems"]
-                    scaling_method = "shift_negative_profile"
-
-            except ZeroDivisionError:
-                # if both values are zero, set the scaling factor to 1
-                if (row[f"{column}_eia"] == 0) & (row[f"{column}_cems"] == 0):
-                    scaling_factor = 1
-                    scaling_method = "multiply_by_cems_value"
-                # if the cems version of the data is zero, use the fuel consumption as the profile
+                # if both values are zero, do nothing since the profile is already zero
+                if (row[eia_column] == 0) & (row[cems_total_column] == 0):
+                    partial_cems_scaled = set_value_to_zero(
+                        partial_cems_scaled,
+                        partial_cems_data,
+                        report_date,
+                        plant_id,
+                        subplant_id,
+                        eia_column,
+                    )
+                # if the eia data is positive, but the cems data is zero, use the fuel data to shape it
                 elif (
-                    (row[f"{column}_eia"] > 0)
-                    & (row[f"{column}_cems"] == 0)
+                    (row[eia_column] > 0)
+                    & (row[cems_total_column] == 0)
                     & (row["fuel_consumed_mmbtu_cems"] != 0)
                 ):
-                    scaling_factor = (
-                        row[f"{column}_eia"] / row["fuel_consumed_mmbtu_cems"]
+                    cems_column = "fuel_consumed_mmbtu"
+                    scaling_factor = row[eia_column] / row["fuel_consumed_mmbtu_cems"]
+                    partial_cems_scaled = scale_data(
+                        partial_cems_scaled,
+                        partial_cems_data,
+                        report_date,
+                        plant_id,
+                        subplant_id,
+                        eia_column,
+                        cems_column,
+                        scaling_factor,
                     )
-                    scaling_method = "multiply_by_cems_fuel"
-                elif (row[f"{column}_eia"] < 0) & (row[f"{column}_cems"] == 0):
-                    scaling_factor = row[f"{column}_eia"] - row[f"{column}_cems"]
-                    scaling_method = "shift_negative_profile"
+                # if the eia data is negative, or if it is positive but there is no fuel data available, shift the profile
+                elif ((row[eia_column] < 0) & (row[cems_total_column] == 0)) | (
+                    (row[eia_column] > 0)
+                    & (row[cems_total_column] == 0)
+                    & (row["fuel_consumed_mmbtu_cems"] == 0)
+                ):
+                    shift_factor = row[eia_column] - row[cems_total_column]
+                    partial_cems_scaled = shift_data(
+                        partial_cems_scaled,
+                        partial_cems_data,
+                        report_date,
+                        plant_id,
+                        subplant_id,
+                        eia_column,
+                        cems_column,
+                        shift_factor,
+                    )
+                # if the eia value is negative (should only be for net generation), shift data
+                elif row[eia_column] < 0:
+                    shift_factor = row[eia_column] - row[cems_total_column]
+                    partial_cems_scaled = shift_data(
+                        partial_cems_scaled,
+                        partial_cems_data,
+                        report_date,
+                        plant_id,
+                        subplant_id,
+                        eia_column,
+                        cems_column,
+                        shift_factor,
+                    )
+                # if the eia net generation is zero and cems gross generation is positive, shift the data
+                elif (
+                    (eia_column == "net_generation_mwh")
+                    & (row[eia_column] == 0)
+                    & (row[cems_total_column] > 0)
+                ):
+                    shift_factor = row[eia_column] - row[cems_total_column]
+                    partial_cems_scaled = shift_data(
+                        partial_cems_scaled,
+                        partial_cems_data,
+                        report_date,
+                        plant_id,
+                        subplant_id,
+                        eia_column,
+                        cems_column,
+                        shift_factor,
+                    )
+                # if both values are positive, scale the data
+                elif (row[eia_column] >= 0) & (row[cems_total_column] > 0):
+                    scaling_factor = row[eia_column] / row[cems_total_column]
+                    partial_cems_scaled = scale_data(
+                        partial_cems_scaled,
+                        partial_cems_data,
+                        report_date,
+                        plant_id,
+                        subplant_id,
+                        eia_column,
+                        cems_column,
+                        scaling_factor,
+                    )
+                else:
+                    raise UserWarning(
+                        f"Uncategorized combination of {eia_column} data for plant {plant_id} subplant {subplant_id} in {report_date}:\n   EIA data is {row[eia_column]} and CEMS data is {row[cems_total_column]}"
+                    )
 
-            # apply the scaling method and factor to the hourly cems data
-            if scaling_method == "multiply_by_cems_value":
-                cems_scaled.loc[
-                    (cems_scaled.report_date == report_date)
-                    & (cems_scaled.plant_id_eia == plant_id)
-                    & (cems_scaled.subplant_id == subplant_id),
-                    column,
-                ] = (
-                    cems_scaled.loc[
-                        (cems_scaled.report_date == report_date)
-                        & (cems_scaled.plant_id_eia == plant_id)
-                        & (cems_scaled.subplant_id == subplant_id),
-                        column,
-                    ]
-                    * scaling_factor
-                )
-            elif scaling_method == "multiply_by_cems_fuel":
-                cems_scaled.loc[
-                    (cems_scaled.report_date == report_date)
-                    & (cems_scaled.plant_id_eia == plant_id)
-                    & (cems_scaled.subplant_id == subplant_id),
-                    column,
-                ] = (
-                    cems_scaled.loc[
-                        (cems_scaled.report_date == report_date)
-                        & (cems_scaled.plant_id_eia == plant_id)
-                        & (cems_scaled.subplant_id == subplant_id),
+        # validate that the scaled totals match
+        validate = (
+            partial_cems_scaled.groupby(
+                ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+            )
+            .sum()[["fuel_consumed_mmbtu", "net_generation_mwh"]]
+            .reset_index()
+            .merge(
+                eia_data_to_shape[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "subplant_id",
                         "fuel_consumed_mmbtu",
+                        "net_generation_mwh",
                     ]
-                    * scaling_factor
-                )
-            elif scaling_method == "shift_negative_profile":
-                # get a count of the number of hours
-                number_of_hours = len(
-                    cems_scaled.loc[
-                        (cems_scaled.report_date == report_date)
-                        & (cems_scaled.plant_id_eia == plant_id)
-                        & (cems_scaled.subplant_id == subplant_id),
-                        column,
-                    ]
-                )
-                # divide the scaling factor by the number of hours to get the hourly shift
-                hourly_shift = scaling_factor / number_of_hours
-                # add the shift factor to the hourly profile
-                cems_scaled.loc[
-                    (cems_scaled.report_date == report_date)
-                    & (cems_scaled.plant_id_eia == plant_id)
-                    & (cems_scaled.subplant_id == subplant_id),
-                    column,
-                ] = (
-                    cems_scaled.loc[
-                        (cems_scaled.report_date == report_date)
-                        & (cems_scaled.plant_id_eia == plant_id)
-                        & (cems_scaled.subplant_id == subplant_id),
-                        "fuel_consumed_mmbtu",
-                    ]
-                    + hourly_shift
-                )
+                ],
+                how="left",
+                on=["report_date", "plant_id_eia", "subplant_id"],
+                validate="1:1",
+                suffixes=("_calculated", "_eia"),
+            )
+        )
+        validate["netgen_diff"] = (
+            validate["net_generation_mwh_calculated"]
+            - validate["net_generation_mwh_eia"]
+        ).round(0)
+        validate["fuel_diff"] = (
+            validate["fuel_consumed_mmbtu_calculated"]
+            - validate["fuel_consumed_mmbtu_eia"]
+        ).round(0)
+        if (
+            len(validate[(validate["netgen_diff"] != 0) | (validate["fuel_diff"] != 0)])
+            > 0
+        ):
+            raise UserWarning("Partial CEMS scaled totals do not match EIA data")
 
-    cems_scaled = apply_dtypes(cems_scaled)
+        partial_cems_scaled = partial_cems_scaled.drop(
+            columns=["steam_load_1000_lb", "gross_generation_mwh"]
+        )
 
-    return cems_scaled, eia923_allocated
+        partial_cems_scaled = apply_dtypes(partial_cems_scaled)
+    else:
+        cems_data = cems
+        partial_cems_scaled = pd.DataFrame(
+            columns=(
+                ["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
+                + DATA_COLUMNS
+            )
+        )
+
+    return cems_data, partial_cems_scaled
+
+
+def set_value_to_zero(
+    partial_cems_scaled,
+    partial_cems_data,
+    report_date,
+    plant_id,
+    subplant_id,
+    eia_column,
+):
+    """Used by `scale_partial_cems_data` to set a shaped value to all zeros."""
+    partial_cems_scaled.loc[
+        (partial_cems_scaled.report_date == report_date)
+        & (partial_cems_scaled.plant_id_eia == plant_id)
+        & (partial_cems_scaled.subplant_id == subplant_id),
+        eia_column,
+    ] = 0
+
+    return partial_cems_scaled
+
+
+def scale_data(
+    partial_cems_scaled,
+    partial_cems_data,
+    report_date,
+    plant_id,
+    subplant_id,
+    eia_column,
+    cems_column,
+    scaling_factor,
+):
+    """Used by `scale_partial_cems_data` to shape data using a scaling factor."""
+    partial_cems_scaled.loc[
+        (partial_cems_scaled.report_date == report_date)
+        & (partial_cems_scaled.plant_id_eia == plant_id)
+        & (partial_cems_scaled.subplant_id == subplant_id),
+        eia_column,
+    ] = (
+        partial_cems_data.loc[
+            (partial_cems_data.report_date == report_date)
+            & (partial_cems_data.plant_id_eia == plant_id)
+            & (partial_cems_data.subplant_id == subplant_id),
+            cems_column,
+        ]
+        * scaling_factor
+    )
+
+    return partial_cems_scaled
+
+
+def shift_data(
+    partial_cems_scaled,
+    partial_cems_data,
+    report_date,
+    plant_id,
+    subplant_id,
+    eia_column,
+    cems_column,
+    shift_factor,
+):
+    """Used by `scale_partial_cems_data` to shape data using a shift factor."""
+    # get a count of the number of hours
+    number_of_hours = len(
+        partial_cems_data.loc[
+            (partial_cems_data.report_date == report_date)
+            & (partial_cems_data.plant_id_eia == plant_id)
+            & (partial_cems_data.subplant_id == subplant_id),
+            cems_column,
+        ]
+    )
+    # divide the scaling factor by the number of hours to get the hourly shift
+    hourly_shift = shift_factor / number_of_hours
+    # add the shift factor to the hourly profile
+    partial_cems_scaled.loc[
+        (partial_cems_scaled.report_date == report_date)
+        & (partial_cems_scaled.plant_id_eia == plant_id)
+        & (partial_cems_scaled.subplant_id == subplant_id),
+        eia_column,
+    ] = (
+        partial_cems_data.loc[
+            (partial_cems_data.report_date == report_date)
+            & (partial_cems_data.plant_id_eia == plant_id)
+            & (partial_cems_data.subplant_id == subplant_id),
+            cems_column,
+        ]
+        + hourly_shift
+    )
+
+    return partial_cems_scaled

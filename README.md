@@ -24,37 +24,19 @@
 
 ## Installation
 
-Python packages may be managed using either `conda` or `pipenv`
-
-### Pipenv
-
-This package uses `pipenv` and `virtualenvwrapper` to manage python packages.
-Once you have installed both, you can set up the packages required for this code
-by running `pipenv install` from the top-level project directory.
-
-To also include packages used in testing and development, run `pipenv install --dev`.
+Python packages may be managed using `conda`
 
 ### Conda
 
 Open anaconda prompt, use `cd` to navigate to the directory where your local files are stored (e.g. "GitHub/hourly-egrid"), and then run:
 
-```bash
+```
+conda update conda
 conda env create -f environment.yml
 ```
 
-## Running the Data Pipeline
-
-EIA data access looks for an API key in environment variable EIA_API_KEY.
-You can sign up for an API key at https://www.eia.gov/opendata/register.php
-
-## Running Tests
-
-We use `pytest` for unit testing.
-
-```bash
-# Run all tests in the `test` folder.
-pytest test
-
-# Run a single file of tests.
-pytest path_to_test.py
-```
+Installation requires that the conda channel-priority be set to "flexible". This is the default behavior, 
+so if you've never manually changed this, you shouldn't have to worry about this. However, 
+if you receive an error message like "Found conflicts!" when trying to install the environment,
+try setting your channel priority to flexible by running the following command:
+`conda config --set channel_priority flexible` and then re-running the above commands.
