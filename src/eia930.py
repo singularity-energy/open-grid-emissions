@@ -139,14 +139,14 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
         df = df.loc[start:end]  # Don't worry about processing everything
 
     # Adjust
-    print("   Adjusting EIA-930 time stamps")
+    print("    Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
     df.to_csv(
         join(data_folder, "eia930_raw.csv")
     )  # Will be read by gridemissions workflow
 
     # Run cleaning
-    print("   Running physics-based data cleaning")
+    print("    Running physics-based data cleaning")
     make_dataset(
         start,
         end,

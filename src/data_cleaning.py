@@ -48,7 +48,7 @@ def identify_subplants(year, number_of_years):
     start_year = year - (number_of_years - 1)
     end_year = year
 
-    print("   Creating subplant IDs")
+    print("    Creating subplant IDs")
     # load 5 years of monthly data from CEMS
     cems_monthly = load_data.load_cems_gross_generation(start_year, end_year)
 
@@ -316,6 +316,8 @@ def clean_eia923(year, small):
     gen_fuel_allocated = calculate_co2e_mass(
         gen_fuel_allocated, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
+
+    validation.test_emissions_adjustments(gen_fuel_allocated)
 
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
@@ -901,7 +903,7 @@ def remove_plants(
             ].plant_id_eia.unique()
         )
         print(
-            f"   Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
+            f"    Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
         )
         df = df[~df["plant_id_eia"].isin(plants_in_states_to_remove)]
     if steam_only_plants:
@@ -936,7 +938,7 @@ def remove_non_grid_connected_plants(df):
             "plant_id_eia"
         ].unique()
     )
-    print(f"   Removing {num_plants} plants that are not grid-connected")
+    print(f"    Removing {num_plants} plants that are not grid-connected")
 
     df = df[~df["plant_id_eia"].isin(ngc_plants)]
 
@@ -1011,7 +1013,7 @@ def clean_cems(year, small):
 
 
 def smallerize_test_data(df, random_seed=None):
-    print("   Randomly selecting 5% of plants for faster test run.")
+    print("    Randomly selecting 5% of plants for faster test run.")
     # Select 5% of plants
     selected_plants = df.plant_id_eia.unique()
     if random_seed is not None:
@@ -1037,7 +1039,7 @@ def manually_remove_steam_units(df):
     )[["plant_id_eia", "unitid"]]
 
     print(
-        f"   Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
+        f"    Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
     )
 
     df = df.merge(
@@ -1065,7 +1067,7 @@ def remove_incomplete_unit_months(cems):
     ].drop(columns="datetime_utc")
 
     print(
-        f"   Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
+        f"    Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
     )
 
     cems = cems.merge(
@@ -1764,7 +1766,7 @@ def remove_cems_with_zero_monthly_data(cems):
     )
     # remove any observations with the missing data flag
     print(
-        f"   Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+        f"    Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
     cems = cems[cems["missing_data_flag"] != "remove"]
     # drop the missing data flag column
@@ -2256,7 +2258,7 @@ def assign_ba_code_to_plant(df, year):
     )
 
     if len(df[df["ba_code"].isna()]) > 0:
-        print("   Warning: the following plants are missing ba_code:")
+        print("    Warning: the following plants are missing ba_code:")
         print(df[df["ba_code"].isna()])
 
     # replace missing ba codes with NA

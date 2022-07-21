@@ -27,13 +27,13 @@ TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
 def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
     column_checks.check_columns(df, file_name)
     if not skip_outputs:
-        print(f"   Exporting {file_name} to data/outputs")
+        print(f"    Exporting {file_name} to data/outputs")
         df.to_csv(f"../data/outputs/{path_prefix}{file_name}_{year}.csv", index=False)
 
 
 def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
     if not skip_outputs:
-        print(f"   Exporting {file_name} to data/results/{path_prefix}{subfolder}")
+        print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
         metric = convert_results(df)
 
@@ -50,7 +50,7 @@ def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
 def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
     if not skip_outputs:
         print(
-            f"   Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
+            f"    Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
         )
 
         df.to_csv(

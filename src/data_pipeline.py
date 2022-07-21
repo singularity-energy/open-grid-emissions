@@ -192,11 +192,11 @@ def main():
     print("2. Identifying subplant IDs")
     # GTN ratios are saved for reloading, as this is computationally intensive
     if not os.path.exists(f"../data/outputs/{year}/subplant_crosswalk.csv"):
-        print("   Generating subplant IDs")
+        print("    Generating subplant IDs")
         number_of_years = args.gtn_years
         data_cleaning.identify_subplants(year, number_of_years)
     else:
-        print("   Subplant IDs already created")
+        print("    Subplant IDs already created")
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
@@ -293,6 +293,7 @@ def main():
     cems = data_cleaning.calculate_co2e_mass(
         cems, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
+    validation.test_emissions_adjustments(cems)
     output_data.output_intermediate_data(
         cems, "cems", path_prefix, year, args.skip_outputs
     )

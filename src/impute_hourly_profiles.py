@@ -673,7 +673,7 @@ def average_diba_wind_solar_profiles(
     ]
     if len(df_temporary) == 0 and not validation_run:
         # if this error is raised, we might have to implement an approach that uses average values for the wider region
-        print(f"   There is no {fuel} data in the DIBAs for {ba}: {ba_dibas}")
+        print(f"    There is no {fuel} data in the DIBAs for {ba}: {ba_dibas}")
         df_temporary = average_national_wind_solar_profiles(
             residual_profiles, ba, fuel, report_date
         )
