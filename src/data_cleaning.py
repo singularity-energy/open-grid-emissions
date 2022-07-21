@@ -8,6 +8,7 @@ import pudl.analysis.epa_crosswalk as epa_crosswalk
 import pudl.output.pudltabl
 
 import src.load_data as load_data
+import src.validation as validation
 from src.column_checks import get_dtypes, apply_dtypes
 
 
@@ -47,7 +48,7 @@ def identify_subplants(year, number_of_years):
     start_year = year - (number_of_years - 1)
     end_year = year
 
-    print("   Creating subplant IDs")
+    print("    Creating subplant IDs")
     # load 5 years of monthly data from CEMS
     cems_monthly = load_data.load_cems_gross_generation(start_year, end_year)
 
@@ -280,6 +281,9 @@ def clean_eia923(year, small):
         1
     )
 
+    validation.test_for_missing_energy_source_code(gen_fuel_allocated)
+    validation.test_for_negative_values(gen_fuel_allocated)
+
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated, pudl_out)
 
@@ -312,6 +316,8 @@ def clean_eia923(year, small):
     gen_fuel_allocated = calculate_co2e_mass(
         gen_fuel_allocated, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
+
+    validation.test_emissions_adjustments(gen_fuel_allocated)
 
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
@@ -351,6 +357,9 @@ def clean_eia923(year, small):
 
     gen_fuel_allocated = apply_dtypes(gen_fuel_allocated)
     primary_fuel_table = apply_dtypes(primary_fuel_table)
+
+    # run validation checks on EIA-923 data
+    validation.test_for_negative_values(gen_fuel_allocated)
 
     return gen_fuel_allocated, primary_fuel_table
 
@@ -768,6 +777,8 @@ def adjust_fuel_and_emissions_for_CHP(df):
 
     df = df.drop(columns=["electric_allocation_factor"])
 
+    validation.test_chp_allocation(df)
+
     return df
 
 
@@ -892,7 +903,7 @@ def remove_plants(
             ].plant_id_eia.unique()
         )
         print(
-            f"   Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
+            f"    Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
         )
         df = df[~df["plant_id_eia"].isin(plants_in_states_to_remove)]
     if steam_only_plants:
@@ -927,7 +938,7 @@ def remove_non_grid_connected_plants(df):
             "plant_id_eia"
         ].unique()
     )
-    print(f"   Removing {num_plants} plants that are not grid-connected")
+    print(f"    Removing {num_plants} plants that are not grid-connected")
 
     df = df[~df["plant_id_eia"].isin(ngc_plants)]
 
@@ -987,11 +998,14 @@ def clean_cems(year, small):
     # TODO: check if any of these observations are from geothermal generators
     cems = remove_cems_with_zero_monthly_data(cems)
 
+    validation.test_for_negative_values(cems)
+
     # add subplant id
     subplant_crosswalk = pd.read_csv(
         f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
     )[["plant_id_eia", "unitid", "subplant_id"]].drop_duplicates()
     cems = cems.merge(subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"])
+    validation.test_for_missing_subplant_id(cems)
 
     cems = apply_dtypes(cems)
 
@@ -999,7 +1013,7 @@ def clean_cems(year, small):
 
 
 def smallerize_test_data(df, random_seed=None):
-    print("   Randomly selecting 5% of plants for faster test run.")
+    print("    Randomly selecting 5% of plants for faster test run.")
     # Select 5% of plants
     selected_plants = df.plant_id_eia.unique()
     if random_seed is not None:
@@ -1025,7 +1039,7 @@ def manually_remove_steam_units(df):
     )[["plant_id_eia", "unitid"]]
 
     print(
-        f"   Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
+        f"    Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
     )
 
     df = df.merge(
@@ -1053,7 +1067,7 @@ def remove_incomplete_unit_months(cems):
     ].drop(columns="datetime_utc")
 
     print(
-        f"   Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
+        f"    Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
     )
 
     cems = cems.merge(
@@ -1610,6 +1624,16 @@ def fill_cems_missing_co2(cems, year):
         "co2_mass_lb",
     ] = np.NaN
 
+    # check that all records with missing co2 have a non-missing energy source code
+    missing_esc = cems[
+        (cems["energy_source_code"].isna()) & (cems["co2_mass_lb"].isna())
+    ]
+    if len(missing_esc) > 0:
+        print(
+            f"Warning: the following units are missing co2 data and energy source codes. This may be because they burn multiple fuels."
+        )
+        print(missing_esc[["plant_id_eia", "unitid"]].drop_duplicates())
+
     # create a new df with all observations with missing co2 data
     missing_co2 = cems[cems["co2_mass_lb"].isnull()]
 
@@ -1707,6 +1731,13 @@ def fill_cems_missing_co2(cems, year):
     # update the co2 mass measurement code
     cems.loc[missing_co2.index, "co2_mass_measurement_code"] = "Imputed"
 
+    # check that there are no missing co2 values left
+    still_missing_co2 = cems[cems["co2_mass_lb"].isna()]
+    if len(still_missing_co2) > 0:
+        raise UserWarning(
+            "There are still misssing CO2 values remaining after filling missing CO2 values in CEMS"
+        )
+
     return cems
 
 
@@ -1740,7 +1771,7 @@ def remove_cems_with_zero_monthly_data(cems):
     )
     # remove any observations with the missing data flag
     print(
-        f"   Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+        f"    Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
     cems = cems[cems["missing_data_flag"] != "remove"]
     # drop the missing data flag column
@@ -2039,7 +2070,7 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
     return ba_fuel_data
 
 
-def combine_plant_data(cems, partial_cems, eia_data, resolution):
+def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False):
     """
     Combines final hourly subplant data from each source into a single dataframe.
     Inputs:
@@ -2067,6 +2098,11 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution):
         )
 
     ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
+
+    if validate:
+        validation.ensure_non_overlapping_data_from_all_sources(
+            cems, partial_cems, eia_data
+        )
 
     # group data by plant-hour and filter columns
     cems = (
@@ -2227,7 +2263,7 @@ def assign_ba_code_to_plant(df, year):
     )
 
     if len(df[df["ba_code"].isna()]) > 0:
-        print("   Warning: the following plants are missing ba_code:")
+        print("    Warning: the following plants are missing ba_code:")
         print(df[df["ba_code"].isna()])
 
     # replace missing ba codes with NA
