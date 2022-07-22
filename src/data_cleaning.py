@@ -2050,11 +2050,40 @@ def filter_unique_cems_data(cems, partial_cems):
     return filtered_cems
 
 
-def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
+def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table):
+
+    # create a table that has data for the sythetic plant attributes
+    synthetic_plant_attributes = (
+        plant_attributes_table[["plant_id_synthetic", "ba_code", "fuel_category"]]
+        .drop_duplicates()
+        .dropna(subset="plant_id_synthetic")
+        .rename(columns={"plant_id_synthetic": "plant_id_eia"})
+    )
+
+    combined_plant_attributes = pd.concat(
+        [
+            plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
+            synthetic_plant_attributes,
+        ],
+        axis=0,
+    )
 
     ba_fuel_data = combined_plant_data.merge(
-        plant_frame, how="left", on=["plant_id_eia"]
+        combined_plant_attributes, how="left", on=["plant_id_eia"], validate="m:1"
     )
+    # check that there is no missing ba or fuel codes
+    if (
+        len(
+            ba_fuel_data[
+                (ba_fuel_data["ba_code"].isna())
+                | (ba_fuel_data["fuel_category"].isna())
+            ]
+        )
+        > 0
+    ):
+        raise UserWarning(
+            "The plant attributes table is missing ba code or fuel_category data for some plants. This will result in incomplete power sector results."
+        )
     ba_fuel_data = (
         ba_fuel_data.groupby(
             ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
