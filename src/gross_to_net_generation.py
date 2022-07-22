@@ -48,12 +48,8 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         ],
         how="left",
         on=["plant_id_eia", "subplant_id", "report_date"],
+        validate="m:1",
     )
-
-    """units_in_subplant = count_cems_units_in_subplant(cems)
-    cems = cems.merge(
-        units_in_subplant, how="left", on=["plant_id_eia", "subplant_id", "report_date"]
-    )"""
 
     cems["gtn_method"] = "1_annual_subplant_shift_factor"
     cems["net_generation_mwh"] = (
@@ -121,7 +117,7 @@ def calculate_gross_to_net_conversion_factors(
             "datetime_utc",
             "gross_generation_mwh",
         ]
-    ]
+    ].copy()
     # identify the 2nd percentile lowest hourly gross generation value in a month
     min_gross = (
         gross_gen_data.groupby(

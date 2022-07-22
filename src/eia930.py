@@ -320,6 +320,7 @@ def remove_months_with_zero_data(eia930_data):
         how="outer",
         on=["ba_code", "fuel_category_eia930", "report_date"],
         indicator="zero_filter",
+        validate="m:1",
     )
     eia930_data = eia930_data[eia930_data["zero_filter"] == "left_only"].drop(
         columns="zero_filter"

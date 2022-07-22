@@ -895,7 +895,7 @@ def aggregate_eia_data_to_ba_fuel(
     )
 
     # Add BA code and fuel type for synthetic plants into plant_attributes.
-    plant_attributes.merge(
+    plant_attributes = plant_attributes.merge(
         synthetic_id_map, how="left", on="plant_id_eia", validate="1:1"
     )
 
@@ -971,7 +971,7 @@ def shape_partial_cems_data(cems, eia923_allocated):
     SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
 
     # identify all of the partial cems plants and group by subplant-month
-    eia_data_to_shape = eia923_allocated.loc[
+    eia_data_to_shape = eia923_allocated.copy().loc[
         eia923_allocated.hourly_data_source == "partial_cems"
     ]
     # if there is no data in the partial cems dataframe, skip.
