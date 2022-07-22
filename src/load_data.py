@@ -5,7 +5,7 @@ import warnings
 
 import pudl.output.pudltabl
 
-from src.column_checks import get_dtypes
+from src.column_checks import apply_dtypes, get_dtypes
 
 
 def load_cems_data(year):
@@ -774,12 +774,6 @@ def load_boiler_design_parameters_eia860(year):
 
     boiler_design_parameters_eia860 = boiler_design_parameters_eia860.rename(
         columns=boiler_design_parameters_eia860_names
-    )
-
-    boiler_design_parameters_eia860[
-        "boiler_bottom_type"
-    ] = boiler_design_parameters_eia860["boiler_bottom_type"].replace(
-        {"D": "DRY", "W": "WET"}
     )
 
     return boiler_design_parameters_eia860

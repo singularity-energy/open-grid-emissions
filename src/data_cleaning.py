@@ -42,6 +42,8 @@ DATA_COLUMNS = [
     "so2_mass_lb_for_electricity_adjusted",
 ]
 
+CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
+
 
 def identify_subplants(year, number_of_years):
     """This is the coordinating function for loading and calculating subplant IDs, GTN regressions, and GTN ratios."""
@@ -1152,8 +1154,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     ]
 
     # remove any rows for clean fuels
-    clean_fuels = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
-    gf = gf[~gf["energy_source_code"].isin(clean_fuels)]
+    gf = gf[~gf["energy_source_code"].isin(CLEAN_FUELS)]
 
     # group the data by plant, month, and fuel
     gf = (
@@ -1284,7 +1285,6 @@ def calculate_nox_from_fuel_consumption(
     compute the adjusted emissions.
     """
     
-
     emission_factors = load_data.load_nox_emission_factors()
     # remove emissions factors where the unit is mmbtu
     emission_factors = emission_factors[
