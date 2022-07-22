@@ -471,11 +471,16 @@ def load_epa_eia_crosswalk(year):
 
     # merge the energy source code from EIA-860
     crosswalk_manual = crosswalk_manual.merge(
-        gen_esc_860, how="left", on=["plant_id_eia", "generator_id"],
+        gen_esc_860,
+        how="left",
+        on=["plant_id_eia", "generator_id"],
     ).rename(columns={"energy_source_code_1": "energy_source_code_eia"})
 
     # concat this data with the main table
-    crosswalk = pd.concat([crosswalk, crosswalk_manual], axis=0,)
+    crosswalk = pd.concat(
+        [crosswalk, crosswalk_manual],
+        axis=0,
+    )
 
     # merge in any plants that are missing from the EPA crosswalk but appear in EIA-860
     crosswalk = crosswalk.merge(
@@ -668,3 +673,113 @@ def ba_timezone(ba, type):
         tz = tz.item()
 
     return tz
+
+
+def load_emissions_controls_eia923(year):
+
+    emissions_controls_eia923_names = [
+        "report_date",
+        "plant_id_eia",
+        "equipment_tech_description",
+        "pm_control_id",
+        "so2_control_id",
+        "nox_control_id",
+        "mercury_control_id",
+        "operational_status",
+        "hours_in_service",
+        "annual_nox_emission_rate_lb_per_mmbtu",
+        "ozone_season_nox_emission_rate_lb_per_mmbtu",
+        "pm_emission_rate_lb_per_mmbtu",
+        "pm_removal_efficiency_annual",
+        "pm_removal_efficiency_at_full_load",
+        "pm_test_date",
+        "so2_removal_efficiency_annual",
+        "so2_removal_efficiency_at_full_load",
+        "so2_test_date",
+        "fgd_sorbent_consumption_1000_tons",
+        "fgd_electricity_consumption_mwh",
+        "hg_removal_efficiency",
+        "hg_emission_rate_lb_per_trillion_btu",
+        "acid_gas_removal_efficiency",
+    ]
+
+    emissions_controls_eia923 = pd.read_excel(
+        io=(
+            f"../data/downloads/eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+        ),
+        sheet_name="8C Air Emissions Control Info",
+        header=4,
+        names=emissions_controls_eia923_names,
+        dtype=get_dtypes(),
+        na_values=".",
+        parse_dates=["report_date", "pm_test_date", "so2_test_date"],
+    )
+
+    return emissions_controls_eia923
+
+
+def load_boiler_nox_association_eia860(year):
+    boiler_nox_association_eia860_names = [
+        "utility_id_eia",
+        "utility_name_eia",
+        "plant_id_eia",
+        "plant_name_eia",
+        "boiler_id",
+        "nox_control_id",
+        "steam_plant_type",
+    ]
+
+    boiler_nox_association_eia860 = pd.read_excel(
+        io=(f"../data/downloads/eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
+        sheet_name="Boiler NOx",
+        header=1,
+        names=boiler_nox_association_eia860_names,
+        dtype=get_dtypes(),
+        na_values=".",
+        skipfooter=1,
+    )
+    return boiler_nox_association_eia860
+
+
+def load_boiler_design_parameters_eia860(year):
+    boiler_design_parameters_eia860_names = [
+        "utility_id_eia",
+        "utility_name_eia",
+        "plant_id_eia",
+        "plant_name_eia",
+        "state",
+        "boiler_id",
+        "nox_control_id",
+        "steam_plant_type",
+    ]
+
+    boiler_design_parameters_eia860 = pd.read_excel(
+        io=(f"../data/downloads/eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx"),
+        sheet_name="Boiler Info & Design Parameters",
+        header=1,
+        usecols="C,F,H,N:P,AE",
+        na_values=".",
+        skipfooter=1,
+    )
+
+    boiler_design_parameters_eia860_names = {
+        "Plant Code": "plant_id_eia",
+        "Boiler ID": "boiler_id",
+        "Boiler Status": "operational_status",
+        "Firing Type 1": "firing_type_1",
+        "Firing Type 2": "firing_type_2",
+        "Firing Type 3": "firing_type_3",
+        "Wet Dry Bottom": "boiler_bottom_type",
+    }
+
+    boiler_design_parameters_eia860 = boiler_design_parameters_eia860.rename(
+        columns=boiler_design_parameters_eia860_names
+    )
+
+    boiler_design_parameters_eia860[
+        "boiler_bottom_type"
+    ] = boiler_design_parameters_eia860["boiler_bottom_type"].replace(
+        {"D": "DRY", "W": "WET"}
+    )
+
+    return boiler_design_parameters_eia860

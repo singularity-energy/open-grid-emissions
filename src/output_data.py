@@ -206,13 +206,13 @@ def write_plant_metadata(
         )
 
         # only keep one metadata row per plant/subplant-month
-        cems_meta = cems[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(
+        cems_meta = cems.copy()[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(
             subset=KEY_COLUMNS
         )
-        partial_cems_meta = partial_cems[
+        partial_cems_meta = partial_cems.copy()[
             KEY_COLUMNS + METADATA_COLUMNS
         ].drop_duplicates(subset=KEY_COLUMNS)
-        shaped_eia_data_meta = shaped_eia_data[
+        shaped_eia_data_meta = shaped_eia_data.copy()[
             ["plant_id_eia", "report_date"] + METADATA_COLUMNS
         ].drop_duplicates(subset=["plant_id_eia", "report_date"])
 

@@ -152,7 +152,6 @@ def main():
     os.makedirs(f"../data/results/{path_prefix}", exist_ok=True)
     os.makedirs(f"../data/results/{path_prefix}data_quality_metrics", exist_ok=True)
     for unit in ["us_units", "metric_units"]:
-        os.makedirs(f"../data/results/{path_prefix}/plant_data/{unit}", exist_ok=True)
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
                 os.makedirs(
@@ -186,6 +185,9 @@ def main():
     download_data.download_epa_psdc(
         psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.2.1/epa_eia_crosswalk.csv"
     )
+    # download the raw EIA-923 and EIA-860 files for use in NOx/SO2 calculations until integrated into pudl
+    download_data.download_raw_eia860(year)
+    download_data.download_raw_eia923(year)
 
     # 2. Identify subplants
     ####################################################################################

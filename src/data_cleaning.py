@@ -1283,6 +1283,8 @@ def calculate_nox_from_fuel_consumption(
     If the `fuel_consumed_for_electricity_units` column is available, we also
     compute the adjusted emissions.
     """
+    
+
     emission_factors = load_data.load_nox_emission_factors()
     # remove emissions factors where the unit is mmbtu
     emission_factors = emission_factors[
@@ -2055,11 +2057,14 @@ def filter_unique_cems_data(cems, partial_cems):
     return filtered_cems
 
 
-def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_frame):
+def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table):
 
     ba_fuel_data = combined_plant_data.merge(
-        plant_frame, how="left", on=["plant_id_eia"]
+        plant_attributes_table, how="left", on=["plant_id_eia"]
     )
+    # check that there is no missing ba or fuel codes
+    if len(ba_fuel_data[(ba_fuel_data["ba_code"].isna()) | (ba_fuel_data["fuel_category"].isna())]) > 0:
+        raise UserWarning("The plant attributes table is missing ba code or fuel_category data for some plants. This will result in incomplete power sector results.")
     ba_fuel_data = (
         ba_fuel_data.groupby(
             ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
