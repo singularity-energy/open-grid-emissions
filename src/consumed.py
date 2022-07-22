@@ -2,8 +2,6 @@ import numpy as np
 import pandas as pd
 import os
 
-from sqlalchemy import TIME
-
 from gridemissions.emissions import BaDataEmissionsCalc, EMISSIONS_FACTORS
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
@@ -56,26 +54,30 @@ EMISSION_COLS = [
     "co2_mass_lb_for_electricity",
     "ch4_mass_lb_for_electricity",
     "n2o_mass_lb_for_electricity",
+    "co2e_mass_lb_for_electricity",
     "nox_mass_lb_for_electricity",
     "so2_mass_lb_for_electricity",
-    "co2_mass_lb_adjusted",
-    "ch4_mass_lb_adjusted",
-    "n2o_mass_lb_adjusted",
-    "nox_mass_lb_adjusted",
-    "so2_mass_lb_adjusted",
+    "co2_mass_lb_for_electricity_adjusted",
+    "ch4_mass_lb_for_electricity_adjusted",
+    "n2o_mass_lb_for_electricity_adjusted",
+    "co2e_mass_lb_for_electricity_adjusted",
+    "nox_mass_lb_for_electricity_adjusted",
+    "so2_mass_lb_for_electricity_adjusted",
 ]
 
 CONSUMED_EMISSION_RATE_COLS = [
     "consumed_co2_rate_lb_per_mwh_for_electricity",
     "consumed_ch4_rate_lb_per_mwh_for_electricity",
     "consumed_n2o_rate_lb_per_mwh_for_electricity",
+    "consumed_co2e_rate_lb_per_mwh_for_electricity",
     "consumed_nox_rate_lb_per_mwh_for_electricity",
     "consumed_so2_rate_lb_per_mwh_for_electricity",
-    "consumed_co2_rate_lb_per_mwh_adjusted",
-    "consumed_ch4_rate_lb_per_mwh_adjusted",
-    "consumed_n2o_rate_lb_per_mwh_adjusted",
-    "consumed_nox_rate_lb_per_mwh_adjusted",
-    "consumed_so2_rate_lb_per_mwh_adjusted",
+    "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
 ]
 
 FUEL_TYPE_MAP = {
@@ -92,9 +94,9 @@ FUEL_TYPE_MAP = {
     "BIO": "biomass",
 }
 
-POLLS = ["CO2", "CH4", "N2O", "NOX", "SO2"]
+POLLS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 
-ADJUSTMENTS = ["adjusted", "for_electricity"]
+ADJUSTMENTS = ["for_electricity", "for_electricity_adjusted"]
 
 # Unused by us, but parent class wants to know
 for pol in POLLS:
@@ -118,7 +120,7 @@ def get_column(poll: str, adjustment: str, ba: str = ""):
 
 def get_rate_column(poll: str, adjustment: str, generated: bool = True, ba: str = ""):
     """
-    Return either generated or consumed output file rate column 
+    Return either generated or consumed output file rate column
     for pollutant `poll` and adjustment `adjustment`
     """
     assert poll in POLLS
@@ -148,15 +150,21 @@ KEYS["N2O"] = {
     "TI": "N2O_%s_TI",
     "ID": "N2O_%s-%s_ID",
 }
+KEYS["CO2E"] = {
+    "D": "CO2E_%s_D",
+    "NG": "CO2E_%s_NG",
+    "TI": "CO2E_%s_TI",
+    "ID": "CO2E_%s-%s_ID",
+}
 
 
-def get_average_emission_factors(prefix: str = "", year:int = 2020):
+def get_average_emission_factors(prefix: str = "", year: int = 2020):
     """
-        Edit EMISSIONS dict with per-fuel, per-adjustment, per-poll emission factors.
-        Used to fill in emissions from BAs outside of US, where we have generation by
-        fuel (from gridemissions) but no hourly-egrid data
+    Edit EMISSIONS dict with per-fuel, per-adjustment, per-poll emission factors.
+    Used to fill in emissions from BAs outside of US, where we have generation by
+    fuel (from gridemissions) but no hourly-egrid data
 
-        Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
+    Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
         f"../data/outputs/{prefix}annual_generation_averages_by_fuel_{year}.csv",
@@ -213,7 +221,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
 
     def _drop_pol_cols(self, poll):
         """
-            For repeated processing with different pols, need to drop pollutant columns 
+        For repeated processing with different pols, need to drop pollutant columns
 
         """
         pol_cols = [c for c in self.df.columns if c[0 : len(poll)] == poll]
@@ -256,9 +264,9 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
 
     def output_data(self, path_prefix: str):
         """
-            Run after process. 
-            Follows output_data format for results files. 
-            Outputs per-ba consumed emissions and rate data
+        Run after process.
+        Follows output_data format for results files.
+        Outputs per-ba consumed emissions and rate data
         """
         for ba in self.output_regions:
             dat = self.output_dat[ba]
@@ -292,14 +300,14 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
 
     def _replace_generation(self):
         """
-            Helper function to set up generation and rate data. 
-            1) Find list of regions to use 
-            2) Drop columns: all columns from regions we are not using, all generation columns 
-            3) Load default values from eGRID for zero rates (TODO: Fix once we know that zero rates are real)
-            4/5) Load hourly generation data into BaData structure using KEYS as columns 
-                 Load hourly rate data into rates data structure using `<ba>_<GENERATED_EMISSION_RATE_COLS>` as columns
+        Helper function to set up generation and rate data.
+        1) Find list of regions to use
+        2) Drop columns: all columns from regions we are not using, all generation columns
+        3) Load default values from eGRID for zero rates (TODO: Fix once we know that zero rates are real)
+        4/5) Load hourly generation data into BaData structure using KEYS as columns
+             Load hourly rate data into rates data structure using `<ba>_<GENERATED_EMISSION_RATE_COLS>` as columns
 
-            TODO: make demand sum of generation and net interchange 
+        TODO: make demand sum of generation and net interchange
         """
 
         # 1: Find region list

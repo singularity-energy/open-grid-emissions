@@ -1,21 +1,21 @@
 """
-Check columns for standard data files output by data_pipeline. 
+Check columns for standard data files output by data_pipeline.
 
 Since file names and column names are hardcoded across several files, calling these checks
-during file creation (data_pipeline.py) ensures that changes to file names and 
-column names are not made accidentally. 
+during file creation (data_pipeline.py) ensures that changes to file names and
+column names are not made accidentally.
 
-To make an intentional change in a file or column name, search the project for all 
+To make an intentional change in a file or column name, search the project for all
 uses of that column/file, update all of them to the new column name, and then change
-the name here. 
+the name here.
 
-To add a column, add the name here. 
+To add a column, add the name here.
 
-To remove a column, search the project for all uses of that column and remove 
-those files or uses, then remove it here. 
+To remove a column, search the project for all uses of that column and remove
+those files or uses, then remove it here.
 
-After any change, re-run data_pipeline to regenerate all files and re-run these 
-checks. 
+After any change, re-run data_pipeline to regenerate all files and re-run these
+checks.
 """
 
 COLUMNS = {
@@ -29,18 +29,27 @@ COLUMNS = {
         "co2_mass_lb",
         "ch4_mass_lb",
         "n2o_mass_lb",
+        "co2e_mass_lb",
         "nox_mass_lb",
         "so2_mass_lb",
         "co2_mass_lb_for_electricity",
         "ch4_mass_lb_for_electricity",
         "n2o_mass_lb_for_electricity",
+        "co2e_mass_lb_for_electricity",
         "nox_mass_lb_for_electricity",
         "so2_mass_lb_for_electricity",
         "co2_mass_lb_adjusted",
         "ch4_mass_lb_adjusted",
         "n2o_mass_lb_adjusted",
+        "co2e_mass_lb_adjusted",
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
+        "co2_mass_lb_for_electricity_adjusted",
+        "ch4_mass_lb_for_electricity_adjusted",
+        "n2o_mass_lb_for_electricity_adjusted",
+        "co2e_mass_lb_for_electricity_adjusted",
+        "nox_mass_lb_for_electricity_adjusted",
+        "so2_mass_lb_for_electricity_adjusted",
         "subplant_id",
         "prime_mover_code",
         "energy_source_code",
@@ -48,39 +57,49 @@ COLUMNS = {
     },
     "cems_": {
         "plant_id_eia",
-        "unitid",
+        "subplant_id",
         "datetime_utc",
-        "operating_time_hours",
+        "report_date",
         "gross_generation_mwh",
+        "gtn_method",
+        "net_generation_mwh",
         "steam_load_1000_lb",
         "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
         "co2_mass_lb",
-        "co2_mass_measurement_code",
         "nox_mass_lb",
-        "nox_mass_measurement_code",
         "so2_mass_lb",
-        "so2_mass_measurement_code",
-        "plant_id_epa",
-        "report_date",
-        "energy_source_code",
         "ch4_mass_lb",
         "n2o_mass_lb",
-        "fuel_consumed_for_electricity_mmbtu",
+        "co2e_mass_lb",
         "co2_mass_lb_for_electricity",
         "ch4_mass_lb_for_electricity",
         "n2o_mass_lb_for_electricity",
+        "co2e_mass_lb_for_electricity",
         "nox_mass_lb_for_electricity",
         "so2_mass_lb_for_electricity",
         "co2_mass_lb_adjusted",
         "ch4_mass_lb_adjusted",
         "n2o_mass_lb_adjusted",
+        "co2e_mass_lb_adjusted",
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
-        "subplant_id",
-        "gtn_method",
-        "net_generation_mwh",
+        "co2_mass_lb_for_electricity_adjusted",
+        "ch4_mass_lb_for_electricity_adjusted",
+        "n2o_mass_lb_for_electricity_adjusted",
+        "co2e_mass_lb_for_electricity_adjusted",
+        "nox_mass_lb_for_electricity_adjusted",
+        "so2_mass_lb_for_electricity_adjusted",
+        # columns dropped when aggregating to subplant
+        # "plant_id_epa",
+        # "unitid",
+        # "energy_source_code",
+        # "operating_time_hours",
+        # "co2_mass_measurement_code",
+        # "nox_mass_measurement_code",
+        # "so2_mass_measurement_code",
     },
-    "partial_cems_scaled_": {
+    "partial_cems_": {
         "report_date",
         "plant_id_eia",
         "subplant_id",
@@ -91,18 +110,27 @@ COLUMNS = {
         "co2_mass_lb",
         "ch4_mass_lb",
         "n2o_mass_lb",
+        "co2e_mass_lb",
         "nox_mass_lb",
         "so2_mass_lb",
         "co2_mass_lb_for_electricity",
         "ch4_mass_lb_for_electricity",
         "n2o_mass_lb_for_electricity",
+        "co2e_mass_lb_for_electricity",
         "nox_mass_lb_for_electricity",
         "so2_mass_lb_for_electricity",
         "co2_mass_lb_adjusted",
         "ch4_mass_lb_adjusted",
         "n2o_mass_lb_adjusted",
+        "co2e_mass_lb_adjusted",
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
+        "co2_mass_lb_for_electricity_adjusted",
+        "ch4_mass_lb_for_electricity_adjusted",
+        "n2o_mass_lb_for_electricity_adjusted",
+        "co2e_mass_lb_for_electricity_adjusted",
+        "nox_mass_lb_for_electricity_adjusted",
+        "so2_mass_lb_for_electricity_adjusted",
     },
     "plant_static_attributes_": {
         "plant_id_eia",
@@ -156,18 +184,27 @@ COLUMNS = {
         "co2_mass_lb",
         "ch4_mass_lb",
         "n2o_mass_lb",
+        "co2e_mass_lb",
         "nox_mass_lb",
         "so2_mass_lb",
         "co2_mass_lb_for_electricity",
         "ch4_mass_lb_for_electricity",
         "n2o_mass_lb_for_electricity",
+        "co2e_mass_lb_for_electricity",
         "nox_mass_lb_for_electricity",
         "so2_mass_lb_for_electricity",
         "co2_mass_lb_adjusted",
         "ch4_mass_lb_adjusted",
         "n2o_mass_lb_adjusted",
+        "co2e_mass_lb_adjusted",
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
+        "co2_mass_lb_for_electricity_adjusted",
+        "ch4_mass_lb_for_electricity_adjusted",
+        "n2o_mass_lb_for_electricity_adjusted",
+        "co2e_mass_lb_for_electricity_adjusted",
+        "nox_mass_lb_for_electricity_adjusted",
+        "so2_mass_lb_for_electricity_adjusted",
         "profile_method",
     },
     "annual_generation_averages_by_fuel_": {
@@ -178,45 +215,65 @@ COLUMNS = {
         "co2_mass_lb",
         "ch4_mass_lb",
         "n2o_mass_lb",
+        "co2e_mass_lb",
         "nox_mass_lb",
         "so2_mass_lb",
         "co2_mass_lb_for_electricity",
         "ch4_mass_lb_for_electricity",
         "n2o_mass_lb_for_electricity",
+        "co2e_mass_lb_for_electricity",
         "nox_mass_lb_for_electricity",
         "so2_mass_lb_for_electricity",
         "co2_mass_lb_adjusted",
         "ch4_mass_lb_adjusted",
         "n2o_mass_lb_adjusted",
+        "co2e_mass_lb_adjusted",
         "nox_mass_lb_adjusted",
         "so2_mass_lb_adjusted",
+        "co2_mass_lb_for_electricity_adjusted",
+        "ch4_mass_lb_for_electricity_adjusted",
+        "n2o_mass_lb_for_electricity_adjusted",
+        "co2e_mass_lb_for_electricity_adjusted",
+        "nox_mass_lb_for_electricity_adjusted",
+        "so2_mass_lb_for_electricity_adjusted",
         "generated_co2_rate_lb_per_mwh_for_electricity",
         "generated_ch4_rate_lb_per_mwh_for_electricity",
         "generated_n2o_rate_lb_per_mwh_for_electricity",
+        "generated_co2e_rate_lb_per_mwh_for_electricity",
         "generated_nox_rate_lb_per_mwh_for_electricity",
         "generated_so2_rate_lb_per_mwh_for_electricity",
-        "generated_co2_rate_lb_per_mwh_adjusted",
-        "generated_ch4_rate_lb_per_mwh_adjusted",
-        "generated_n2o_rate_lb_per_mwh_adjusted",
-        "generated_nox_rate_lb_per_mwh_adjusted",
-        "generated_so2_rate_lb_per_mwh_adjusted",
+        "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_co2e_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
     },
     "gross_to_net_conversions_": {
         "plant_id_eia",
         "subplant_id",
         "report_date",
         "gross_generation_mwh",
+        "minimum_gross_generation_mwh",
+        "maximum_gross_generation_mwh",
+        "capacity_mw",
         "net_generation_mwh",
-        "source",
-        "hours_in_month",
-        "monthly_subplant_ratio",
-        "hourly_shift_mw_monthly",
+        "data_source",
+        "hours_in_month_subplant",
+        "hours_in_month_plant",
+        "annual_subplant_shift_mw",
         "annual_subplant_ratio",
-        "hourly_shift_mw_annual",
-        "monthly_plant_ratio",
+        "annual_plant_shift_mw",
         "annual_plant_ratio",
         "plant_primary_fuel",
         "annual_fuel_ratio",
+        "monthly_subplant_shift_mw",
+        "monthly_subplant_ratio",
+        "monthly_plant_ratio",
+        "subplant_regression_ratio",
+        "subplant_regression_shift_mw",
+        "plant_regression_ratio",
+        "plant_regression_shift_mw",
     },
 }
 
@@ -294,10 +351,37 @@ def get_dtypes():
         "n2o_mass_lb_adjusted": "float64",
         "nox_mass_lb_adjusted": "float64",
         "so2_mass_lb_adjusted": "float64",
+        "co2_mass_lb_for_electricity_adjusted": "float64",
+        "ch4_mass_lb_for_electricity_adjusted": "float64",
+        "n2o_mass_lb_for_electricity_adjusted": "float64",
+        "nox_mass_lb_for_electricity_adjusted": "float64",
+        "so2_mass_lb_for_electricity_adjusted": "float64",
+        "co2e_mass_lb": "float64",
+        "co2e_mass_lb_for_electricity": "float64",
+        "co2e_mass_lb_adjusted": "float64",
+        "co2e_mass_lb_for_electricity_adjusted": "float64",
         "gtn_method": "category",
         "net_generation_mwh": "float64",
         "prime_mover_code": "str",
         "hourly_data_source": "category",
+        "fuel_category": "str",
+        "ba_code": "str",
+        "ba_code_physical": "str",
+        "plant_primary_fuel": "str",
+        "fuel_category_eia930": "str",
+        "state": "str",
+        "distribution_flag": "bool",
+        "timezone": "str",
+        "eia930_profile": "float64",
+        "cems_profile": "float64",
+        "residual_profile": "float64",
+        "scaled_residual_profile": "float64",
+        "shifted_residual_profile": "float64",
+        "imputed_profile": "float64",
+        "profile": "float64",
+        "flat_profile": "float32",
+        "profile_method": "str",
+        "data_availability": "category",
     }
 
     return dtypes_to_use
@@ -305,4 +389,15 @@ def get_dtypes():
 
 def apply_dtypes(df):
     dtypes = get_dtypes()
+    datetime_columns = ["datetime_utc", "datetime_local", "report_date"]
+    cols_missing_dtypes = [
+        col
+        for col in df.columns
+        if (col not in dtypes) and (col not in datetime_columns)
+    ]
+    if len(cols_missing_dtypes) > 0:
+        print(
+            "Warning: The following columns do not have dtypes assigned in `column_checks.get_dtypes()`"
+        )
+        print(cols_missing_dtypes)
     return df.astype({col: dtypes[col] for col in df.columns if col in dtypes})
