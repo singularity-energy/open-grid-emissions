@@ -5,7 +5,7 @@ import warnings
 
 import pudl.output.pudltabl
 
-from src.column_checks import apply_dtypes, get_dtypes
+from src.column_checks import get_dtypes
 
 
 def load_cems_data(year):
@@ -300,7 +300,7 @@ def load_ghg_emission_factors():
     """
 
     efs = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C1_emission_factors_for_CO2_CH4_N2O.csv",
+        "../data/manual/emission_factors_for_co2_ch4_n2o.csv",
         dtype=get_dtypes(),
     )
 
@@ -316,7 +316,7 @@ def load_ghg_emission_factors():
 def load_nox_emission_factors():
     """Read in the NOx emission factors from eGRID Table C2."""
     emission_factors = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C2_emission_factors_for_NOx.csv",
+        "../data/manual/emission_factors_for_nox.csv",
         dtype=get_dtypes(),
     )
 
@@ -336,7 +336,7 @@ def load_so2_emission_factors():
     reported in Table C3 as a formula like `123*S`.
     """
     df = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C3_emission_factors_for_SO2.csv",
+        "../data/manual/emission_factors_for_so2.csv",
         dtype=get_dtypes(),
     )
 
@@ -739,6 +739,29 @@ def load_boiler_nox_association_eia860(year):
         skipfooter=1,
     )
     return boiler_nox_association_eia860
+
+
+def load_boiler_so2_association_eia860(year):
+    boiler_so2_association_eia860_names = [
+        "utility_id_eia",
+        "utility_name_eia",
+        "plant_id_eia",
+        "plant_name_eia",
+        "boiler_id",
+        "so2_control_id",
+        "steam_plant_type",
+    ]
+
+    boiler_so2_association_eia860 = pd.read_excel(
+        io=(f"../data/downloads/eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
+        sheet_name="Boiler SO2",
+        header=1,
+        names=boiler_so2_association_eia860_names,
+        dtype=get_dtypes(),
+        na_values=".",
+        skipfooter=1,
+    )
+    return boiler_so2_association_eia860
 
 
 def load_boiler_design_parameters_eia860(year):

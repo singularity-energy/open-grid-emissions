@@ -882,7 +882,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv",
+        "../data/manual/eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv",
         dtype=get_dtypes(),
     )
     id_map = dict(
