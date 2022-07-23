@@ -101,6 +101,7 @@ import sys
 sys.path.append("../../hourly-egrid/")
 import src.download_data as download_data
 import src.data_cleaning as data_cleaning
+import src.emissions as emissions
 import src.gross_to_net_generation as gross_to_net_generation
 import src.impute_hourly_profiles as impute_hourly_profiles
 import src.eia930 as eia930
@@ -218,7 +219,7 @@ def main():
     cems = data_cleaning.clean_cems(year, args.small)
 
     # calculate biomass-adjusted emissions while cems data is at the unit level
-    cems = data_cleaning.adjust_emissions_for_biomass(cems)
+    cems = emissions.adjust_emissions_for_biomass(cems)
 
     # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
     ####################################################################################
@@ -292,7 +293,7 @@ def main():
     ####################################################################################
     print("10. Adjusting CEMS emissions for CHP")
     cems = data_cleaning.adjust_cems_for_chp(cems, eia923_allocated)
-    cems = data_cleaning.calculate_co2e_mass(
+    cems = emissions.calculate_co2e_mass(
         cems, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
     validation.test_emissions_adjustments(cems)
