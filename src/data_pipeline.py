@@ -455,7 +455,9 @@ def main():
         path_prefix=path_prefix,
     )
     hourly_consumed_calc.process()
-    hourly_consumed_calc.output_data(path_prefix=path_prefix)
+    hourly_consumed_calc.output_data(
+        path_prefix=path_prefix, skip_outputs=args.skip_outputs
+    )
 
 
 if __name__ == "__main__":
