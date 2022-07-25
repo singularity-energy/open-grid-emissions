@@ -51,6 +51,7 @@ def test_for_negative_values(df):
             print(
                 f"Warning: There are {len(negative_test)} records where {column} is negative. Check `negative_test` for complete list"
             )
+            print(" ")
             negative_warnings += 1
     if negative_warnings > 0:
         raise UserWarning("The above negative values are errors and must be fixed")
