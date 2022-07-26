@@ -3,6 +3,7 @@ import os
 import requests
 import shutil
 import tarfile
+import zipfile
 
 
 def download_pudl_data(zenodo_url):
@@ -204,3 +205,84 @@ def download_epa_psdc(psdc_url):
         with open(f"../data/downloads/epa/{filename}", "wb") as fd:
             for chunk in r.iter_content(chunk_size=1024):
                 fd.write(chunk)
+
+
+def download_raw_eia923(year):
+    """
+    Downloads the egrid excel files
+    Inputs:
+        egrid_files_to_download: a list of urls for the egrid excel files that you want to download
+    """
+    # if there is not yet a directory for egrid, make it
+    if not os.path.exists("../data/downloads/eia923"):
+        os.mkdir("../data/downloads/eia923")
+
+    url = f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
+
+    filename = url.split("/")[-1].split(".")[0]
+    # if the file already exists, do not re-download it
+    if os.path.exists(f"../data/downloads/eia923/{filename}"):
+        print(f"    {year} EIA-923 already downloaded")
+    else:
+        print(f"    Downloading {year} EIA-923 data")
+        r = requests.get(url, stream=True)
+
+        with open(f"../data/downloads/eia923/{filename}.zip", "wb") as fd:
+            for chunk in r.iter_content(chunk_size=1024):
+                fd.write(chunk)
+
+        # Unzip
+        with zipfile.ZipFile(
+            f"../data/downloads/eia923/{filename}.zip", "r"
+        ) as zip_to_unzip:
+            zip_to_unzip.extractall(f"../data/downloads/eia923/{filename}")
+        os.remove(f"../data/downloads/eia923/{filename}.zip")
+
+
+def download_raw_eia860(year):
+    """
+    Downloads the egrid excel files
+    Inputs:
+        egrid_files_to_download: a list of urls for the egrid excel files that you want to download
+    """
+    # if there is not yet a directory for egrid, make it
+    if not os.path.exists("../data/downloads/eia860"):
+        os.mkdir("../data/downloads/eia860")
+
+    url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
+    archive_url = (
+        f"https://www.eia.gov/electricity/data/eia860/archive/xls/eia860{year}.zip"
+    )
+
+    filename = url.split("/")[-1].split(".")[0]
+    # if the file already exists, do not re-download it
+    if os.path.exists(f"../data/downloads/eia860/{filename}"):
+        print(f"    {year} EIA-860 already downloaded")
+    else:
+        print(f"    Downloading {year} EIA-860 data")
+        try: 
+            r = requests.get(url, stream=True)
+
+            with open(f"../data/downloads/eia860/{filename}.zip", "wb") as fd:
+                for chunk in r.iter_content(chunk_size=1024):
+                    fd.write(chunk)
+
+            # Unzip
+            with zipfile.ZipFile(
+                f"../data/downloads/eia860/{filename}.zip", "r"
+            ) as zip_to_unzip:
+                zip_to_unzip.extractall(f"../data/downloads/eia860/{filename}")
+            os.remove(f"../data/downloads/eia860/{filename}.zip")
+        except:
+            r = requests.get(archive_url, stream=True)
+
+            with open(f"../data/downloads/eia860/{filename}.zip", "wb") as fd:
+                for chunk in r.iter_content(chunk_size=1024):
+                    fd.write(chunk)
+
+            # Unzip
+            with zipfile.ZipFile(
+                f"../data/downloads/eia860/{filename}.zip", "r"
+            ) as zip_to_unzip:
+                zip_to_unzip.extractall(f"../data/downloads/eia860/{filename}")
+            os.remove(f"../data/downloads/eia860/{filename}.zip")

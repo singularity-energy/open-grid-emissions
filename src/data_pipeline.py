@@ -101,6 +101,7 @@ import sys
 sys.path.append("../../hourly-egrid/")
 import src.download_data as download_data
 import src.data_cleaning as data_cleaning
+import src.emissions as emissions
 import src.gross_to_net_generation as gross_to_net_generation
 import src.impute_hourly_profiles as impute_hourly_profiles
 import src.eia930 as eia930
@@ -152,7 +153,6 @@ def main():
     os.makedirs(f"../data/results/{path_prefix}", exist_ok=True)
     os.makedirs(f"../data/results/{path_prefix}data_quality_metrics", exist_ok=True)
     for unit in ["us_units", "metric_units"]:
-        os.makedirs(f"../data/results/{path_prefix}/plant_data/{unit}", exist_ok=True)
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
                 os.makedirs(
@@ -186,6 +186,9 @@ def main():
     download_data.download_epa_psdc(
         psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.2.1/epa_eia_crosswalk.csv"
     )
+    # download the raw EIA-923 and EIA-860 files for use in NOx/SO2 calculations until integrated into pudl
+    download_data.download_raw_eia860(year)
+    download_data.download_raw_eia923(year)
 
     # 2. Identify subplants
     ####################################################################################
@@ -216,7 +219,7 @@ def main():
     cems = data_cleaning.clean_cems(year, args.small)
 
     # calculate biomass-adjusted emissions while cems data is at the unit level
-    cems = data_cleaning.adjust_emissions_for_biomass(cems)
+    cems = emissions.adjust_emissions_for_biomass(cems)
 
     # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
     ####################################################################################
@@ -290,7 +293,7 @@ def main():
     ####################################################################################
     print("10. Adjusting CEMS emissions for CHP")
     cems = data_cleaning.adjust_cems_for_chp(cems, eia923_allocated)
-    cems = data_cleaning.calculate_co2e_mass(
+    cems = emissions.calculate_co2e_mass(
         cems, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
     validation.test_emissions_adjustments(cems)
@@ -452,7 +455,9 @@ def main():
         path_prefix=path_prefix,
     )
     hourly_consumed_calc.process()
-    hourly_consumed_calc.output_data(path_prefix=path_prefix)
+    hourly_consumed_calc.output_data(
+        path_prefix=path_prefix, skip_outputs=args.skip_outputs
+    )
 
 
 if __name__ == "__main__":
