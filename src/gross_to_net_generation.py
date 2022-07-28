@@ -453,7 +453,6 @@ def filter_gtn_conversion_factors(gtn_conversions):
         "annual_plant_ratio",
         "annual_subplant_shift_mw",
         "annual_plant_shift_mw",
-        "annual_fuel_ratio",
     ]
 
     for method in method_hierarchy:
