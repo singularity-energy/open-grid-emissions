@@ -51,28 +51,28 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         validate="m:1",
     )
 
-    cems["gtn_method"] = "1_annual_subplant_shift_factor"
+    cems["gtn_method"] = "1_annual_subplant_ratio"
     cems["net_generation_mwh"] = (
+        cems["gross_generation_mwh"] * cems["annual_subplant_ratio"]
+    )
+
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "2_annual_plant_ratio"
+    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
+        cems["gross_generation_mwh"] * cems["annual_plant_ratio"]
+    )
+
+    cems.loc[
+        cems["net_generation_mwh"].isna(), "gtn_method"
+    ] = "3_annual_subplant_shift_factor"
+    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_subplant_shift_mw"]
     )
 
     cems.loc[
         cems["net_generation_mwh"].isna(), "gtn_method"
-    ] = "2_annual_subplant_ratio"
-    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
-        cems["gross_generation_mwh"] * cems["annual_subplant_ratio"]
-    )
-
-    cems.loc[
-        cems["net_generation_mwh"].isna(), "gtn_method"
-    ] = "3_annual_plant_shift_factor"
+    ] = "4_annual_plant_shift_factor"
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_plant_shift_mw"]
-    )
-
-    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "4_annual_plant_ratio"
-    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
-        cems["gross_generation_mwh"] * cems["annual_plant_ratio"]
     )
 
     cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "5_annual_fuel_ratio"
@@ -156,15 +156,29 @@ def calculate_gross_to_net_conversion_factors(
     # combine monthly gross and net generation data where we have data for both
     combined_gen_data = (
         gross_gen_data.merge(
-            min_gross, how="left", on=["plant_id_eia", "subplant_id", "report_date"]
+            min_gross,
+            how="left",
+            on=["plant_id_eia", "subplant_id", "report_date"],
+            validate="1:1",
         )
-        .merge(max_gross, how="left", on=["plant_id_eia", "subplant_id", "report_date"])
-        .merge(subplant_capacity, how="left", on=["plant_id_eia", "subplant_id"])
+        .merge(
+            max_gross,
+            how="left",
+            on=["plant_id_eia", "subplant_id", "report_date"],
+            validate="1:1",
+        )
+        .merge(
+            subplant_capacity,
+            how="left",
+            on=["plant_id_eia", "subplant_id"],
+            validate="m:1",
+        )
         .merge(
             net_gen_data,
             how="outer",
             on=["plant_id_eia", "subplant_id", "report_date"],
             indicator="data_source",
+            validate="1:1",
         )
     )
     combined_gen_data["data_source"] = combined_gen_data["data_source"].replace(
@@ -259,16 +273,23 @@ def calculate_gross_to_net_conversion_factors(
 
     # merge the various ratios back into a single dataframe
     gtn_conversions = combined_gen_data.merge(
-        annual_subplant_ratio, how="left", on=["plant_id_eia", "subplant_id"]
+        annual_subplant_ratio,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
     )
     gtn_conversions = gtn_conversions.merge(
-        monthly_plant_ratio, how="left", on=["plant_id_eia", "report_date"]
+        monthly_plant_ratio,
+        how="left",
+        on=["plant_id_eia", "report_date"],
+        validate="m:1",
     )
     gtn_conversions = gtn_conversions.merge(
         annual_plant_ratio,
         how="left",
         on=["plant_id_eia"],
         suffixes=("_subplant", "_plant"),
+        validate="m:1",
     )
 
     # where gross or net generation data was missing in a month, change the monthly ratios to missing
@@ -285,6 +306,7 @@ def calculate_gross_to_net_conversion_factors(
             plant_attributes[["plant_id_eia", "plant_primary_fuel"]],
             how="left",
             on="plant_id_eia",
+            validate="m:1",
         )
         .groupby("plant_primary_fuel")
         .mean()["annual_plant_ratio"]
@@ -297,9 +319,10 @@ def calculate_gross_to_net_conversion_factors(
         plant_attributes[["plant_id_eia", "plant_primary_fuel"]],
         how="left",
         on="plant_id_eia",
+        validate="m:1",
     )
     gtn_conversions = gtn_conversions.merge(
-        annual_fuel_ratio, how="left", on="plant_primary_fuel"
+        annual_fuel_ratio, how="left", on="plant_primary_fuel", validate="m:1"
     )
 
     # add regression values
@@ -332,10 +355,13 @@ def calculate_gross_to_net_conversion_factors(
     )
 
     gtn_conversions = gtn_conversions.merge(
-        gtn_regression_subplant, how="left", on=["plant_id_eia", "subplant_id"]
+        gtn_regression_subplant,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
     )
     gtn_conversions = gtn_conversions.merge(
-        gtn_regression_plant, how="left", on=["plant_id_eia"]
+        gtn_regression_plant, how="left", on=["plant_id_eia"], validate="m:1"
     )
 
     return gtn_conversions
@@ -418,110 +444,38 @@ def filter_gtn_conversion_factors(gtn_conversions):
             scaling_factor,
         ] = np.NaN
 
-    # we want to use the same method for all subplants at a single plant
-    # First, remove all factors for a subplant if any subplant-month that appears in both CEMS and EIA is missing a factor
-    for subplant_factor in ["annual_subplant_shift_mw", "annual_subplant_ratio"]:
-
-        # get a list of subplants where the number of annual factors is less than the total number of records
-        incomplete_factors = (
-            factors_to_use.groupby(
-                ["plant_id_eia", "subplant_id", "data_source"], dropna=False
-            )
-            .count()[[subplant_factor, "net_generation_mwh"]]
-            .reset_index()
-        )
-        incomplete_factors = incomplete_factors[
-            (
-                incomplete_factors[subplant_factor]
-                < incomplete_factors["net_generation_mwh"]
-            )
-        ]
-
-        # replace all of the monthly factors with NA for these incomplete factors
-        factors_to_use = factors_to_use.merge(
-            incomplete_factors[["plant_id_eia", "subplant_id", "data_source"]],
-            how="outer",
-            on=["plant_id_eia", "subplant_id", "data_source"],
-            indicator="incomplete_flag",
-        )
-        factors_to_use.loc[
-            factors_to_use["incomplete_flag"] == "both", subplant_factor
-        ] = np.NaN
-        factors_to_use = factors_to_use.drop(columns=["incomplete_flag"])
-
-    # now, we want to check if there is complete subplant factors of at least one type
-    incomplete_subplant_factors = factors_to_use.copy()[
-        [
-            "plant_id_eia",
-            "subplant_id",
-            "data_source",
-            "report_date",
-            "annual_subplant_shift_mw",
-            "annual_subplant_ratio",
-            "net_generation_mwh",
-        ]
-    ]
-    # see if we have data in either column that is not missing for all months
-    incomplete_subplant_factors["any_subplant_factor"] = np.NaN
-    incomplete_subplant_factors["any_subplant_factor"] = incomplete_subplant_factors[
-        "any_subplant_factor"
-    ].fillna(incomplete_subplant_factors["annual_subplant_shift_mw"])
-    incomplete_subplant_factors["any_subplant_factor"] = incomplete_subplant_factors[
-        "any_subplant_factor"
-    ].fillna(incomplete_subplant_factors["annual_subplant_ratio"])
-
-    incomplete_subplant_factors = (
-        incomplete_subplant_factors.groupby(
-            ["plant_id_eia", "data_source"], dropna=False
-        )
-        .count()[["any_subplant_factor", "net_generation_mwh"]]
-        .reset_index()
-    )
-    incomplete_subplant_factors = incomplete_subplant_factors[
-        (
-            incomplete_subplant_factors["any_subplant_factor"]
-            < incomplete_subplant_factors["net_generation_mwh"]
-        )
+    # All subplant-months at each plant should use the same method
+    # if any annual_subplant_ratio are missing at a plant, revert to using annual_plant_ratio for the entire plant
+    # if any annual_plant_ratio are missing for a plant, revert to using annual_subplant_shift
+    # if any annual_subplant_shift are missing for a plant, revert to using annual_plant_shift
+    method_hierarchy = [
+        "annual_subplant_ratio",
+        "annual_plant_ratio",
+        "annual_subplant_shift_mw",
+        "annual_plant_shift_mw",
     ]
 
-    # replace all of the subplant factors with NA for the entire year if some are missing
-    factors_to_use = factors_to_use.merge(
-        incomplete_subplant_factors[["plant_id_eia", "data_source"]],
-        how="outer",
-        on=["plant_id_eia", "data_source"],
-        indicator="incomplete_flag",
-    )
-    factors_to_use.loc[
-        factors_to_use["incomplete_flag"] == "both",
-        ["annual_subplant_shift_mw", "annual_subplant_ratio"],
-    ] = np.NaN
-    factors_to_use = factors_to_use.drop(columns=["incomplete_flag"])
-
-    # if there are incomplete plant factors, remove all factors
-    for plant_factor in ["annual_plant_shift_mw", "annual_plant_ratio"]:
-        # get a list of subplants where the number of annual factors is less than the total number of records
+    for method in method_hierarchy:
+        # get a count of the number of non-na factor values and non-na net generation values for each plant
         incomplete_factors = (
             factors_to_use.groupby(["plant_id_eia", "data_source"], dropna=False)
-            .count()[[plant_factor, "net_generation_mwh"]]
+            .count()[[method, "net_generation_mwh"]]
             .reset_index()
         )
+        # only keep the plants where there are any missing factors for that plant
         incomplete_factors = incomplete_factors[
-            (
-                incomplete_factors[plant_factor]
-                < incomplete_factors["net_generation_mwh"]
-            )
+            (incomplete_factors[method] < incomplete_factors["net_generation_mwh"])
         ]
 
-        # replace all of the monthly factors with NA for these incomplete factors
+        # merge this list into factors_to_use, and set the factor to na for any plants that exist in the right df
         factors_to_use = factors_to_use.merge(
             incomplete_factors[["plant_id_eia", "data_source"]],
             how="outer",
             on=["plant_id_eia", "data_source"],
             indicator="incomplete_flag",
+            validate="m:1",
         )
-        factors_to_use.loc[
-            factors_to_use["incomplete_flag"] == "both", plant_factor
-        ] = np.NaN
+        factors_to_use.loc[factors_to_use["incomplete_flag"] == "both", method] = np.NaN
         factors_to_use = factors_to_use.drop(columns=["incomplete_flag"])
 
     return factors_to_use
@@ -779,7 +733,10 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
     groupby_columns = plant_aggregation_columns + ["report_date"]
 
     gen_data = gross_gen_data.merge(
-        net_gen_data, how="outer", on=["plant_id_eia", "subplant_id", "report_date"]
+        net_gen_data,
+        how="outer",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        validate="m:m",
     )
 
     # identify any rows where gross or net generation are missing
@@ -795,6 +752,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
         subplant_crosswalk,
         how="left",
         on=(["plant_id_eia", "subplant_id", "unitid", "generator_id"]),
+        validate="m:1",
     ).drop(columns="plant_id_epa")
 
     # drop any of these rows where the retirement date is before the report date (only applies if net generation missing)

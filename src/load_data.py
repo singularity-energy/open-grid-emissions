@@ -59,22 +59,9 @@ def load_cems_data(year):
     # crosswalk the plant IDs and add a plant_id_eia column
     cems = crosswalk_epa_eia_plant_ids(cems, year)
 
-    # fill any missing values for operating time or steam load with zero
-    cems["operating_time_hours"] = cems["operating_time_hours"].fillna(0)
+    # fill any missing values for steam load with zero
     cems["steam_load_1000_lb"] = cems["steam_load_1000_lb"].fillna(0)
 
-    # NOTE: The co2 and heat content data are reported as rates (e.g. tons/hr) rather than absolutes
-    # Thus they need to be multiplied by operating_time_hours
-    # See https://github.com/catalyst-cooperative/pudl/issues/1581
-    # calculate gross generation by multiplying gross_load_mw by operating_time_hours
-    for col in [
-        "gross_generation_mwh",
-        "co2_mass_tons",
-        "fuel_consumed_mmbtu",
-        "nox_mass_lb",
-        "so2_mass_lb",
-    ]:
-        cems[col] = cems[col] * cems["operating_time_hours"]
 
     # convert co2 mass in tons to lb
     cems["co2_mass_lb"] = cems["co2_mass_tons"] * 2000
@@ -189,14 +176,6 @@ def load_cems_gross_generation(start_year, end_year):
 
         # crosswalk the plant IDs and add a plant_id_eia column
         cems = crosswalk_epa_eia_plant_ids(cems, year)
-
-        # fill any missing values for operating time or steam load with zero
-        cems["operating_time_hours"] = cems["operating_time_hours"].fillna(0)
-
-        # calculate gross generation by multiplying gross_load_mw by operating_time_hours
-        cems["gross_generation_mwh"] = (
-            cems["gross_load_mw"] * cems["operating_time_hours"]
-        )
 
         # add a report date
         cems = add_report_date(cems)
