@@ -275,6 +275,12 @@ COLUMNS = {
         "plant_regression_ratio",
         "plant_regression_shift_mw",
     },
+    "grid_gross_loss": {
+        "ba_code",
+        "total_energy_losses_mwh",
+        "total_disposition_mwh",
+        "grid_gross_loss",
+    },
 }
 
 
