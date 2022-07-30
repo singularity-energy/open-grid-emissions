@@ -762,6 +762,9 @@ def load_egrid_plant_file(year):
             "PLHTIANT",
             "UNCO2",
             "UNHTIT",
+            "UNHTIOZT",
+            "UNHTISRC",
+            "UNHOZSRC",
             "PLCO2AN",
             "CHPFLAG",
         ],
@@ -784,6 +787,9 @@ def load_egrid_plant_file(year):
             "UNCO2": "co2_mass_lb",  # this is actually in tons, but we are converting in the next step
             "PLCO2AN": "co2_mass_lb_adjusted",  # this is actually in tons, but we are converting in the next step
             "CHPFLAG": "chp_flag",
+            "UNHTIOZT": "fuel_consumed_mmbtu_ozone_season",
+            "UNHTISRC": "fuel_data_source_annual",
+            "UNHOZSRC": "fuel_data_source_ozone",
         }
     )
 
@@ -822,6 +828,9 @@ def load_egrid_plant_file(year):
             "fuel_consumed_for_electricity_mmbtu",
             "co2_mass_lb",
             "co2_mass_lb_adjusted",
+            "fuel_consumed_mmbtu_ozone_season",
+            "fuel_data_source_annual",
+            "fuel_data_source_ozone",
         ]
     ]
 
@@ -1159,37 +1168,25 @@ def segment_plants_by_known_issues(
     pudl_out,
     PLANTS_MISSING_FROM_EGRID,
 ):
-    all_other_plants = annual_plant_results.copy()
-
+    annual_plant_results_segmented = annual_plant_results.copy()
     # missing plants
-    missing_plants = annual_plant_results[
-        annual_plant_results["plant_id_eia"].isin(PLANTS_MISSING_FROM_EGRID)
-    ]
-    all_other_plants = all_other_plants[
-        ~all_other_plants["plant_id_eia"].isin(
-            list(missing_plants.plant_id_eia.unique())
-        )
-    ]
+    annual_plant_results_segmented["flag_missing_egrid"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_id_eia"].isin(PLANTS_MISSING_FROM_EGRID),
+        "flag_missing_egrid",
+    ] = 1
 
     # geothermal
-    geothermal_plants = annual_plant_results[
-        annual_plant_results["plant_primary_fuel"] == "GEO"
-    ]
-    all_other_plants = all_other_plants[
-        ~all_other_plants["plant_id_eia"].isin(
-            list(geothermal_plants.plant_id_eia.unique())
-        )
-    ]
+    annual_plant_results_segmented["flag_geothermal"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_primary_fuel"] == "GEO", "flag_geothermal"
+    ] = 1
 
     # nuclear
-    nuclear_plants = annual_plant_results[
-        annual_plant_results["plant_primary_fuel"] == "NUC"
-    ]
-    all_other_plants = all_other_plants[
-        ~all_other_plants["plant_id_eia"].isin(
-            list(nuclear_plants.plant_id_eia.unique())
-        )
-    ]
+    annual_plant_results_segmented["flag_nuclear"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_primary_fuel"] == "NUC", "flag_nuclear"
+    ] = 1
 
     # fuel cells
     gens_eia860 = pudl_out.gens_eia860()
@@ -1198,57 +1195,108 @@ def segment_plants_by_known_issues(
             gens_eia860["prime_mover_code"] == "FC", "plant_id_eia"
         ].unique()
     )
-    fuel_cell_plants = annual_plant_results[
-        annual_plant_results["plant_id_eia"].isin(PLANTS_WITH_FUEL_CELLS)
-    ]
-    all_other_plants = all_other_plants[
-        ~all_other_plants["plant_id_eia"].isin(
-            list(fuel_cell_plants.plant_id_eia.unique())
-        )
-    ]
+    annual_plant_results_segmented["flag_fuel_cell"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_id_eia"].isin(PLANTS_WITH_FUEL_CELLS),
+        "flag_fuel_cell",
+    ] = 1
 
-    # ozone season reporters
-    # identify all of the plants with generators that report data from both EIA and CEMS
-    multi_source_reporters = eia923_allocated[
+    # partial
+    # identify all of the plants with generators only report part year to CEMS
+    partial_year_reporters = eia923_allocated[
         ["plant_id_eia", "generator_id", "hourly_data_source"]
     ].drop_duplicates()
-    MULTI_SOURCE_PLANTS = list(
-        multi_source_reporters.loc[
-            multi_source_reporters.duplicated(
+    PARTIAL_YEAR_PLANTS = list(
+        partial_year_reporters.loc[
+            partial_year_reporters.duplicated(
                 subset=["plant_id_eia", "generator_id"], keep=False
             ),
             "plant_id_eia",
         ].unique()
     )
-    ozone_season_plants = annual_plant_results[
-        annual_plant_results["plant_id_eia"].isin(MULTI_SOURCE_PLANTS)
-    ]
-    all_other_plants = all_other_plants[
-        ~all_other_plants["plant_id_eia"].isin(
-            list(ozone_season_plants.plant_id_eia.unique())
-        )
-    ]
+    annual_plant_results_segmented["flag_partial_year"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_id_eia"].isin(PARTIAL_YEAR_PLANTS),
+        "flag_partial_year",
+    ] = 1
 
     # CHP plants
     PLANTS_WITH_CHP = list(
         egrid_plant.loc[egrid_plant["chp_flag"] == "Yes", "plant_id_eia"].unique()
     )
-    chp_plants = annual_plant_results[
-        annual_plant_results["plant_id_eia"].isin(PLANTS_WITH_CHP)
-    ]
-    all_other_plants = all_other_plants[
-        ~all_other_plants["plant_id_eia"].isin(list(chp_plants.plant_id_eia.unique()))
+    annual_plant_results_segmented["flag_chp"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_id_eia"].isin(PLANTS_WITH_CHP), "flag_chp"
+    ] = 1
+
+    # identify plants that report data to the bf or gen table
+    bf_reporter = list(pudl_out.bf_eia923()["plant_id_eia"].unique())
+    gen_reporter = list(pudl_out.gen_original_eia923()["plant_id_eia"].unique())
+    annual_plant_results_segmented["flag_bf_gen_reporter"] = 0
+    annual_plant_results_segmented.loc[
+        (
+            annual_plant_results_segmented["plant_id_eia"].isin(bf_reporter)
+            | annual_plant_results_segmented["plant_id_eia"].isin(gen_reporter)
+        ),
+        "flag_bf_gen_reporter",
+    ] = 1
+
+    return annual_plant_results_segmented
+
+
+def compare_egrid_fuel_total(plant_data, egrid_plant_df):
+    """Calculates the difference in fuel and emissions in our calculation and egrid"""
+
+    # standardize column names and index so that the two dfs can be divided
+    calculated_to_compare = (
+        plant_data.groupby("plant_id_egrid", dropna=False)
+        .sum()
+        .drop(columns=["plant_id_eia"])
+    )
+
+    # drop the plants that have no data in eGRID
+    plants_with_no_data_in_egrid = list(
+        egrid_plant_df[
+            egrid_plant_df[
+                [
+                    "net_generation_mwh",
+                    "fuel_consumed_mmbtu",
+                    "fuel_consumed_for_electricity_mmbtu",
+                    "co2_mass_lb",
+                    "co2_mass_lb_adjusted",
+                ]
+            ].sum(axis=1)
+            == 0
+        ]["plant_id_egrid"]
+    )
+    egrid_plant_df = egrid_plant_df[
+        ~egrid_plant_df["plant_id_eia"].isin(plants_with_no_data_in_egrid)
     ]
 
-    return (
-        missing_plants,
-        geothermal_plants,
-        nuclear_plants,
-        fuel_cell_plants,
-        ozone_season_plants,
-        chp_plants,
-        all_other_plants,
+    egrid_to_compare = egrid_plant_df.set_index(["plant_id_egrid"]).drop(
+        columns=["ba_code", "state", "plant_name", "plant_id_eia"]
     )
+    # only keep plants that are in the comparison data
+    egrid_to_compare = egrid_to_compare[
+        egrid_to_compare.index.isin(list(calculated_to_compare.index.unique()))
+    ]
+
+    compare_fuel = calculated_to_compare[["fuel_consumed_mmbtu", "co2_mass_lb"]].merge(
+        egrid_to_compare[["fuel_consumed_mmbtu", "co2_mass_lb"]],
+        how="left",
+        left_index=True,
+        right_index=True,
+        suffixes=("_calc", "_egrid"),
+    )
+    compare_fuel["difference_fuel"] = (
+        compare_fuel["fuel_consumed_mmbtu_egrid"]
+        - compare_fuel["fuel_consumed_mmbtu_calc"]
+    )
+    compare_fuel["difference_co2"] = (
+        compare_fuel["co2_mass_lb_egrid"] - compare_fuel["co2_mass_lb_calc"]
+    )
+
+    return compare_fuel
 
 
 def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
