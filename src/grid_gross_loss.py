@@ -30,9 +30,8 @@ def calculate_ba_gross_loss(year):
     )
 
     # calculate grid gross loss
-    ba_disposition["grid_gross_loss"] = (
-        ba_disposition["total_energy_losses_mwh"]
-        / ba_disposition["total_disposition_mwh"]
+    ba_disposition["grid_gross_loss"] = ba_disposition["total_energy_losses_mwh"] / (
+        ba_disposition["total_disposition_mwh"] - ba_disposition["sales_for_resale_mwh"]
     )
     # fill missing ggl due to divide by zero with zero
     ba_disposition["grid_gross_loss"] = ba_disposition["grid_gross_loss"].fillna(0)
@@ -59,21 +58,21 @@ def calculate_utility_disposition(year):
             "utility_id_eia",
             "state",
             "nerc_region_code",
-            "retail_sales_mwh",
+            "sales_for_resale_mwh",
             "total_energy_losses_mwh",
             "total_disposition_mwh",
         ]
     ]
     utility_disposition.loc[
-        :, ["retail_sales_mwh", "total_energy_losses_mwh", "total_disposition_mwh"]
+        :, ["sales_for_resale_mwh", "total_energy_losses_mwh", "total_disposition_mwh"]
     ] = utility_disposition.loc[
-        :, ["retail_sales_mwh", "total_energy_losses_mwh", "total_disposition_mwh"]
+        :, ["sales_for_resale_mwh", "total_energy_losses_mwh", "total_disposition_mwh"]
     ].fillna(
         0
     )
     utility_disposition = (
         utility_disposition.groupby(["utility_id_eia"], dropna=False)[
-            ["retail_sales_mwh", "total_energy_losses_mwh", "total_disposition_mwh"]
+            ["sales_for_resale_mwh", "total_energy_losses_mwh", "total_disposition_mwh"]
         ]
         .sum()
         .reset_index()
@@ -134,13 +133,17 @@ def allocate_disposition_to_ba(retail_sales_by_ba, utility_disposition, year):
     )
 
     # allocate disposition to each BA
-    for col in ["retail_sales_mwh", "total_energy_losses_mwh", "total_disposition_mwh"]:
+    for col in [
+        "sales_for_resale_mwh",
+        "total_energy_losses_mwh",
+        "total_disposition_mwh",
+    ]:
         ba_disposition[col] = ba_disposition[col] * ba_disposition["fraction_of_sales"]
 
     # total the values by BA
     ba_disposition = (
         ba_disposition.groupby("ba_code", dropna=False)[
-            ["total_energy_losses_mwh", "total_disposition_mwh"]
+            ["sales_for_resale_mwh", "total_energy_losses_mwh", "total_disposition_mwh"]
         ]
         .sum()
         .reset_index()
