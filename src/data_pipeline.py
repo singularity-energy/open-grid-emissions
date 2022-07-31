@@ -108,6 +108,7 @@ import src.eia930 as eia930
 import src.validation as validation
 import src.output_data as output_data
 import src.consumed as consumed
+import src.grid_gross_loss as ggl
 
 
 def get_args():
@@ -445,9 +446,17 @@ def main():
     # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix, args.skip_outputs)
 
-    # 17. Calculate consumption-based emissions and write carbon accounting results
+    # 17. Calculate Grid Gross Loss
     ####################################################################################
-    print("17. Calculating and exporting consumption-based results")
+    print("18. Calculating Grid Gross Loss")
+    grid_gross_loss = ggl.calculate_ba_gross_loss(year)
+    output_data.output_intermediate_data(
+        grid_gross_loss, "grid_gross_loss", path_prefix, year, args.skip_outputs
+    )
+
+    # 18. Calculate consumption-based emissions and write carbon accounting results
+    ####################################################################################
+    print("18. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
         clean_930_file,
         year=year,
