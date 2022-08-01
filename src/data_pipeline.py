@@ -386,14 +386,11 @@ def main():
     # 17. Calculate consumption-based emissions and write carbon accounting results
     ####################################################################################
     print("17. Calculating and exporting consumption-based results")
-    hourly_consumed_calc = consumed.HourlyBaDataEmissionsCalc(
-        clean_930_file,
-        year=year,
-        small=args.small,
-        path_prefix=path_prefix,
+    hourly_consumed_calc = consumed.HourlyConsumed(
+        clean_930_file, path_prefix, year, small=args.small
     )
-    hourly_consumed_calc.process()
-    hourly_consumed_calc.output_data(path_prefix=path_prefix)
+    hourly_consumed_calc.run()
+    hourly_consumed_calc.output_results()
 
 
 if __name__ == "__main__":
