@@ -217,10 +217,18 @@ class HourlyConsumed:
     Class to load data, calculate consumed rates, and output per-BA
     """
 
-    def __init__(self, eia930_file: str, prefix: str, year: int, small: bool = False):
+    def __init__(
+        self,
+        eia930_file: str,
+        prefix: str,
+        year: int,
+        small: bool = False,
+        skip_outputs: bool = False,
+    ):
         self.prefix = prefix
         self.year = year
         self.small = small
+        self.skip_outputs = skip_outputs
 
         # 930 data
         self.eia930 = BaData(eia930_file)
@@ -245,7 +253,7 @@ class HourlyConsumed:
         # build result DF per output file
         results = {}
         cols = []
-        for pol in POLLS:
+        for pol in POLLUTANTS:
             for adj in ADJUSTMENTS:
                 cols.append(get_rate_column(pol, adjustment=adj, generated=False))
                 cols.append(get_column(pol, adjustment=adj))
@@ -271,7 +279,7 @@ class HourlyConsumed:
             self.results[ba]["net_consumed_mwh"] = (
                 self.generation[ba] + self.eia930.df[KEYS["E"]["TI"] % ba]
             )[self.generation.index]
-            for pol in POLLS:
+            for pol in POLLUTANTS:
                 for adj in ADJUSTMENTS:
                     self.results[ba][get_column(pol, adjustment=adj)] = (
                         self.results[ba][
@@ -308,7 +316,11 @@ class HourlyConsumed:
 
                 # Output
                 output_to_results(
-                    time_dat, ba, f"/carbon_accounting/{time_resolution}/", self.prefix
+                    time_dat,
+                    ba,
+                    f"/carbon_accounting/{time_resolution}/",
+                    self.prefix,
+                    skip_outputs=self.skip_outputs,
                 )
         return
 
@@ -329,14 +341,14 @@ class HourlyConsumed:
             this_ba = this_ba[this_ba.fuel_category == "total"]
             ba_name = f.replace(".csv", "")
             for adj in ADJUSTMENTS:
-                for pol in POLLS:
+                for pol in POLLUTANTS:
                     this_rate = rates.get((adj, pol), {})
                     this_rate[ba_name] = this_ba[get_column(pol, adjustment=adj)]
                     rates[(adj, pol)] = this_rate
             gens[ba_name] = this_ba["net_generation_mwh"]
 
         # Make each rate into a DF and add emissions for import-only regions
-        for pol in POLLS:
+        for pol in POLLUTANTS:
             for adj in ADJUSTMENTS:
                 # Calculate emissions
                 emissions = pd.DataFrame(rates[(adj, pol)])
@@ -391,7 +403,7 @@ class HourlyConsumed:
         return E, G, ID
 
     def run(self):
-        for pol in POLLS:
+        for pol in POLLUTANTS:
             for adj in ADJUSTMENTS:
                 col = get_rate_column(pol, adjustment=adj, generated=False)
                 print(f"{pol}, {adj}", end="...")

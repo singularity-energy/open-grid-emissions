@@ -449,7 +449,11 @@ def main():
     ####################################################################################
     print("17. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyConsumed(
-        clean_930_file, path_prefix, year, small=args.small
+        clean_930_file,
+        path_prefix,
+        year,
+        small=args.small,
+        skip_outputs=args.skip_outputs,
     )
     hourly_consumed_calc.run()
     hourly_consumed_calc.output_results()
