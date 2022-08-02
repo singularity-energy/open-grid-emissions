@@ -139,14 +139,14 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
         df = df.loc[start:end]  # Don't worry about processing everything
 
     # Adjust
-    print("   Adjusting EIA-930 time stamps")
+    print("    Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
     df.to_csv(
         join(data_folder, "eia930_raw.csv")
     )  # Will be read by gridemissions workflow
 
     # Run cleaning
-    print("   Running physics-based data cleaning")
+    print("    Running physics-based data cleaning")
     make_dataset(
         start,
         end,
@@ -320,6 +320,7 @@ def remove_months_with_zero_data(eia930_data):
         how="outer",
         on=["ba_code", "fuel_category_eia930", "report_date"],
         indicator="zero_filter",
+        validate="m:1",
     )
     eia930_data = eia930_data[eia930_data["zero_filter"] == "left_only"].drop(
         columns="zero_filter"

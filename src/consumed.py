@@ -83,17 +83,17 @@ FUEL_TYPE_MAP = {
     "BIO": "biomass",
 }
 
-POLLS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
+POLLUTANTS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 
 ADJUSTMENTS = ["for_electricity", "for_electricity_adjusted"]
 
 
 def get_column(poll: str, adjustment: str, ba: str = ""):
     """
-    Return output file column name for a pollutant and adjustment type
+    Return output file column name for a poll and adjustment type
     Returns mass columns, not rate columns
     """
-    assert poll in POLLS
+    assert poll in POLLUTANTS
     assert adjustment in ADJUSTMENTS
     if ba == "":  # no BA, looking for output file column
         column = poll.lower() + "_mass_lb_" + adjustment
@@ -106,9 +106,9 @@ def get_column(poll: str, adjustment: str, ba: str = ""):
 def get_rate_column(poll: str, adjustment: str, generated: bool = True, ba: str = ""):
     """
     Return either generated or consumed output file rate column
-    for pollutant `poll` and adjustment `adjustment`
+    for poll `poll` and adjustment `adjustment`
     """
-    assert poll in POLLS
+    assert poll in POLLUTANTS
     assert adjustment in ADJUSTMENTS
     if generated:
         column = "generated_" + poll.lower() + "_rate_lb_per_mwh_" + adjustment
@@ -134,7 +134,7 @@ def get_average_emission_factors(prefix: str = "2020/", year: int = 2020):
         index_col="fuel_category",
     )
     efs = {}
-    for pol in POLLS:
+    for pol in POLLUTANTS:
         efs[pol] = {}
         for adjustment in ADJUSTMENTS:
             efs[pol][adjustment] = {}
@@ -298,7 +298,7 @@ class HourlyConsumed:
                 )
 
                 # Calculate rates from summed emissions, consumption
-                for pol in POLLS:
+                for pol in POLLUTANTS:
                     for adj in ADJUSTMENTS:
                         rate_col = get_rate_column(pol, adj, generated=False)
                         emission_col = get_column(pol, adj)

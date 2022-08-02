@@ -19,7 +19,7 @@ checks.
 """
 
 COLUMNS = {
-    "eia923_allocated_": {
+    "eia923_allocated": {
         "report_date",
         "plant_id_eia",
         "generator_id",
@@ -55,7 +55,7 @@ COLUMNS = {
         "energy_source_code",
         "hourly_data_source",
     },
-    "cems_": {
+    "cems": {
         "plant_id_eia",
         "subplant_id",
         "datetime_utc",
@@ -99,7 +99,7 @@ COLUMNS = {
         # "nox_mass_measurement_code",
         # "so2_mass_measurement_code",
     },
-    "partial_cems_": {
+    "partial_cems": {
         "report_date",
         "plant_id_eia",
         "subplant_id",
@@ -132,7 +132,7 @@ COLUMNS = {
         "nox_mass_lb_for_electricity_adjusted",
         "so2_mass_lb_for_electricity_adjusted",
     },
-    "plant_static_attributes_": {
+    "plant_static_attributes": {
         "plant_id_eia",
         "plant_primary_fuel",
         "fuel_category",
@@ -144,7 +144,7 @@ COLUMNS = {
         "timezone",
         "data_availability",
     },
-    "plant_attributes_with_synthetic_": {
+    "plant_attributes_with_synthetic": {
         "plant_id_eia",
         "plant_primary_fuel",
         "fuel_category",
@@ -156,7 +156,7 @@ COLUMNS = {
         "timezone",
         "data_availability",
     },
-    "hourly_profiles_": {
+    "hourly_profiles": {
         "ba_code",
         "fuel_category",
         "datetime_utc",
@@ -172,7 +172,7 @@ COLUMNS = {
         "flat_profile",
         "profile_method",
     },
-    "shaped_eia923_data_": {
+    "shaped_eia923_data": {
         "plant_id_eia",
         "datetime_utc",
         "report_date",
@@ -207,7 +207,7 @@ COLUMNS = {
         "so2_mass_lb_for_electricity_adjusted",
         "profile_method",
     },
-    "annual_generation_averages_by_fuel_": {
+    "annual_generation_averages_by_fuel": {
         "fuel_category",
         "net_generation_mwh",
         "fuel_consumed_mmbtu",
@@ -249,7 +249,7 @@ COLUMNS = {
         "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
         "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
     },
-    "gross_to_net_conversions_": {
+    "gross_to_net_conversions": {
         "plant_id_eia",
         "subplant_id",
         "report_date",
@@ -278,44 +278,30 @@ COLUMNS = {
 }
 
 
-def check_columns(file_path):
+def check_columns(df, file_name):
     """
-    Given a file name or path to file, check that its columns are as expected.
+    Given a file name and a dataframe to export, check that its columns are as expected.
     """
-    file = file_path.split("/")[-1]
-    file = file.replace(".csv", "")
 
-    # If file is appended by year, remove it because column names are standard across years
-    maybe_year = file[-4:]
-    if maybe_year.isnumeric():
-        year = int(maybe_year)
-        if not 2000 < year < 2050:
-            print(f"Got unexpected year {maybe_year}")
-        file = file.replace(maybe_year, "")
-
-    # Get actual columns
-    with open(file_path) as f:
-        firstline = f.readline().rstrip()
-    cols = set(firstline.split(","))
-
+    cols = set(list(df.columns))
     # Get expected columns
-    if file not in COLUMNS:
+    if file_name not in COLUMNS:
         raise ValueError(
-            f"Could not find file prefix {file} from {file_path} in expected file names {COLUMNS.keys()}"
+            f"Could not find file {file_name} in expected file names {COLUMNS.keys()}"
         )
-    expected_cols = COLUMNS[file]
+    expected_cols = COLUMNS[file_name]
 
     # Check for extra columns. Warning not exception
     extras = cols - expected_cols
     if len(extras) > 0:
         print(
-            f"Warning: columns {extras} in {file_path} are not guaranteed by column_checks.py"
+            f"Warning: columns {extras} in {file_name} are not guaranteed by column_checks.py"
         )
 
     # Raise exception for missing columns
     missing = expected_cols - cols
     if len(missing) > 0:
-        raise ValueError(f"Columns {missing} missing from {file_path}")
+        raise ValueError(f"Columns {missing} missing from {file_name}")
 
     return
 
@@ -327,6 +313,7 @@ def get_dtypes():
         "subplant_id": "Int16",
         "generator_id": "str",
         "unitid": "str",
+        "boiler_id": "str",
         "operating_time_hours": "float16",
         "gross_generation_mwh": "float64",
         "steam_load_1000_lb": "float64",
@@ -364,6 +351,7 @@ def get_dtypes():
         "net_generation_mwh": "float64",
         "prime_mover_code": "str",
         "hourly_data_source": "category",
+        "nox_control_id": "str",
         "fuel_category": "str",
         "ba_code": "str",
         "ba_code_physical": "str",
@@ -382,6 +370,29 @@ def get_dtypes():
         "flat_profile": "float32",
         "profile_method": "str",
         "data_availability": "category",
+        "equipment_tech_description": "str",
+        "pm_control_id": "str",
+        "so2_control_id": "str",
+        "nox_control_id": "str",
+        "mercury_control_id": "str",
+        "operational_status": "str",
+        "hours_in_service": "float64",
+        "annual_nox_emission_rate_lb_per_mmbtu": "float64",
+        "ozone_season_nox_emission_rate_lb_per_mmbtu": "float64",
+        "pm_emission_rate_lb_per_mmbtu": "float64",
+        "pm_removal_efficiency_annual": "float64",
+        "pm_removal_efficiency_at_full_load": "float64",
+        "so2_removal_efficiency_annual": "float64",
+        "so2_removal_efficiency_at_full_load": "float64",
+        "fgd_sorbent_consumption_1000_tons": "float64",
+        "fgd_electricity_consumption_mwh": "float64",
+        "hg_removal_efficiency": "float64",
+        "hg_emission_rate_lb_per_trillion_btu": "float64",
+        "acid_gas_removal_efficiency": "float64",
+        "firing_type_1": "str",
+        "firing_type_2": "str",
+        "firing_type_3": "str",
+        "boiler_bottom_type": "str",
     }
 
     return dtypes_to_use
