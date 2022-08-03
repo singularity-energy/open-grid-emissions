@@ -1027,6 +1027,9 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
 
     all_data = all_data.drop(columns=["reported_eia923"])
 
+    # identify the partial cems plants
+    all_data = identify_partial_cems_plants(all_data)
+
     return all_data
 
 
@@ -1091,7 +1094,7 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
                 (x.reported_units_in_subplant < x.units_in_subplant)
                 & (x.fuel_consumed_mmbtu_cems < (x.fuel_consumed_mmbtu_eia * 0.95))
             ),
-            "partial_cems",
+            "partial_cems_subplant",
             "cems",
         )
     )
@@ -1143,6 +1146,62 @@ def count_reported_units_in_subplant(cems_monthly):
     )
 
     return reported_units_in_subplant
+
+
+def identify_partial_cems_plants(all_data):
+    """Identifies eia-only subplants for which CEMS data is reported for at least one other subplant at the plant."""
+
+    # create a column that indicates EIA-only subplant data
+    all_data = all_data.assign(
+        eia_data=lambda x: np.where(x.hourly_data_source == "eia", 1, 0)
+    )
+
+    # create a column that indicates whether cems data is reported
+    all_data = all_data.assign(
+        cems_data=lambda x: np.where(
+            x.hourly_data_source.isin(["cems", "partial_cems_subplant"]), 1, 0
+        )
+    )
+
+    # count the number of records for each plant-month that have EIA-only data and CEMS data
+    partial_plant = (
+        all_data.groupby(["plant_id_eia", "report_date"], dropna=False)[
+            ["eia_data", "cems_data"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    # we want to identify plants where there is some EIA data and some cems data
+    # if eia_data = 0, then all of the data for that plant-month is from cems
+    # if if cems_data = 0, thwn all of the data for that plant-month is from EIA
+    partial_plant = partial_plant[
+        (partial_plant["eia_data"] > 0) & (partial_plant["cems_data"] > 0)
+    ]
+
+    # drop intermediate columns
+    partial_plant = partial_plant.drop(columns=["eia_data", "cems_data"])
+
+    # merge this data into all_data
+    all_data = all_data.merge(
+        partial_plant,
+        how="outer",
+        on=["plant_id_eia", "report_date"],
+        indicator="partial_plant",
+        validate="m:1",
+    )
+
+    # for plants where the data source is eia only, and it exists in partial plant, change the source to partial_cems_plant
+    all_data.loc[
+        (all_data["hourly_data_source"] == "eia")
+        & (all_data["partial_plant"] == "both"),
+        "hourly_data_source",
+    ] = "partial_cems_plant"
+
+    # remove the intermediate indicator column
+    all_data = all_data.drop(columns=["partial_plant", "eia_data", "cems_data"])
+
+    return all_data
 
 
 def filter_unique_cems_data(cems, partial_cems):

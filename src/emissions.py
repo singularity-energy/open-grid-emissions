@@ -1508,7 +1508,7 @@ def fill_cems_missing_co2(cems, year):
     if len(missing_esc) > 0:
         print(" ")
         print(
-            "Warning: the following units are missing co2 data and energy source codes. This may be because they burn multiple fuels."
+            "Warning: the following units are missing energy source codes used to fill missing co2 data. Fuel-weighted emissions factors will be used."
         )
         print(missing_esc[["plant_id_eia", "unitid"]].drop_duplicates())
         print(" ")
