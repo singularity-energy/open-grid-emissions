@@ -5,6 +5,7 @@ import os
 from gridemissions.emissions import BaDataEmissionsCalc, EMISSIONS_FACTORS
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
+from src.load_data import PATH_TO_LOCAL_REPO
 
 from src.output_data import (
     GENERATED_EMISSION_RATE_COLS,
@@ -167,7 +168,7 @@ def get_average_emission_factors(prefix: str = "", year: int = 2020):
     Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
-        f"../data/outputs/{prefix}annual_generation_averages_by_fuel_{year}.csv",
+        f"{PATH_TO_LOCAL_REPO}data/outputs/{prefix}annual_generation_averages_by_fuel_{year}.csv",
         index_col="fuel_category",
     )
     efs = {}
@@ -321,7 +322,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         our_regions = {
             f.replace(".csv", "")
             for f in os.listdir(
-                f"../data/results/{self.prefix}power_sector_data/hourly/us_units/"
+                f"{PATH_TO_LOCAL_REPO}data/results/{self.prefix}power_sector_data/hourly/us_units/"
             )
         }
         self.output_regions = regions930.intersection(
@@ -361,7 +362,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
         # For now, fill zero rates with eGRID annual average
         # TODO not a longterm solution!
         egrid = pd.read_excel(
-            f"../data/downloads/egrid/egrid{2020}_data.xlsx",
+            f"{PATH_TO_LOCAL_REPO}data/downloads/egrid/egrid{2020}_data.xlsx",
             sheet_name=f"BA{str(2020)[-2:]}",
             header=1,
             index_col="BACODE",
@@ -385,7 +386,7 @@ class HourlyBaDataEmissionsCalc(BaDataEmissionsCalc):
             # Normal case: load hourly generation and emission factor data
             else:
                 new = pd.read_csv(
-                    f"../data/results/{self.prefix}power_sector_data/hourly/us_units/{ba}.csv",
+                    f"{PATH_TO_LOCAL_REPO}data/results/{self.prefix}power_sector_data/hourly/us_units/{ba}.csv",
                     index_col="datetime_utc",
                     parse_dates=True,
                 )

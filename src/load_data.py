@@ -2,10 +2,13 @@ import pandas as pd
 import numpy as np
 import sqlalchemy as sa
 import warnings
+from pathlib import Path
 
 import pudl.output.pudltabl
 
 from src.column_checks import get_dtypes
+
+PATH_TO_LOCAL_REPO = str(Path.cwd()).replace("\\", "/").split("hourly-egrid/")[0] + "hourly-egrid/"
 
 
 def load_cems_data(year):
@@ -17,7 +20,7 @@ def load_cems_data(year):
         cems: pandas dataframe with hourly CEMS data
     """
     # specify the path to the CEMS data
-    cems_path = f"../data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
+    cems_path = f"{PATH_TO_LOCAL_REPO}data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
 
     # specify the columns to use from the CEMS database
     cems_columns = [
@@ -61,7 +64,6 @@ def load_cems_data(year):
 
     # fill any missing values for steam load with zero
     cems["steam_load_1000_lb"] = cems["steam_load_1000_lb"].fillna(0)
-
 
     # convert co2 mass in tons to lb
     cems["co2_mass_lb"] = cems["co2_mass_tons"] * 2000
@@ -142,7 +144,7 @@ def load_cems_gross_generation(start_year, end_year):
     for year in range(start_year, end_year + 1):
         print(f"    loading {year} CEMS data")
         # specify the path to the CEMS data
-        cems_path = f"../data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
+        cems_path = f"{PATH_TO_LOCAL_REPO}data/downloads/pudl/pudl_data/parquet/epacems/year={year}"
 
         # specify the columns to use from the CEMS database
         cems_columns = [
@@ -260,7 +262,7 @@ def load_pudl_table(table_name, year=None):
         table: pandas dataframe containing requested query
     """
     # specify the relative path to the sqllite database, and create an sqalchemy engine
-    pudl_db = "sqlite:///../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = f"sqlite:///{PATH_TO_LOCAL_REPO}data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
 
     if year is not None:
@@ -279,7 +281,7 @@ def load_ghg_emission_factors():
     """
 
     efs = pd.read_csv(
-        "../data/manual/emission_factors_for_co2_ch4_n2o.csv",
+        f"{PATH_TO_LOCAL_REPO}data/manual/emission_factors_for_co2_ch4_n2o.csv",
         dtype=get_dtypes(),
     )
 
@@ -295,7 +297,7 @@ def load_ghg_emission_factors():
 def load_nox_emission_factors():
     """Read in the NOx emission factors from eGRID Table C2."""
     emission_factors = pd.read_csv(
-        "../data/manual/emission_factors_for_nox.csv",
+        f"{PATH_TO_LOCAL_REPO}data/manual/emission_factors_for_nox.csv",
         dtype=get_dtypes(),
     )
 
@@ -315,7 +317,7 @@ def load_so2_emission_factors():
     reported in Table C3 as a formula like `123*S`.
     """
     df = pd.read_csv(
-        "../data/manual/emission_factors_for_so2.csv",
+        f"{PATH_TO_LOCAL_REPO}data/manual/emission_factors_for_so2.csv",
         dtype=get_dtypes(),
     )
 
@@ -341,7 +343,7 @@ def initialize_pudl_out(year=None):
 
     If `year` is set to `None`, all years of data are returned.
     """
-    pudl_db = "sqlite:///../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = f"sqlite:///{PATH_TO_LOCAL_REPO}data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
     pudl_engine = sa.create_engine(pudl_db)
 
     if year is None:
@@ -373,7 +375,7 @@ def load_epa_eia_crosswalk(year):
         dtype={'plant_id_epa': 'int32', 'plant_id_eia': 'int32'})"""
 
     crosswalk = pd.read_csv(
-        "../data/downloads/epa/epa_eia_crosswalk.csv",
+        f"{PATH_TO_LOCAL_REPO}data/downloads/epa/epa_eia_crosswalk.csv",
         usecols=[
             "CAMD_PLANT_ID",
             "EIA_PLANT_ID",
@@ -439,7 +441,7 @@ def load_epa_eia_crosswalk(year):
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
-        "../data/manual/epa_eia_crosswalk_manual.csv", dtype=get_dtypes()
+        f"{PATH_TO_LOCAL_REPO}data/manual/epa_eia_crosswalk_manual.csv", dtype=get_dtypes()
     ).drop(columns=["notes"])
 
     # load EIA-860 data
@@ -502,7 +504,7 @@ def load_gross_to_net_data(
         gtn_data: pandas dataframe containing revevant keys and conversion factors
     """
     gtn_data = pd.read_csv(
-        f"../data/outputs/gross_to_net/{level}_gross_to_net_{conversion_type}.csv",
+        f"{PATH_TO_LOCAL_REPO}data/outputs/gross_to_net/{level}_gross_to_net_{conversion_type}.csv",
         dtype=get_dtypes(),
     )
 
@@ -516,7 +518,7 @@ def load_gross_to_net_data(
     # if loading regression data, add a count of units in each subplant to the regression results
     if conversion_type == "regression":
         subplant_crosswalk = pd.read_csv(
-            f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
+            f"{PATH_TO_LOCAL_REPO}data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
         )
         subplant_crosswalk = subplant_crosswalk[
             ["plant_id_eia", "unitid", "subplant_id"]
@@ -549,7 +551,7 @@ def load_gross_to_net_data(
 
 def load_ipcc_gwp():
     """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
-    return pd.read_csv("../data/manual/ipcc_gwp.csv", dtype=get_dtypes())
+    return pd.read_csv(f"{PATH_TO_LOCAL_REPO}data/manual/ipcc_gwp.csv", dtype=get_dtypes())
 
 
 def load_raw_eia930_data(year, description):
@@ -557,12 +559,12 @@ def load_raw_eia930_data(year, description):
     eia_930 = pd.concat(
         [
             pd.read_csv(
-                f"../data/downloads/eia930/EIA930_{description}_{year}_Jan_Jun.csv",
+                f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/EIA930_{description}_{year}_Jan_Jun.csv",
                 thousands=",",
                 parse_dates=["UTC Time at End of Hour"],
             ),
             pd.read_csv(
-                f"../data/downloads/eia930/EIA930_{description}_{year}_Jul_Dec.csv",
+                f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/EIA930_{description}_{year}_Jul_Dec.csv",
                 thousands=",",
                 parse_dates=["UTC Time at End of Hour"],
             ),
@@ -591,7 +593,7 @@ def load_raw_eia930_data(year, description):
 
 def load_ba_reference():
     return pd.read_csv(
-        "../data/manual/ba_reference.csv",
+        f"{PATH_TO_LOCAL_REPO}data/manual/ba_reference.csv",
         dtype=get_dtypes(),
         parse_dates=["activation_date", "retirement_date"],
     )
@@ -640,7 +642,7 @@ def ba_timezone(ba, type):
     """
 
     tz = pd.read_csv(
-        "../data/manual/ba_reference.csv", usecols=["ba_code", f"timezone_{type}"]
+        f"{PATH_TO_LOCAL_REPO}data/manual/ba_reference.csv", usecols=["ba_code", f"timezone_{type}"]
     )
     tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"]
 
@@ -684,7 +686,7 @@ def load_emissions_controls_eia923(year):
 
     emissions_controls_eia923 = pd.read_excel(
         io=(
-            f"../data/downloads/eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            f"{PATH_TO_LOCAL_REPO}data/downloads/eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
         ),
         sheet_name="8C Air Emissions Control Info",
         header=4,
@@ -709,7 +711,7 @@ def load_boiler_nox_association_eia860(year):
     ]
 
     boiler_nox_association_eia860 = pd.read_excel(
-        io=(f"../data/downloads/eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
+        io=(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
         sheet_name="Boiler NOx",
         header=1,
         names=boiler_nox_association_eia860_names,
@@ -732,7 +734,7 @@ def load_boiler_so2_association_eia860(year):
     ]
 
     boiler_so2_association_eia860 = pd.read_excel(
-        io=(f"../data/downloads/eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
+        io=(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
         sheet_name="Boiler SO2",
         header=1,
         names=boiler_so2_association_eia860_names,
@@ -756,7 +758,7 @@ def load_boiler_design_parameters_eia860(year):
     ]
 
     boiler_design_parameters_eia860 = pd.read_excel(
-        io=(f"../data/downloads/eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx"),
+        io=(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx"),
         sheet_name="Boiler Info & Design Parameters",
         header=1,
         usecols="C,F,H,N:P,AE",
@@ -779,3 +781,7 @@ def load_boiler_design_parameters_eia860(year):
     )
 
     return boiler_design_parameters_eia860
+
+
+def test():
+    return Path.cwd()

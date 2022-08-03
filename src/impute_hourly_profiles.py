@@ -1,9 +1,8 @@
 import src.load_data as load_data
-import src.validation as validation
-import src.output_data as output_data
 from src.column_checks import apply_dtypes
 import pandas as pd
 import numpy as np
+from src.load_data import PATH_TO_LOCAL_REPO
 
 # specify the ba numbers with leading zeros
 FUEL_NUMBERS = {
@@ -833,7 +832,7 @@ def get_synthetic_plant_id_from_ba_fuel(df):
     """
 
     # load the ba reference table with all of the ba number ids
-    ba_numbers = pd.read_csv("../data/manual/ba_reference.csv")[
+    ba_numbers = pd.read_csv(f"{PATH_TO_LOCAL_REPO}data/manual/ba_reference.csv")[
         ["ba_code", "ba_number"]
     ]
     # reformat the number with leading zeros
