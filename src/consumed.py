@@ -12,32 +12,6 @@ from src.output_data import (
     TIME_RESOLUTIONS,
 )
 
-# Regions outside the US that are import-only.
-IMPORT_REGIONS = [
-    "IESO",
-    "HQT",
-    "AESO",
-    "NBSO",
-    "BCHA",
-    "MHEB",
-    # "CFE",
-]
-
-# Generation-only BAs. Included in matrix calc, but no file output
-GENERATION_ONLY_REGIONS = [
-    "AVRN",
-    "DEAA",
-    "GLHB",
-    "GRID",
-    "GRIF",
-    "GRMA",
-    "GWA",
-    "HGMA",
-    "SEPA",
-    "WWA",
-    "YAD",
-]
-
 # Defined in output_data, written to each BA file
 EMISSION_COLS = [
     "co2_mass_lb_for_electricity",
@@ -79,7 +53,7 @@ FUEL_TYPE_MAP = {
     "UNK": "total",
     "WAT": "hydro",
     "WND": "wind",
-    "GEO": "total",  # TODO double-check that geo is unused
+    "GEO": "total",
     "BIO": "biomass",
 }
 
@@ -236,6 +210,9 @@ class HourlyConsumed:
         # Emission factors for non-US bas
         self.default_factors = get_average_emission_factors()
 
+        # Look up lists of BAs with specific requirements
+        self.import_regions, self.generation_regions = self._get_special_regions()
+
         # Load generated rates, save to self.generated
         self.rates, self.generation = self._load_rates()
 
@@ -243,11 +220,19 @@ class HourlyConsumed:
         regions = set(self.eia930.regions)
         regions = regions.intersection(set(self.generation.columns))
         # Add back import-only regions
-        regions = regions.union(set(IMPORT_REGIONS))
+        regions = regions.union(set(self.import_regions))
         self.regions = list(regions)
 
         # Build result df
         self.results = self._build_results()
+
+    def _get_special_regions(self):
+        ba_ref = pd.read_csv("../data/manual/ba_reference.csv", index_col="ba_code")
+        generation_only = list(ba_ref[ba_ref.ba_category == "generation_only"].index)
+        import_only = [
+            b for b in ba_ref[ba_ref["us_ba"] == "No"].index if b in self.eia930.regions
+        ]
+        return import_only, generation_only
 
     def _build_results(self):
         # build result DF per output file
@@ -274,7 +259,7 @@ class HourlyConsumed:
         Here we output each df to a file in `carbon_accounting`
         """
         for ba in self.regions:
-            if (ba in IMPORT_REGIONS) or (ba in GENERATION_ONLY_REGIONS):
+            if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
             self.results[ba]["net_consumed_mwh"] = (
                 self.generation[ba] + self.eia930.df[KEYS["E"]["TI"] % ba]
@@ -354,7 +339,7 @@ class HourlyConsumed:
                 emissions = pd.DataFrame(rates[(adj, pol)])
 
                 # Add import regions to emissions DF
-                for ba in IMPORT_REGIONS:
+                for ba in self.import_regions:
                     gen_cols = [(src, KEYS["E"]["SRC_%s" % src] % ba) for src in SRC]
                     gen_cols = [
                         (src, col)
@@ -388,7 +373,7 @@ class HourlyConsumed:
         # Build generation array, using 930 for import-only regions
         G = np.zeros(len(self.regions))
         for (i, r) in enumerate(self.regions):
-            if r in IMPORT_REGIONS:
+            if r in self.import_regions:
                 G[i] = self.eia930.df.loc[date, KEYS["E"]["NG"] % r]
             else:
                 G[i] = self.generation.loc[date, r]
