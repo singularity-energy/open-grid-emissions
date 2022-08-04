@@ -369,6 +369,9 @@ def identify_percent_of_data_by_input_source(cems, partial_cems, eia_only_data, 
         hours_in_year = 8760
     source_of_input_data = []
     for name, df in data_sources.items():
+        if len(df) == 0:  # Empty df. May occur when running `small`
+            print(f"WARNING: data source {name} has zero entries")
+            continue
         if name == "eia":
             subplant_data = df.groupby(
                 ["plant_id_eia", "subplant_id"], dropna=False
