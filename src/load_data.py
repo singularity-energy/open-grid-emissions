@@ -8,6 +8,7 @@ import pudl.output.pudltabl
 
 from src.column_checks import get_dtypes
 
+# get the absolute filepath to the local github repo
 PATH_TO_LOCAL_REPO = str(Path.cwd()).replace("\\", "/").split("hourly-egrid/")[0] + "hourly-egrid/"
 
 

@@ -26,7 +26,12 @@ There are many ways that you can contribute!
 - `visualization`: functions for visualizing data in notebooks
 
 ### Notebooks
-- `data_validation` is for running validatation tests on data
+Notebooks are organized into five directories based on their purpose
+- `explore_data`: notebooks used for exploring data outputs and results
+- `explore_methods`: notebooks that can be used to explore specific methods step-by-step
+- `manual_data`: notebooks that are used to create/update certain files in `data/manual`
+- `validation`: notebooks related to validating results
+- `work_in_progress`: temporary notebooks being used for development purposes on specific branches
 
 ### Data Structure
 - `data/downloads` contains all files that are downloaded by functions in `load_data`
