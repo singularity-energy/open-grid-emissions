@@ -3,6 +3,7 @@ import numpy as np
 
 import src.load_data as load_data
 import src.column_checks as column_checks
+from src.load_data import PATH_TO_LOCAL_REPO
 
 GENERATED_EMISSION_RATE_COLS = [
     "generated_co2_rate_lb_per_mwh_for_electricity",
@@ -28,7 +29,7 @@ def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
     column_checks.check_columns(df, file_name)
     if not skip_outputs:
         print(f"    Exporting {file_name} to data/outputs")
-        df.to_csv(f"../data/outputs/{path_prefix}{file_name}_{year}.csv", index=False)
+        df.to_csv(f"{PATH_TO_LOCAL_REPO}data/outputs/{path_prefix}{file_name}_{year}.csv", index=False)
 
 
 def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
@@ -38,11 +39,11 @@ def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
         metric = convert_results(df)
 
         df.to_csv(
-            f"../data/results/{path_prefix}{subfolder}us_units/{file_name}.csv",
+            f"{PATH_TO_LOCAL_REPO}data/results/{path_prefix}{subfolder}us_units/{file_name}.csv",
             index=False,
         )
         metric.to_csv(
-            f"../data/results/{path_prefix}{subfolder}metric_units/{file_name}.csv",
+            f"{PATH_TO_LOCAL_REPO}data/results/{path_prefix}{subfolder}metric_units/{file_name}.csv",
             index=False,
         )
 
@@ -54,7 +55,7 @@ def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
         )
 
         df.to_csv(
-            f"../data/results/{path_prefix}data_quality_metrics/{file_name}.csv",
+            f"{PATH_TO_LOCAL_REPO}data/results/{path_prefix}data_quality_metrics/{file_name}.csv",
             index=False,
         )
 
@@ -221,7 +222,7 @@ def write_plant_metadata(
             [cems_meta, partial_cems_meta, shaped_eia_data_meta], axis=0
         )
 
-        metadata.to_csv(f"../data/results/{path_prefix}plant_data/plant_metadata.csv")
+        metadata.to_csv(f"{PATH_TO_LOCAL_REPO}data/results/{path_prefix}plant_data/plant_metadata.csv")
 
         # drop the metadata columns from each dataframe
         cems = cems.drop(columns=METADATA_COLUMNS)

@@ -4,6 +4,7 @@ import numpy as np
 import src.load_data as load_data
 import src.impute_hourly_profiles as impute_hourly_profiles
 from src.column_checks import get_dtypes
+from src.load_data import PATH_TO_LOCAL_REPO
 
 
 # DATA PIPELINE VALIDATION FUNCTIONS
@@ -751,7 +752,7 @@ def test_gtn_results(df):
 def load_egrid_plant_file(year):
     # load plant level data from egrid
     egrid_plant = pd.read_excel(
-        f"../data/downloads/egrid/egrid{year}_data.xlsx",
+        f"{PATH_TO_LOCAL_REPO}data/downloads/egrid/egrid{year}_data.xlsx",
         sheet_name=f"PLNT{str(year)[-2:]}",
         header=1,
         usecols=[
@@ -869,7 +870,7 @@ def load_egrid_plant_file(year):
 def load_egrid_ba_file(year):
     # load egrid BA totals
     egrid_ba = pd.read_excel(
-        f"../data/downloads/egrid/egrid{year}_data.xlsx",
+        f"{PATH_TO_LOCAL_REPO}data/downloads/egrid/egrid{year}_data.xlsx",
         sheet_name=f"BA{str(year)[-2:]}",
         header=1,
         usecols=["BANAME", "BACODE", "BAHTIANT", "BANGENAN", "BACO2AN"],
@@ -895,7 +896,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        "../data/manual/eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv",
+        f"{PATH_TO_LOCAL_REPO}data/manual/eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv",
         dtype=get_dtypes(),
     )
     id_map = dict(
@@ -1322,7 +1323,7 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
 
     # add egrid plant ids
     egrid_crosswalk = pd.read_csv(
-        "../data/manual/egrid_static_tables/table_C5_crosswalk_of_EIA_ID_to_EPA_ID.csv"
+        f"{PATH_TO_LOCAL_REPO}data/manual/eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"
     )
     eia_to_egrid_id = dict(
         zip(
