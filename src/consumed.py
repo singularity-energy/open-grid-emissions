@@ -100,7 +100,7 @@ def get_average_emission_factors(prefix: str = "2020/", year: int = 2020):
     """
     Locate per-fuel, per-adjustment, per-poll emission factors.
     Used to fill in emissions from BAs outside of US, where we have generation by
-    fuel (from gridemissions) but no hourly-egrid data
+    fuel (from gridemissions) but no open-grid-emissions data
 
     Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """

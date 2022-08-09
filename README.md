@@ -70,12 +70,12 @@ Then you will need set up git following these instructions: https://docs.github.
 Using Anaconda command prompt or Git Bash, use the `cd` and `mkdir` commands to create and/or enter the directory where you would like to download the code (e.g. "Users/myusername/GitHub"). Then run:
 
 ```
-git clone https://github.com/singularity-energy/hourly-egrid.git
+git clone https://github.com/singularity-energy/open-grid-emissions.git
 ```
 
 ### Setup the conda environment
 
-Open anaconda prompt, use `cd` to navigate to the directory where your local files are stored (e.g. "GitHub/hourly-egrid"), and then run:
+Open anaconda prompt, use `cd` to navigate to the directory where your local files are stored (e.g. "GitHub/open-grid-emissions"), and then run:
 
 ```
 conda update conda
@@ -93,7 +93,7 @@ try setting your channel priority to flexible by running the following command:
 If you would like to run the full data pipeline to generate all intermediate outputs and results files, open anaconda prompt, navigate to the directory where the repository is saved, and run the following (replacing 2020 with whichever year you want to run):
 
 ```
-conda activate hourly_egrid
+conda activate open_grid_emissions
 python src/data_pipeline.py --year 2020
 ```
 
@@ -103,7 +103,7 @@ From time to time, the code will be updated on GitHub. To ensure that you are ke
 ```
 # change the directory to where ever your local git repository is saved
 # after hitting enter, it should show the name of the git branch (e.g. "(master)")
-cd GitHub/hourly-egrid  
+cd GitHub/open-grid-emissions  
 
 # save any changes that you might have made locally to your copy of the code
 git add .
@@ -116,11 +116,11 @@ git pull origin master
 
 If you plan on contributing edits to the codebase that will be merged into the master branch, please follow these best practices:
 
-1. Please do not make edits directly to the master branch. Any new features or edits should be completed in a new branch. To do so, open git bash, navigate to your local repo (e.g. `cd GitHub/hourly-egrid`), and create a new branch, giving it a descriptive name related to the edit you will be doing:
+1. Please do not make edits directly to the master branch. Any new features or edits should be completed in a new branch. To do so, open git bash, navigate to your local repo (e.g. `cd GitHub/open-grid-emissions`), and create a new branch, giving it a descriptive name related to the edit you will be doing:
 
 	`git checkout -b branch_name`
 
-2. As you code, it is a good practice to 'save' your work frequently by opening git bash, navigating to your local repo (`cd GitHub/hourly-egrid`), making sure that your current feature branch is active (you should see the feature name in parentheses next to the command line), and running 
+2. As you code, it is a good practice to 'save' your work frequently by opening git bash, navigating to your local repo (`cd GitHub/open-grid-emissions`), making sure that your current feature branch is active (you should see the feature name in parentheses next to the command line), and running 
 	
 	`git add .`
 
