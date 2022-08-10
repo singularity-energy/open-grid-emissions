@@ -1,4 +1,4 @@
-name: hourly_egrid
+name: open_grid_emissions
 channels:
   - defaults
   - conda-forge

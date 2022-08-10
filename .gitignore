@@ -3,7 +3,6 @@ data/*
 !data/egrid/*
 !data/egrid/
 data/egrid/*
-!data/manual/egrid_static_tables
 
 !data/manual/
 

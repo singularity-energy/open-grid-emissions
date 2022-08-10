@@ -6,23 +6,25 @@ from src.column_checks import get_dtypes
 import os
 from os.path import join
 
+from src.load_data import PATH_TO_LOCAL_REPO
+
 # Tell gridemissions where to find config before we load gridemissions
-os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = "../config/gridemissions.json"
+os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = f"{PATH_TO_LOCAL_REPO}config/gridemissions.json"
 
 from gridemissions.workflows import make_dataset
 
 
 def balance_to_gridemissions(year: int, small: bool = False):
     files = [
-        "../data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
-        "../data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv",
-        "../data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
+        PATH_TO_LOCAL_REPO + "data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
+        PATH_TO_LOCAL_REPO + "data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv",
+        PATH_TO_LOCAL_REPO + "data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
     ]
 
     years = [year - 1, year, year]
 
     if small:
-        files = ["../data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv"]
+        files = [PATH_TO_LOCAL_REPO + "data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv"]
         years = [year]
 
     name_map = {
@@ -124,7 +126,7 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
 
     """
 
-    data_folder = f"../data/outputs/{path_prefix}/eia930/"
+    data_folder = f"{PATH_TO_LOCAL_REPO}data/outputs/{path_prefix}/eia930/"
 
     # Format raw file
     df = balance_to_gridemissions(year, small=small)
@@ -139,14 +141,14 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
         df = df.loc[start:end]  # Don't worry about processing everything
 
     # Adjust
-    print("   Adjusting EIA-930 time stamps")
+    print("    Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
     df.to_csv(
         join(data_folder, "eia930_raw.csv")
     )  # Will be read by gridemissions workflow
 
     # Run cleaning
-    print("   Running physics-based data cleaning")
+    print("    Running physics-based data cleaning")
     make_dataset(
         start,
         end,
@@ -320,6 +322,7 @@ def remove_months_with_zero_data(eia930_data):
         how="outer",
         on=["ba_code", "fuel_category_eia930", "report_date"],
         indicator="zero_filter",
+        validate="m:1",
     )
     eia930_data = eia930_data[eia930_data["zero_filter"] == "left_only"].drop(
         columns="zero_filter"
