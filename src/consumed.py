@@ -290,6 +290,9 @@ class HourlyConsumed:
             * Consumed elec is calculated from 930 total interchange + our gen estimate
             * Consumed carbon is calculated as consumed elec * consumed CI
         Here we output each df to a file in `carbon_accounting`
+
+        Note that we are calculating consumed carbon and MWh so can aggregate correctly,
+        but we are dropping from final outputs for simplicity.
         """
         for ba in self.regions:
             if (ba in self.import_regions) or (ba in self.generation_regions):
@@ -318,7 +321,10 @@ class HourlyConsumed:
                 )
                 time_dat = time_dat.reset_index()  # move datetime_utc to column
 
-                if time_resolution == "monthly":
+                if time_resolution == "hourly":
+                    # No resampling needed; keep timestamp cols in output
+                    time_cols = ["datetime_utc", "datetime_local"]
+                elif time_resolution == "monthly":
                     time_dat["month"] = time_dat.datetime_local.dt.month
                     time_dat = time_dat[time_dat.datetime_local.dt.year == self.year]
                     # Aggregate to appropriate resolution
@@ -327,6 +333,7 @@ class HourlyConsumed:
                         .sum()[EMISSION_COLS + ["net_consumed_mwh"]]
                         .reset_index()  # move "month" to column
                     )
+                    time_cols = ["month"]
                 elif time_resolution == "annual":
                     time_dat["year"] = time_dat.datetime_local.dt.year
                     # Aggregate to appropriate resolution
@@ -335,6 +342,7 @@ class HourlyConsumed:
                         .sum()[EMISSION_COLS + ["net_consumed_mwh"]]
                         .reset_index()  # move "year" to column
                     )
+                    time_cols = ["year"]
 
                 # Calculate rates from summed emissions, consumption
                 for pol in POLLUTANTS:
@@ -347,7 +355,7 @@ class HourlyConsumed:
 
                 # Output
                 output_to_results(
-                    time_dat,
+                    time_dat[time_cols + CONSUMED_EMISSION_RATE_COLS],
                     ba,
                     f"/carbon_accounting/{time_resolution}/",
                     self.prefix,
