@@ -5,6 +5,7 @@ import numpy as np
 import src.load_data as load_data
 import src.validation as validation
 from src.column_checks import get_dtypes
+from src.load_data import PATH_TO_LOCAL_REPO
 
 from pudl.analysis.allocate_net_gen import distribute_annually_reported_data_to_months
 
@@ -122,7 +123,7 @@ def calculate_geothermal_emission_factors(year):
     """
     # load geothermal efs
     geothermal_efs = pd.read_csv(
-        "../data/manual/geothermal_emission_factors.csv",
+        f"{PATH_TO_LOCAL_REPO}data/manual/geothermal_emission_factors.csv",
         dtype=get_dtypes(),
     ).loc[
         :, ["geotype_code", "co2_lb_per_mmbtu", "nox_lb_per_mmbtu", "so2_lb_per_mmbtu"]

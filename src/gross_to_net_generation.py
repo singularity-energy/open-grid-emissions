@@ -14,6 +14,7 @@ import src.load_data as load_data
 import src.data_cleaning as data_cleaning
 import src.validation as validation
 from src.column_checks import get_dtypes
+from src.load_data import PATH_TO_LOCAL_REPO
 
 
 def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, year):
@@ -375,7 +376,7 @@ def calculate_subplant_nameplate_capacity(year):
     ]
 
     subplant_crosswalk = pd.read_csv(
-        f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
+        f"{PATH_TO_LOCAL_REPO}data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
     )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
     gen_capacity = gen_capacity.merge(
         subplant_crosswalk,
@@ -522,11 +523,11 @@ def gross_to_net_regression(combined_gen_data, agg_level):
             index=gtn_regression.index,
             columns=["slope", "intercept", "rsquared", "rsquared_adj", "observations"],
         ).reset_index()
-    """if not os.path.exists("../data/outputs/gross_to_net"):
-        os.mkdir("../data/outputs/gross_to_net")
+    """if not os.path.exists(f"{PATH_TO_LOCAL_REPO}data/outputs/gross_to_net"):
+        os.mkdir(f"{PATH_TO_LOCAL_REPO}data/outputs/gross_to_net")
 
     gtn_regression.to_csv(
-        f"../data/outputs/gross_to_net/{agg_level}_gross_to_net_regression.csv",
+        f"{PATH_TO_LOCAL_REPO}data/outputs/gross_to_net/{agg_level}_gross_to_net_regression.csv",
         index=False,
     )"""
 
@@ -746,7 +747,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     # load the activation and retirement dates into the data
     subplant_crosswalk = pd.read_csv(
-        f"../data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
+        f"{PATH_TO_LOCAL_REPO}data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
     )
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,
@@ -789,9 +790,9 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     gtn_ratio = gtn_ratio[groupby_columns + ["gtn_ratio"]]
 
-    if not os.path.exists("../data/outputs/gross_to_net"):
-        os.mkdir("../data/outputs/gross_to_net")
+    if not os.path.exists(f"{PATH_TO_LOCAL_REPO}data/outputs/gross_to_net"):
+        os.mkdir(f"{PATH_TO_LOCAL_REPO}data/outputs/gross_to_net")
 
     gtn_ratio.to_csv(
-        f"../data/outputs/gross_to_net/{agg_level}_gross_to_net_ratio.csv", index=False
+        f"{PATH_TO_LOCAL_REPO}data/outputs/gross_to_net/{agg_level}_gross_to_net_ratio.csv", index=False
     )

@@ -1,9 +1,9 @@
 import src.load_data as load_data
-import src.validation as validation
-import src.output_data as output_data
 from src.column_checks import apply_dtypes
+import src.output_data as output_data
 import pandas as pd
 import numpy as np
+from src.load_data import PATH_TO_LOCAL_REPO
 
 # specify the ba numbers with leading zeros
 FUEL_NUMBERS = {
@@ -61,6 +61,7 @@ def calculate_hourly_profiles(
     year: int,
     transmission_only=False,
     ba_column_name="ba_code",
+    use_flat: bool = False,
 ):
     residual_profiles = calculate_residual(
         cems,
@@ -99,6 +100,11 @@ def calculate_hourly_profiles(
 
     # add a flat profile for negative generation
     hourly_profiles["flat_profile"] = 1.0
+
+    # use flat profile?
+    if use_flat:
+        hourly_profiles["profile"] = hourly_profiles["flat_profile"]
+        hourly_profiles["profile_method"] = "flat_profile"
 
     print("Summary of methods used to estimate missing hourly profiles:")
     print(
@@ -833,7 +839,7 @@ def get_synthetic_plant_id_from_ba_fuel(df):
     """
 
     # load the ba reference table with all of the ba number ids
-    ba_numbers = pd.read_csv("../data/manual/ba_reference.csv")[
+    ba_numbers = pd.read_csv(f"{PATH_TO_LOCAL_REPO}data/manual/ba_reference.csv")[
         ["ba_code", "ba_number"]
     ]
     # reformat the number with leading zeros

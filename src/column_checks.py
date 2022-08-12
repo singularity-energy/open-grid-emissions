@@ -275,6 +275,13 @@ COLUMNS = {
         "plant_regression_ratio",
         "plant_regression_shift_mw",
     },
+    "synthetic_aggregated_plants_": {
+        "plant_id_eia",
+        "report_date",
+        "fuel_category",
+        "ba_code",
+        "aggregated_plants",
+    },
 }
 
 

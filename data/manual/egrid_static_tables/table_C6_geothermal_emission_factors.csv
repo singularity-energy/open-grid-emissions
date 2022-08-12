@@ -1,4 +1,0 @@
-geotype_code,geotype_description,nox_lb_per_mwh,co2_lb_per_mwh,so2_lb_per_mwh,nox_lb_per_mmbtu,so2_lb_per_mmbtu,co2_lb_per_mmbtu
-B,Binary,0,0,0,0,0,0
-F,Flash,0,60,0.35,0,0.102579132,17.58499414
-S,Steam,0.00104,88.8,0.000215,3.05E-04,6.30E-05,26.02579132
