@@ -336,6 +336,7 @@ class HourlyConsumed:
                     time_cols = ["month"]
                 elif time_resolution == "annual":
                     time_dat["year"] = time_dat.datetime_local.dt.year
+                    time_dat = time_dat[time_dat.datetime_local.dt.year == self.year]
                     # Aggregate to appropriate resolution
                     time_dat = (
                         time_dat.groupby("year")
