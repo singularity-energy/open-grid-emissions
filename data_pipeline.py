@@ -95,6 +95,11 @@ import argparse
 import os
 
 # import local modules
+# import local modules
+# # # Tell python where to look for modules.
+# import sys
+
+# sys.path.append(".")
 import src.download_data as download_data
 import src.data_cleaning as data_cleaning
 import src.emissions as emissions
