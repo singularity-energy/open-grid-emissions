@@ -228,10 +228,42 @@ class HourlyConsumed:
         self.results = self._build_results()
 
     def _get_special_regions(self):
-        ba_ref = pd.read_csv(f"{PATH_TO_LOCAL_REPO}data/manual/ba_reference.csv", index_col="ba_code")
-        generation_only = list(ba_ref[ba_ref.ba_category == "generation_only"].index)
+        """
+        Get import only regions:
+            Get regions that interchange with US regions but whose generation and emissions
+            we need to fill from EIA-930
+        And generation only regions:
+            We won't export files for these
+        """
+        self.ba_ref = pd.read_csv(
+            f"{PATH_TO_LOCAL_REPO}data/manual/ba_reference.csv", index_col="ba_code"
+        )
+        generation_only = list(
+            self.ba_ref[self.ba_ref.ba_category == "generation_only"].index
+        )
+
+        # # Check each generation-only BA to ensure that there's generation data in this year (slow)
+        # ok_gen = np.full(len(generation_only), True)
+        # for (i, ba) in enumerate(generation_only):
+        #     # Check for non-nan net gen
+        #     col = KEYS["E"]["NG"] % ba
+        #     if col not in self.eia930.df.columns:
+        #         ok_gen[i] = False  # we don't have gen data
+        #         continue
+        #     y_idx = self.eia930.df.index.year == self.year
+        #     bad = pd.isnull(self.eia930.df.loc[y_idx, col])
+        #     if sum(bad) / len(bad) > 0.9:
+        #         print(
+        #             f"Dropping import-only BA {ba} because it is missing most of its values."
+        #         )
+        #         ok_gen[i] = False
+        # generation_only = list(np.array(generation_only)[ok_gen])
+
+        # Get import-only regions
         import_only = [
-            b for b in ba_ref[ba_ref["us_ba"] == "No"].index if b in self.eia930.regions
+            b
+            for b in self.ba_ref[self.ba_ref["us_ba"] == "No"].index
+            if b in self.eia930.regions
         ]
         return import_only, generation_only
 
@@ -279,17 +311,30 @@ class HourlyConsumed:
             for time_resolution in TIME_RESOLUTIONS:
                 time_dat = self.results[ba].copy(deep=True)
 
-                # Aggregate to appropriate resolution
-                time_dat = (
-                    time_dat.reset_index()  # move datetime from index to column
-                    .resample(
-                        TIME_RESOLUTIONS[time_resolution],
-                        closed="left",
-                        label="left",
-                        on="datetime_utc",
-                    )
-                    .sum()[EMISSION_COLS + ["net_consumed_mwh"]]
+                # Get local timezone
+                assert not pd.isnull(self.ba_ref.loc[ba, "timezone_local"])
+                time_dat["datetime_local"] = time_dat.index.tz_convert(
+                    self.ba_ref.loc[ba, "timezone_local"]
                 )
+                time_dat = time_dat.reset_index()  # move datetime_utc to column
+
+                if time_resolution == "monthly":
+                    time_dat["month"] = time_dat.datetime_local.dt.month
+                    time_dat = time_dat[time_dat.datetime_local.dt.year == self.year]
+                    # Aggregate to appropriate resolution
+                    time_dat = (
+                        time_dat.groupby("month")
+                        .sum()[EMISSION_COLS + ["net_consumed_mwh"]]
+                        .reset_index()  # move "month" to column
+                    )
+                elif time_resolution == "annual":
+                    time_dat["year"] = time_dat.datetime_local.dt.year
+                    # Aggregate to appropriate resolution
+                    time_dat = (
+                        time_dat.groupby("year")
+                        .sum()[EMISSION_COLS + ["net_consumed_mwh"]]
+                        .reset_index()  # move "year" to column
+                    )
 
                 # Calculate rates from summed emissions, consumption
                 for pol in POLLUTANTS:
@@ -320,7 +365,8 @@ class HourlyConsumed:
             if ".DS_Store" in f:
                 continue
             this_ba = pd.read_csv(
-                f"{PATH_TO_LOCAL_REPO}data/results/{self.prefix}/power_sector_data/hourly/us_units/" + f,
+                f"{PATH_TO_LOCAL_REPO}data/results/{self.prefix}/power_sector_data/hourly/us_units/"
+                + f,
                 index_col="datetime_utc",
                 parse_dates=True,
             )
@@ -386,7 +432,7 @@ class HourlyConsumed:
         ID[:, to_fix] = 0
         ID[to_fix, :] = 0
 
-        return E, G, ID
+        return np.nan_to_num(E), np.nan_to_num(G), np.nan_to_num(ID)
 
     def run(self):
         for pol in POLLUTANTS:
@@ -412,8 +458,10 @@ class HourlyConsumed:
                         # Run
                         try:
                             consumed_emissions, _ = consumption_emissions(E, G, ID)
-                        except np.LinAlgError:
-                            print(f"Warning: singular matrix on {date}")
+                        except np.linalg.LinAlgError:
+                            # These issues happen at boundary hours (beginning and end of year)
+                            # where we don't have full data for all BAs
+                            # print(f"Warning: singular matrix on {date}")
                             consumed_emissions = np.full(len(self.regions), np.nan)
 
                     # Export
