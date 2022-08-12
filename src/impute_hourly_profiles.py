@@ -1,5 +1,6 @@
 import src.load_data as load_data
 from src.column_checks import apply_dtypes
+import src.output_data as output_data
 import pandas as pd
 import numpy as np
 from src.load_data import PATH_TO_LOCAL_REPO
@@ -60,6 +61,7 @@ def calculate_hourly_profiles(
     year: int,
     transmission_only=False,
     ba_column_name="ba_code",
+    use_flat: bool = False,
 ):
     residual_profiles = calculate_residual(
         cems,
@@ -98,6 +100,11 @@ def calculate_hourly_profiles(
 
     # add a flat profile for negative generation
     hourly_profiles["flat_profile"] = 1.0
+
+    # use flat profile?
+    if use_flat:
+        hourly_profiles["profile"] = hourly_profiles["flat_profile"]
+        hourly_profiles["profile_method"] = "flat_profile"
 
     print("Summary of methods used to estimate missing hourly profiles:")
     print(
