@@ -2,10 +2,10 @@ import pandas as pd
 import numpy as np
 
 
-import src.load_data as load_data
-import src.validation as validation
-from src.column_checks import get_dtypes
-from src.load_data import PATH_TO_LOCAL_REPO
+import load_data
+import validation
+from column_checks import get_dtypes
+from filepaths import *
 
 from pudl.analysis.allocate_net_gen import distribute_annually_reported_data_to_months
 
@@ -36,7 +36,7 @@ def calculate_ghg_emissions_from_fuel_consumption(
     ]
 
     # add emission factor to  df
-    df = df.merge(emission_factors, how="left", on="energy_source_code")
+    df = df.merge(emission_factors, how="left", on="energy_source_code", validate="m:1")
 
     # if there are any geothermal units, load the geothermal EFs
     if df["energy_source_code"].str.contains("GEO").any():
@@ -85,6 +85,7 @@ def add_geothermal_emission_factors(
             geothermal_efs.drop(columns=["plant_frac"]),
             how="left",
             on=["plant_id_eia", "generator_id"],
+            validate="m:1",
         )
     # otherwise, aggregate EF to plant level and merge
     else:
@@ -98,7 +99,7 @@ def add_geothermal_emission_factors(
             geothermal_efs.groupby("plant_id_eia", dropna=False).sum().reset_index()
         ).drop(columns=["plant_frac"])
         # add geothermal emission factor to df
-        df = df.merge(geothermal_efs, how="left", on=["plant_id_eia"])
+        df = df.merge(geothermal_efs, how="left", on=["plant_id_eia"], validate="m:1")
 
     # update missing efs using the geothermal efs if available
     for e in emissions_to_calc:
@@ -123,7 +124,7 @@ def calculate_geothermal_emission_factors(year):
     """
     # load geothermal efs
     geothermal_efs = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/manual/geothermal_emission_factors.csv",
+        f"{manual_folder()}geothermal_emission_factors.csv",
         dtype=get_dtypes(),
     ).loc[
         :, ["geotype_code", "co2_lb_per_mmbtu", "nox_lb_per_mmbtu", "so2_lb_per_mmbtu"]
@@ -132,7 +133,9 @@ def calculate_geothermal_emission_factors(year):
     geothermal_geotypes = identify_geothermal_generator_geotype(year)
 
     # merge in the emission factor
-    geo_efs = geothermal_geotypes.merge(geothermal_efs, how="left", on="geotype_code")
+    geo_efs = geothermal_geotypes.merge(
+        geothermal_efs, how="left", on="geotype_code", validate="m:1"
+    )
 
     return geo_efs
 
@@ -187,7 +190,7 @@ def identify_geothermal_generator_geotype(year):
         .rename(columns={"pf_adjusted_capacity": "plant_capacity_total"})
     )
     geothermal_geotype = geothermal_geotype.merge(
-        total_plant_capacity, how="left", on="plant_id_eia"
+        total_plant_capacity, how="left", on="plant_id_eia", validate="m:1"
     )
     # calculate the fraction
     geothermal_geotype["plant_frac"] = (
@@ -912,6 +915,7 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
         ],
         how="left",
         on=["plant_id_eia", "nox_control_id"],
+        validate="m:m",
     )
 
     # if there are any missing boiler_ids, fill using the nox_control_id, which is likely to match a boiler
@@ -924,6 +928,7 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
             boiler_generator_assn[["plant_id_eia", "boiler_id", "generator_id"]],
             how="left",
             on=["plant_id_eia", "boiler_id"],
+            validate="m:m",
         )
     elif aggregation_level == "unitid":
         epa_eia_crosswalk = load_data.load_epa_eia_crosswalk(year)
@@ -935,6 +940,7 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
             boiler_to_unit_crosswalk,
             how="left",
             on=["plant_id_eia", "boiler_id"],
+            validate="m:m",
         )
 
     # calculate a weighted average for each boiler or generator
@@ -1127,6 +1133,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
         boiler_generator_assn[["plant_id_eia", "boiler_id", "generator_id"]],
         how="left",
         on=["plant_id_eia", "boiler_id"],
+        validate="1:m",
     )
 
     # merge the gen keys with the boiler firing types
@@ -1464,6 +1471,7 @@ def calculate_weighted_so2_control_efficiency(
             boiler_generator_assn[["plant_id_eia", "boiler_id", "generator_id"]],
             how="left",
             on=["plant_id_eia", "boiler_id"],
+            validate="m:m",
         )
 
     # calculate a weighted average for each boiler or generator
@@ -1578,7 +1586,7 @@ def fill_cems_missing_co2(cems, year):
 
     # merge in the emission factor
     missing_gf = missing_gf.reset_index().merge(
-        emission_factors, how="left", on="energy_source_code"
+        emission_factors, how="left", on="energy_source_code", validate="m:1"
     )
 
     # calculate weighted emission factor
@@ -1597,7 +1605,7 @@ def fill_cems_missing_co2(cems, year):
 
     # merge the weighted ef into the missing data
     missing_co2 = missing_co2.merge(
-        missing_gf, how="left", on=["plant_id_eia", "report_date"]
+        missing_gf, how="left", on=["plant_id_eia", "report_date"], validate="m:1"
     ).set_index(missing_index)
 
     # calculate missing co2 data

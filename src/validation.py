@@ -1,10 +1,10 @@
 import pandas as pd
 import numpy as np
 
-import src.load_data as load_data
-import src.impute_hourly_profiles as impute_hourly_profiles
-from src.column_checks import get_dtypes
-from src.load_data import PATH_TO_LOCAL_REPO
+import load_data
+import impute_hourly_profiles
+from column_checks import get_dtypes
+from filepaths import *
 
 
 # DATA PIPELINE VALIDATION FUNCTIONS
@@ -136,6 +136,7 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
         how="inner",
         on=["plant_id_eia", "subplant_id", "report_date"],
         suffixes=("_eia", "_calc"),
+        validate="1:1",
     )
 
     validated_ng = validated_ng.groupby("plant_id_eia").sum()[
@@ -242,12 +243,16 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
     partial_cems_data["in_partial_cems"] = 1
 
     data_overlap = eia_only_data.merge(
-        cems_data, how="outer", on=["plant_id_eia", "subplant_id", "report_date"]
+        cems_data,
+        how="outer",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        validate="1:1",
     )
     data_overlap = data_overlap.merge(
         partial_cems_data,
         how="outer",
         on=["plant_id_eia", "subplant_id", "report_date"],
+        validate="1:1",
     )
     data_overlap[["in_eia", "in_cems", "in_partial_cems"]] = data_overlap[
         ["in_eia", "in_cems", "in_partial_cems"]
@@ -445,6 +450,10 @@ def validate_diba_imputation_method(hourly_profiles, year):
         ["ba_code", "fuel_category", "report_date"]
     ].drop_duplicates()
 
+    profiles_to_impute = profiles_to_impute[
+        profiles_to_impute["report_date"].dt.year == 2020
+    ]
+
     dibas = load_data.load_diba_data(year)
 
     # create an hourly datetime series in local time for each ba/fuel type
@@ -471,11 +480,11 @@ def validate_diba_imputation_method(hourly_profiles, year):
                 df_temporary = impute_hourly_profiles.average_diba_wind_solar_profiles(
                     data_to_validate, ba, fuel, report_date, ba_dibas, True
                 )
+
+                hourly_profiles_to_add.append(df_temporary)
             # if there are no neighboring DIBAs, calculate a national average profile
             else:
                 pass
-
-        hourly_profiles_to_add.append(df_temporary)
 
     hourly_profiles_to_add = pd.concat(
         hourly_profiles_to_add, axis=0, ignore_index=True
@@ -492,6 +501,7 @@ def validate_diba_imputation_method(hourly_profiles, year):
             "report_date",
             "ba_code",
         ],
+        validate="1:1",
     )
 
     compare_method = (
@@ -563,6 +573,7 @@ def validate_national_imputation_method(hourly_profiles):
         hourly_profiles_to_add,
         how="left",
         on=["fuel_category", "datetime_utc", "report_date", "ba_code"],
+        validate="1:1",
     )
 
     compare_method = (
@@ -636,6 +647,7 @@ def test_for_missing_incorrect_prime_movers(df, year):
         how="left",
         on=["plant_id_eia", "generator_id"],
         suffixes=("_allocated", "_eia860"),
+        validate="m:1",
     )
     incorrect_pm_test = incorrect_pm_test[
         incorrect_pm_test["prime_mover_code_allocated"]
@@ -752,7 +764,7 @@ def test_gtn_results(df):
 def load_egrid_plant_file(year):
     # load plant level data from egrid
     egrid_plant = pd.read_excel(
-        f"{PATH_TO_LOCAL_REPO}data/downloads/egrid/egrid{year}_data.xlsx",
+        f"{downloads_folder()}egrid/egrid{year}_data.xlsx",
         sheet_name=f"PLNT{str(year)[-2:]}",
         header=1,
         usecols=[
@@ -870,7 +882,7 @@ def load_egrid_plant_file(year):
 def load_egrid_ba_file(year):
     # load egrid BA totals
     egrid_ba = pd.read_excel(
-        f"{PATH_TO_LOCAL_REPO}data/downloads/egrid/egrid{year}_data.xlsx",
+        f"{downloads_folder()}egrid/egrid{year}_data.xlsx",
         sheet_name=f"BA{str(year)[-2:]}",
         header=1,
         usecols=["BANAME", "BACODE", "BAHTIANT", "BANGENAN", "BACO2AN"],
@@ -896,7 +908,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/manual/eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv",
+        f"{manual_folder()}eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv",
         dtype=get_dtypes(),
     )
     id_map = dict(
@@ -957,6 +969,7 @@ def compare_plant_level_results_to_egrid(
             how="left",
             left_index=True,
             right_on="plant_id_egrid",
+            validate="1:1",
         )
         .set_index("plant_id_egrid")
     )
@@ -964,7 +977,11 @@ def compare_plant_level_results_to_egrid(
 
     # create a dataframe that merges the two sources of data together
     compared_merged = calculated_to_compare.merge(
-        egrid_to_compare, how="left", on="plant_id_egrid", suffixes=("_calc", "_egrid")
+        egrid_to_compare,
+        how="left",
+        on="plant_id_egrid",
+        suffixes=("_calc", "_egrid"),
+        validate="1:1",
     )
 
     # for each column, change missing values to zero if both values are zero (only nan b/c divide by zero)
@@ -1143,6 +1160,7 @@ def identify_plants_missing_from_our_calculations(
         ].drop_duplicates(),
         how="left",
         on="plant_id_eia",
+        validate="m:1",
     )
 
     return missing_from_calc, PLANTS_MISSING_FROM_CALCULATION
@@ -1160,7 +1178,7 @@ def identify_plants_missing_from_egrid(egrid_plant, annual_plant_results):
     ]
     missing_from_egrid = annual_plant_results[
         annual_plant_results["plant_id_egrid"].isin(PLANTS_MISSING_FROM_EGRID)
-    ].merge(plant_names, how="left", on="plant_id_eia")
+    ].merge(plant_names, how="left", on="plant_id_eia", validate="m:1")
 
     return missing_from_egrid, PLANTS_MISSING_FROM_EGRID
 
@@ -1291,6 +1309,7 @@ def compare_egrid_fuel_total(plant_data, egrid_plant_df):
         left_index=True,
         right_index=True,
         suffixes=("_calc", "_egrid"),
+        validate="1:1",
     )
     compare_fuel["difference_fuel"] = (
         compare_fuel["fuel_consumed_mmbtu_egrid"]
@@ -1323,7 +1342,7 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
 
     # add egrid plant ids
     egrid_crosswalk = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/manual/eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"
+        f"{manual_folder()}eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"
     )
     eia_to_egrid_id = dict(
         zip(
@@ -1351,6 +1370,7 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
             on="plant_id_egrid",
             suffixes=("_egrid", "_eia923"),
             indicator="source",
+            validate="1:1",
         )
         .round(0)
     )
@@ -1385,7 +1405,7 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
 
     # merge cems data into egrid
     egrid_eia_comparison = egrid_eia_comparison.merge(
-        cems_total, how="outer", on="plant_id_egrid"
+        cems_total, how="outer", on="plant_id_egrid", validate="1:1"
     )
 
     return egrid_eia_comparison
