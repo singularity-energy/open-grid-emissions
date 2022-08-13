@@ -471,7 +471,8 @@ def main():
         skip_outputs=args.skip_outputs,
     )
     hourly_consumed_calc.run()
-    hourly_consumed_calc.output_results()
+    if not args.skip_outputs:
+        hourly_consumed_calc.output_results()
 
 
 if __name__ == "__main__":
