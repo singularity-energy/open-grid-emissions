@@ -116,6 +116,7 @@ def calculate_hourly_profiles(
         .pivot_table(index="fuel_category", columns="profile_method", aggfunc="count")
         .fillna(0)
         .astype(int)
+        .droplevel(level=0, axis=1)
     )
     # re-order columns
     summary_table = summary_table.loc[
