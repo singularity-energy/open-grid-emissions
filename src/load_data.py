@@ -169,6 +169,7 @@ def load_cems_gross_generation(start_year, end_year):
             columns={
                 "plant_id_eia": "plant_id_epa",
                 "operating_datetime_utc": "datetime_utc",
+                "gross_load_mw": "gross_generation_mwh",
             }
         )
 
