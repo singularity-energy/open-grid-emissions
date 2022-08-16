@@ -97,19 +97,16 @@ import os
 # import local modules
 # import local modules
 # # # Tell python where to look for modules.
-# import sys
-
-# sys.path.append(".")
-import src.download_data as download_data
-import src.data_cleaning as data_cleaning
-import src.emissions as emissions
-import src.gross_to_net_generation as gross_to_net_generation
-import src.impute_hourly_profiles as impute_hourly_profiles
-import src.eia930 as eia930
-import src.validation as validation
-import src.output_data as output_data
-import src.consumed as consumed
-from src.load_data import PATH_TO_LOCAL_REPO
+import download_data
+import data_cleaning
+import emissions
+import gross_to_net_generation
+import impute_hourly_profiles
+import eia930
+import validation
+import output_data
+import consumed
+from filepaths import *
 
 
 def get_args():
@@ -150,23 +147,25 @@ def main():
     args = get_args()
     year = args.year
 
+    validation.validate_year(year)
+
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
     path_prefix += "flat/" if args.flat else ""
     path_prefix += f"{year}/"
-    os.makedirs(f"{PATH_TO_LOCAL_REPO}data/downloads", exist_ok=True)
-    os.makedirs(f"{PATH_TO_LOCAL_REPO}data/outputs/{path_prefix}", exist_ok=True)
-    os.makedirs(f"{PATH_TO_LOCAL_REPO}data/outputs/{path_prefix}/eia930", exist_ok=True)
-    os.makedirs(f"{PATH_TO_LOCAL_REPO}data/results/{path_prefix}", exist_ok=True)
+    os.makedirs(downloads_folder(), exist_ok=True)
+    os.makedirs(f"{outputs_folder()}{path_prefix}", exist_ok=True)
+    os.makedirs(f"{outputs_folder()}{path_prefix}/eia930", exist_ok=True)
+    os.makedirs(f"{results_folder()}{path_prefix}", exist_ok=True)
     os.makedirs(
-        f"{PATH_TO_LOCAL_REPO}data/results/{path_prefix}data_quality_metrics",
+        f"{results_folder()}{path_prefix}data_quality_metrics",
         exist_ok=True,
     )
     for unit in ["us_units", "metric_units"]:
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
                 os.makedirs(
-                    f"{PATH_TO_LOCAL_REPO}data/results/{path_prefix}/{subfolder}/{time_resolution}/{unit}",
+                    f"{results_folder()}{path_prefix}/{subfolder}/{time_resolution}/{unit}",
                     exist_ok=True,
                 )
 
@@ -205,7 +204,7 @@ def main():
     print("2. Identifying subplant IDs")
     # GTN ratios are saved for reloading, as this is computationally intensive
     if not os.path.exists(
-        f"{PATH_TO_LOCAL_REPO}data/outputs/{year}/subplant_crosswalk.csv"
+        f"{outputs_folder()}{year}/subplant_crosswalk.csv"
     ):
         print("    Generating subplant IDs")
         number_of_years = args.gtn_years
@@ -346,18 +345,14 @@ def main():
     ####################################################################################
     print("12. Cleaning EIA-930 data")
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
-    if (
-        args.small
-        or (not args.flat)
-        or not (
-            os.path.exists(
-                f"{PATH_TO_LOCAL_REPO}data/outputs/{path_prefix}/eia930/eia930_elec.csv"
-            )
+    if args.flat:
+        print("    Not running 930 cleaning because we'll be using a flat profile.")
+    elif not (
+        os.path.exists(
+            f"{outputs_folder()}{path_prefix}/eia930/eia930_elec.csv"
         )
     ):
         eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
-    elif args.flat:
-        print("    Not running 930 cleaning because we'll be using a flat profile.")
     else:
         print(
             f"    Not re-running 930 cleaning. If you'd like to re-run, please delete data/outputs/{path_prefix}/eia930/"
@@ -365,9 +360,9 @@ def main():
 
     # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
     clean_930_file = (
-        f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/chalendar/EBA_elec.csv"
+        f"{downloads_folder()}eia930/chalendar/EBA_elec.csv"
         if (args.small or args.flat)
-        else f"{PATH_TO_LOCAL_REPO}data/outputs/{path_prefix}/eia930/eia930_elec.csv"
+        else f"{outputs_folder()}{path_prefix}/eia930/eia930_elec.csv"
     )
     eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
     # until we can fix the physics reconciliation, we need to apply some post-processing steps
@@ -432,7 +427,7 @@ def main():
     )
     if not args.skip_outputs:
         plant_attributes.to_csv(
-            f"{PATH_TO_LOCAL_REPO}data/results/{path_prefix}plant_data/plant_static_attributes.csv"
+            f"{results_folder()}{path_prefix}plant_data/plant_static_attributes.csv"
         )
     # validate that the shaping did not alter data at the monthly level
     validation.validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape)
@@ -478,7 +473,8 @@ def main():
         skip_outputs=args.skip_outputs,
     )
     hourly_consumed_calc.run()
-    hourly_consumed_calc.output_results()
+    if not args.skip_outputs:
+        hourly_consumed_calc.output_results()
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ import shutil
 import tarfile
 import zipfile
 
-from src.load_data import PATH_TO_LOCAL_REPO
+from filepaths import *
 
 
 def download_pudl_data(zenodo_url):
@@ -19,14 +19,14 @@ def download_pudl_data(zenodo_url):
     pudl_version = zenodo_url.split("/")[-1].replace(".tgz", "")
 
     # if the pudl data already exists, do not re-download
-    if os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl"):
-        with open(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl/pudl_version.txt", "r") as f:
-            existing_version = f.readlines()[0]
+    if os.path.exists(f"{downloads_folder()}pudl"):
+        with open(f"{downloads_folder()}pudl/pudl_version.txt", "r") as f:
+            existing_version = f.readlines()[0].replace('\n', '')
         if pudl_version == existing_version:
             print("    PUDL data already downloaded")
         else:
             print("    Downloading new version of pudl")
-            shutil.rmtree(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl")
+            shutil.rmtree(f"{downloads_folder()}pudl")
             download_pudl(zenodo_url, pudl_version)
             download_updated_pudl_database(download=True)
     else:
@@ -40,7 +40,7 @@ def download_pudl(zenodo_url, pudl_version):
     total_size_in_bytes = int(r.headers.get("content-length", 0))
     block_size = 1024 * 1024 * 10  # 10 MB
     downloaded = 0
-    with open(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl.tgz", "wb") as fd:
+    with open(f"{downloads_folder()}pudl.tgz", "wb") as fd:
         for chunk in r.iter_content(chunk_size=block_size):
             print(
                 f"    Downloading PUDL. Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
@@ -51,18 +51,18 @@ def download_pudl(zenodo_url, pudl_version):
 
     # extract the tgz file
     print("    Extracting PUDL data...")
-    with tarfile.open(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl.tgz") as tar:
-        tar.extractall(f"{PATH_TO_LOCAL_REPO}data/")
+    with tarfile.open(f"{downloads_folder()}pudl.tgz") as tar:
+        tar.extractall(f"{data_folder()}")
 
     # rename the extracted directory to pudl so that we don't have to update this for future versions
-    os.rename(f"{PATH_TO_LOCAL_REPO}data/{pudl_version}", f"{PATH_TO_LOCAL_REPO}data/downloads/pudl")
+    os.rename(f"{data_folder()}{pudl_version}", f"{downloads_folder()}pudl")
 
     # add a version file
-    with open(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl/pudl_version.txt", "w+") as v:
+    with open(f"{downloads_folder()}pudl/pudl_version.txt", "w+") as v:
         v.write(pudl_version)
 
     # delete the downloaded tgz file
-    os.remove(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl.tgz")
+    os.remove(f"{downloads_folder()}pudl.tgz")
 
     print("    PUDL download complete")
 
@@ -76,10 +76,10 @@ def download_updated_pudl_database(download=True):
     if download is True:
         print("    Downloading updated pudl.sqlite from Datasette...")
         # remove the existing file from zenodo
-        os.remove(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl/pudl_data/sqlite/pudl.sqlite")
+        os.remove(f"{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite")
 
         r = requests.get("https://data.catalyst.coop/pudl.db", stream=True)
-        with open(f"{PATH_TO_LOCAL_REPO}data/downloads/pudl/pudl_data/sqlite/pudl.sqlite", "wb") as fd:
+        with open(f"{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite", "wb") as fd:
             for chunk in r.iter_content(chunk_size=1024 * 1024):
                 fd.write(chunk)
 
@@ -96,7 +96,7 @@ def download_chalendar_files():
     TODO: download functions share a lot of code, could refactor
     """
     # if there is not yet a directory for egrid, make it
-    os.makedirs(f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/chalendar", exist_ok=True)
+    os.makedirs(f"{downloads_folder()}eia930/chalendar", exist_ok=True)
 
     # download the cleaned and raw files
     urls = [
@@ -106,25 +106,25 @@ def download_chalendar_files():
     for url in urls:
         filename = url.split("/")[-1].replace(".gz", "")
         # if the file already exists, do not re-download it
-        if os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/chalendar/{filename}"):
+        if os.path.exists(f"{downloads_folder()}eia930/chalendar/{filename}"):
             print(f"    {filename} already downloaded")
         else:
             print(f"    Downloading {filename}")
             r = requests.get(url, stream=True)
 
-            with open(f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/chalendar/{filename}.gz", "wb") as fd:
+            with open(f"{downloads_folder()}eia930/chalendar/{filename}.gz", "wb") as fd:
                 for chunk in r.iter_content(chunk_size=1024):
                     fd.write(chunk)
 
             # Unzip
             with gzip.open(
-                f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/chalendar/{filename}.gz", "rb"
+                f"{downloads_folder()}eia930/chalendar/{filename}.gz", "rb"
             ) as f_in:
                 with open(
-                    f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/chalendar/{filename}", "wb"
+                    f"{downloads_folder()}eia930/chalendar/{filename}", "wb"
                 ) as f_out:
                     shutil.copyfileobj(f_in, f_out)
-            os.remove(f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/chalendar/{filename}.gz")
+            os.remove(f"{downloads_folder()}eia930/chalendar/{filename}.gz")
 
 
 def download_egrid_files(egrid_files_to_download):
@@ -134,20 +134,20 @@ def download_egrid_files(egrid_files_to_download):
         egrid_files_to_download: a list of urls for the egrid excel files that you want to download
     """
     # if there is not yet a directory for egrid, make it
-    if not os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/egrid"):
-        os.mkdir(f"{PATH_TO_LOCAL_REPO}data/downloads/egrid")
+    if not os.path.exists(f"{downloads_folder()}egrid"):
+        os.mkdir(f"{downloads_folder()}egrid")
 
     # download the egrid files
     for url in egrid_files_to_download:
         filename = url.split("/")[-1]
         # if the file already exists, do not re-download it
-        if os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/egrid/{filename}"):
+        if os.path.exists(f"{downloads_folder()}egrid/{filename}"):
             print(f"    {filename} already downloaded")
         else:
             print(f"    Downloading {filename}")
             r = requests.get(url, stream=True)
 
-            with open(f"{PATH_TO_LOCAL_REPO}data/downloads/egrid/{filename}", "wb") as fd:
+            with open(f"{downloads_folder()}egrid/{filename}", "wb") as fd:
                 for chunk in r.iter_content(chunk_size=1024):
                     fd.write(chunk)
 
@@ -159,15 +159,15 @@ def download_eia930_data(years_to_download):
         years_to_download: list of four-digit year numbers to download from EIA-930
     """
     # if there is not yet a directory for EIA-930, make it
-    if not os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/eia930"):
-        os.mkdir(f"{PATH_TO_LOCAL_REPO}data/downloads/eia930")
+    if not os.path.exists(f"{downloads_folder()}eia930"):
+        os.mkdir(f"{downloads_folder()}eia930")
 
     # download the egrid files
     for year in years_to_download:
         for description in ["BALANCE", "INTERCHANGE"]:
             for months in ["Jan_Jun", "Jul_Dec"]:
                 if os.path.exists(
-                    f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/EIA930_{description}_{year}_{months}.csv"
+                    f"{downloads_folder()}eia930/EIA930_{description}_{year}_{months}.csv"
                 ):
                     print(f"    {description}_{year}_{months} data already downloaded")
                 else:
@@ -178,7 +178,7 @@ def download_eia930_data(years_to_download):
                     )
 
                     with open(
-                        f"{PATH_TO_LOCAL_REPO}data/downloads/eia930/EIA930_{description}_{year}_{months}.csv",
+                        f"{downloads_folder()}eia930/EIA930_{description}_{year}_{months}.csv",
                         "wb",
                     ) as fd:
                         for chunk in r.iter_content(chunk_size=1024 * 1024):
@@ -193,18 +193,18 @@ def download_epa_psdc(psdc_url):
         psdc_url: the url to the csv file hosted on github
     """
     # if there is not yet a directory for egrid, make it
-    if not os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/epa"):
-        os.mkdir(f"{PATH_TO_LOCAL_REPO}data/downloads/epa")
+    if not os.path.exists(f"{downloads_folder()}epa"):
+        os.mkdir(f"{downloads_folder()}epa")
 
     filename = psdc_url.split("/")[-1]
     # if the file already exists, do not re-download it
-    if os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/epa/{filename}"):
+    if os.path.exists(f"{downloads_folder()}epa/{filename}"):
         print(f"    {filename} already downloaded")
     else:
         print(f"    Downloading {filename}")
         r = requests.get(psdc_url, stream=True)
 
-        with open(f"{PATH_TO_LOCAL_REPO}data/downloads/epa/{filename}", "wb") as fd:
+        with open(f"{downloads_folder()}epa/{filename}", "wb") as fd:
             for chunk in r.iter_content(chunk_size=1024):
                 fd.write(chunk)
 
@@ -216,29 +216,29 @@ def download_raw_eia923(year):
         egrid_files_to_download: a list of urls for the egrid excel files that you want to download
     """
     # if there is not yet a directory for egrid, make it
-    if not os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/eia923"):
-        os.mkdir(f"{PATH_TO_LOCAL_REPO}data/downloads/eia923")
+    if not os.path.exists(f"{downloads_folder()}eia923"):
+        os.mkdir(f"{downloads_folder()}eia923")
 
     url = f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
 
     filename = url.split("/")[-1].split(".")[0]
     # if the file already exists, do not re-download it
-    if os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/eia923/{filename}"):
+    if os.path.exists(f"{downloads_folder()}eia923/{filename}"):
         print(f"    {year} EIA-923 already downloaded")
     else:
         print(f"    Downloading {year} EIA-923 data")
         r = requests.get(url, stream=True)
 
-        with open(f"{PATH_TO_LOCAL_REPO}data/downloads/eia923/{filename}.zip", "wb") as fd:
+        with open(f"{downloads_folder()}eia923/{filename}.zip", "wb") as fd:
             for chunk in r.iter_content(chunk_size=1024):
                 fd.write(chunk)
 
         # Unzip
         with zipfile.ZipFile(
-            f"{PATH_TO_LOCAL_REPO}data/downloads/eia923/{filename}.zip", "r"
+            f"{downloads_folder()}eia923/{filename}.zip", "r"
         ) as zip_to_unzip:
-            zip_to_unzip.extractall(f"{PATH_TO_LOCAL_REPO}data/downloads/eia923/{filename}")
-        os.remove(f"{PATH_TO_LOCAL_REPO}data/downloads/eia923/{filename}.zip")
+            zip_to_unzip.extractall(f"{downloads_folder()}eia923/{filename}")
+        os.remove(f"{downloads_folder()}eia923/{filename}.zip")
 
 
 def download_raw_eia860(year):
@@ -248,8 +248,8 @@ def download_raw_eia860(year):
         egrid_files_to_download: a list of urls for the egrid excel files that you want to download
     """
     # if there is not yet a directory for egrid, make it
-    if not os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860"):
-        os.mkdir(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860")
+    if not os.path.exists(f"{downloads_folder()}eia860"):
+        os.mkdir(f"{downloads_folder()}eia860")
 
     url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
     archive_url = (
@@ -258,33 +258,33 @@ def download_raw_eia860(year):
 
     filename = url.split("/")[-1].split(".")[0]
     # if the file already exists, do not re-download it
-    if os.path.exists(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}"):
+    if os.path.exists(f"{downloads_folder()}eia860/{filename}"):
         print(f"    {year} EIA-860 already downloaded")
     else:
         print(f"    Downloading {year} EIA-860 data")
         try:
             r = requests.get(url, stream=True)
 
-            with open(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}.zip", "wb") as fd:
+            with open(f"{downloads_folder()}eia860/{filename}.zip", "wb") as fd:
                 for chunk in r.iter_content(chunk_size=1024):
                     fd.write(chunk)
 
             # Unzip
             with zipfile.ZipFile(
-                f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}.zip", "r"
+                f"{downloads_folder()}eia860/{filename}.zip", "r"
             ) as zip_to_unzip:
-                zip_to_unzip.extractall(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}")
-            os.remove(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}.zip")
+                zip_to_unzip.extractall(f"{downloads_folder()}eia860/{filename}")
+            os.remove(f"{downloads_folder()}eia860/{filename}.zip")
         except:
             r = requests.get(archive_url, stream=True)
 
-            with open(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}.zip", "wb") as fd:
+            with open(f"{downloads_folder()}eia860/{filename}.zip", "wb") as fd:
                 for chunk in r.iter_content(chunk_size=1024):
                     fd.write(chunk)
 
             # Unzip
             with zipfile.ZipFile(
-                f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}.zip", "r"
+                f"{downloads_folder()}eia860/{filename}.zip", "r"
             ) as zip_to_unzip:
-                zip_to_unzip.extractall(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}")
-            os.remove(f"{PATH_TO_LOCAL_REPO}data/downloads/eia860/{filename}.zip")
+                zip_to_unzip.extractall(f"{downloads_folder()}eia860/{filename}")
+            os.remove(f"{downloads_folder()}eia860/{filename}.zip")

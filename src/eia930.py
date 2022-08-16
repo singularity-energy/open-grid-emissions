@@ -1,30 +1,32 @@
 import pandas as pd
 import re
 from datetime import timedelta
-import src.load_data as load_data
-from src.column_checks import get_dtypes
 import os
 from os.path import join
 
-from src.load_data import PATH_TO_LOCAL_REPO
+import load_data
+from column_checks import get_dtypes
+from filepaths import *
 
 # Tell gridemissions where to find config before we load gridemissions
-os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = f"{PATH_TO_LOCAL_REPO}config/gridemissions.json"
+os.environ[
+    "GRIDEMISSIONS_CONFIG_FILE_PATH"
+] = f"{top_folder()}config/gridemissions.json"
 
 from gridemissions.workflows import make_dataset
 
 
 def balance_to_gridemissions(year: int, small: bool = False):
     files = [
-        PATH_TO_LOCAL_REPO + "data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
-        PATH_TO_LOCAL_REPO + "data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv",
-        PATH_TO_LOCAL_REPO + "data/downloads/eia930/EIA930_{}_{}_Jul_Dec.csv",
+        downloads_folder() + "eia930/EIA930_{}_{}_Jul_Dec.csv",
+        downloads_folder() + "eia930/EIA930_{}_{}_Jan_Jun.csv",
+        downloads_folder() + "eia930/EIA930_{}_{}_Jul_Dec.csv",
     ]
 
     years = [year - 1, year, year]
 
     if small:
-        files = [PATH_TO_LOCAL_REPO + "data/downloads/eia930/EIA930_{}_{}_Jan_Jun.csv"]
+        files = [downloads_folder() + "eia930/EIA930_{}_{}_Jan_Jun.csv"]
         years = [year]
 
     name_map = {
@@ -126,7 +128,7 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
 
     """
 
-    data_folder = f"{PATH_TO_LOCAL_REPO}data/outputs/{path_prefix}/eia930/"
+    data_folder = f"{outputs_folder()}{path_prefix}/eia930/"
 
     # Format raw file
     df = balance_to_gridemissions(year, small=small)
@@ -232,16 +234,8 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     )[[1, 4]]
 
     # drop BAs not located in the United States
-    foreign_bas = [
-        "AESO",
-        "BCHA",
-        "CEN",
-        "CFE",
-        "HQT",
-        "IESO",
-        "MHEB",
-        "SPC",
-    ]
+    ba_ref = pd.read_csv(f"{manual_folder()}ba_reference.csv")
+    foreign_bas = list(ba_ref.loc[ba_ref["us_ba"] == "No", "ba_code"])
     data = data[~data["ba_code"].isin(foreign_bas)]
 
     # create a local datetime column
