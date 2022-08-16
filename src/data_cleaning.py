@@ -7,11 +7,11 @@ import pudl.analysis.allocate_net_gen as allocate_gen_fuel
 import pudl.analysis.epa_crosswalk as epa_crosswalk
 import pudl.output.pudltabl
 
-import src.load_data as load_data
-import src.validation as validation
-import src.emissions as emissions
-from src.column_checks import get_dtypes, apply_dtypes
-from src.load_data import PATH_TO_LOCAL_REPO
+import load_data
+import validation
+import emissions
+from column_checks import get_dtypes, apply_dtypes
+from filepaths import *
 
 
 DATA_COLUMNS = [
@@ -116,6 +116,7 @@ def generate_subplant_ids(start_year, end_year, cems_monthly):
         right_on=["EIA_PLANT_ID", "EIA_GENERATOR_ID"],
         how="inner",
         suffixes=("_actual", None),
+        validate="1:m",
     ).drop(columns=["plant_id_eia_actual", "generator_id"])
 
     crosswalk_with_subplant_ids = epa_crosswalk.make_subplant_ids(filtered_crosswalk)
@@ -196,21 +197,24 @@ def generate_subplant_ids(start_year, end_year, cems_monthly):
         ],
         how="left",
         on=["plant_id_eia", "generator_id"],
+        validate="m:1",
     )
 
-    if not os.path.exists(f"{PATH_TO_LOCAL_REPO}data/outputs/{end_year}"):
-        os.mkdir(f"{PATH_TO_LOCAL_REPO}data/outputs/{end_year}")
+    if not os.path.exists(f"{outputs_folder()}{end_year}"):
+        os.mkdir(f"{outputs_folder()}{end_year}")
 
     # export the crosswalk to csv
     crosswalk_with_subplant_ids.to_csv(
-        f"{PATH_TO_LOCAL_REPO}data/outputs/{end_year}/subplant_crosswalk.csv", index=False
+        f"{outputs_folder()}{end_year}/subplant_crosswalk.csv",
+        index=False,
     )
 
 
 def manual_crosswalk_updates(crosswalk):
     # load manual matches
     crosswalk_manual = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/manual/epa_eia_crosswalk_manual.csv", dtype=get_dtypes()
+        f"{manual_folder()}epa_eia_crosswalk_manual.csv",
+        dtype=get_dtypes(),
     ).drop(columns=["notes"])
     crosswalk_manual = crosswalk_manual.rename(
         columns={
@@ -239,6 +243,7 @@ def manual_crosswalk_updates(crosswalk):
         on=["CAMD_PLANT_ID", "CAMD_UNIT_ID"],
         indicator="source",
         suffixes=(None, "_manual"),
+        validate="m:m",
     )
     unmatched = unmatched[unmatched["source"] == "left_only"].drop(
         columns=["EIA_PLANT_ID_manual", "EIA_GENERATOR_ID_manual", "source"]
@@ -345,10 +350,14 @@ def clean_eia923(year, small):
 
     # add subplant id
     subplant_crosswalk = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
+        f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+        dtype=get_dtypes(),
     )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
     gen_fuel_allocated = gen_fuel_allocated.merge(
-        subplant_crosswalk, how="left", on=["plant_id_eia", "generator_id"]
+        subplant_crosswalk,
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+        validate="m:1",
     )
 
     # add the cleaned prime mover code to the data
@@ -356,7 +365,7 @@ def clean_eia923(year, small):
         ["plant_id_eia", "generator_id", "prime_mover_code"]
     ]
     gen_fuel_allocated = gen_fuel_allocated.merge(
-        gen_pm, how="left", on=["plant_id_eia", "generator_id"]
+        gen_pm, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
     )
 
     gen_fuel_allocated = apply_dtypes(gen_fuel_allocated)
@@ -373,7 +382,9 @@ def update_energy_source_codes(df):
     Manually update fuel source codes
     """
     # load the table of updated fuel types
-    updated_esc = pd.read_csv(f"{PATH_TO_LOCAL_REPO}data/manual/updated_oth_energy_source_codes.csv")
+    updated_esc = pd.read_csv(
+        f"{manual_folder()}updated_oth_energy_source_codes.csv"
+    )
 
     for index, row in updated_esc.iterrows():
         plant_id = row["plant_id_eia"]
@@ -580,7 +591,7 @@ def remove_non_grid_connected_plants(df):
     # get the list of plant_id_eia from the static table
     ngc_plants = list(
         pd.read_csv(
-            f"{PATH_TO_LOCAL_REPO}data/manual/plants_not_connected_to_grid.csv",
+            f"{manual_folder()}plants_not_connected_to_grid.csv",
             dtype=get_dtypes(),
         )["Plant ID"]
     )
@@ -656,9 +667,12 @@ def clean_cems(year, small):
 
     # add subplant id
     subplant_crosswalk = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/outputs/{year}/subplant_crosswalk.csv", dtype=get_dtypes()
+        f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+        dtype=get_dtypes(),
     )[["plant_id_eia", "unitid", "subplant_id"]].drop_duplicates()
-    cems = cems.merge(subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"])
+    cems = cems.merge(
+        subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"], validate="m:1"
+    )
     validation.test_for_missing_subplant_id(cems)
 
     cems = apply_dtypes(cems)
@@ -688,7 +702,7 @@ def manually_remove_steam_units(df):
 
     # get the list of plant_id_eia from the static table
     units_to_remove = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/manual/steam_units_to_remove.csv",
+        f"{manual_folder()}steam_units_to_remove.csv",
         dtype=get_dtypes(),
     )[["plant_id_eia", "unitid"]]
 
@@ -697,7 +711,11 @@ def manually_remove_steam_units(df):
     )
 
     df = df.merge(
-        units_to_remove, how="outer", on=["plant_id_eia", "unitid"], indicator="source"
+        units_to_remove,
+        how="outer",
+        on=["plant_id_eia", "unitid"],
+        indicator="source",
+        validate="m:1",
     )
     df = df[df["source"] == "left_only"].drop(columns=["source"])
 
@@ -743,7 +761,9 @@ def assign_fuel_type_to_cems(cems, year):
     fuel_types = get_epa_unit_fuel_types(year)
 
     # merge in the reported fuel type
-    cems = cems.merge(fuel_types, how="left", on=["plant_id_epa", "unitid"])
+    cems = cems.merge(
+        fuel_types, how="left", on=["plant_id_epa", "unitid"], validate="m:1"
+    )
 
     # fill missing fuel codes for plants that only have a single fuel type
     single_fuel_plants = (
@@ -752,7 +772,11 @@ def assign_fuel_type_to_cems(cems, year):
         .drop(columns="unitid")
     )
     cems = cems.merge(
-        single_fuel_plants, how="left", on=["plant_id_epa"], suffixes=(None, "_plant")
+        single_fuel_plants,
+        how="left",
+        on=["plant_id_epa"],
+        suffixes=(None, "_plant"),
+        validate="m:1",
     )
     cems["energy_source_code"] = cems["energy_source_code"].fillna(
         cems["energy_source_code_plant"]
@@ -827,7 +851,9 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     )
 
     # merge this information back into the other dataframe
-    gf = gf.merge(multi_fuels, how="left", on=["plant_id_eia", "report_date"])
+    gf = gf.merge(
+        multi_fuels, how="left", on=["plant_id_eia", "report_date"], validate="m:1"
+    )
 
     # only keep rows that have a single fuel type in a month
     gf = gf[gf["num_fuels"] == 1]
@@ -839,7 +865,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     gf["report_date"] = pd.to_datetime(gf["report_date"])
 
     # merge this data into the df
-    df = df.merge(gf, how="left", on=["plant_id_eia", "report_date"])
+    df = df.merge(gf, how="left", on=["plant_id_eia", "report_date"], validate="m:1")
 
     # fill missing fuel types with this data
     df["energy_source_code"] = df["energy_source_code"].fillna(
@@ -879,6 +905,7 @@ def remove_cems_with_zero_monthly_data(cems):
         ],
         how="left",
         on=["plant_id_eia", "unitid", "report_date"],
+        validate="m:1",
     )
     # remove any observations with the missing data flag
     print(
@@ -944,11 +971,13 @@ def adjust_cems_for_chp(cems, eia923_allocated):
         ],
         how="left",
         on=["plant_id_eia", "subplant_id", "report_date"],
+        validate="m:1",
     )
     cems = cems.merge(
         plant_fuel_ratio[["plant_id_eia", "report_date", "plant_fuel_ratio"]],
         how="left",
         on=["plant_id_eia", "report_date"],
+        validate="m:1",
     )
     cems["subplant_fuel_ratio"] = cems["subplant_fuel_ratio"].fillna(
         cems["plant_fuel_ratio"]
@@ -1107,7 +1136,7 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
 def count_total_units_in_subplant(year):
     # load the subplant crosswalk and identify unique unitids in each subplant
     units_in_subplant = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/outputs/{year}/subplant_crosswalk.csv",
+        f"{outputs_folder()}{year}/subplant_crosswalk.csv",
         dtype=get_dtypes(),
         parse_dates=["current_planned_operating_date", "retirement_date"],
     )[["plant_id_eia", "unitid", "subplant_id", "retirement_date"]].drop_duplicates()
@@ -1157,6 +1186,7 @@ def filter_unique_cems_data(cems, partial_cems):
         how="outer",
         on=["plant_id_eia", "subplant_id", "report_date"],
         indicator="source",
+        validate="m:1",
     )
 
     filtered_cems = filtered_cems[filtered_cems["source"] == "left_only"].drop(
@@ -1348,6 +1378,7 @@ def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_tab
         on="plant_id_eia",
         indicator="data_availability",
         suffixes=(None, "_cems"),
+        validate="1:1",
     )
     plant_attributes["plant_primary_fuel"] = plant_attributes[
         "plant_primary_fuel"
@@ -1396,11 +1427,7 @@ def assign_ba_code_to_plant(df, year):
     ]
 
     # merge the ba code into the dataframe
-    df = df.merge(
-        plant_ba,
-        how="left",
-        on="plant_id_eia",
-    )
+    df = df.merge(plant_ba, how="left", on="plant_id_eia", validate="m:1")
 
     if len(df[df["ba_code"].isna()]) > 0:
         print("    Warning: the following plants are missing ba_code:")
@@ -1442,7 +1469,11 @@ def create_plant_ba_table(year):
         ["plant_id_eia", "balancing_authority_code_eia", "state"]
     ]
     plant_ba = plant_ba.merge(
-        plants_entity_ba, how="outer", on="plant_id_eia", suffixes=(None, "_entity")
+        plants_entity_ba,
+        how="outer",
+        on="plant_id_eia",
+        suffixes=(None, "_entity"),
+        validate="1:1",
     )
     plant_ba["balancing_authority_code_eia"] = plant_ba[
         "balancing_authority_code_eia"
@@ -1453,7 +1484,9 @@ def create_plant_ba_table(year):
     ].fillna(value=np.NaN)
 
     # specify a ba code for certain utilities
-    utility_as_ba_code = pd.read_csv(f"{PATH_TO_LOCAL_REPO}data/manual/utility_name_ba_code_map.csv")
+    utility_as_ba_code = pd.read_csv(
+        f"{manual_folder()}utility_name_ba_code_map.csv"
+    )
     utility_as_ba_code = dict(
         zip(
             utility_as_ba_code["name"],
@@ -1482,7 +1515,7 @@ def create_plant_ba_table(year):
     # As of 4/16/22, there are currently a few incorrect BA assignments in the pudl tables (see https://github.com/catalyst-cooperative/pudl/issues/1584)
     # thus, we will manually correct some of the BA codes based on data in the most recent EIA forms
     manual_ba_corrections = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/manual/corrected_bas_to_patch_pudl.csv"
+        f"{manual_folder()}corrected_bas_to_patch_pudl.csv"
     )
     manual_ba_corrections = dict(
         zip(
@@ -1514,12 +1547,15 @@ def create_plant_ba_table(year):
     )
 
     # update based on mapping table when ambiguous
-    physical_ba = pd.read_csv(f"{PATH_TO_LOCAL_REPO}data/manual/physical_ba.csv", dtype=get_dtypes())
+    physical_ba = pd.read_csv(
+        f"{manual_folder()}physical_ba.csv", dtype=get_dtypes()
+    )
     plant_ba = plant_ba.merge(
         physical_ba,
         how="left",
         on=["ba_code", "transmission_distribution_owner_name"],
         suffixes=("", "_map"),
+        validate="m:1",
     )
     plant_ba["ba_code_physical"].update(plant_ba["ba_code_physical_map"])
 
@@ -1553,6 +1589,7 @@ def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
         plant_voltage[["plant_id_eia", "distribution_flag"]],
         how="left",
         on="plant_id_eia",
+        validate="m:1",
     )
 
     return df
@@ -1574,7 +1611,7 @@ def assign_fuel_category_to_ESC(
     """
     # load the fuel category table
     energy_source_groups = pd.read_csv(
-        f"{PATH_TO_LOCAL_REPO}data/manual/energy_source_groups.csv", dtype=get_dtypes()
+        f"{manual_folder()}energy_source_groups.csv", dtype=get_dtypes()
     )[["energy_source_code"] + fuel_category_names].rename(
         columns={"energy_source_code": esc_column}
     )
@@ -1583,6 +1620,7 @@ def assign_fuel_category_to_ESC(
         energy_source_groups[[esc_column] + fuel_category_names],
         how="left",
         on=esc_column,
+        validate="m:1",
     )
 
     return df
@@ -1591,7 +1629,7 @@ def assign_fuel_category_to_ESC(
 def add_plant_local_timezone(df, year):
     pudl_out = load_data.initialize_pudl_out(year=year)
     plant_tz = pudl_out.plants_eia860()[["plant_id_eia", "timezone"]]
-    df = df.merge(plant_tz, how="left", on=["plant_id_eia"])
+    df = df.merge(plant_tz, how="left", on=["plant_id_eia"], validate="m:1")
 
     return df
 

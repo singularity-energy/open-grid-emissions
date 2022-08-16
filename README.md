@@ -1,6 +1,11 @@
 # Open Grid Emissions Initiative
 The Open Grid Emissions Initiative seeks to fill a critical need for high-quality, publicly-accessible, hourly grid emissions data that can be used for GHG accounting, policymaking, academic research, and energy attribute certificate markets. The initiative includes this repository of open-source grid emissions data processing tools that use peer-reviewed, well-documented, and validated methodologies to create the accompanying public dataset of hourly, monthly, and annual U.S. electric grid generation, GHG, and air pollution data.
 
+## Data Availability and Release Schedule
+The latest release includes data for year 2019-2020 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data. 
+
+Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2021 data should be available Autumn 2022). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGEI methodology. All previous versions of the data will be archived on Zenodo.
+
 ## Contribute
 There are many ways that you can contribute!
  - Tell us how you are using the dataset or python tools
@@ -13,15 +18,17 @@ There are many ways that you can contribute!
 
 # Repository Structure
 ### Modules
+- `column_checks`: functions that check that all data outputs have the correct column names
 - `data_pipeline`: main script for running the data pipeline from start to finish
 - `download_data`: functions that download data from the internet
-- `load_data`: functions for loading data from downloaded files
 - `data_cleaning`: functions that clean loaded data
-- `gross_to_net_generation`: Functions for identifying subplants and gross to net generation conversion factors
 - `eia930`: functions for cleaning and formatting EIA-930 data
+- `emissions`: functions used for imputing emissions data
+- `filepaths`: Used to identify where repository files are located on the user's computer
+- `gross_to_net_generation`: Functions for identifying subplants and gross to net generation conversion factors
 - `impute_hourly_profiles`: functions related to assigning an hourly profile to monthly data
+- `load_data`: functions for loading data from downloaded files
 - `output_data`: functions for writing intermediate and final data to csvs
-- `column_checks`: functions that check that all data outputs have the correct column names
 - `validation`: functions for testing and validating data outputs
 - `visualization`: functions for visualizing data in notebooks
 
