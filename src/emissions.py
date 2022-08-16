@@ -602,6 +602,36 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         validate="m:1",
     )
 
+    # identify missing emission factors and replace with PM-fuel factors if available
+    missing_nox_efs = (
+        gen_nox_factors.loc[
+            gen_nox_factors["emission_factor"].isna(),
+            [
+                "prime_mover_code",
+                "energy_source_code",
+                "boiler_bottom_type",
+                "boiler_firing_type",
+            ],
+        ]
+        .drop_duplicates()
+        .sort_values(
+            by=[
+                "energy_source_code",
+                "prime_mover_code",
+                "boiler_firing_type",
+                "boiler_bottom_type",
+            ]
+        )
+    )
+    if len(missing_nox_efs) > 0:
+        print(" ")
+        print(
+            "Warning: NOx emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
+        )
+        print(missing_nox_efs)
+        print(" ")
+    gen_nox_factors = fill_missing_factors_based_on_pm_fuel(nox_emission_factors, gen_nox_factors)
+
     # identify missing emission factors and replace with zeros
     missing_nox_efs = (
         gen_nox_factors.loc[
@@ -626,7 +656,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
     if len(missing_nox_efs) > 0:
         print(" ")
         print(
-            "Warning: NOx emission factors are missing for the following boiler types. An emission factor of zero will be used for these boilers."
+            "Warning: After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types. An emission factor of zero will be used for these boilers."
         )
         print(missing_nox_efs)
         print(" ")
@@ -688,6 +718,52 @@ def load_boiler_firing_type(year):
     ].dropna(subset=["boiler_bottom_type", "boiler_firing_type"], thresh=1)
 
     return boiler_firing_type
+
+
+def fill_missing_factors_based_on_pm_fuel(emission_factors, gen_factors):
+    """If boiler firing type information is not available, fill emission factors based on the PM-fuel minimum factor.
+
+    The minimum factor for a PM-fuel grouping is used to be conservative, and is consistent with eGRID methodology,
+
+    Args:
+        emissions_factors: dataframe containing boiler-firing type specific NOx or SO2 emission factors.
+        gen_factors: gen_fuel_allocated into which boiler-specific factors have already been merged
+    Returns:
+        gen_factors with missing factors filled if available PM-fuel available"""
+    # identify the most conservative  emission factor for each PM-fuel combo
+    pm_fuel_factors = (
+        emission_factors[emission_factors["emission_factor_denominator"] != "mmbtu"]
+        .groupby(
+            [
+                "energy_source_code",
+                "prime_mover_code",
+                "emission_factor_numerator",
+                "emission_factor_denominator",
+            ]
+        )["emission_factor"]
+        .min()
+        .reset_index()
+    )
+
+    # merge the pm_fuel factors in and use them to fill any missing boiler-specific factors
+    gen_factors = gen_factors.merge(
+        pm_fuel_factors,
+        how="left",
+        on=["energy_source_code", "prime_mover_code"],
+        validate="m:1",
+        suffixes=(None, "_pm_fuel"),
+    )
+    for col in [
+        "emission_factor",
+        "emission_factor_numerator",
+        "emission_factor_denominator",
+    ]:
+        gen_factors[col] = gen_factors[col].fillna(
+            gen_factors[f"{col}_pm_fuel"]
+        )
+        gen_factors = gen_factors.drop(columns=f"{col}_pm_fuel")
+
+    return gen_factors
 
 
 def convert_ef_to_lb_per_mmbtu(gen_emission_factors, pudl_out, pollutant):
@@ -1182,6 +1258,34 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
         ] = 0
         gen_so2_factors = gen_so2_factors.drop(columns="so2_lb_per_mmbtu")
 
+    # identify missing emission factors and replace with PM-fuel specific factors if available
+    missing_so2_efs = (
+        gen_so2_factors.loc[
+            gen_so2_factors["emission_factor"].isna(),
+            [
+                "prime_mover_code",
+                "energy_source_code",
+                "boiler_firing_type",
+            ],
+        ]
+        .drop_duplicates()
+        .sort_values(
+            by=[
+                "energy_source_code",
+                "prime_mover_code",
+                "boiler_firing_type",
+            ]
+        )
+    )
+    if len(missing_so2_efs) > 0:
+        print(" ")
+        print(
+            "Warning: SO2 emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
+        )
+        print(missing_so2_efs)
+        print(" ")
+    gen_so2_factors = fill_missing_factors_based_on_pm_fuel(so2_emission_factors, gen_so2_factors)
+    
     # identify missing emission factors and replace with zeros
     missing_so2_efs = (
         gen_so2_factors.loc[
@@ -1370,7 +1474,7 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, pudl_out):
             ].drop_duplicates()
         )
         raise UserWarning(
-            "Sulfur content data is missing for the above units that require it."
+            "Sulfur content data is missing in EIA-923 for the above units."
         )
     uncontrolled_so2_factors.loc[
         uncontrolled_so2_factors["sulfur_content_pct"].isna()
