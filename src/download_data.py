@@ -21,7 +21,7 @@ def download_pudl_data(zenodo_url):
     # if the pudl data already exists, do not re-download
     if os.path.exists(f"{downloads_folder()}pudl"):
         with open(f"{downloads_folder()}pudl/pudl_version.txt", "r") as f:
-            existing_version = f.readlines()[0]
+            existing_version = f.readlines()[0].replace('\n', '')
         if pudl_version == existing_version:
             print("    PUDL data already downloaded")
         else:

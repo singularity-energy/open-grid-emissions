@@ -147,6 +147,8 @@ def main():
     args = get_args()
     year = args.year
 
+    validation.validate_year(year)
+
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
     path_prefix += "flat/" if args.flat else ""

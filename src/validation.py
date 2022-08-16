@@ -11,6 +11,34 @@ from filepaths import *
 ########################################################################################
 
 
+def validate_year(year):
+    """Returns a warning if the year specified is not known to work with the pipeline."""
+
+    earliest_validated_year = 2019
+    latest_validated_year = 2020
+
+    if year < earliest_validated_year:
+        year_warning = f"""
+        ################################################################################
+        Warning: The data pipeline has only been validated to work for years {earliest_validated_year}-{latest_validated_year}.
+        Running the pipeline for {year} may cause it to fail or may lead to poor-quality
+        or anomalous results. To check on the progress of validating additional years of
+        data, see: https://github.com/singularity-energy/open-grid-emissions/issues/117
+        ################################################################################
+        """
+        print(year_warning)
+    elif year > latest_validated_year:
+        year_warning = f"""
+        ################################################################################
+        Warning: The most recent available year of input data is currently {latest_validated_year}.
+        Input data for {year} should be available from the EIA in Fall {year+1} and we will
+        work to validate that the pipeline works with {year} data as soon as possible
+        after the data is released.
+        ################################################################################
+        """
+        raise UserWarning(year_warning)
+
+
 def test_for_negative_values(df):
     print("    Checking that fuel and emissions values are positive...  ", end="")
     columns_that_should_be_positive = [
