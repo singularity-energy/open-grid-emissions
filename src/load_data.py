@@ -689,17 +689,28 @@ def load_emissions_controls_eia923(year):
         "acid_gas_removal_efficiency",
     ]
 
-    emissions_controls_eia923 = pd.read_excel(
-        io=(
-            f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-        ),
-        sheet_name="8C Air Emissions Control Info",
-        header=4,
-        names=emissions_controls_eia923_names,
-        dtype=get_dtypes(),
-        na_values=".",
-        parse_dates=["report_date", "pm_test_date", "so2_test_date"],
-    )
+    if year >= 2014:
+        emissions_controls_eia923 = pd.read_excel(
+            io=(
+                f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
+            sheet_name="8C Air Emissions Control Info",
+            header=4,
+            names=emissions_controls_eia923_names,
+            dtype=get_dtypes(),
+            na_values=".",
+            parse_dates=["report_date", "pm_test_date", "so2_test_date"],
+        )
+    else:
+        print(
+            "WARNING: Emissions control data prior to 2014 has not been integrated into the data pipeline."
+        )
+        print(
+            "This may overestimate SO2 and NOx emissions calculated from EIA-923 data."
+        )
+        emissions_controls_eia923 = pd.DataFrame(
+            columns=emissions_controls_eia923_names
+        )
 
     return emissions_controls_eia923
 
@@ -715,15 +726,30 @@ def load_boiler_nox_association_eia860(year):
         "steam_plant_type",
     ]
 
-    boiler_nox_association_eia860 = pd.read_excel(
-        io=(f"{downloads_folder()}eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
-        sheet_name="Boiler NOx",
-        header=1,
-        names=boiler_nox_association_eia860_names,
-        dtype=get_dtypes(),
-        na_values=".",
-        skipfooter=1,
-    )
+    # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
+    # The environmental association data is available pre-2013, but would require additional work to format
+    if year >= 2013:
+        boiler_nox_association_eia860 = pd.read_excel(
+            io=(
+                f"{downloads_folder()}eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"
+            ),
+            sheet_name="Boiler NOx",
+            header=1,
+            names=boiler_nox_association_eia860_names,
+            dtype=get_dtypes(),
+            na_values=".",
+            skipfooter=1,
+        )
+    # return a blank dataframe if the data is not available
+    else:
+        print(
+            "WARNING: Environmental association data prior to 2013 have not been integrated into the data pipeline."
+        )
+        print("This may result in less accurate NOx and SO2 emissions calculations.")
+        boiler_nox_association_eia860 = pd.DataFrame(
+            columns=boiler_nox_association_eia860_names
+        )
+
     return boiler_nox_association_eia860
 
 
@@ -738,38 +764,44 @@ def load_boiler_so2_association_eia860(year):
         "steam_plant_type",
     ]
 
-    boiler_so2_association_eia860 = pd.read_excel(
-        io=(f"{downloads_folder()}eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
-        sheet_name="Boiler SO2",
-        header=1,
-        names=boiler_so2_association_eia860_names,
-        dtype=get_dtypes(),
-        na_values=".",
-        skipfooter=1,
-    )
+    # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
+    # The environmental association data is available pre-2013, but would require additional work to format
+    if year >= 2013:
+        boiler_so2_association_eia860 = pd.read_excel(
+            io=(
+                f"{downloads_folder()}eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"
+            ),
+            sheet_name="Boiler SO2",
+            header=1,
+            names=boiler_so2_association_eia860_names,
+            dtype=get_dtypes(),
+            na_values=".",
+            skipfooter=1,
+        )
+    # return a blank dataframe if the data is not available
+    else:
+        print(
+            "WARNING: Environmental association data prior to 2013 have not been integrated into the data pipeline."
+        )
+        print("This may result in less accurate NOx and SO2 emissions calculations.")
+        boiler_so2_association_eia860 = pd.DataFrame(
+            columns=boiler_so2_association_eia860_names
+        )
+
     return boiler_so2_association_eia860
 
 
 def load_boiler_design_parameters_eia860(year):
-    boiler_design_parameters_eia860_names = [
-        "utility_id_eia",
-        "utility_name_eia",
-        "plant_id_eia",
-        "plant_name_eia",
-        "state",
-        "boiler_id",
-        "nox_control_id",
-        "steam_plant_type",
-    ]
 
-    boiler_design_parameters_eia860 = pd.read_excel(
-        io=(f"{downloads_folder()}eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx"),
-        sheet_name="Boiler Info & Design Parameters",
-        header=1,
-        usecols="C,F,H,N:P,AE",
-        na_values=".",
-        skipfooter=1,
-    )
+    raw_column_names = [
+        "Plant Code",
+        "Boiler ID",
+        "Boiler Status",
+        "Firing Type 1",
+        "Firing Type 2",
+        "Firing Type 3",
+        "Wet Dry Bottom",
+    ]
 
     boiler_design_parameters_eia860_names = {
         "Plant Code": "plant_id_eia",
@@ -781,9 +813,32 @@ def load_boiler_design_parameters_eia860(year):
         "Wet Dry Bottom": "boiler_bottom_type",
     }
 
-    boiler_design_parameters_eia860 = boiler_design_parameters_eia860.rename(
-        columns=boiler_design_parameters_eia860_names
-    )
+    # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
+    # The boiler design data is available pre-2013, but would require a lot of work to find the correct format
+    if year >= 2013:
+        boiler_design_parameters_eia860 = pd.read_excel(
+            io=(
+                f"{downloads_folder()}eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx"
+            ),
+            sheet_name="Boiler Info & Design Parameters",
+            header=1,
+            usecols=raw_column_names,  # "C,F,H,N:P,AE",
+            na_values=".",
+            skipfooter=1,
+        )
+
+        boiler_design_parameters_eia860 = boiler_design_parameters_eia860.rename(
+            columns=boiler_design_parameters_eia860_names
+        )
+    # return a blank dataframe if the data is not available
+    else:
+        print(
+            "WARNING: Boiler Design data prior to 2013 have not been integrated into the data pipeline."
+        )
+        print("This may result in less accurate NOx and SO2 emissions calculations.")
+        boiler_design_parameters_eia860 = pd.DataFrame(
+            columns=list(boiler_design_parameters_eia860_names.values())
+        )
 
     return boiler_design_parameters_eia860
 
