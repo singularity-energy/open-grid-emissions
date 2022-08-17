@@ -445,6 +445,77 @@ def identify_percent_of_data_by_input_source(cems, partial_cems, eia_only_data, 
     return source_of_input_data
 
 
+def identify_annually_reported_eia_data(eia923_allocated, year):
+    """Creates table summarizing the percent of final data from annually-reported EIA data."""
+
+    # load data about the respondent frequency for each plant and merge into the EIA-923 data
+    pudl_out = load_data.initialize_pudl_out(year)
+    plant_frequency = pudl_out.plants_eia860()[["plant_id_eia", "respondent_frequency"]]
+    eia_data = eia923_allocated.merge(
+        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
+    )
+
+    data_from_annual = (
+        eia_data.groupby(["respondent_frequency"], dropna=False)[
+            ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
+        ].sum()
+        / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
+        * 100
+    )
+
+    annual_eia_used = (
+        eia_data[eia_data["hourly_data_source"] != "cems"]
+        .groupby(["respondent_frequency"], dropna=False)[
+            ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
+        ]
+        .sum()
+        / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
+        * 100
+    )
+
+    multi_source_subplants = (
+        eia_data[["plant_id_eia", "subplant_id", "hourly_data_source"]]
+        .drop_duplicates()
+        .drop(columns="hourly_data_source")
+    )
+    multi_source_subplants = multi_source_subplants[
+        multi_source_subplants.duplicated(subset=["plant_id_eia", "subplant_id"])
+    ]
+    multi_source_subplants = eia_data.merge(
+        multi_source_subplants, how="inner", on=["plant_id_eia", "subplant_id"]
+    )
+    multi_source_summary = (
+        multi_source_subplants.groupby(["respondent_frequency"], dropna=False)[
+            ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
+        ].sum()
+        / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
+        * 100
+    )
+
+    annual_data_summary = pd.concat(
+        [
+            pd.DataFrame(
+                data_from_annual.loc["A", :]
+                .rename("% of EIA-923 input data from EIA annual reporters")
+                .round(2)
+            ).T,
+            pd.DataFrame(
+                annual_eia_used.loc["A", :]
+                .rename("% of output data from EIA annual reporters")
+                .round(2)
+            ).T,
+            pd.DataFrame(
+                multi_source_summary.loc["A", :]
+                .rename("% of output data mixing CEMS and annually-reported EIA data")
+                .round(2)
+            ).T,
+        ],
+        axis=0,
+    )
+
+    return annual_data_summary
+
+
 def identify_cems_gtn_method(cems):
     method_summary = cems.groupby("gtn_method", dropna=False).sum()[
         "gross_generation_mwh"

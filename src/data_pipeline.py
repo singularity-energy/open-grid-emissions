@@ -252,6 +252,13 @@ def main():
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
     )
+    # output data quality metrics about annually-reported EIA-923 data
+    output_data.output_data_quality_metrics(
+        validation.identify_annually_reported_eia_data(eia923_allocated, year),
+        "annually_reported_eia_data",
+        path_prefix,
+        args.skip_outputs,
+    )
 
     # 7. Aggregating CEMS data to subplant
     ####################################################################################
