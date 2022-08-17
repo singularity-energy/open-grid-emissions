@@ -471,6 +471,7 @@ def calculate_nox_from_fuel_consumption(
         & ~gen_fuel_allocated["energy_source_code"].isin(CLEAN_FUELS)
     ]
     if len(missing_ef) > 0:
+        print("WARNING: NOx emission factors are missing for the following records")
         print(
             missing_ef[
                 [
@@ -482,7 +483,6 @@ def calculate_nox_from_fuel_consumption(
                 ]
             ].drop_duplicates()
         )
-        raise UserWarning("NOx emission factors are missing for the above records")
     gen_fuel_allocated["nox_mass_lb"] = (
         gen_fuel_allocated["fuel_consumed_mmbtu"]
         * gen_fuel_allocated["nox_ef_lb_per_mmbtu"]
@@ -626,11 +626,13 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
     if len(missing_nox_efs) > 0:
         print(" ")
         print(
-            "Warning: NOx emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
+            "WARNING: NOx emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
         )
         print(missing_nox_efs)
         print(" ")
-    gen_nox_factors = fill_missing_factors_based_on_pm_fuel(nox_emission_factors, gen_nox_factors)
+    gen_nox_factors = fill_missing_factors_based_on_pm_fuel(
+        nox_emission_factors, gen_nox_factors
+    )
 
     # identify missing emission factors and replace with zeros
     missing_nox_efs = (
@@ -656,7 +658,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
     if len(missing_nox_efs) > 0:
         print(" ")
         print(
-            "Warning: After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types. An emission factor of zero will be used for these boilers."
+            "WARNING: After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types. An emission factor of zero will be used for these boilers."
         )
         print(missing_nox_efs)
         print(" ")
@@ -758,9 +760,7 @@ def fill_missing_factors_based_on_pm_fuel(emission_factors, gen_factors):
         "emission_factor_numerator",
         "emission_factor_denominator",
     ]:
-        gen_factors[col] = gen_factors[col].fillna(
-            gen_factors[f"{col}_pm_fuel"]
-        )
+        gen_factors[col] = gen_factors[col].fillna(gen_factors[f"{col}_pm_fuel"])
         gen_factors = gen_factors.drop(columns=f"{col}_pm_fuel")
 
     return gen_factors
@@ -816,8 +816,8 @@ def convert_ef_to_lb_per_mmbtu(gen_emission_factors, pudl_out, pollutant):
         & (gen_emission_factors["emission_factor_denominator"] != "mmbtu")
     ]
     if len(missing_fuel_content) > 0:
-        raise UserWarning(
-            f"Warning: The heat content for the following fuels is missing and NOx emissions will not be calculated for this fuel:{list(missing_fuel_content.energy_source_code.unique())}"
+        print(
+            f"WARNING: The heat content for the following fuels is missing and NOx emissions will not be calculated for these fuel:{list(missing_fuel_content.energy_source_code.unique())}"
         )
 
     # convert emission factors from lb per unit to lb per mmbtu if the factor is not already in units of lb/mmbtu
@@ -1048,7 +1048,11 @@ def calculate_weighted_averages(df, groupby_columns, data_cols, weight_col):
             g[f"{data_col}_data_times_weight"].sum()
             / g[f"{data_col}_weight_where_notnull"].sum()
         )
-    result = result.reset_index()
+    if result.index.empty:
+        for col in groupby_columns:
+            result[col] = ""
+    else:
+        result = result.reset_index()
 
     return result
 
@@ -1116,6 +1120,7 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
         & ~gen_fuel_allocated["energy_source_code"].isin(CLEAN_FUELS)
     ]
     if len(missing_ef) > 0:
+        print("WARNING: SO2 emission factors are missing for the above records")
         print(
             missing_ef[
                 [
@@ -1127,7 +1132,6 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
                 ]
             ].drop_duplicates()
         )
-        raise UserWarning("SO2 emission factors are missing for the above records")
     gen_fuel_allocated["so2_mass_lb"] = (
         gen_fuel_allocated["fuel_consumed_mmbtu"]
         * gen_fuel_allocated["so2_ef_lb_per_mmbtu"]
@@ -1280,12 +1284,14 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
     if len(missing_so2_efs) > 0:
         print(" ")
         print(
-            "Warning: SO2 emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
+            "WARNING: SO2 emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
         )
         print(missing_so2_efs)
         print(" ")
-    gen_so2_factors = fill_missing_factors_based_on_pm_fuel(so2_emission_factors, gen_so2_factors)
-    
+    gen_so2_factors = fill_missing_factors_based_on_pm_fuel(
+        so2_emission_factors, gen_so2_factors
+    )
+
     # identify missing emission factors and replace with zeros
     missing_so2_efs = (
         gen_so2_factors.loc[
@@ -1308,7 +1314,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
     if len(missing_so2_efs) > 0:
         print(" ")
         print(
-            "Warning: SO2 emission factors are missing for the following boiler types. An emission factor of zero will be used for these boilers."
+            "WARNING: SO2 emission factors are missing for the following boiler types. An emission factor of zero will be used for these boilers."
         )
         print(missing_so2_efs)
         print(" ")
@@ -1463,6 +1469,7 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, pudl_out):
         & (uncontrolled_so2_factors["multiply_by_sulfur_content"] == 1)
     ]
     if len(missing_sulfur_content) > 0:
+        print("WARNING: Sulfur content data is missing in EIA-923 for the above units.")
         print(
             missing_sulfur_content[
                 [
@@ -1472,9 +1479,6 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, pudl_out):
                     "energy_source_code",
                 ]
             ].drop_duplicates()
-        )
-        raise UserWarning(
-            "Sulfur content data is missing in EIA-923 for the above units."
         )
     uncontrolled_so2_factors.loc[
         uncontrolled_so2_factors["sulfur_content_pct"].isna()
@@ -1536,7 +1540,7 @@ def load_so2_control_efficiencies(year):
     ]
     if len(bad_efficiencies) > 0:
         raise UserWarning(
-            "Warning: certain loaded SO2 removal efficiencies are either negative or > 100%"
+            "WARNING: certain loaded SO2 removal efficiencies are either negative or > 100%"
         )
 
     return so2_efficiency
@@ -1621,7 +1625,7 @@ def fill_cems_missing_co2(cems, year):
     if len(missing_esc) > 0:
         print(" ")
         print(
-            "Warning: the following units are missing co2 data and energy source codes. This may be because they burn multiple fuels."
+            "WARNING: the following units are missing co2 data and energy source codes. This may be because they burn multiple fuels."
         )
         print(missing_esc[["plant_id_eia", "unitid"]].drop_duplicates())
         print(" ")

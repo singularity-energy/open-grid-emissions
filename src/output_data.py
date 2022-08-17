@@ -271,7 +271,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
         for ba in list(ba_fuel_data.ba_code.unique()):
             if type(ba) is not str:
                 print(
-                    f"Warning: not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
+                    f"WARNING: not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
                 )
                 continue
 
