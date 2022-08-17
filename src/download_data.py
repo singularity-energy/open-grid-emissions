@@ -295,7 +295,7 @@ def format_raw_eia860(year: int):
     Makes sure that a folder of raw EIA-860 data has filenames that are consistent
     with the rest of the data pipeline.
     """
-    if year < 2005:
+    if year < 2009:
         raise NotImplementedError(f'We haven\'t implemented data cleaning for {year} yet.')
 
     raw_folder = f"{downloads_folder()}eia860/eia860{year}"
@@ -322,13 +322,46 @@ def format_raw_eia860(year: int):
                 os.path.join(raw_folder, InputDataFilenames.EIA_860_ENVIRO_EQUIP_FILE_FMT.format(year)))
 
 
+def format_raw_eia923(year: int):
+    """Makes sure that a folder of raw EIA-923 has files with consistent names."""
+    if year < 2011:
+        raise NotImplementedError(f'We haven\'t implemented data cleaning for {year} yet.')
+
+    raw_folder = f"{downloads_folder()}eia923/f923_{year}"
+    consistent_filename = os.path.join(raw_folder, InputDataFilenames.EIA_923_ENVIRONMENTAL_INFO_FMT.format(year))
+
+    # Lots of annoying filename changes for each year.
+    if year == 2011:
+        base_filename = 'EIA923_Schedule_8_PartsA-F_EnvData_' + str(year) + '{}.xlsx'
+    elif year == 2013:
+        base_filename = 'EIA923_Schedule_8_PartsA-D_EnvData_' + str(year) + '{}.xlsx'
+    elif year == 2017:
+        base_filename = 'EIA923_Schedule_8_Annual_Envir_Infor_' + str(year) + '{}.xlsx'
+    else:
+        base_filename = 'EIA923_Schedule_8_Annual_Environmental_Information_' + str(year) + '{}.xlsx'
+
+    # Sometimes the filename ends in 'Final' instead of 'Final_Revision'.
+    final_revision_filename = os.path.join(raw_folder, base_filename.format('_Final_Revision'))
+    final_filename = os.path.join(raw_folder, base_filename.format('_Final'))
+    if os.path.exists(final_revision_filename):
+        # Only copy if the filename is different.
+        if consistent_filename != final_revision_filename:
+            shutil.copy(final_revision_filename, consistent_filename)
+    elif os.path.exists(final_filename):
+        # Only copy if the filename is different.
+        if consistent_filename != final_filename:
+            shutil.copy(final_filename, consistent_filename)
+    else:
+        raise NotImplementedError()
+
+
 def check_required_files_raw_eia860(year: int):
     """
     Checks that all required files are present in an EIA-860 data folder.
     """
     raw_folder = f"{downloads_folder()}eia860/eia860{year}"
     if not os.path.exists(raw_folder):
-        raise FileNotFoundError(f'The supplied EIA-86 data folder \'{raw_folder}\' does not exist.')
+        raise FileNotFoundError(f'The supplied EIA-860 data folder \'{raw_folder}\' does not exist.')
 
     enviro_assoc_file = InputDataFilenames.EIA_860_ENVIRO_ASSOC_FILE_FMT.format(year)
     enviro_equip_file = InputDataFilenames.EIA_860_ENVIRO_EQUIP_FILE_FMT.format(year)
@@ -336,3 +369,16 @@ def check_required_files_raw_eia860(year: int):
         raise FileNotFoundError(f'EIA-860 for year {year} is missing {enviro_assoc_file}')
     if not os.path.exists(os.path.join(raw_folder, enviro_equip_file)):
         raise FileNotFoundError(f'EIA-860 for year {year} is missing {enviro_equip_file}')
+
+
+def check_required_files_raw_eia923(year: int):
+    """
+    Checks that all required files are present in an EIA-923 data folder.
+    """
+    raw_folder = f"{downloads_folder()}eia923/f923_{year}"
+    if not os.path.exists(raw_folder):
+        raise FileNotFoundError(f'The supplied EIA-923 data folder \'{raw_folder}\' does not exist.')
+
+    environmental_info_file = InputDataFilenames.EIA_923_ENVIRONMENTAL_INFO_FMT.format(year)
+    if not os.path.exists(os.path.join(raw_folder, environmental_info_file)):
+        raise FileNotFoundError(f'EIA-923 for year {year} is missing {environmental_info_file}')

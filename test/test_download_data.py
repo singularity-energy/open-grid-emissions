@@ -70,3 +70,11 @@ def test_format_raw_eia860():
     for year in YEARS_WITH_DIFFERENT_ENVIRO_FILENAMES:
         download_data.format_raw_eia860(year)
         download_data.check_required_files_raw_eia860(year)
+
+
+def test_format_raw_eia923():
+    testable_years = range(2011, 2020)
+    for year in testable_years:
+        print(f'Testing EIA-923 formatting for {year}')
+        download_data.format_raw_eia923(year)
+        download_data.check_required_files_raw_eia923(year)
