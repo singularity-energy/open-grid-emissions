@@ -317,9 +317,9 @@ def format_raw_eia860(year: int):
         
         # Copy to a new file with our expected naming convention.
         shutil.copy(enviro_assoc_input_filename,
-            os.path.join(raw_folder, InputDataFilenames.EIA_860_ENVIRO_ASSOC_FILE_FMT.format(year)))
+                os.path.join(raw_folder, InputDataFilenames.EIA_860_ENVIRO_ASSOC_FILE_FMT.format(year)))
         shutil.copy(enviro_assoc_input_filename,
-            os.path.join(raw_folder, InputDataFilenames.EIA_860_ENVIRO_EQUIP_FILE_FMT.format(year)))
+                os.path.join(raw_folder, InputDataFilenames.EIA_860_ENVIRO_EQUIP_FILE_FMT.format(year)))
 
 
 def check_required_files_raw_eia860(year: int):

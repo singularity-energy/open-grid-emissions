@@ -255,7 +255,7 @@ def manual_crosswalk_updates(crosswalk):
     return crosswalk
 
 
-def clean_eia923(year, small):
+def clean_eia923(year: int, small: bool, add_subplant_id: bool = True):
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
@@ -348,17 +348,20 @@ def clean_eia923(year, small):
         :, DATA_COLUMNS
     ].round(1)
 
-    # add subplant id
-    subplant_crosswalk = pd.read_csv(
-        f"{outputs_folder()}{year}/subplant_crosswalk.csv",
-        dtype=get_dtypes(),
-    )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
-    gen_fuel_allocated = gen_fuel_allocated.merge(
-        subplant_crosswalk,
-        how="left",
-        on=["plant_id_eia", "generator_id"],
-        validate="m:1",
-    )
+    # NOTE(milo): Subplant IDs are required for the hourly emissions pipeline, but not
+    # needed for exporting standalone EIA-923 data. We allow the user to skip the merge
+    # below with a flag.
+    if add_subplant_id:
+        subplant_crosswalk = pd.read_csv(
+            f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+        gen_fuel_allocated = gen_fuel_allocated.merge(
+            subplant_crosswalk,
+            how="left",
+            on=["plant_id_eia", "generator_id"],
+            validate="m:1",
+        )
 
     # add the cleaned prime mover code to the data
     gen_pm = pudl_out.gens_eia860()[
@@ -614,7 +617,7 @@ def remove_non_grid_connected_plants(df):
     return df
 
 
-def clean_cems(year, small):
+def clean_cems(year: int, small: bool):
     """
     Coordinating function for all of the cems data cleaning
     """
