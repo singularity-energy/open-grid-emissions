@@ -1433,7 +1433,7 @@ def assign_ba_code_to_plant(df, year):
     df = df.merge(plant_ba, how="left", on="plant_id_eia", validate="m:1")
 
     if len(df[df["ba_code"].isna()]) > 0:
-        print("    Warning: the following plants are missing ba_code:")
+        print("    WARNING: the following plants are missing ba_code:")
         print(df[df["ba_code"].isna()])
 
     # replace missing ba codes with NA
