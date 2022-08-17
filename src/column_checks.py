@@ -302,7 +302,7 @@ def check_columns(df, file_name):
     extras = cols - expected_cols
     if len(extras) > 0:
         print(
-            f"Warning: columns {extras} in {file_name} are not guaranteed by column_checks.py"
+            f"WARNING: columns {extras} in {file_name} are not guaranteed by column_checks.py"
         )
 
     # Raise exception for missing columns
@@ -415,7 +415,7 @@ def apply_dtypes(df):
     ]
     if len(cols_missing_dtypes) > 0:
         print(
-            "Warning: The following columns do not have dtypes assigned in `column_checks.get_dtypes()`"
+            "WARNING: The following columns do not have dtypes assigned in `column_checks.get_dtypes()`"
         )
         print(cols_missing_dtypes)
     return df.astype({col: dtypes[col] for col in df.columns if col in dtypes})

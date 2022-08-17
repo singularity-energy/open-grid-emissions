@@ -470,7 +470,7 @@ class HourlyConsumed:
                         except np.linalg.LinAlgError:
                             # These issues happen at boundary hours (beginning and end of year)
                             # where we don't have full data for all BAs
-                            # print(f"Warning: singular matrix on {date}")
+                            # print(f"WARNING: singular matrix on {date}")
                             consumed_emissions = np.full(len(self.regions), np.nan)
 
                     # Export

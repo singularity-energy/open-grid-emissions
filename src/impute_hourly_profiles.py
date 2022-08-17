@@ -275,7 +275,7 @@ def aggregate_for_residual(
     ]
     if len(missing_fuel_category) > 0:
         print(
-            "Warning: The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
+            "WARNING: The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
         )
         print(missing_fuel_category[["plant_id_eia", "subplant_id"]].drop_duplicates())
         raise UserWarning(
