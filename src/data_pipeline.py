@@ -106,7 +106,7 @@ import eia930
 import validation
 import output_data
 import consumed
-from filepaths import *
+from filepaths import downloads_folder, outputs_folder, results_folder
 
 
 def get_args():
@@ -154,18 +154,20 @@ def main():
     path_prefix += "flat/" if args.flat else ""
     path_prefix += f"{year}/"
     os.makedirs(downloads_folder(), exist_ok=True)
-    os.makedirs(f"{outputs_folder()}{path_prefix}", exist_ok=True)
-    os.makedirs(f"{outputs_folder()}{path_prefix}/eia930", exist_ok=True)
-    os.makedirs(f"{results_folder()}{path_prefix}", exist_ok=True)
+    os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
+    os.makedirs(outputs_folder(f"{path_prefix}/eia930"), exist_ok=True)
+    os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(
-        f"{results_folder()}{path_prefix}data_quality_metrics",
+        results_folder(f"{path_prefix}data_quality_metrics"),
         exist_ok=True,
     )
     for unit in ["us_units", "metric_units"]:
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
                 os.makedirs(
-                    f"{results_folder()}{path_prefix}/{subfolder}/{time_resolution}/{unit}",
+                    results_folder(
+                        f"{path_prefix}/{subfolder}/{time_resolution}/{unit}"
+                    ),
                     exist_ok=True,
                 )
 
@@ -203,9 +205,7 @@ def main():
     ####################################################################################
     print("2. Identifying subplant IDs")
     # GTN ratios are saved for reloading, as this is computationally intensive
-    if not os.path.exists(
-        f"{outputs_folder()}{year}/subplant_crosswalk.csv"
-    ):
+    if not os.path.exists(outputs_folder(f"{year}/subplant_crosswalk.csv")):
         print("    Generating subplant IDs")
         number_of_years = args.gtn_years
         data_cleaning.identify_subplants(year, number_of_years)
@@ -354,11 +354,7 @@ def main():
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
     if args.flat:
         print("    Not running 930 cleaning because we'll be using a flat profile.")
-    elif not (
-        os.path.exists(
-            f"{outputs_folder()}{path_prefix}/eia930/eia930_elec.csv"
-        )
-    ):
+    elif not (os.path.exists(outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv"))):
         eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
     else:
         print(
@@ -367,9 +363,9 @@ def main():
 
     # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
     clean_930_file = (
-        f"{downloads_folder()}eia930/chalendar/EBA_elec.csv"
+        downloads_folder("eia930/chalendar/EBA_elec.csv")
         if (args.small or args.flat)
-        else f"{outputs_folder()}{path_prefix}/eia930/eia930_elec.csv"
+        else outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv")
     )
     eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
     # until we can fix the physics reconciliation, we need to apply some post-processing steps
@@ -434,7 +430,7 @@ def main():
     )
     if not args.skip_outputs:
         plant_attributes.to_csv(
-            f"{results_folder()}{path_prefix}plant_data/plant_static_attributes.csv"
+            results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv")
         )
     # validate that the shaping did not alter data at the monthly level
     validation.validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape)

@@ -4,7 +4,7 @@ import numpy as np
 import load_data
 import impute_hourly_profiles
 from column_checks import get_dtypes
-from filepaths import *
+from filepaths import downloads_folder, manual_folder
 
 
 # DATA PIPELINE VALIDATION FUNCTIONS
@@ -863,7 +863,7 @@ def test_gtn_results(df):
 def load_egrid_plant_file(year):
     # load plant level data from egrid
     egrid_plant = pd.read_excel(
-        f"{downloads_folder()}egrid/egrid{year}_data.xlsx",
+        downloads_folder(f"egrid/egrid{year}_data.xlsx"),
         sheet_name=f"PLNT{str(year)[-2:]}",
         header=1,
         usecols=[
@@ -949,26 +949,6 @@ def load_egrid_plant_file(year):
         ]
     ]
 
-    # remove any plants that have no reported data
-    # NOTE: it seems that egrid includes a lot of proposed projects that are not yet operating, but just has missing data for them
-    plants_with_no_data_in_egrid = list(
-        egrid_plant[
-            egrid_plant[
-                [
-                    "net_generation_mwh",
-                    "fuel_consumed_mmbtu",
-                    "fuel_consumed_for_electricity_mmbtu",
-                    "co2_mass_lb",
-                    "co2_mass_lb_adjusted",
-                ]
-            ].sum(axis=1)
-            == 0
-        ]["plant_id_egrid"]
-    )
-    egrid_plant = egrid_plant[
-        ~egrid_plant["plant_id_egrid"].isin(plants_with_no_data_in_egrid)
-    ]
-
     # We also want to remove any plants that are located in Puerto Rico
     egrid_plant = egrid_plant[(egrid_plant["state"] != "PR")]
 
@@ -981,7 +961,7 @@ def load_egrid_plant_file(year):
 def load_egrid_ba_file(year):
     # load egrid BA totals
     egrid_ba = pd.read_excel(
-        f"{downloads_folder()}egrid/egrid{year}_data.xlsx",
+        downloads_folder(f"egrid/egrid{year}_data.xlsx"),
         sheet_name=f"BA{str(year)[-2:]}",
         header=1,
         usecols=["BANAME", "BACODE", "BAHTIANT", "BANGENAN", "BACO2AN"],
@@ -1007,7 +987,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        f"{manual_folder()}eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv",
+        manual_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
         dtype=get_dtypes(),
     )
     id_map = dict(
@@ -1235,15 +1215,35 @@ def compare_plant_level_results_to_egrid(
 def identify_plants_missing_from_our_calculations(
     egrid_plant, annual_plant_results, year
 ):
+
+    # remove any plants that have no reported data in egrid
+    # NOTE: it seems that egrid includes a lot of proposed projects that are not yet operating, but just has missing data for them
+    plants_with_no_data_in_egrid = list(
+        egrid_plant[
+            egrid_plant[
+                [
+                    "net_generation_mwh",
+                    "fuel_consumed_mmbtu",
+                    "fuel_consumed_for_electricity_mmbtu",
+                    "co2_mass_lb",
+                    "co2_mass_lb_adjusted",
+                ]
+            ].sum(axis=1)
+            == 0
+        ]["plant_id_egrid"]
+    )
+    egrid_plant_no_missing = egrid_plant.copy()[
+        ~egrid_plant["plant_id_egrid"].isin(plants_with_no_data_in_egrid)
+    ]
     # identify any plants that are in egrid but not our totals, and any plants that are in our totals, but not egrid
     PLANTS_MISSING_FROM_CALCULATION = list(
-        set(egrid_plant["plant_id_eia"].unique())
+        set(egrid_plant_no_missing["plant_id_eia"].unique())
         - set(annual_plant_results["plant_id_eia"].unique())
     )
 
     # Which plants are included in eGRID but are missing from our calculations?
-    missing_from_calc = egrid_plant[
-        egrid_plant["plant_id_egrid"].isin(PLANTS_MISSING_FROM_CALCULATION)
+    missing_from_calc = egrid_plant_no_missing[
+        egrid_plant_no_missing["plant_id_egrid"].isin(PLANTS_MISSING_FROM_CALCULATION)
     ]
 
     # see if any of these plants are retired
@@ -1259,7 +1259,7 @@ def identify_plants_missing_from_our_calculations(
         ].drop_duplicates(),
         how="left",
         on="plant_id_eia",
-        validate="m:1",
+        validate="m:m",
     )
 
     return missing_from_calc, PLANTS_MISSING_FROM_CALCULATION
@@ -1362,6 +1362,42 @@ def segment_plants_by_known_issues(
         "flag_bf_gen_reporter",
     ] = 1
 
+    # identify plants with proposed generators
+    status = pudl_out.gens_eia860()[
+        ["plant_id_eia", "generator_id", "operational_status"]
+    ]
+    plants_with_proposed_gens = list(
+        status.loc[
+            status["operational_status"] == "proposed",
+            "plant_id_eia",
+        ].unique()
+    )
+    plants_with_proposed_generators = status.loc[
+        status["plant_id_eia"].isin(plants_with_proposed_gens),
+        ["plant_id_eia", "operational_status"],
+    ].drop_duplicates()
+    entirely_new_plants = list(
+        plants_with_proposed_generators.loc[
+            (
+                ~plants_with_proposed_generators.duplicated(
+                    subset="plant_id_eia", keep=False
+                )
+            )
+            & (plants_with_proposed_generators["operational_status"] == "proposed"),
+            "plant_id_eia",
+        ].unique()
+    )
+    annual_plant_results_segmented["flag_plant_w_proposed_gen"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_id_eia"].isin(plants_with_proposed_gens),
+        "flag_plant_w_proposed_gen",
+    ] = 1
+    annual_plant_results_segmented["flag_proposed_plant"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_id_eia"].isin(entirely_new_plants),
+        "flag_proposed_plant",
+    ] = 1
+
     return annual_plant_results_segmented
 
 
@@ -1441,7 +1477,7 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
 
     # add egrid plant ids
     egrid_crosswalk = pd.read_csv(
-        f"{manual_folder()}eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"
+        manual_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv")
     )
     eia_to_egrid_id = dict(
         zip(

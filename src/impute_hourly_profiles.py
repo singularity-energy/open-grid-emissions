@@ -2,7 +2,7 @@ import load_data
 from column_checks import apply_dtypes
 import pandas as pd
 import numpy as np
-from filepaths import *
+from filepaths import manual_folder
 
 # specify the ba numbers with leading zeros
 FUEL_NUMBERS = {
@@ -873,7 +873,7 @@ def get_synthetic_plant_id_from_ba_fuel(df):
     """
 
     # load the ba reference table with all of the ba number ids
-    ba_numbers = pd.read_csv(f"{manual_folder()}ba_reference.csv")[
+    ba_numbers = pd.read_csv(manual_folder("ba_reference.csv"))[
         ["ba_code", "ba_number"]
     ]
     # reformat the number with leading zeros
