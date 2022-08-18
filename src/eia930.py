@@ -6,12 +6,10 @@ from os.path import join
 
 import load_data
 from column_checks import get_dtypes
-from filepaths import *
+from filepaths import top_folder, downloads_folder, outputs_folder, manual_folder
 
 # Tell gridemissions where to find config before we load gridemissions
-os.environ[
-    "GRIDEMISSIONS_CONFIG_FILE_PATH"
-] = f"{top_folder()}config/gridemissions.json"
+os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")
 
 from gridemissions.workflows import make_dataset
 
@@ -128,7 +126,7 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
 
     """
 
-    data_folder = f"{outputs_folder()}{path_prefix}/eia930/"
+    data_folder = outputs_folder(f"{path_prefix}/eia930/")
 
     # Format raw file
     df = balance_to_gridemissions(year, small=small)
@@ -234,7 +232,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     )[[1, 4]]
 
     # drop BAs not located in the United States
-    ba_ref = pd.read_csv(f"{manual_folder()}ba_reference.csv")
+    ba_ref = pd.read_csv(manual_folder("ba_reference.csv"))
     foreign_bas = list(ba_ref.loc[ba_ref["us_ba"] == "No", "ba_code"])
     data = data[~data["ba_code"].isin(foreign_bas)]
 
