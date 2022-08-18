@@ -14,20 +14,14 @@ sys.path.append('../')
 import src.data_cleaning as data_cleaning
 
 
-def test_export_eia923_2019_and_2020():
+def test_export_eia923():
     """These are the nominal years where data cleaning is well-tested."""
     data_cleaning.clean_eia923(2020, False, add_subplant_id=False)
     data_cleaning.clean_eia923(2019, False, add_subplant_id=False)
     data_cleaning.clean_eia923(2018, False, add_subplant_id=False)
     data_cleaning.clean_eia923(2017, False, add_subplant_id=False)
     data_cleaning.clean_eia923(2016, False, add_subplant_id=False)
-
-
-def test_export_eia923_2015():
     data_cleaning.clean_eia923(2015, False, add_subplant_id=False)
-
-
-def test_export_eia923_2014():
     data_cleaning.clean_eia923(2014, False, add_subplant_id=False)
 
 

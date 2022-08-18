@@ -830,6 +830,10 @@ def load_boiler_nox_association_eia860(year):
         "nox_control_id",
         "steam_plant_type",
     ]
+    
+    if year <= 2013:
+        # This column isn't included in 2013 and earlier.
+        boiler_nox_association_eia860_names.remove("steam_plant_type")
 
     # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
     # The environmental association data is available pre-2013, but would require additional work to format
@@ -868,6 +872,10 @@ def load_boiler_so2_association_eia860(year):
         "so2_control_id",
         "steam_plant_type",
     ]
+
+    if year <= 2013:
+        # This column isn't included in 2013 and earlier.
+        boiler_so2_association_eia860_names.remove("steam_plant_type")
 
     # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
     # The environmental association data is available pre-2013, but would require additional work to format
