@@ -605,7 +605,6 @@ def load_ba_reference():
 def load_diba_data(year):
     # load information about directly interconnected balancing authorities (DIBAs)
     dibas = load_raw_eia930_data(year, "INTERCHANGE")
-    print(dibas)
     dibas = dibas[
         [
             "Balancing Authority",
