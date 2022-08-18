@@ -33,12 +33,3 @@ def results_folder(rel=""):
 
 def outputs_folder(rel=""):
     return os.path.join(data_folder("outputs"), rel)
-
-
-class InputDataFilenames:
-    # EIA-860 filenames.
-    EIA_860_ENVIRO_ASSOC_FILE_FMT = '6_1_EnviroAssoc_Y{}.xlsx'  # .format(year)
-    EIA_860_ENVIRO_EQUIP_FILE_FMT = '6_2_EnviroEquip_Y{}.xlsx'  # .format(year)
-
-    # EIA-923 filenames.
-    EIA_923_ENVIRONMENTAL_INFO_FMT = 'EIA923_Schedule_8_Annual_Environmental_Information_{}_Final_Revision.xlsx'
