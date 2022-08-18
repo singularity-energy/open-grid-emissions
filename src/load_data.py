@@ -7,7 +7,7 @@ from pathlib import Path
 import pudl.output.pudltabl
 
 from column_checks import get_dtypes
-from filepaths import *
+from filepaths import downloads_folder, manual_folder, outputs_folder
 
 
 def load_cems_data(year):
@@ -694,10 +694,21 @@ def load_emissions_controls_eia923(year: int):
         emissions_controls_eia923_names.remove("hg_emission_rate_lb_per_trillion_btu")
 
     if year >= 2012:
+        # Handle filename changes across years.
+        schedule_8_filename = {
+            2012: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
+            2013: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_PartsA-D_EnvData_2013_Final_Revision.xlsx",
+            2014: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
+            2015: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
+            2016: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
+            2017: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx",
+            2018: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx",
+            2019: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
+            2020: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
+        }[year]
+
         emissions_controls_eia923 = pd.read_excel(
-            io=(
-                f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-            ),
+            io=schedule_8_filename,
             sheet_name="8C Air Emissions Control Info",
             header=4,
             names=emissions_controls_eia923_names,
@@ -738,9 +749,7 @@ def load_boiler_nox_association_eia860(year):
     # The environmental association data is available pre-2013, but would require additional work to format
     if year >= 2013:
         boiler_nox_association_eia860 = pd.read_excel(
-            io=(
-                f"{downloads_folder()}eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"
-            ),
+            io=downloads_folder(f"eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
             sheet_name="Boiler NOx",
             header=1,
             names=boiler_nox_association_eia860_names,
@@ -780,9 +789,7 @@ def load_boiler_so2_association_eia860(year):
     # The environmental association data is available pre-2013, but would require additional work to format
     if year >= 2013:
         boiler_so2_association_eia860 = pd.read_excel(
-            io=(
-                f"{downloads_folder()}eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"
-            ),
+            io=downloads_folder(f"eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
             sheet_name="Boiler SO2",
             header=1,
             names=boiler_so2_association_eia860_names,
