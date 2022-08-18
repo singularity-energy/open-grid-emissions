@@ -276,7 +276,7 @@ def download_raw_eia860(year):
     output_filepath = downloads_folder(f"eia860/{filename}")
     try:
         download_helper(url, zip_filepath, output_filepath, requires_unzip=True)
-    except Exception as exc:
+    except Exception:
         download_helper(archive_url, zip_filepath, output_filepath, requires_unzip=True)
 
 
@@ -306,9 +306,11 @@ def format_raw_eia860(year: int):
             raise FileNotFoundError(enviro_equip_input_filename)
         
         # Copy to a new file with our expected naming convention.
-        shutil.copy(enviro_assoc_input_filename,
+        shutil.copy(
+                enviro_assoc_input_filename,
                 os.path.join(raw_folder, InputDataFilenames.EIA_860_ENVIRO_ASSOC_FILE_FMT.format(year)))
-        shutil.copy(enviro_assoc_input_filename,
+        shutil.copy(
+                enviro_assoc_input_filename,
                 os.path.join(raw_folder, InputDataFilenames.EIA_860_ENVIRO_EQUIP_FILE_FMT.format(year)))
 
 
