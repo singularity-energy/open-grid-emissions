@@ -661,7 +661,9 @@ def ba_timezone(ba, type):
     return tz
 
 
-def load_emissions_controls_eia923(year):
+def load_emissions_controls_eia923(year: int):
+    if year < 2012:
+        return load_emissions_controls_eia_923_before_2012(year)
 
     emissions_controls_eia923_names = [
         "report_date",
@@ -689,7 +691,12 @@ def load_emissions_controls_eia923(year):
         "acid_gas_removal_efficiency",
     ]
 
-    if year >= 2014:
+    # For 2012-2015 and earlier, mercury emission rate is not reported in EIA923, so we need
+    # to remove that column to avoid an error.
+    if year <= 2015:
+        emissions_controls_eia923_names.remove("hg_emission_rate_lb_per_trillion_btu")
+
+    if year >= 2012:
         emissions_controls_eia923 = pd.read_excel(
             io=(
                 f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
@@ -711,6 +718,104 @@ def load_emissions_controls_eia923(year):
         emissions_controls_eia923 = pd.DataFrame(
             columns=emissions_controls_eia923_names
         )
+
+    return emissions_controls_eia923
+
+
+def load_emissions_controls_eia_923_before_2012(year: int):
+    """
+    Load emission control information from earlier EIA-923 releases.
+    
+    Before 2012, the NOX/SO2 control information is split up across multiple sheets.
+    """
+    # Redundant check to make sure this function is used on the proper years.
+    assert(year <= 2011)
+
+    # NOTE(milo): Mapping the 'Boiler ID' column to the nox_control_id.
+    boiler_nox_operations_names = [
+        "report_date",
+        "plant_id_eia",
+        "nox_control_id",
+        "hours_in_service",
+        "annual_nox_emission_rate_lb_per_mmbtu",
+        "ozone_season_nox_emission_rate_lb_per_mmbtu",
+        "no_nox_controls"
+    ]
+
+    dtypes_augmented = get_dtypes()
+    dtypes_augmented.update({
+        "no_nox_controls": str,
+    })
+
+    # Sheet names and header index changes from year to year.
+    nox_sheet_name = "8C Boiler NOX Operations" if year == 2011 else "Boiler NOX Operations"
+    so2_sheet_name = "8F FGD Operations" if year == 2011 else "FGD Operations"
+    header_index = 4 if year == 2011 else 5
+
+    boiler_nox_operations = pd.read_excel(
+        io=(
+            f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+        ),
+        sheet_name=nox_sheet_name,
+        header=header_index,
+        names=boiler_nox_operations_names,
+        dtype=dtypes_augmented,
+        na_values=".",
+        parse_dates=["report_date"]
+    )
+
+    boiler_fgd_operations_names = [
+        "report_date",
+        "plant_id_eia",
+        "so2_control_id",
+        "operational_status",
+        "hours_in_service",
+        "fgd_sorbent_consumption_1000_tons",
+        "fgd_electricity_consumption_mwh",
+        "pm_removal_efficiency_annual",
+        "pm_removal_efficiency_at_full_load",
+        "so2_test_date",
+        # We don't care about the columns below.
+        "feed_material_chemicals",
+        "labor_and_supervision",
+        "waste_disposal",
+        "maintenance_material_other",
+        "total_o_and_m",
+        "no_fgd_control"
+    ]
+
+    dtypes_augmented.update({
+        "feed_material_chemicals": "Int32",
+        "labor_and_supervision": "Int32",
+        "waste_disposal": "Int32",
+        "maintenance_material_other": "Int32",
+        "total_o_and_m": "Int32",
+        "no_fgd_control": str
+    })
+
+    boiler_fgd_operations = pd.read_excel(
+        io=(
+            f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+        ),
+        sheet_name=so2_sheet_name,
+        header=header_index,
+        names=boiler_fgd_operations_names,
+        dtype=dtypes_augmented,
+        na_values=".",
+        parse_dates=["report_date", "so2_test_date"]
+    ).drop(columns=[
+        "feed_material_chemicals",
+        "labor_and_supervision",
+        "waste_disposal",
+        "maintenance_material_other",
+        "total_o_and_m",
+        "no_fgd_control"
+    ])
+
+    emissions_controls_eia923 = pd.merge(
+            boiler_nox_operations,
+            boiler_fgd_operations,
+            how="outer", on=["report_date", "plant_id_eia"])
 
     return emissions_controls_eia923
 

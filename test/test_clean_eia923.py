@@ -16,19 +16,10 @@ import src.data_cleaning as data_cleaning
 
 def test_export_eia923_2019_and_2020():
     """These are the nominal years where data cleaning is well-tested."""
-    data_cleaning.clean_eia923(2019, False, add_subplant_id=False)
     data_cleaning.clean_eia923(2020, False, add_subplant_id=False)
-
-
-def test_export_eia923_2018():
+    data_cleaning.clean_eia923(2019, False, add_subplant_id=False)
     data_cleaning.clean_eia923(2018, False, add_subplant_id=False)
-
-
-def test_export_eia923_2017():
     data_cleaning.clean_eia923(2017, False, add_subplant_id=False)
-
-
-def test_export_eia923_2016():
     data_cleaning.clean_eia923(2016, False, add_subplant_id=False)
 
 

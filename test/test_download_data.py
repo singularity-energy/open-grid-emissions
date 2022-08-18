@@ -73,7 +73,7 @@ def test_format_raw_eia860():
 
 
 def test_format_raw_eia923():
-    testable_years = range(2011, 2020)
+    testable_years = range(2008, 2020)
     for year in testable_years:
         print(f'Testing EIA-923 formatting for {year}')
         download_data.format_raw_eia923(year)

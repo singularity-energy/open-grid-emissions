@@ -324,14 +324,20 @@ def format_raw_eia860(year: int):
 
 def format_raw_eia923(year: int):
     """Makes sure that a folder of raw EIA-923 has files with consistent names."""
-    if year < 2011:
+    if year < 2008:
         raise NotImplementedError(f'We haven\'t implemented data cleaning for {year} yet.')
 
     raw_folder = f"{downloads_folder()}eia923/f923_{year}"
     consistent_filename = os.path.join(raw_folder, InputDataFilenames.EIA_923_ENVIRONMENTAL_INFO_FMT.format(year))
 
     # Lots of annoying filename changes for each year.
-    if year == 2011:
+    if year == 2008:
+        base_filename = "SCHEDULE 3A 5A 8A 8B 8C 8D 8E 8F 2008.xlsm"
+    elif year == 2009:
+        base_filename = "SCHEDULE 3A 5A 8A 8B 8C 8D 8E 8F REVISED 2009 04112011.xls"
+    elif year == 2010:
+        base_filename = 'SCHEDULE 3A 5A 8A 8B 8C 8D 8E 8F 2010 on NOV 30 2011.xls'
+    elif year == 2011:
         base_filename = 'EIA923_Schedule_8_PartsA-F_EnvData_' + str(year) + '{}.xlsx'
     elif year == 2013:
         base_filename = 'EIA923_Schedule_8_PartsA-D_EnvData_' + str(year) + '{}.xlsx'
@@ -343,6 +349,7 @@ def format_raw_eia923(year: int):
     # Sometimes the filename ends in 'Final' instead of 'Final_Revision'.
     final_revision_filename = os.path.join(raw_folder, base_filename.format('_Final_Revision'))
     final_filename = os.path.join(raw_folder, base_filename.format('_Final'))
+
     if os.path.exists(final_revision_filename):
         # Only copy if the filename is different.
         if consistent_filename != final_revision_filename:
