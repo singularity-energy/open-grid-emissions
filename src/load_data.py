@@ -587,6 +587,10 @@ def load_raw_eia930_data(year, description):
         columns={"UTC Time at End of Hour": "operating_datetime_utc"}
     )
 
+    # Make sure that the columns use a consistent naming scheme!
+    # Defends against EIA suddenly adding underscores (which they have done before).
+    eia_930.columns = eia_930.columns.str.replace("_", " ")
+
     # TODO re-localize the timezones for the BAs that report in a different timezone
     # ba_reference = load_ba_reference()
     # bas_to_convert_tz = list(ba_reference.loc[ba_reference.timezone_reporting_eia930 != ba_reference.timezone_local, 'ba_code'])
