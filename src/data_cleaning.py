@@ -440,8 +440,9 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     # energy_source_code_1, and will have zero fuel consumption and net generation for
     # all fuel types. When that happens, we simply assign a plant to have the same fuel
     # type as the majority of its generators.
-    plant_primary_fuel_from_mode = gen_primary_fuel.groupby("plant_id_eia", dropna=False)['energy_source_code']\
-        .agg(lambda x: pd.Series.mode(x)[0]).to_frame().reset_index()
+    primary_fuel_from_mode = gen_primary_fuel.groupby("plant_id_eia", dropna=False)['energy_source_code']\
+        .agg(lambda x: pd.Series.mode(x)[0]).to_frame().reset_index().rename(
+            columns={"energy_source_code": "primary_fuel_from_mode"})
 
     # create a blank dataframe with all of the plant ids to hold primary fuel data
     plant_primary_fuel = gen_fuel_allocated[["plant_id_eia"]].drop_duplicates()
@@ -488,6 +489,10 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
         primary_fuel_from_capacity, how="left", on="plant_id_eia", validate="1:1"
     )
 
+    plant_primary_fuel = plant_primary_fuel.merge(
+        primary_fuel_from_mode, how="left", on="plant_id_eia", validate="1:1"
+    )
+
     # Use the fuel consumption-based primary fuel first, then fill using capacity-based
     # primary fuel, then generation based. Finally, to break all ties, use the energy
     # source code that appears most often for generators of a plant (mode).
@@ -502,7 +507,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     ].fillna(plant_primary_fuel["primary_fuel_from_net_generation_mwh"])
     plant_primary_fuel["plant_primary_fuel"] = plant_primary_fuel[
         "plant_primary_fuel"
-    ].fillna(plant_primary_fuel_from_mode["energy_source_code"])
+    ].fillna(plant_primary_fuel["primary_fuel_from_mode"])
 
     if len(plant_primary_fuel[plant_primary_fuel["plant_primary_fuel"].isna()]) > 0:
         plants_with_no_primary_fuel = plant_primary_fuel[plant_primary_fuel["plant_primary_fuel"].isna()]
