@@ -605,12 +605,13 @@ def load_ba_reference():
 def load_diba_data(year):
     # load information about directly interconnected balancing authorities (DIBAs)
     dibas = load_raw_eia930_data(year, "INTERCHANGE")
+    print(dibas)
     dibas = dibas[
         [
             "Balancing Authority",
             "Directly Interconnected Balancing Authority",
             "Region",
-            "DIBA Region",
+            "DIBA_Region",
         ]
     ].drop_duplicates()
     dibas = dibas.rename(
@@ -618,7 +619,7 @@ def load_diba_data(year):
             "Balancing Authority": "ba_code",
             "Directly Interconnected Balancing Authority": "diba_code",
             "Region": "ba_region",
-            "DIBA Region": "diba_region",
+            "DIBA_Region": "diba_region",
         }
     )
 
