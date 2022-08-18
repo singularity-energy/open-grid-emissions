@@ -3,7 +3,7 @@ import pytest
 
 
 @pytest.fixture
-def data_cleaning():
+def download_data():
     """Need to provide this import as a fixture to avoid complaints from the linter."""
     sys.path.append('../')
     import src.download_data as download_data

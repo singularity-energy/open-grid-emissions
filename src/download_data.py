@@ -176,7 +176,7 @@ def download_chalendar_files():
     for url in urls:
         output_filename = url.split("/")[-1].replace(".gz", "")
         output_filepath = f"{downloads_folder()}eia930/chalendar/{output_filename}"
-        download_helper(url, output_filename + ".gz", output_filepath, requires_gzip=True, should_clean=True)
+        download_helper(url, output_filepath + ".gz", output_filepath, requires_gzip=True, should_clean=True)
 
 
 def download_egrid_files(urls_to_download: list[str]):
