@@ -9,23 +9,16 @@ import zipfile
 from filepaths import downloads_folder, data_folder
 
 
-class InputDataFilenames:
-    # EIA-860 filenames.
-    EIA_860_ENVIRO_ASSOC_FILE_FMT = '6_1_EnviroAssoc_Y{}.xlsx'  # .format(year)
-    EIA_860_ENVIRO_EQUIP_FILE_FMT = '6_2_EnviroEquip_Y{}.xlsx'  # .format(year)
-
-    # EIA-923 filenames.
-    EIA_923_ENVIRONMENTAL_INFO_FMT = 'EIA923_Schedule_8_Annual_Environmental_Information_{}_Final_Revision.xlsx'
-
-
-def download_helper(input_url: str,
-                    download_path: str,
-                    output_path: Optional[str] = None,
-                    requires_unzip: bool = False,
-                    requires_untar: bool = False,
-                    requires_gzip: bool = False,
-                    should_clean: bool = False,
-                    chunk_size: int = 1024) -> bool:
+def download_helper(
+    input_url: str,
+    download_path: str,
+    output_path: Optional[str] = None,
+    requires_unzip: bool = False,
+    requires_untar: bool = False,
+    requires_gzip: bool = False,
+    should_clean: bool = False,
+    chunk_size: int = 1024,
+) -> bool:
     """
     Downloads a file or archive and optionally unzips/untars/copies it to a destination.
 
@@ -38,7 +31,7 @@ def download_helper(input_url: str,
         `requires_gzip`: Should we un-gzip the file after downloading?
         `should_clean`: Should we delete the temporary downloaded file when finished?
         `chunk_size`: The chunk size for downloading.
-    
+
     Returns:
         (bool) Whether the file was downloaded (it might be skipped if found).
     """
@@ -57,18 +50,18 @@ def download_helper(input_url: str,
     # Optionally unzip the downloaded file.
     if requires_unzip:
         if output_path is None:
-            raise ValueError('Unzipping requires an output_path destination.')
+            raise ValueError("Unzipping requires an output_path destination.")
         with zipfile.ZipFile(download_path, "r") as zip_to_unzip:
             zip_to_unzip.extractall(output_path)
     # Optionally un-tar the downloaded file.
     elif requires_untar:
         if output_path is None:
-            raise ValueError('Extracting a tar requires an output_path destination.')
+            raise ValueError("Extracting a tar requires an output_path destination.")
         with tarfile.open(download_path) as tar:
             tar.extractall(output_path)
     elif requires_gzip:
         if output_path is None:
-            raise ValueError('Extracting a gzip requires an output_path destination.')
+            raise ValueError("Extracting a gzip requires an output_path destination.")
         with gzip.open(download_path, "rb") as f_in:
             with open(output_path, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
@@ -85,7 +78,7 @@ def download_helper(input_url: str,
 def download_pudl_data(zenodo_url: str):
     """
     Downloads an archived PUDL data release.
-    
+
     The most recent version can be found at:
     https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#zenodo-archives
 
@@ -99,7 +92,7 @@ def download_pudl_data(zenodo_url: str):
     if os.path.exists(downloads_folder("pudl")):
         pudl_version_file = downloads_folder("pudl/pudl_version.txt")
         with open(pudl_version_file, "r") as f:
-            existing_version = f.readlines()[0].replace('\n', '')
+            existing_version = f.readlines()[0].replace("\n", "")
         if pudl_version == existing_version:
             print("    PUDL version already downloaded")
             return
@@ -176,7 +169,13 @@ def download_chalendar_files():
     for url in urls:
         output_filename = url.split("/")[-1].replace(".gz", "")
         output_filepath = f"{downloads_folder()}eia930/chalendar/{output_filename}"
-        download_helper(url, output_filepath + ".gz", output_filepath, requires_gzip=True, should_clean=True)
+        download_helper(
+            url,
+            output_filepath + ".gz",
+            output_filepath,
+            requires_gzip=True,
+            should_clean=True,
+        )
 
 
 def download_egrid_files(urls_to_download: list[str]):
@@ -234,13 +233,15 @@ def download_raw_eia923(year: int):
         `year`: A four-digit year.
     """
     if year < 2008:
-        raise NotImplementedError(f'EIA-923 data is unavailable for \'{year}\'.')
+        raise NotImplementedError(f"EIA-923 data is unavailable for '{year}'.")
     os.makedirs(downloads_folder("eia923"), exist_ok=True)
     url = f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
     filename = url.split("/")[-1].split(".")[0]
     download_filepath = downloads_folder(f"eia923/{filename}.zip")
     output_filepath = downloads_folder(f"eia923/{filename}")
-    download_helper(url, download_filepath, output_filepath, requires_unzip=True, should_clean=True)
+    download_helper(
+        url, download_filepath, output_filepath, requires_unzip=True, should_clean=True
+    )
 
 
 def download_raw_eia_906_920(year):
@@ -251,13 +252,15 @@ def download_raw_eia_906_920(year):
         `year`: A four-digit year.
     """
     if year < 2005 or year > 2007:
-        raise NotImplementedError(f'EIA-906/920 data is unavailable for \'{year}\'.')
-    output_folder = f'f906920_{year}'
+        raise NotImplementedError(f"EIA-906/920 data is unavailable for '{year}'.")
+    output_folder = f"f906920_{year}"
     download_helper(
-        f'https://www.eia.gov/electricity/data/eia923/archive/xls/f906920_{year}.zip',
-        downloads_folder(os.path.join('eia923', output_folder + '.zip')),
-        downloads_folder(os.path.join('eia923', output_folder)),
-        requires_unzip=True, should_clean=True)
+        f"https://www.eia.gov/electricity/data/eia923/archive/xls/f906920_{year}.zip",
+        downloads_folder(os.path.join("eia923", output_folder + ".zip")),
+        downloads_folder(os.path.join("eia923", output_folder)),
+        requires_unzip=True,
+        should_clean=True,
+    )
 
 
 def download_raw_eia860(year):
@@ -265,7 +268,7 @@ def download_raw_eia860(year):
     Downloads raw EIA-860 data (zip files), and unzips them to the downloads folder.
     """
     if year < 2005:
-        raise NotImplementedError(f'WARNING: We haven\'t tested EIA-860 for \'{year}\'.')
+        raise NotImplementedError(f"WARNING: We haven't tested EIA-860 for '{year}'.")
     os.makedirs(downloads_folder("eia860"), exist_ok=True)
     url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
     archive_url = (
@@ -275,30 +278,40 @@ def download_raw_eia860(year):
     zip_filepath = downloads_folder(f"eia860/{filename}.zip")
     output_filepath = downloads_folder(f"eia860/{filename}")
     try:
-        download_helper(url, zip_filepath, output_filepath, requires_unzip=True, should_clean=True)
+        download_helper(
+            url, zip_filepath, output_filepath, requires_unzip=True, should_clean=True
+        )
     except Exception:
-        download_helper(archive_url, zip_filepath, output_filepath, requires_unzip=True, should_clean=True)
+        download_helper(
+            archive_url,
+            zip_filepath,
+            output_filepath,
+            requires_unzip=True,
+            should_clean=True,
+        )
 
 
 def download_eia_electric_power_annual():
     """
     Downloads EIA Electric Power Annual uncontrolled emission factors.
-    
+
     See: https://www.eia.gov/electricity/annual/
     """
-    os.makedirs(downloads_folder('eia_electric_power_annual'), exist_ok=True)
+    os.makedirs(downloads_folder("eia_electric_power_annual"), exist_ok=True)
     urls = [
         "https://www.eia.gov/electricity/annual/xls/epa_a_01.xlsx",
         "https://www.eia.gov/electricity/annual/xls/epa_a_02.xlsx",
         "https://www.eia.gov/electricity/annual/xls/epa_a_03.xlsx",
-        "https://www.eia.gov/electricity/annual/xls/epa_a_04.xlsx"
+        "https://www.eia.gov/electricity/annual/xls/epa_a_04.xlsx",
     ]
     output_filenames = [
-        'epa_a_01_so2_uncontrolled_efs.xlsx',
-        'epa_a_02_nox_uncontrolled_efs.xlsx',
-        'epa_a_03_co2_uncontrolled_efs.xlsx',
-        'epa_a_04_nox_reduction_factors.xlsx',
+        "epa_a_01_so2_uncontrolled_efs.xlsx",
+        "epa_a_02_nox_uncontrolled_efs.xlsx",
+        "epa_a_03_co2_uncontrolled_efs.xlsx",
+        "epa_a_04_nox_reduction_factors.xlsx",
     ]
     for url, output_filename in zip(urls, output_filenames):
-        output_filepath = downloads_folder(f"eia_electric_power_annual/{output_filename}")
+        output_filepath = downloads_folder(
+            f"eia_electric_power_annual/{output_filename}"
+        )
         download_helper(url, output_filepath)

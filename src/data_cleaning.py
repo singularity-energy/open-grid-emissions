@@ -200,8 +200,7 @@ def generate_subplant_ids(start_year, end_year, cems_monthly):
         validate="m:1",
     )
 
-    if not os.path.exists(f"{outputs_folder()}{end_year}"):
-        os.mkdir(f"{outputs_folder()}{end_year}")
+    os.makedirs(f"{outputs_folder()}{end_year}", exist_ok=True)
 
     # export the crosswalk to csv
     crosswalk_with_subplant_ids.to_csv(
@@ -1209,7 +1208,12 @@ def count_reported_units_in_subplant(cems_monthly):
 
 
 def identify_partial_cems_plants(all_data):
-    """Identifies eia-only subplants for which CEMS data is reported for at least one other subplant at the plant."""
+    """Identifies subplants for which CEMS data is reported for at least one other subplant at the plant.
+    
+    Args:
+        all_data: dataframe identifying the hourly data source for each subplant-month
+    Returns:
+        all_data with updated hourly_data_source column indicating partial cems plants"""
 
     # create a column that indicates EIA-only subplant data
     all_data = all_data.assign(
@@ -1234,7 +1238,7 @@ def identify_partial_cems_plants(all_data):
 
     # we want to identify plants where there is some EIA data and some cems data
     # if eia_data = 0, then all of the data for that plant-month is from cems
-    # if if cems_data = 0, thwn all of the data for that plant-month is from EIA
+    # if if cems_data = 0, then all of the data for that plant-month is from EIA
     partial_plant = partial_plant[
         (partial_plant["eia_data"] > 0) & (partial_plant["cems_data"] > 0)
     ]
