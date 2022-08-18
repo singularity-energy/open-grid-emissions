@@ -24,12 +24,27 @@ def load_emissions_controls_helper(years):
         print('Looks good!')
 
 
-def load_boiler_nox_association_eia860_helper(years):
+def load_boiler_nox_association_eia860_helper(years, expect_empty=False):
     for year in years:
         print(f'-- Loading boiler NOx information from EIA-923 for {year}')
-        df_boiler_nox = load_data.load_emissions_controls_eia923(year)
+        df_boiler_nox = load_data.load_boiler_nox_association_eia860(year)
         print('Columns:\n', df_boiler_nox.columns)
-        assert(len(df_boiler_nox) > 0)
+        if expect_empty:
+            assert(len(df_boiler_nox) == 0)
+        else:
+            assert(len(df_boiler_nox) > 0)
+        print('Looks good!')
+
+
+def load_boiler_so2_association_eia860_helper(years, expect_empty=False):
+    for year in years:
+        print(f'-- Loading boiler SO2 information from EIA-923 for {year}')
+        df_boiler_nox = load_data.load_boiler_so2_association_eia860(year)
+        print('Columns:\n', df_boiler_nox.columns)
+        if expect_empty:
+            assert(len(df_boiler_nox) == 0)
+        else:
+            assert(len(df_boiler_nox) > 0)
         print('Looks good!')
 
 
@@ -42,8 +57,15 @@ def test_load_emissions_controls_eia923_2012_to_2015():
 
 
 def test_load_emissions_controls_eia923_pre_2012():
+    """Not available before 2008 because EIA publishes 906/920 instead of 923."""
     load_emissions_controls_helper(list(reversed(range(2008, 2012))))
 
 
-# def test_load_boiler_nox_association_eia860():
-#     load_boiler_nox_association_eia860_helper(list(reversed(range(2008, 2012))))
+def test_load_boiler_nox_association_eia860():
+    load_boiler_nox_association_eia860_helper(list(reversed(range(2013, 2021))))
+    load_boiler_nox_association_eia860_helper(list(reversed(range(2005, 2013))), expect_empty=True)
+
+
+def test_load_boiler_so2_association_eia860():
+    load_boiler_so2_association_eia860_helper(list(reversed(range(2013, 2021))))
+    load_boiler_so2_association_eia860_helper(list(reversed(range(2005, 2013))), expect_empty=True)
