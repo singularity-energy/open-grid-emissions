@@ -280,6 +280,30 @@ def download_raw_eia860(year):
         download_helper(archive_url, zip_filepath, output_filepath, requires_unzip=True)
 
 
+def download_eia_electric_power_annual():
+    """
+    Downloads EIA Electric Power Annual uncontrolled emission factors.
+    
+    See: https://www.eia.gov/electricity/annual/
+    """
+    os.makedirs(downloads_folder('eia_electric_power_annual'), exist_ok=True)
+    urls = [
+        "https://www.eia.gov/electricity/annual/xls/epa_a_01.xlsx",
+        "https://www.eia.gov/electricity/annual/xls/epa_a_02.xlsx",
+        "https://www.eia.gov/electricity/annual/xls/epa_a_03.xlsx",
+        "https://www.eia.gov/electricity/annual/xls/epa_a_04.xlsx"
+    ]
+    output_filenames = [
+        'epa_a_01_so2_uncontrolled_efs.xlsx',
+        'epa_a_02_nox_uncontrolled_efs.xlsx',
+        'epa_a_03_co2_uncontrolled_efs.xlsx',
+        'epa_a_04_nox_reduction_factors.xlsx',
+    ]
+    for url, output_filename in zip(urls, output_filenames):
+        output_filepath = downloads_folder(f"eia_electric_power_annual/{output_filename}")
+        download_helper(url, output_filepath)
+
+
 def format_raw_eia860(year: int):
     """
     Makes sure that a folder of raw EIA-860 data has filenames that are consistent

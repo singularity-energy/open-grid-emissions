@@ -37,6 +37,12 @@ def test_download_chalendar_files(download_data):
     print('DONE')
 
 
+def test_download_eia_electric_power_annual(download_data):
+    """Make sure that we can download electric power annual data from EIA."""
+    download_data.download_eia_electric_power_annual()
+    print('DONE')
+
+
 def test_download_eia930(download_data):
     """Test that EIA-930 data download works for all years."""
     print('Will test the following years:\n', YEARS_TO_TEST)
