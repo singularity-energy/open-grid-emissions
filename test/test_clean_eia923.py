@@ -1,30 +1,17 @@
-# --------------------------------------------------------------------------------------
-# Options:
-#  - Use `pytest -rP` to show print statements from PASSED tests after they finish
-#  - Use `pytest -s` to direct print statements to the console
-# 
-# Run a specific test case with:
-# pytest name_of_this_file.py -rP -k 'name_of_test_function'
-#
-# NOTE: The required input data must be downloaded first. See data_pipeline.py.
-
 import sys
 sys.path.append('../')
 
 import src.data_cleaning as data_cleaning
 
 
-def test_export_eia923():
-    """These are the nominal years where data cleaning is well-tested."""
-    data_cleaning.clean_eia923(2020, False, add_subplant_id=False)
-    data_cleaning.clean_eia923(2019, False, add_subplant_id=False)
-    data_cleaning.clean_eia923(2018, False, add_subplant_id=False)
-    data_cleaning.clean_eia923(2017, False, add_subplant_id=False)
-    data_cleaning.clean_eia923(2016, False, add_subplant_id=False)
-    data_cleaning.clean_eia923(2015, False, add_subplant_id=False)
-    data_cleaning.clean_eia923(2014, False, add_subplant_id=False)
-    data_cleaning.clean_eia923(2013, False, add_subplant_id=False)
+def test_clean_eia923():
+    for year in list(reversed(range(2009, 2020))):
+        print(f'--- Testing EIA-923 cleaning for {year}')
+        data_cleaning.clean_eia923(year, False, add_subplant_id=False)
 
 
-def test_export_eia923_2012():
-    data_cleaning.clean_eia923(2012, False, add_subplant_id=False)
+def test_clean_eia923_2008():
+    for year in list(reversed(range(2005, 2008))):
+        data_cleaning.clean_eia923(year, False, add_subplant_id=False)
+
+    # data_cleaning.clean_eia923(2008, False, add_subplant_id=False)

@@ -199,6 +199,12 @@ def main():
     download_data.download_raw_eia860(year)
     download_data.download_raw_eia923(year)
 
+    # Check that downloaded EIA-860 and EIA-923 files have the correct names.
+    download_data.format_raw_eia860(year)
+    download_data.check_required_files_raw_eia860(year)
+    download_data.format_raw_eia923(year)
+    download_data.check_required_files_raw_eia923(year)
+
     # 2. Identify subplants
     ####################################################################################
     print("2. Identifying subplant IDs")

@@ -1,16 +1,5 @@
-# --------------------------------------------------------------------------------------
-# Options:
-#  - Use `pytest -rP` to show print statements from PASSED tests after they finish
-#  - Use `pytest -s` to direct print statements to the console
-# 
-# Run a specific test case with:
-# pytest name_of_this_file.py -rP -k 'name_of_test_function'
-#
-# NOTE: The required input data must be downloaded first. See data_pipeline.py.
-
 import sys
 sys.path.append('../')
-
 
 import src.load_data as load_data
 
