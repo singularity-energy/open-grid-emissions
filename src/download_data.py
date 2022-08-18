@@ -1,3 +1,4 @@
+from typing import Optional
 import gzip
 import os
 import requests
@@ -5,33 +6,109 @@ import shutil
 import tarfile
 import zipfile
 
-from filepaths import *
+from filepaths import downloads_folder, data_folder
 
 
-def download_pudl_data(zenodo_url):
+class InputDataFilenames:
+    # EIA-860 filenames.
+    EIA_860_ENVIRO_ASSOC_FILE_FMT = '6_1_EnviroAssoc_Y{}.xlsx'  # .format(year)
+    EIA_860_ENVIRO_EQUIP_FILE_FMT = '6_2_EnviroEquip_Y{}.xlsx'  # .format(year)
+
+    # EIA-923 filenames.
+    EIA_923_ENVIRONMENTAL_INFO_FMT = 'EIA923_Schedule_8_Annual_Environmental_Information_{}_Final_Revision.xlsx'
+
+
+def download_helper(input_url: str,
+                    download_path: str,
+                    output_path: Optional[str] = None,
+                    requires_unzip: bool = False,
+                    requires_untar: bool = False,
+                    requires_gzip: bool = False,
+                    should_clean: bool = False,
+                    chunk_size: int = 1024) -> bool:
     """
-    Downloads the archived PUDL data release. The most recent version can be found at https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#zenodo-archives
+    Downloads a file or archive and optionally unzips/untars/copies it to a destination.
+
     Inputs:
-        zenodo_url: the url to the .tgz file hosted on zenodo
+        `input_url`: Where to download data from.
+        `download_path`: An absolute filepath to download to.
+        `output_path`: The final destination where the downloaded data should end up.
+        `requires_unzip`: Should we unzip the file after downloading?
+        `requires_untar`: Should we untar the file after downloading?
+        `requires_gzip`: Should we un-gzip the file after downloading?
+        `should_clean`: Should we delete the temporary downloaded file when finished?
+        `chunk_size`: The chunk size for downloading.
+    
+    Returns:
+        (bool) Whether the file was downloaded (it might be skipped if found).
     """
+    # If the file already exists, do not re-download it.
+    final_destination = output_path if output_path is not None else download_path
+    if os.path.exists(final_destination):
+        print(f"    {final_destination} already downloaded, skipping.")
+        return False
 
+    # Otherwise, download to the file in chunks.
+    print(f"    Downloading from {input_url}")
+    r = requests.get(input_url, stream=True)
+    with open(download_path, "wb") as fd:
+        for chunk in r.iter_content(chunk_size=chunk_size):
+            fd.write(chunk)
+    # Optionally unzip the downloaded file.
+    if requires_unzip:
+        if output_path is None:
+            raise ValueError('Unzipping requires an output_path destination.')
+        with zipfile.ZipFile(download_path, "r") as zip_to_unzip:
+            zip_to_unzip.extractall(output_path)
+    # Optionally un-tar the downloaded file.
+    elif requires_untar:
+        if output_path is None:
+            raise ValueError('Extracting a tar requires an output_path destination.')
+        with tarfile.open(download_path) as tar:
+            tar.extractall(output_path)
+    elif requires_gzip:
+        if output_path is None:
+            raise ValueError('Extracting a gzip requires an output_path destination.')
+        with gzip.open(download_path, "rb") as f_in:
+            with open(output_path, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+    # If the user didn't ask for unzip/untar, but specified a different output_path,
+    # copy the downloaded file to there.
+    elif output_path is not None and output_path != download_path:
+        shutil.copy(download_path, output_path)
+    # Finally, optionally clean up the downloaded temporary file.
+    if should_clean and output_path != download_path:
+        os.remove(download_path)
+    return True
+
+
+def download_pudl_data(zenodo_url: str):
+    """
+    Downloads an archived PUDL data release.
+    
+    The most recent version can be found at:
+    https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#zenodo-archives
+
+    Inputs:
+        `zenodo_url`: the url to the .tgz file hosted on zenodo
+    """
     # get the version number
     pudl_version = zenodo_url.split("/")[-1].replace(".tgz", "")
 
     # if the pudl data already exists, do not re-download
-    if os.path.exists(f"{downloads_folder()}pudl"):
-        with open(f"{downloads_folder()}pudl/pudl_version.txt", "r") as f:
+    if os.path.exists(downloads_folder("pudl")):
+        pudl_version_file = downloads_folder("pudl/pudl_version.txt")
+        with open(pudl_version_file, "r") as f:
             existing_version = f.readlines()[0].replace('\n', '')
         if pudl_version == existing_version:
-            print("    PUDL data already downloaded")
+            print("    PUDL version already downloaded")
+            return
         else:
             print("    Downloading new version of pudl")
-            shutil.rmtree(f"{downloads_folder()}pudl")
-            download_pudl(zenodo_url, pudl_version)
-            download_updated_pudl_database(download=True)
-    else:
-        download_pudl(zenodo_url, pudl_version)
-        download_updated_pudl_database(download=True)
+            shutil.rmtree(downloads_folder("pudl"))
+
+    download_pudl(zenodo_url, pudl_version)
+    download_updated_pudl_database(download=True)
 
 
 def download_pudl(zenodo_url, pudl_version):
@@ -40,7 +117,7 @@ def download_pudl(zenodo_url, pudl_version):
     total_size_in_bytes = int(r.headers.get("content-length", 0))
     block_size = 1024 * 1024 * 10  # 10 MB
     downloaded = 0
-    with open(f"{downloads_folder()}pudl.tgz", "wb") as fd:
+    with open(downloads_folder("pudl.tgz"), "wb") as fd:
         for chunk in r.iter_content(chunk_size=block_size):
             print(
                 f"    Downloading PUDL. Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
@@ -51,19 +128,18 @@ def download_pudl(zenodo_url, pudl_version):
 
     # extract the tgz file
     print("    Extracting PUDL data...")
-    with tarfile.open(f"{downloads_folder()}pudl.tgz") as tar:
-        tar.extractall(f"{data_folder()}")
+    with tarfile.open(downloads_folder("pudl.tgz")) as tar:
+        tar.extractall(data_folder())
 
     # rename the extracted directory to pudl so that we don't have to update this for future versions
-    os.rename(f"{data_folder()}{pudl_version}", f"{downloads_folder()}pudl")
+    os.rename(data_folder(pudl_version), downloads_folder("pudl"))
 
     # add a version file
-    with open(f"{downloads_folder()}pudl/pudl_version.txt", "w+") as v:
+    with open(downloads_folder("pudl/pudl_version.txt"), "w+") as v:
         v.write(pudl_version)
 
     # delete the downloaded tgz file
-    os.remove(f"{downloads_folder()}pudl.tgz")
-
+    os.remove(downloads_folder("pudl.tgz"))
     print("    PUDL download complete")
 
 
@@ -71,32 +147,26 @@ def download_updated_pudl_database(download=True):
     """
     Downloaded the updated `pudl.sqlite` file from datasette.
 
-    This is temporary until a new version of the data is published on zenodo
+    This is temporary until a new version of the data is published on zenodo.
     """
     if download is True:
         print("    Downloading updated pudl.sqlite from Datasette...")
         # remove the existing file from zenodo
-        os.remove(f"{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite")
+        os.remove(downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite"))
 
         r = requests.get("https://data.catalyst.coop/pudl.db", stream=True)
-        with open(f"{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite", "wb") as fd:
+        with open(downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite"), "wb") as fd:
             for chunk in r.iter_content(chunk_size=1024 * 1024):
                 fd.write(chunk)
-
-    else:
-        pass
 
 
 def download_chalendar_files():
     """
-    download_chalendar_files
-    Download raw and cleaned files. Eventually we'll do our own processing to get our own version of chalendar,
-    but still will be useful to use this raw file and compare to this cleaned file.
-
-    TODO: download functions share a lot of code, could refactor
+    Download raw and cleaned files. Eventually we'll do our own processing to get our
+    own version of chalendar, but still will be useful to use this raw file and compare
+    to this cleaned file.
     """
-    # if there is not yet a directory for egrid, make it
-    os.makedirs(f"{downloads_folder()}eia930/chalendar", exist_ok=True)
+    os.makedirs(downloads_folder("eia930/chalendar"), exist_ok=True)
 
     # download the cleaned and raw files
     urls = [
@@ -104,187 +174,131 @@ def download_chalendar_files():
         "https://gridemissions.s3.us-east-2.amazonaws.com/EBA_raw.csv.gz",
     ]
     for url in urls:
-        filename = url.split("/")[-1].replace(".gz", "")
-        # if the file already exists, do not re-download it
-        if os.path.exists(f"{downloads_folder()}eia930/chalendar/{filename}"):
-            print(f"    {filename} already downloaded")
-        else:
-            print(f"    Downloading {filename}")
-            r = requests.get(url, stream=True)
-
-            with open(f"{downloads_folder()}eia930/chalendar/{filename}.gz", "wb") as fd:
-                for chunk in r.iter_content(chunk_size=1024):
-                    fd.write(chunk)
-
-            # Unzip
-            with gzip.open(
-                f"{downloads_folder()}eia930/chalendar/{filename}.gz", "rb"
-            ) as f_in:
-                with open(
-                    f"{downloads_folder()}eia930/chalendar/{filename}", "wb"
-                ) as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-            os.remove(f"{downloads_folder()}eia930/chalendar/{filename}.gz")
+        output_filename = url.split("/")[-1].replace(".gz", "")
+        output_filepath = f"{downloads_folder()}eia930/chalendar/{output_filename}"
+        download_helper(url, output_filepath + ".gz", output_filepath, requires_gzip=True, should_clean=True)
 
 
-def download_egrid_files(egrid_files_to_download):
+def download_egrid_files(urls_to_download: list[str]):
     """
-    Downloads the egrid excel files
+    Downloads the egrid excel files.
+
     Inputs:
-        egrid_files_to_download: a list of urls for the egrid excel files that you want to download
+        `urls_to_download`: a list of urls for the excel files that you want to download
     """
-    # if there is not yet a directory for egrid, make it
-    if not os.path.exists(f"{downloads_folder()}egrid"):
-        os.mkdir(f"{downloads_folder()}egrid")
+    os.makedirs(downloads_folder("egrid"), exist_ok=True)
 
-    # download the egrid files
-    for url in egrid_files_to_download:
+    for url in urls_to_download:
         filename = url.split("/")[-1]
-        # if the file already exists, do not re-download it
-        if os.path.exists(f"{downloads_folder()}egrid/{filename}"):
-            print(f"    {filename} already downloaded")
-        else:
-            print(f"    Downloading {filename}")
-            r = requests.get(url, stream=True)
-
-            with open(f"{downloads_folder()}egrid/{filename}", "wb") as fd:
-                for chunk in r.iter_content(chunk_size=1024):
-                    fd.write(chunk)
+        filepath = f"{downloads_folder()}egrid/{filename}"
+        download_helper(url, filepath)
 
 
-def download_eia930_data(years_to_download):
+def download_eia930_data(years_to_download: list[int]):
     """
-    Downloads the six month csv files from the EIA-930 website
+    Downloads the six month csv files from the EIA-930 website.
+
     Inputs:
-        years_to_download: list of four-digit year numbers to download from EIA-930
+        `years_to_download`: list of four-digit year numbers to download from EIA-930.
     """
-    # if there is not yet a directory for EIA-930, make it
-    if not os.path.exists(f"{downloads_folder()}eia930"):
-        os.mkdir(f"{downloads_folder()}eia930")
+    os.makedirs(downloads_folder("eia930"), exist_ok=True)
 
-    # download the egrid files
     for year in years_to_download:
         for description in ["BALANCE", "INTERCHANGE"]:
             for months in ["Jan_Jun", "Jul_Dec"]:
-                if os.path.exists(
-                    f"{downloads_folder()}eia930/EIA930_{description}_{year}_{months}.csv"
-                ):
-                    print(f"    {description}_{year}_{months} data already downloaded")
-                else:
-                    print(f"    downloading {description}_{year}_{months} data")
-                    r = requests.get(
-                        f"https://www.eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_{description}_{year}_{months}.csv",
-                        stream=True,
-                    )
-
-                    with open(
-                        f"{downloads_folder()}eia930/EIA930_{description}_{year}_{months}.csv",
-                        "wb",
-                    ) as fd:
-                        for chunk in r.iter_content(chunk_size=1024 * 1024):
-                            fd.write(chunk)
+                download_url = f"https://www.eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_{description}_{year}_{months}.csv"
+                download_filepath = f"{downloads_folder()}eia930/EIA930_{description}_{year}_{months}.csv"
+                download_helper(download_url, download_filepath, chunk_size=1024 * 1024)
 
 
-def download_epa_psdc(psdc_url):
+def download_epa_psdc(psdc_url: str):
     """
-    Downloads the EPA's Power Sector Data Crosswalk
-    Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
+    Downloads the EPA's Power Sector Data Crosswalk.
+
+    Check for new releases at https://github.com/USEPA/camd-eia-crosswalk.
+
     Inputs:
-        psdc_url: the url to the csv file hosted on github
+        `psdc_url`: the url to the csv file hosted on github
     """
-    # if there is not yet a directory for egrid, make it
-    if not os.path.exists(f"{downloads_folder()}epa"):
-        os.mkdir(f"{downloads_folder()}epa")
-
+    os.makedirs(downloads_folder("epa"), exist_ok=True)
     filename = psdc_url.split("/")[-1]
-    # if the file already exists, do not re-download it
-    if os.path.exists(f"{downloads_folder()}epa/{filename}"):
-        print(f"    {filename} already downloaded")
-    else:
-        print(f"    Downloading {filename}")
-        r = requests.get(psdc_url, stream=True)
-
-        with open(f"{downloads_folder()}epa/{filename}", "wb") as fd:
-            for chunk in r.iter_content(chunk_size=1024):
-                fd.write(chunk)
+    download_path = downloads_folder(f"epa/{filename}")
+    download_helper(psdc_url, download_path)
 
 
-def download_raw_eia923(year):
+def download_raw_eia923(year: int):
     """
-    Downloads the egrid excel files
+    Downloads raw EIA-923 data (zip files), and unzips them to the downloads folder.
+
     Inputs:
-        egrid_files_to_download: a list of urls for the egrid excel files that you want to download
+        `year`: A four-digit year.
     """
-    # if there is not yet a directory for egrid, make it
-    if not os.path.exists(f"{downloads_folder()}eia923"):
-        os.mkdir(f"{downloads_folder()}eia923")
-
+    if year < 2008:
+        raise NotImplementedError(f'EIA-923 data is unavailable for \'{year}\'.')
+    os.makedirs(downloads_folder("eia923"), exist_ok=True)
     url = f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
-
     filename = url.split("/")[-1].split(".")[0]
-    # if the file already exists, do not re-download it
-    if os.path.exists(f"{downloads_folder()}eia923/{filename}"):
-        print(f"    {year} EIA-923 already downloaded")
-    else:
-        print(f"    Downloading {year} EIA-923 data")
-        r = requests.get(url, stream=True)
+    download_filepath = downloads_folder(f"eia923/{filename}.zip")
+    output_filepath = downloads_folder(f"eia923/{filename}")
+    download_helper(url, download_filepath, output_filepath, requires_unzip=True, should_clean=True)
 
-        with open(f"{downloads_folder()}eia923/{filename}.zip", "wb") as fd:
-            for chunk in r.iter_content(chunk_size=1024):
-                fd.write(chunk)
 
-        # Unzip
-        with zipfile.ZipFile(
-            f"{downloads_folder()}eia923/{filename}.zip", "r"
-        ) as zip_to_unzip:
-            zip_to_unzip.extractall(f"{downloads_folder()}eia923/{filename}")
-        os.remove(f"{downloads_folder()}eia923/{filename}.zip")
+def download_raw_eia_906_920(year):
+    """
+    For years before 2008, the EIA releases Form 906 and 920 instead of 923.
+
+    Inputs:
+        `year`: A four-digit year.
+    """
+    if year < 2005 or year > 2007:
+        raise NotImplementedError(f'EIA-906/920 data is unavailable for \'{year}\'.')
+    output_folder = f'f906920_{year}'
+    download_helper(
+        f'https://www.eia.gov/electricity/data/eia923/archive/xls/f906920_{year}.zip',
+        downloads_folder(os.path.join('eia923', output_folder + '.zip')),
+        downloads_folder(os.path.join('eia923', output_folder)),
+        requires_unzip=True, should_clean=True)
 
 
 def download_raw_eia860(year):
     """
-    Downloads the egrid excel files
-    Inputs:
-        egrid_files_to_download: a list of urls for the egrid excel files that you want to download
+    Downloads raw EIA-860 data (zip files), and unzips them to the downloads folder.
     """
-    # if there is not yet a directory for egrid, make it
-    if not os.path.exists(f"{downloads_folder()}eia860"):
-        os.mkdir(f"{downloads_folder()}eia860")
-
+    if year < 2005:
+        raise NotImplementedError(f'WARNING: We haven\'t tested EIA-860 for \'{year}\'.')
+    os.makedirs(downloads_folder("eia860"), exist_ok=True)
     url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
     archive_url = (
         f"https://www.eia.gov/electricity/data/eia860/archive/xls/eia860{year}.zip"
     )
-
     filename = url.split("/")[-1].split(".")[0]
-    # if the file already exists, do not re-download it
-    if os.path.exists(f"{downloads_folder()}eia860/{filename}"):
-        print(f"    {year} EIA-860 already downloaded")
-    else:
-        print(f"    Downloading {year} EIA-860 data")
-        try:
-            r = requests.get(url, stream=True)
+    zip_filepath = downloads_folder(f"eia860/{filename}.zip")
+    output_filepath = downloads_folder(f"eia860/{filename}")
+    try:
+        download_helper(url, zip_filepath, output_filepath, requires_unzip=True, should_clean=True)
+    except Exception:
+        download_helper(archive_url, zip_filepath, output_filepath, requires_unzip=True, should_clean=True)
 
-            with open(f"{downloads_folder()}eia860/{filename}.zip", "wb") as fd:
-                for chunk in r.iter_content(chunk_size=1024):
-                    fd.write(chunk)
 
-            # Unzip
-            with zipfile.ZipFile(
-                f"{downloads_folder()}eia860/{filename}.zip", "r"
-            ) as zip_to_unzip:
-                zip_to_unzip.extractall(f"{downloads_folder()}eia860/{filename}")
-            os.remove(f"{downloads_folder()}eia860/{filename}.zip")
-        except:
-            r = requests.get(archive_url, stream=True)
-
-            with open(f"{downloads_folder()}eia860/{filename}.zip", "wb") as fd:
-                for chunk in r.iter_content(chunk_size=1024):
-                    fd.write(chunk)
-
-            # Unzip
-            with zipfile.ZipFile(
-                f"{downloads_folder()}eia860/{filename}.zip", "r"
-            ) as zip_to_unzip:
-                zip_to_unzip.extractall(f"{downloads_folder()}eia860/{filename}")
-            os.remove(f"{downloads_folder()}eia860/{filename}.zip")
+def download_eia_electric_power_annual():
+    """
+    Downloads EIA Electric Power Annual uncontrolled emission factors.
+    
+    See: https://www.eia.gov/electricity/annual/
+    """
+    os.makedirs(downloads_folder('eia_electric_power_annual'), exist_ok=True)
+    urls = [
+        "https://www.eia.gov/electricity/annual/xls/epa_a_01.xlsx",
+        "https://www.eia.gov/electricity/annual/xls/epa_a_02.xlsx",
+        "https://www.eia.gov/electricity/annual/xls/epa_a_03.xlsx",
+        "https://www.eia.gov/electricity/annual/xls/epa_a_04.xlsx"
+    ]
+    output_filenames = [
+        'epa_a_01_so2_uncontrolled_efs.xlsx',
+        'epa_a_02_nox_uncontrolled_efs.xlsx',
+        'epa_a_03_co2_uncontrolled_efs.xlsx',
+        'epa_a_04_nox_reduction_factors.xlsx',
+    ]
+    for url, output_filename in zip(urls, output_filenames):
+        output_filepath = downloads_folder(f"eia_electric_power_annual/{output_filename}")
+        download_helper(url, output_filepath)
