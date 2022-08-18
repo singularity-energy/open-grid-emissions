@@ -20,7 +20,7 @@ def validate_year(year):
     if year < earliest_validated_year:
         year_warning = f"""
         ################################################################################
-        Warning: The data pipeline has only been validated to work for years {earliest_validated_year}-{latest_validated_year}.
+        WARNING: The data pipeline has only been validated to work for years {earliest_validated_year}-{latest_validated_year}.
         Running the pipeline for {year} may cause it to fail or may lead to poor-quality
         or anomalous results. To check on the progress of validating additional years of
         data, see: https://github.com/singularity-energy/open-grid-emissions/issues/117
@@ -30,7 +30,7 @@ def validate_year(year):
     elif year > latest_validated_year:
         year_warning = f"""
         ################################################################################
-        Warning: The most recent available year of input data is currently {latest_validated_year}.
+        WARNING: The most recent available year of input data is currently {latest_validated_year}.
         Input data for {year} should be available from the EIA in Fall {year+1} and we will
         work to validate that the pipeline works with {year} data as soon as possible
         after the data is released.
@@ -78,7 +78,7 @@ def test_for_negative_values(df):
         if not negative_test.empty:
             print(" ")
             print(
-                f"Warning: There are {len(negative_test)} records where {column} is negative. Check `negative_test` for complete list"
+                f"WARNING: There are {len(negative_test)} records where {column} is negative. Check `negative_test` for complete list"
             )
             print(" ")
             negative_warnings += 1
@@ -99,7 +99,7 @@ def test_chp_allocation(df):
     ]
     if not chp_allocation_test.empty:
         raise UserWarning(
-            f"Warning: There are {len(chp_allocation_test)} records where fuel consumed for electricity is greater than total fuel consumption. Check `chp_allocation_test` for complete list"
+            f"WARNING: There are {len(chp_allocation_test)} records where fuel consumed for electricity is greater than total fuel consumption. Check `chp_allocation_test` for complete list"
         )
     else:
         print("OK")
@@ -118,7 +118,7 @@ def test_for_missing_energy_source_code(df):
     if not missing_esc_test.empty:
         print(" ")
         print(
-            f"Warning: There are {len(missing_esc_test)} records where there is a missing energy source code associated with non-zero fuel consumption. Check `missing_esc_test` for complete list"
+            f"WARNING: There are {len(missing_esc_test)} records where there is a missing energy source code associated with non-zero fuel consumption. Check `missing_esc_test` for complete list"
         )
     else:
         print("OK")
@@ -132,7 +132,7 @@ def test_for_missing_subplant_id(df):
     if not missing_subplant_test.empty:
         print(" ")
         print(
-            f"Warning: There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID. See `missing_subplant_test` for details"
+            f"WARNING: There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID. See `missing_subplant_test` for details"
         )
     else:
         print("OK")
@@ -186,7 +186,7 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
     if len(cems_net_not_equal_to_eia) > 0:
         print(" ")
         print(
-            f"Warning: There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
+            f"WARNING: There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
         )
         print(cems_net_not_equal_to_eia)
     else:
@@ -212,7 +212,7 @@ def test_emissions_adjustments(df):
         ]
         if len(bad_adjustment) > 0:
             print(
-                f"Warning: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity > {pollutant}_mass_lb"
+                f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity > {pollutant}_mass_lb"
             )
             bad_adjustment += 1
 
@@ -222,7 +222,7 @@ def test_emissions_adjustments(df):
         ]
         if len(bad_adjustment) > 0:
             print(
-                f"Warning: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_adjusted > {pollutant}_mass_lb"
+                f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_adjusted > {pollutant}_mass_lb"
             )
             bad_adjustment += 1
 
@@ -236,7 +236,7 @@ def test_emissions_adjustments(df):
         if len(bad_adjustment) > 0:
             print(" ")
             print(
-                f"Warning: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
+                f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
             )
             bad_adjustment += 1
 
@@ -298,7 +298,7 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
         if len(eia_cems_overlap) > 0:
             print(" ")
             print(
-                f"Warning: There are {len(eia_cems_overlap)} subplant-months that exist in both shaped EIA data and CEMS"
+                f"WARNING: There are {len(eia_cems_overlap)} subplant-months that exist in both shaped EIA data and CEMS"
             )
         eia_pc_overlap = data_overlap[
             (data_overlap["in_eia"] == 1) & (data_overlap["in_partial_cems"] == 1)
@@ -306,7 +306,7 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
         if len(eia_pc_overlap) > 0:
             print(" ")
             print(
-                f"Warning: There are {len(eia_pc_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
+                f"WARNING: There are {len(eia_pc_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
             )
         cems_pc_overlap = data_overlap[
             (data_overlap["in_cems"] == 1) & (data_overlap["in_partial_cems"] == 1)
@@ -314,13 +314,13 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
         if len(cems_pc_overlap) > 0:
             print(" ")
             print(
-                f"Warning: There are {len(cems_pc_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
+                f"WARNING: There are {len(cems_pc_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
             )
         all_overlap = data_overlap[data_overlap["number_of_locations"] == 3]
         if len(all_overlap) > 0:
             print(" ")
             print(
-                f"Warning: There are {len(all_overlap)} subplant-months that exist in shaped EIA data, CEMS data, and partial CEMS data."
+                f"WARNING: There are {len(all_overlap)} subplant-months that exist in shaped EIA data, CEMS data, and partial CEMS data."
             )
         raise UserWarning("The above overlaps must be fixed before proceeding.")
     else:
@@ -443,6 +443,77 @@ def identify_percent_of_data_by_input_source(cems, partial_cems, eia_only_data, 
     source_of_input_data = source_of_input_data.reset_index()
 
     return source_of_input_data
+
+
+def identify_annually_reported_eia_data(eia923_allocated, year):
+    """Creates table summarizing the percent of final data from annually-reported EIA data."""
+
+    # load data about the respondent frequency for each plant and merge into the EIA-923 data
+    pudl_out = load_data.initialize_pudl_out(year)
+    plant_frequency = pudl_out.plants_eia860()[["plant_id_eia", "respondent_frequency"]]
+    eia_data = eia923_allocated.merge(
+        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
+    )
+
+    data_from_annual = (
+        eia_data.groupby(["respondent_frequency"], dropna=False)[
+            ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
+        ].sum()
+        / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
+        * 100
+    )
+
+    annual_eia_used = (
+        eia_data[eia_data["hourly_data_source"] != "cems"]
+        .groupby(["respondent_frequency"], dropna=False)[
+            ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
+        ]
+        .sum()
+        / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
+        * 100
+    )
+
+    multi_source_subplants = (
+        eia_data[["plant_id_eia", "subplant_id", "hourly_data_source"]]
+        .drop_duplicates()
+        .drop(columns="hourly_data_source")
+    )
+    multi_source_subplants = multi_source_subplants[
+        multi_source_subplants.duplicated(subset=["plant_id_eia", "subplant_id"])
+    ]
+    multi_source_subplants = eia_data.merge(
+        multi_source_subplants, how="inner", on=["plant_id_eia", "subplant_id"]
+    )
+    multi_source_summary = (
+        multi_source_subplants.groupby(["respondent_frequency"], dropna=False)[
+            ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
+        ].sum()
+        / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
+        * 100
+    )
+
+    annual_data_summary = pd.concat(
+        [
+            pd.DataFrame(
+                data_from_annual.loc["A", :]
+                .rename("% of EIA-923 input data from EIA annual reporters")
+                .round(2)
+            ).T,
+            pd.DataFrame(
+                annual_eia_used.loc["A", :]
+                .rename("% of output data from EIA annual reporters")
+                .round(2)
+            ).T,
+            pd.DataFrame(
+                multi_source_summary.loc["A", :]
+                .rename("% of output data mixing CEMS and annually-reported EIA data")
+                .round(2)
+            ).T,
+        ],
+        axis=0,
+    )
+
+    return annual_data_summary
 
 
 def identify_cems_gtn_method(cems):
@@ -638,7 +709,7 @@ def test_for_missing_fuel(df, generation_column):
     ]
     if not missing_fuel_test.empty:
         print(
-            f"Warning: There are {len(missing_fuel_test)} records where {generation_column} is positive but no fuel consumption is reported. Check `missing_fuel_test` for complete list"
+            f"WARNING: There are {len(missing_fuel_test)} records where {generation_column} is positive but no fuel consumption is reported. Check `missing_fuel_test` for complete list"
         )
 
     return missing_fuel_test
@@ -648,7 +719,7 @@ def test_for_missing_co2(df):
     missing_co2_test = df[df["co2_mass_lb"].isna() & ~df["fuel_consumed_mmbtu"].isna()]
     if not missing_co2_test.empty:
         print(
-            f"Warning: There are {len(missing_co2_test)} records where co2 data is missing. Check `missing_co2_test` for complete list"
+            f"WARNING: There are {len(missing_co2_test)} records where co2 data is missing. Check `missing_co2_test` for complete list"
         )
     return missing_co2_test
 
@@ -657,7 +728,7 @@ def test_for_missing_data(df, columns_to_test):
     missing_data_test = df[df[columns_to_test].isnull().all(axis=1)]
     if not missing_data_test.empty:
         print(
-            f"Warning: There are {len(missing_data_test)} records for which no data was reported. Check `missing_data_test` for complete list"
+            f"WARNING: There are {len(missing_data_test)} records for which no data was reported. Check `missing_data_test` for complete list"
         )
     return missing_data_test
 
@@ -683,14 +754,14 @@ def test_for_missing_incorrect_prime_movers(df, year):
     ]
     if not incorrect_pm_test.empty:
         print(
-            f"Warning: There are {len(incorrect_pm_test)} records for which the allocated prime mover does not match the reported prime mover. Check `incorrect_pm_test` for complete list"
+            f"WARNING: There are {len(incorrect_pm_test)} records for which the allocated prime mover does not match the reported prime mover. Check `incorrect_pm_test` for complete list"
         )
 
     # check for missing PM code
     missing_pm_test = df[df["prime_mover_code"].isna()]
     if not missing_pm_test.empty:
         print(
-            f"Warning: There are {len(missing_pm_test)} records for which no prime mover was assigned. Check `missing_pm_test` for complete list"
+            f"WARNING: There are {len(missing_pm_test)} records for which no prime mover was assigned. Check `missing_pm_test` for complete list"
         )
 
     return incorrect_pm_test, missing_pm_test
@@ -738,7 +809,7 @@ def test_for_outlier_heat_rates(df):
             ]
             if not heat_rate_test.empty:
                 print(
-                    f"    Warning: {len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
+                    f"    WARNING: {len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
                 )
                 print(
                     f'             median = {heat_rate_stats["50%"].round(2)}, max = {heat_rate_stats["max"].round(2)}, min = {heat_rate_stats["min"].round(2)}'
@@ -771,7 +842,7 @@ def test_for_zero_data(df, columns_to_test):
     ]
     if not zero_data_test.empty:
         print(
-            f"Warning: There are {len(zero_data_test)} records where all operating data are zero. Check `zero_data_test` for complete list"
+            f"WARNING: There are {len(zero_data_test)} records where all operating data are zero. Check `zero_data_test` for complete list"
         )
     return zero_data_test
 
@@ -780,7 +851,7 @@ def test_gtn_results(df):
     gtn_test = df[df["net_generation_mwh"] > df["gross_generation_mwh"]]
     if not gtn_test.empty:
         print(
-            f"Warning: There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
+            f"WARNING: There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
         )
     return gtn_test
 
