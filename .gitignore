@@ -15,6 +15,7 @@ CHANGELOG.md
 
 # Python 
 notebooks/.ipynb_checkpoints
+notebooks/*/.ipynb_checkpoints
 .hypothesis/
 
 # Mac junk
