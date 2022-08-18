@@ -65,6 +65,13 @@ def test_download_raw_eia860():
         download_data.download_raw_eia860(year)
 
 
+def test_download_raw_eia_906_920():
+    testable_years = range(2005, 2008)
+    for year in testable_years:
+        print(f'Testing EIA-906/920 download for {year}')
+        download_data.download_raw_eia_906_920(year)
+
+
 def test_format_raw_eia860():
     YEARS_WITH_DIFFERENT_ENVIRO_FILENAMES = range(2009, 2013)
     for year in YEARS_WITH_DIFFERENT_ENVIRO_FILENAMES:

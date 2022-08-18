@@ -23,7 +23,8 @@ def test_export_eia923():
     data_cleaning.clean_eia923(2016, False, add_subplant_id=False)
     data_cleaning.clean_eia923(2015, False, add_subplant_id=False)
     data_cleaning.clean_eia923(2014, False, add_subplant_id=False)
-
-
-def test_export_eia923_2013():
     data_cleaning.clean_eia923(2013, False, add_subplant_id=False)
+
+
+def test_export_eia923_2012():
+    data_cleaning.clean_eia923(2012, False, add_subplant_id=False)

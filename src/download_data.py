@@ -1,3 +1,4 @@
+from typing import Optional
 import gzip
 import os
 import requests
@@ -6,6 +7,61 @@ import tarfile
 import zipfile
 
 from filepaths import *
+
+
+def download_and_unzip(input_url: str,
+                       download_path: str,
+                       output_path: Optional[str] = None,
+                       requires_unzip: bool = False,
+                       requires_untar: bool = False,
+                       should_clean: bool = False,
+                       chunk_size: int = 1024) -> bool:
+    """
+    Downloads a file or archive and optionally unzips/untars/copies it to a destination.
+
+    Inputs:
+        `input_url`: Where to download data from.
+        `download_path`: An absolute filepath to download to.
+        `output_path`: The final destination where the downloaded data should end up.
+        `requires_unzip`: Should we unzip the file after downloading?
+        `requires_untar`: Should we untar the file after downloading?
+        `should_clean`: Should we delete the temporary downloaded file when finished?
+        `chunk_size`: The chunk size for downloading.
+    
+    Returns:
+        (bool) Whether the file was downloaded (it might be skipped if found).
+    """
+    # If the file already exists, do not re-download it.
+    if os.path.exists(output_path):
+        print(f"    {output_path} already downloaded, skipping.")
+        return False
+
+    # Otherwise, download to the file in chunks.
+    print(f"    Downloading from {input_url}")
+    r = requests.get(input_url, stream=True)
+    with open(download_path, "wb") as fd:
+        for chunk in r.iter_content(chunk_size=chunk_size):
+            fd.write(chunk)
+    # Optionally unzip the downloaded file.
+    if requires_unzip:
+        if output_path is None:
+            raise ValueError('Unzipping requires an output_path destination.')
+        with zipfile.ZipFile(download_path, "r") as zip_to_unzip:
+            zip_to_unzip.extractall(output_path)
+    # Optionally un-tar the downloaded file.
+    elif requires_untar:
+        if output_path is None:
+            raise ValueError('Extracting a tar requires an output_path destination.')
+        with tarfile.open(download_path) as tar:
+            tar.extractall(output_path)
+    # If the user didn't ask for unzip/untar, but specified a different output_path,
+    # copy the downloaded file to there.
+    elif output_path is not None and output_path != download_path:
+        shutil.copy(download_path, output_path)
+    # Finally, optionally clean up the downloaded temporary file.
+    if should_clean and output_path != download_path:
+        os.remove(download_path)
+    return True
 
 
 def download_pudl_data(zenodo_url):
@@ -239,6 +295,21 @@ def download_raw_eia923(year):
         ) as zip_to_unzip:
             zip_to_unzip.extractall(f"{downloads_folder()}eia923/{filename}")
         os.remove(f"{downloads_folder()}eia923/{filename}.zip")
+
+
+def download_raw_eia_906_920(year):
+    """
+    For years before 2008, the EIA releases Form 906 and 920 instead of 923.
+    """
+    if year < 2005 or year > 2007:
+        raise NotImplementedError(f'We haven\'t tested downloading raw EIA-906/920 data for \'{year}\'.')
+    output_folder = f'f906920_{year}'
+    download_and_unzip(
+        f'https://www.eia.gov/electricity/data/eia923/archive/xls/f906920_{year}.zip',
+        downloads_folder(os.path.join('eia923', output_folder + '.zip')),
+        downloads_folder(os.path.join('eia923', output_folder)),
+        requires_unzip=True,
+        should_clean=True)
 
 
 def download_raw_eia860(year):

@@ -255,7 +255,11 @@ def manual_crosswalk_updates(crosswalk):
     return crosswalk
 
 
-def clean_eia923(year: int, small: bool, add_subplant_id: bool = True):
+def clean_eia923(year: int,
+                 small: bool,
+                 add_subplant_id: bool = True,
+                 calculate_nox_emissions: bool = True,
+                 calculate_so2_emissions: bool = True):
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
@@ -309,12 +313,14 @@ def clean_eia923(year: int, small: bool, add_subplant_id: bool = True):
     )
 
     # Calculate NOx and SO2 emissions
-    gen_fuel_allocated = emissions.calculate_nox_from_fuel_consumption(
-        gen_fuel_allocated, pudl_out, year
-    )
-    gen_fuel_allocated = emissions.calculate_so2_from_fuel_consumption(
-        gen_fuel_allocated, pudl_out, year
-    )
+    if calculate_nox_emissions:
+        gen_fuel_allocated = emissions.calculate_nox_from_fuel_consumption(
+            gen_fuel_allocated, pudl_out, year
+        )
+    if calculate_so2_emissions:
+        gen_fuel_allocated = emissions.calculate_so2_from_fuel_consumption(
+            gen_fuel_allocated, pudl_out, year
+        )
 
     # adjust total emissions for biomass
     gen_fuel_allocated = emissions.adjust_emissions_for_biomass(gen_fuel_allocated)

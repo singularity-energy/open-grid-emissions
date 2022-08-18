@@ -45,5 +45,5 @@ def test_load_emissions_controls_eia923_pre_2012():
     load_emissions_controls_helper(list(reversed(range(2008, 2012))))
 
 
-def test_load_boiler_nox_association_eia860():
-    load_boiler_nox_association_eia860_helper([2013])
+# def test_load_boiler_nox_association_eia860():
+#     load_boiler_nox_association_eia860_helper(list(reversed(range(2008, 2012))))
