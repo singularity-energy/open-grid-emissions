@@ -314,6 +314,7 @@ def check_columns(df, file_name):
 
 
 def get_dtypes():
+    """Returns a dictionary of dtypes that should be used for each column name."""
     dtypes_to_use = {
         "plant_id_eia": "Int32",
         "plant_id_epa": "Int32",
@@ -406,6 +407,7 @@ def get_dtypes():
 
 
 def apply_dtypes(df):
+    """Applies specified dtypes to a dataframe and identifies if a dtype is not specified for a column."""
     dtypes = get_dtypes()
     datetime_columns = ["datetime_utc", "datetime_local", "report_date"]
     cols_missing_dtypes = [

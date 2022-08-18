@@ -81,7 +81,7 @@ def get_column(poll: str, adjustment: str, ba: str = ""):
 def get_rate_column(poll: str, adjustment: str, generated: bool = True, ba: str = ""):
     """
     Return either generated or consumed output file rate column
-    for poll `poll` and adjustment `adjustment`
+    for pollutant `poll` and adjustment `adjustment`
     """
     assert poll in POLLUTANTS
     assert adjustment in ADJUSTMENTS
@@ -268,7 +268,7 @@ class HourlyConsumed:
         return import_only, generation_only
 
     def _build_results(self):
-        # build result DF per output file
+        """Builds result dataframe per output file."""
         results = {}
         cols = []
         for pol in POLLUTANTS:
