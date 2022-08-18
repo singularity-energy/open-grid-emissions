@@ -951,6 +951,7 @@ def load_egrid_plant_file(year):
 
     # remove any plants that have no reported data
     # NOTE: it seems that egrid includes a lot of proposed projects that are not yet operating, but just has missing data for them
+    """
     plants_with_no_data_in_egrid = list(
         egrid_plant[
             egrid_plant[
@@ -968,6 +969,7 @@ def load_egrid_plant_file(year):
     egrid_plant = egrid_plant[
         ~egrid_plant["plant_id_egrid"].isin(plants_with_no_data_in_egrid)
     ]
+    """
 
     # We also want to remove any plants that are located in Puerto Rico
     egrid_plant = egrid_plant[(egrid_plant["state"] != "PR")]
@@ -1259,7 +1261,7 @@ def identify_plants_missing_from_our_calculations(
         ].drop_duplicates(),
         how="left",
         on="plant_id_eia",
-        validate="m:1",
+        validate="m:m",
     )
 
     return missing_from_calc, PLANTS_MISSING_FROM_CALCULATION
