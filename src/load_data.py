@@ -19,7 +19,7 @@ def load_cems_data(year):
         cems: pandas dataframe with hourly CEMS data
     """
     # specify the path to the CEMS data
-    cems_path = f"{downloads_folder()}pudl/pudl_data/parquet/epacems/year={year}"
+    cems_path = downloads_folder(f"pudl/pudl_data/parquet/epacems/year={year}")
 
     # specify the columns to use from the CEMS database
     cems_columns = [
@@ -143,7 +143,7 @@ def load_cems_gross_generation(start_year, end_year):
     for year in range(start_year, end_year + 1):
         print(f"    loading {year} CEMS data")
         # specify the path to the CEMS data
-        cems_path = f"{downloads_folder()}pudl/pudl_data/parquet/epacems/year={year}"
+        cems_path = downloads_folder(f"pudl/pudl_data/parquet/epacems/year={year}")
 
         # specify the columns to use from the CEMS database
         cems_columns = [
@@ -284,7 +284,7 @@ def load_ghg_emission_factors():
     """
 
     efs = pd.read_csv(
-        f"{manual_folder()}emission_factors_for_co2_ch4_n2o.csv",
+        manual_folder("emission_factors_for_co2_ch4_n2o.csv"),
         dtype=get_dtypes(),
     )
 
@@ -300,7 +300,7 @@ def load_ghg_emission_factors():
 def load_nox_emission_factors():
     """Read in the NOx emission factors from eGRID Table C2."""
     emission_factors = pd.read_csv(
-        f"{manual_folder()}emission_factors_for_nox.csv",
+        manual_folder("emission_factors_for_nox.csv"),
         dtype=get_dtypes(),
     )
 
@@ -320,7 +320,7 @@ def load_so2_emission_factors():
     reported in Table C3 as a formula like `123*S`.
     """
     df = pd.read_csv(
-        f"{manual_folder()}emission_factors_for_so2.csv",
+        manual_folder("emission_factors_for_so2.csv"),
         dtype=get_dtypes(),
     )
 
@@ -378,7 +378,7 @@ def load_epa_eia_crosswalk(year):
         dtype={'plant_id_epa': 'int32', 'plant_id_eia': 'int32'})"""
 
     crosswalk = pd.read_csv(
-        f"{downloads_folder()}epa/epa_eia_crosswalk.csv",
+        downloads_folder("epa/epa_eia_crosswalk.csv"),
         usecols=[
             "CAMD_PLANT_ID",
             "EIA_PLANT_ID",
@@ -444,7 +444,7 @@ def load_epa_eia_crosswalk(year):
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
-        f"{manual_folder()}epa_eia_crosswalk_manual.csv",
+        manual_folder("epa_eia_crosswalk_manual.csv"),
         dtype=get_dtypes(),
     ).drop(columns=["notes"])
 
@@ -506,7 +506,7 @@ def load_gross_to_net_data(
         gtn_data: pandas dataframe containing revevant keys and conversion factors
     """
     gtn_data = pd.read_csv(
-        f"{outputs_folder()}gross_to_net/{level}_gross_to_net_{conversion_type}.csv",
+        outputs_folder(f"gross_to_net/{level}_gross_to_net_{conversion_type}.csv"),
         dtype=get_dtypes(),
     )
 
@@ -520,7 +520,7 @@ def load_gross_to_net_data(
     # if loading regression data, add a count of units in each subplant to the regression results
     if conversion_type == "regression":
         subplant_crosswalk = pd.read_csv(
-            f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+            outputs_folder(f"{year}/subplant_crosswalk.csv"),
             dtype=get_dtypes(),
         )
         subplant_crosswalk = subplant_crosswalk[
@@ -554,7 +554,7 @@ def load_gross_to_net_data(
 
 def load_ipcc_gwp():
     """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
-    return pd.read_csv(f"{manual_folder()}ipcc_gwp.csv", dtype=get_dtypes())
+    return pd.read_csv(manual_folder("ipcc_gwp.csv", dtype=get_dtypes()))
 
 
 def load_raw_eia930_data(year, description):
@@ -562,12 +562,12 @@ def load_raw_eia930_data(year, description):
     eia_930 = pd.concat(
         [
             pd.read_csv(
-                f"{downloads_folder()}eia930/EIA930_{description}_{year}_Jan_Jun.csv",
+                downloads_folder(f"eia930/EIA930_{description}_{year}_Jan_Jun.csv"),
                 thousands=",",
                 parse_dates=["UTC Time at End of Hour"],
             ),
             pd.read_csv(
-                f"{downloads_folder()}eia930/EIA930_{description}_{year}_Jul_Dec.csv",
+                downloads_folder(f"eia930/EIA930_{description}_{year}_Jul_Dec.csv"),
                 thousands=",",
                 parse_dates=["UTC Time at End of Hour"],
             ),
@@ -587,6 +587,10 @@ def load_raw_eia930_data(year, description):
         columns={"UTC Time at End of Hour": "operating_datetime_utc"}
     )
 
+    # Make sure that the columns use a consistent naming scheme!
+    # Defends against EIA suddenly adding underscores (which they have done before).
+    eia_930.columns = eia_930.columns.str.replace("_", " ")
+
     # TODO re-localize the timezones for the BAs that report in a different timezone
     # ba_reference = load_ba_reference()
     # bas_to_convert_tz = list(ba_reference.loc[ba_reference.timezone_reporting_eia930 != ba_reference.timezone_local, 'ba_code'])
@@ -596,7 +600,7 @@ def load_raw_eia930_data(year, description):
 
 def load_ba_reference():
     return pd.read_csv(
-        f"{manual_folder()}ba_reference.csv",
+        manual_folder("ba_reference.csv"),
         dtype=get_dtypes(),
         parse_dates=["activation_date", "retirement_date"],
     )
@@ -646,7 +650,7 @@ def ba_timezone(ba, type):
     """
 
     tz = pd.read_csv(
-        f"{manual_folder()}ba_reference.csv",
+        manual_folder("ba_reference.csv"),
         usecols=["ba_code", f"timezone_{type}"],
     )
     tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"]
@@ -696,15 +700,33 @@ def load_emissions_controls_eia923(year: int):
     if year >= 2012:
         # Handle filename changes across years.
         schedule_8_filename = {
-            2012: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
-            2013: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_PartsA-D_EnvData_2013_Final_Revision.xlsx",
-            2014: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
-            2015: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
-            2016: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
-            2017: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx",
-            2018: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx",
-            2019: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
-            2020: f"{downloads_folder()}eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx",
+            2012: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
+            2013: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_PartsA-D_EnvData_2013_Final_Revision.xlsx"
+            ),
+            2014: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
+            2015: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
+            2016: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
+            2017: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
+            ),
+            2018: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx"
+            ),
+            2019: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
+            2020: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
         }[year]
 
         emissions_controls_eia923 = pd.read_excel(
@@ -740,7 +762,7 @@ def load_boiler_nox_association_eia860(year):
         "nox_control_id",
         "steam_plant_type",
     ]
-    
+
     if year <= 2013:
         # This column isn't included in 2013 and earlier.
         boiler_nox_association_eia860_names.remove("steam_plant_type")
@@ -835,9 +857,7 @@ def load_boiler_design_parameters_eia860(year):
     # The boiler design data is available pre-2013, but would require a lot of work to find the correct format
     if year >= 2013:
         boiler_design_parameters_eia860 = pd.read_excel(
-            io=(
-                f"{downloads_folder()}eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx"
-            ),
+            io=(downloads_folder(f"eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx")),
             sheet_name="Boiler Info & Design Parameters",
             header=1,
             usecols=raw_column_names,  # "C,F,H,N:P,AE",

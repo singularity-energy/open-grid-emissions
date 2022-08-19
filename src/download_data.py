@@ -38,7 +38,7 @@ def download_helper(
     # If the file already exists, do not re-download it.
     final_destination = output_path if output_path is not None else download_path
     if os.path.exists(final_destination):
-        print(f"    {final_destination} already downloaded, skipping.")
+        print(f"    {final_destination.split('/')[-1]} already downloaded, skipping.")
         return False
 
     # Otherwise, download to the file in chunks.
@@ -168,7 +168,7 @@ def download_chalendar_files():
     ]
     for url in urls:
         output_filename = url.split("/")[-1].replace(".gz", "")
-        output_filepath = f"{downloads_folder()}eia930/chalendar/{output_filename}"
+        output_filepath = downloads_folder(f"eia930/chalendar/{output_filename}")
         download_helper(
             url,
             output_filepath + ".gz",
@@ -189,7 +189,7 @@ def download_egrid_files(urls_to_download: list[str]):
 
     for url in urls_to_download:
         filename = url.split("/")[-1]
-        filepath = f"{downloads_folder()}egrid/{filename}"
+        filepath = downloads_folder(f"egrid/{filename}")
         download_helper(url, filepath)
 
 
@@ -206,7 +206,9 @@ def download_eia930_data(years_to_download: list[int]):
         for description in ["BALANCE", "INTERCHANGE"]:
             for months in ["Jan_Jun", "Jul_Dec"]:
                 download_url = f"https://www.eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_{description}_{year}_{months}.csv"
-                download_filepath = f"{downloads_folder()}eia930/EIA930_{description}_{year}_{months}.csv"
+                download_filepath = downloads_folder(
+                    f"eia930/EIA930_{description}_{year}_{months}.csv"
+                )
                 download_helper(download_url, download_filepath, chunk_size=1024 * 1024)
 
 

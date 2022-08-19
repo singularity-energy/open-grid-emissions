@@ -14,7 +14,7 @@ import load_data
 import data_cleaning
 import validation
 from column_checks import get_dtypes
-from filepaths import *
+from filepaths import outputs_folder
 
 
 def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, year):
@@ -376,7 +376,7 @@ def calculate_subplant_nameplate_capacity(year):
     ]
 
     subplant_crosswalk = pd.read_csv(
-        f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+        outputs_folder(f"{year}/subplant_crosswalk.csv"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
     gen_capacity = gen_capacity.merge(
@@ -524,11 +524,11 @@ def gross_to_net_regression(combined_gen_data, agg_level):
             index=gtn_regression.index,
             columns=["slope", "intercept", "rsquared", "rsquared_adj", "observations"],
         ).reset_index()
-    """if not os.path.exists(f"{outputs_folder()}gross_to_net"):
-        os.mkdir(f"{outputs_folder()}gross_to_net")
+    """if not os.path.exists(outputs_folder(f"gross_to_net"):
+        os.mkdir(outputs_folder(f"gross_to_net")
 
     gtn_regression.to_csv(
-        f"{outputs_folder()}gross_to_net/{agg_level}_gross_to_net_regression.csv",
+        outputs_folder(f"gross_to_net/{agg_level}_gross_to_net_regression.csv",
         index=False,
     )"""
 
@@ -748,7 +748,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     # load the activation and retirement dates into the data
     subplant_crosswalk = pd.read_csv(
-        f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+        outputs_folder(f"{year}/subplant_crosswalk.csv"),
         dtype=get_dtypes(),
     )
     incomplete_data = incomplete_data.merge(
@@ -796,9 +796,9 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     gtn_ratio = gtn_ratio[groupby_columns + ["gtn_ratio"]]
 
-    os.makedirs(f"{outputs_folder()}gross_to_net", exist_ok=True)
+    os.makedirs(outputs_folder("gross_to_net"), exist_ok=True)
 
     gtn_ratio.to_csv(
-        f"{outputs_folder()}gross_to_net/{agg_level}_gross_to_net_ratio.csv",
+        outputs_folder(f"gross_to_net/{agg_level}_gross_to_net_ratio.csv"),
         index=False,
     )

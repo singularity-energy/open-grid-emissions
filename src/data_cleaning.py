@@ -11,7 +11,7 @@ import load_data
 import validation
 import emissions
 from column_checks import get_dtypes, apply_dtypes
-from filepaths import *
+from filepaths import manual_folder, outputs_folder
 
 
 DATA_COLUMNS = [
@@ -200,11 +200,11 @@ def generate_subplant_ids(start_year, end_year, cems_monthly):
         validate="m:1",
     )
 
-    os.makedirs(f"{outputs_folder()}{end_year}", exist_ok=True)
+    os.makedirs(outputs_folder(f"{end_year}"), exist_ok=True)
 
     # export the crosswalk to csv
     crosswalk_with_subplant_ids.to_csv(
-        f"{outputs_folder()}{end_year}/subplant_crosswalk.csv",
+        outputs_folder(f"{end_year}/subplant_crosswalk.csv"),
         index=False,
     )
 
@@ -212,7 +212,7 @@ def generate_subplant_ids(start_year, end_year, cems_monthly):
 def manual_crosswalk_updates(crosswalk):
     # load manual matches
     crosswalk_manual = pd.read_csv(
-        f"{manual_folder()}epa_eia_crosswalk_manual.csv",
+        manual_folder("epa_eia_crosswalk_manual.csv"),
         dtype=get_dtypes(),
     ).drop(columns=["notes"])
     crosswalk_manual = crosswalk_manual.rename(
@@ -254,11 +254,13 @@ def manual_crosswalk_updates(crosswalk):
     return crosswalk
 
 
-def clean_eia923(year: int,
-                 small: bool,
-                 add_subplant_id: bool = True,
-                 calculate_nox_emissions: bool = True,
-                 calculate_so2_emissions: bool = True):
+def clean_eia923(
+    year: int,
+    small: bool,
+    add_subplant_id: bool = True,
+    calculate_nox_emissions: bool = True,
+    calculate_so2_emissions: bool = True,
+):
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
@@ -358,7 +360,7 @@ def clean_eia923(year: int,
     # below with a flag.
     if add_subplant_id:
         subplant_crosswalk = pd.read_csv(
-            f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+            outputs_folder(f"{year}/subplant_crosswalk.csv"),
             dtype=get_dtypes(),
         )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
         gen_fuel_allocated = gen_fuel_allocated.merge(
@@ -390,9 +392,7 @@ def update_energy_source_codes(df):
     Manually update fuel source codes
     """
     # load the table of updated fuel types
-    updated_esc = pd.read_csv(
-        f"{manual_folder()}updated_oth_energy_source_codes.csv"
-    )
+    updated_esc = pd.read_csv(manual_folder("updated_oth_energy_source_codes.csv"))
 
     for index, row in updated_esc.iterrows():
         plant_id = row["plant_id_eia"]
@@ -439,9 +439,13 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     # energy_source_code_1, and will have zero fuel consumption and net generation for
     # all fuel types. When that happens, we simply assign a plant to have the same fuel
     # type as the majority of its generators.
-    primary_fuel_from_mode = gen_primary_fuel.groupby("plant_id_eia", dropna=False)['energy_source_code']\
-        .agg(lambda x: pd.Series.mode(x)[0]).to_frame().reset_index().rename(
-            columns={"energy_source_code": "primary_fuel_from_mode"})
+    primary_fuel_from_mode = (
+        gen_primary_fuel.groupby("plant_id_eia", dropna=False)["energy_source_code"]
+        .agg(lambda x: pd.Series.mode(x)[0])
+        .to_frame()
+        .reset_index()
+        .rename(columns={"energy_source_code": "primary_fuel_from_mode"})
+    )
 
     # create a blank dataframe with all of the plant ids to hold primary fuel data
     plant_primary_fuel = gen_fuel_allocated[["plant_id_eia"]].drop_duplicates()
@@ -509,7 +513,9 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out):
     ].fillna(plant_primary_fuel["primary_fuel_from_mode"])
 
     if len(plant_primary_fuel[plant_primary_fuel["plant_primary_fuel"].isna()]) > 0:
-        plants_with_no_primary_fuel = plant_primary_fuel[plant_primary_fuel["plant_primary_fuel"].isna()]
+        plants_with_no_primary_fuel = plant_primary_fuel[
+            plant_primary_fuel["plant_primary_fuel"].isna()
+        ]
         print(
             f"Check the following plants: {list(plants_with_no_primary_fuel.plant_id_eia.unique())}"
         )
@@ -620,7 +626,7 @@ def remove_non_grid_connected_plants(df):
     # get the list of plant_id_eia from the static table
     ngc_plants = list(
         pd.read_csv(
-            f"{manual_folder()}plants_not_connected_to_grid.csv",
+            manual_folder("plants_not_connected_to_grid.csv"),
             dtype=get_dtypes(),
         )["Plant ID"]
     )
@@ -696,7 +702,7 @@ def clean_cems(year: int, small: bool):
 
     # add subplant id
     subplant_crosswalk = pd.read_csv(
-        f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+        outputs_folder(f"{year}/subplant_crosswalk.csv"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "unitid", "subplant_id"]].drop_duplicates()
     cems = cems.merge(
@@ -731,7 +737,7 @@ def manually_remove_steam_units(df):
 
     # get the list of plant_id_eia from the static table
     units_to_remove = pd.read_csv(
-        f"{manual_folder()}steam_units_to_remove.csv",
+        manual_folder("steam_units_to_remove.csv"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "unitid"]]
 
@@ -1168,7 +1174,7 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
 def count_total_units_in_subplant(year):
     # load the subplant crosswalk and identify unique unitids in each subplant
     units_in_subplant = pd.read_csv(
-        f"{outputs_folder()}{year}/subplant_crosswalk.csv",
+        outputs_folder(f"{year}/subplant_crosswalk.csv"),
         dtype=get_dtypes(),
         parse_dates=["current_planned_operating_date", "retirement_date"],
     )[["plant_id_eia", "unitid", "subplant_id", "retirement_date"]].drop_duplicates()
@@ -1209,7 +1215,7 @@ def count_reported_units_in_subplant(cems_monthly):
 
 def identify_partial_cems_plants(all_data):
     """Identifies subplants for which CEMS data is reported for at least one other subplant at the plant.
-    
+
     Args:
         all_data: dataframe identifying the hourly data source for each subplant-month
     Returns:
@@ -1577,9 +1583,7 @@ def create_plant_ba_table(year):
     ].fillna(value=np.NaN)
 
     # specify a ba code for certain utilities
-    utility_as_ba_code = pd.read_csv(
-        f"{manual_folder()}utility_name_ba_code_map.csv"
-    )
+    utility_as_ba_code = pd.read_csv(manual_folder("utility_name_ba_code_map.csv"))
     utility_as_ba_code = dict(
         zip(
             utility_as_ba_code["name"],
@@ -1608,7 +1612,7 @@ def create_plant_ba_table(year):
     # As of 4/16/22, there are currently a few incorrect BA assignments in the pudl tables (see https://github.com/catalyst-cooperative/pudl/issues/1584)
     # thus, we will manually correct some of the BA codes based on data in the most recent EIA forms
     manual_ba_corrections = pd.read_csv(
-        f"{manual_folder()}corrected_bas_to_patch_pudl.csv"
+        manual_folder("corrected_bas_to_patch_pudl.csv")
     )
     manual_ba_corrections = dict(
         zip(
@@ -1640,9 +1644,7 @@ def create_plant_ba_table(year):
     )
 
     # update based on mapping table when ambiguous
-    physical_ba = pd.read_csv(
-        f"{manual_folder()}physical_ba.csv", dtype=get_dtypes()
-    )
+    physical_ba = pd.read_csv(manual_folder("physical_ba.csv"), dtype=get_dtypes())
     plant_ba = plant_ba.merge(
         physical_ba,
         how="left",
@@ -1704,7 +1706,7 @@ def assign_fuel_category_to_ESC(
     """
     # load the fuel category table
     energy_source_groups = pd.read_csv(
-        f"{manual_folder()}energy_source_groups.csv", dtype=get_dtypes()
+        manual_folder("energy_source_groups.csv"), dtype=get_dtypes()
     )[["energy_source_code"] + fuel_category_names].rename(
         columns={"energy_source_code": esc_column}
     )

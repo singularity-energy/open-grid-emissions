@@ -5,7 +5,7 @@ import sys
 
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
-from filepaths import *
+from filepaths import outputs_folder, manual_folder, results_folder
 
 from output_data import (
     GENERATED_EMISSION_RATE_COLS,
@@ -105,7 +105,7 @@ def get_average_emission_factors(prefix: str = "2020/", year: int = 2020):
     Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
-        f"{outputs_folder()}{prefix}annual_generation_averages_by_fuel_{year}.csv",
+        outputs_folder(f"{prefix}annual_generation_averages_by_fuel_{year}.csv"),
         index_col="fuel_category",
     )
     efs = {}
@@ -236,7 +236,7 @@ class HourlyConsumed:
             We won't export files for these
         """
         self.ba_ref = pd.read_csv(
-            f"{manual_folder()}ba_reference.csv", index_col="ba_code"
+            manual_folder("ba_reference.csv"), index_col="ba_code"
         )
         generation_only = list(
             self.ba_ref[self.ba_ref.ba_category == "generation_only"].index
@@ -369,13 +369,12 @@ class HourlyConsumed:
         rates = {}
         gens = {}
         for f in os.listdir(
-            f"{results_folder()}{self.prefix}/power_sector_data/hourly/us_units/"
+            results_folder(f"{self.prefix}/power_sector_data/hourly/us_units/")
         ):
             if ".DS_Store" in f:
                 continue
             this_ba = pd.read_csv(
-                f"{results_folder()}{self.prefix}/power_sector_data/hourly/us_units/"
-                + f,
+                results_folder(f"{self.prefix}/power_sector_data/hourly/us_units/") + f,
                 index_col="datetime_utc",
                 parse_dates=True,
             )
