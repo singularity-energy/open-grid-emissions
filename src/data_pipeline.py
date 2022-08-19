@@ -156,13 +156,6 @@ def main():
     plant_attributes = data_cleaning.create_plant_attributes_table(
         cems, eia923_allocated, year, primary_fuel_table
     )
-    output_data.output_intermediate_data(
-        plant_attributes,
-        "plant_static_attributes",
-        path_prefix,
-        year,
-        args.skip_outputs,
-    )
 
     # 6. Crosswalk CEMS and EIA data
     ####################################################################################
@@ -372,6 +365,13 @@ def main():
         shaped_eia_data, "shaped_eia923_data", path_prefix, year, args.skip_outputs
     )
     if not args.skip_outputs:
+        output_data.output_intermediate_data(
+            plant_attributes,
+            "plant_static_attributes",
+            path_prefix,
+            year,
+            args.skip_outputs,
+        )
         plant_attributes.to_csv(
             results_folder(
                 f"{path_prefix}plant_data/plant_static_attributes.csv", index=False

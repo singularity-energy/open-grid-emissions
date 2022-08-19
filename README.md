@@ -6,14 +6,16 @@ The latest release includes data for year 2019-2020 covering the contiguous Unit
 
 Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2021 data should be available Autumn 2022). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGEI methodology. All previous versions of the data will be archived on Zenodo.
 
+Updated datasets will also be published whenever a new version of the open-grid-emissions repository is released.
+
 ## Contribute
 There are many ways that you can contribute!
  - Tell us how you are using the dataset or python tools
- - Request new features or data outputs by submitting a feature request or emailing us at ...
+ - Request new features or data outputs by submitting a feature request or emailing us at <>
  - Tell us how we can make the datasets even easier to use
- - Ask a question about the data or methods in our discussion forum
- - Submit an issue if you've identified a way the methods or assumptions could be improved
- - Contribute your subject matter expertise to the discussion about open issues and questions
+ - Ask a question about the data or methods in our [discussion forum](https://github.com/singularity-energy/open-grid-emissions/discussions)
+ - [Submit an issue](https://github.com/singularity-energy/open-grid-emissions/issues) if you've identified a way the methods or assumptions could be improved
+ - Contribute your subject matter expertise to the discussion about [open issues and questions](https://github.com/singularity-energy/open-grid-emissions/issues?q=is%3Aissue+is%3Aopen+label%3Aquestion)
  - Submit a pull request to help us fix open issues
 
 # Repository Structure
@@ -109,21 +111,21 @@ python src/data_pipeline.py --year 2020
 From time to time, the code will be updated on GitHub. To ensure that you are keeping your local version of the code up to date, open git bash and follow these steps:
 ```
 # change the directory to where ever your local git repository is saved
-# after hitting enter, it should show the name of the git branch (e.g. "(master)")
+# after hitting enter, it should show the name of the git branch (e.g. "(main)")
 cd GitHub/open-grid-emissions  
 
 # save any changes that you might have made locally to your copy of the code
 git add .
 
 # fetch and merge the updated code from github
-git pull origin master
+git pull origin main
 ```
 
 ## Contributing edits to the code
 
-If you plan on contributing edits to the codebase that will be merged into the master branch, please follow these best practices:
+If you plan on contributing edits to the codebase that will be merged into the main branch, please follow these best practices:
 
-1. Please do not make edits directly to the master branch. Any new features or edits should be completed in a new branch. To do so, open git bash, navigate to your local repo (e.g. `cd GitHub/open-grid-emissions`), and create a new branch, giving it a descriptive name related to the edit you will be doing:
+1. Please do not make edits directly to the main branch. Any new features or edits should be completed in a new branch. To do so, open git bash, navigate to your local repo (e.g. `cd GitHub/open-grid-emissions`), and create a new branch, giving it a descriptive name related to the edit you will be doing:
 
 	`git checkout -b branch_name`
 
@@ -144,4 +146,13 @@ If you plan on contributing edits to the codebase that will be merged into the m
 	- Click "Compare & pull request". This will take you to the "Open a pull request" page. 
 	- From here, you should write a brief description of what you actually changed. 
 	- Click "Create pull request"
-	- The changes will be reviewed and discussed. Once any edits have been made, the code will be merged into the master branch.
+	- The changes will be reviewed and discussed. Once any edits have been made, the code will be merged into the main branch.
+
+### Conventions and standards
+- We generally follow the naming conventions used by the Public Utility Data Liberation Project: https://catalystcoop-pudl.readthedocs.io/en/latest/dev/naming_conventions.html
+- Functions should include descriptive docstrings (using the Google style guide https://google.github.io/styleguide/pyguide.html#383-functions-and-methods), inline comments should be used to describe individual steps, and variable names should be made descriptive (e.g. `cems_plants_with_missing_co2_data` not `cems_missing` or `cpmco2`)
+- All pandas merge operations should include the `validate` parameter to ensure that unintentional duplicate entries are not created (https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.merge.html)
+- All pandas groupby operations should include the `dropna=False` parameter so that data with missing groupby keys are not unintentionally dropped from the data.
+- All code should be formatted using `black`
+- Clear all outputs from notebooks before committing your work. 
+- Any manual changes to reported categorical data, conversion factors, or manual data mappings should be loaded from a .csv file `data/manual` rather than stored in a dictionary or variable in the code.

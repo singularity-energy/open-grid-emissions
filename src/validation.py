@@ -40,6 +40,7 @@ def validate_year(year):
 
 
 def test_for_negative_values(df):
+    """Checks that there are no unexpected negative values in the data."""
     print("    Checking that fuel and emissions values are positive...  ", end="")
     columns_that_should_be_positive = [
         "fuel_consumed_mmbtu",
@@ -90,6 +91,7 @@ def test_for_negative_values(df):
 
 
 def test_chp_allocation(df):
+    """Checks that the CHP allocation didn't create any anomalous values."""
     print(
         "    Checking that total fuel consumed >= fuel consumed for electricity...  ",
         end="",
@@ -108,6 +110,7 @@ def test_chp_allocation(df):
 
 
 def test_for_missing_energy_source_code(df):
+    """Checks that there are no missing energy source codes associated with non-zero fuel consumption."""
     print(
         "    Checking that there are no missing energy source codes associated with non-zero fuel consumption...  ",
         end="",
@@ -127,6 +130,7 @@ def test_for_missing_energy_source_code(df):
 
 
 def test_for_missing_subplant_id(df):
+    """Checks if any records are missing a `subplant_id`."""
     print("    Checking that all data has an associated `subplant_id`...  ", end="")
     missing_subplant_test = df[df["subplant_id"].isna()]
     if not missing_subplant_test.empty:
@@ -140,7 +144,7 @@ def test_for_missing_subplant_id(df):
 
 
 def validate_gross_to_net_conversion(cems, eia923_allocated):
-    "checks whether the calculated net generation matches the reported net generation from EIA-923 at the annual plant level."
+    """checks whether the calculated net generation matches the reported net generation from EIA-923 at the annual plant level."""
     print(
         "    Checking that calculated net generation matches reported net generation in EIA-923...  ",
         end="",
@@ -250,6 +254,7 @@ def test_emissions_adjustments(df):
 def ensure_non_overlapping_data_from_all_sources(
     cems, partial_cems_subplant, partial_cems_plant, eia_data
 ):
+    """Ensures that there is no duplicated subplant-months from each of the four sources of cleaned data."""
 
     print("    Checking that all data to be combined is unique...  ", end="")
 
@@ -374,6 +379,7 @@ def ensure_non_overlapping_data_from_all_sources(
 
 
 def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_keys):
+    """Checks that any shaped monthly data still adds up to the monthly total after shaping."""
 
     print("    Checking that shaped hourly data matches monthly totals...  ", end="")
 
@@ -458,6 +464,7 @@ def hourly_profile_source_metric(
 def identify_percent_of_data_by_input_source(
     cems, partial_cems_subplant, partial_cems_plant, eia_only_data, year
 ):
+    """Identifies what percent of output data comes from each input source (CEMS or EIA)."""
     data_sources = {
         "cems": cems,
         "partial_cems_subplant": partial_cems_subplant,
@@ -566,27 +573,35 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
         [
             pd.DataFrame(
                 data_from_annual.loc[data_from_annual["respondent_frequency"] == "A", :]
-                .set_index("respondent_freqency")
-                .rename("% of EIA-923 input data from EIA annual reporters")
+                .set_index("respondent_frequency")
+                .rename(
+                    index={"A": "% of EIA-923 input data from EIA annual reporters"}
+                )
                 .round(2)
-            ).T,
+            ),
             pd.DataFrame(
                 annual_eia_used.loc[annual_eia_used["respondent_frequency"] == "A", :]
-                .set_index("respondent_freqency")
-                .rename("% of output data from EIA annual reporters")
+                .set_index("respondent_frequency")
+                .rename(index={"A": "% of output data from EIA annual reporters"})
                 .round(2)
-            ).T,
+            ),
             pd.DataFrame(
                 multi_source_summary.loc[
                     multi_source_summary["respondent_frequency"] == "A", :
                 ]
-                .set_index("respondent_freqency")
-                .rename("% of output data mixing CEMS and annually-reported EIA data")
+                .set_index("respondent_frequency")
+                .rename(
+                    index={
+                        "A": "% of output data mixing CEMS and annually-reported EIA data"
+                    }
+                )
                 .round(2)
-            ).T,
+            ),
         ],
         axis=0,
     )
+
+    annual_data_summary.rename(columns={"respondent_frequency": "category"})
 
     annual_data_summary = annual_data_summary.reset_index()
 

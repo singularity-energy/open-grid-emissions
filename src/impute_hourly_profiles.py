@@ -389,9 +389,7 @@ def calculate_residual(
         }
     )
     # only keep rows where local datetime is in the current year
-    eia930_data = eia930_data[
-        eia930_data["datetime_local"].apply(lambda x: x.year) == year
-    ]
+    eia930_data = eia930_data[eia930_data["datetime_local"].str[:4].astype(int) == year]
 
     # combine the data from both sources together
     combined_data = eia930_data.merge(
@@ -540,15 +538,19 @@ def create_flat_profile(report_date, ba, fuel):
     ).reset_index()
 
     df_temporary["imputed_profile"] = 1.0
-    df_temporary["datetime_local"] = df_temporary["datetime_utc"]
-    df_temporary["datetime_local"] = df_temporary["datetime_utc"].dt.tz_convert(
-        load_data.ba_timezone(ba=ba, type="local")
+    df_temporary["datetime_local"] = ""
+    df_temporary["datetime_local"] = (
+        df_temporary["datetime_utc"]
+        .dt.tz_convert(load_data.ba_timezone(ba=ba, type="local"))
+        .astype(str)
     )
     # only keep data for which the local datetime is in the current year
-    df_temporary = df_temporary[df_temporary["datetime_local"].dt.year == year]
+    df_temporary = df_temporary[
+        df_temporary["datetime_local"].str[:4].astype(int) == year
+    ]
 
     # create a report date column
-    df_temporary["report_date"] = df_temporary["datetime_local"].astype(str).str[:7]
+    df_temporary["report_date"] = df_temporary["datetime_local"].str[:7]
     df_temporary["report_date"] = pd.to_datetime(df_temporary["report_date"])
 
     # only keep the report dates that match
@@ -564,10 +566,6 @@ def impute_missing_hourly_profiles(
     monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
 ):
     """Identify and estimate hourly profiles for missing BA-fuels."""
-    # change local datetime column to string due to challenges with mixed timezones
-    residual_profiles["datetime_local"] = residual_profiles["datetime_local"].astype(
-        str
-    )
 
     # round the data to the nearest tenth
     # residual_profiles["profile"] = residual_profiles["profile"].round(1)
