@@ -1155,7 +1155,7 @@ def shape_partial_cems_subplants(cems, eia923_allocated):
 
     # identify all of the partial cems plants and group by subplant-month
     eia_data_to_shape = eia923_allocated.copy().loc[
-        eia923_allocated.hourly_data_source == "partial_cems"
+        eia923_allocated.hourly_data_source == "partial_cems_subplant"
     ]
     # if there is no data in the partial cems dataframe, skip.
     if len(eia_data_to_shape) > 0:

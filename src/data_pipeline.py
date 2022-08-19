@@ -387,7 +387,7 @@ def main():
     print("15. Combining and exporting plant-level hourly results")
     # write metadata outputs
     output_data.write_plant_metadata(
-        cems, partial_cems_subplant, shaped_eia_data, path_prefix, args.skip_outputs
+        cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, path_prefix, args.skip_outputs
     )
     combined_plant_data = data_cleaning.combine_plant_data(
         cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, "hourly"

@@ -380,11 +380,11 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_key
     monthly_group_keys = group_keys + ["report_date"]
 
     # aggregate data to ba fuel month
-    shaped_data_agg = shaped_eia_data.groupby(
-        [monthly_group_keys], dropna=False
-    ).sum()[["net_generation_mwh", "fuel_consumed_mmbtu"]]
+    shaped_data_agg = shaped_eia_data.groupby(monthly_group_keys, dropna=False).sum()[
+        ["net_generation_mwh", "fuel_consumed_mmbtu"]
+    ]
     eia_data_agg = monthly_eia_data_to_shape.groupby(
-        [monthly_group_keys], dropna=False
+        monthly_group_keys, dropna=False
     ).sum()[["net_generation_mwh", "fuel_consumed_mmbtu"]]
 
     # calculate the difference between the two datasets
@@ -531,7 +531,7 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
         ].sum()
         / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
         * 100
-    )
+    ).reset_index()
 
     annual_eia_used = (
         eia_data[eia_data["hourly_data_source"] != "cems"]
@@ -541,7 +541,7 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
         .sum()
         / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
         * 100
-    )
+    ).reset_index()
 
     multi_source_subplants = (
         eia_data[["plant_id_eia", "subplant_id", "hourly_data_source"]]
@@ -560,22 +560,27 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
         ].sum()
         / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
         * 100
-    )
+    ).reset_index()
 
     annual_data_summary = pd.concat(
         [
             pd.DataFrame(
-                data_from_annual.loc["A", :]
+                data_from_annual.loc[data_from_annual["respondent_frequency"] == "A", :]
+                .set_index("respondent_freqency")
                 .rename("% of EIA-923 input data from EIA annual reporters")
                 .round(2)
             ).T,
             pd.DataFrame(
-                annual_eia_used.loc["A", :]
+                annual_eia_used.loc[annual_eia_used["respondent_frequency"] == "A", :]
+                .set_index("respondent_freqency")
                 .rename("% of output data from EIA annual reporters")
                 .round(2)
             ).T,
             pd.DataFrame(
-                multi_source_summary.loc["A", :]
+                multi_source_summary.loc[
+                    multi_source_summary["respondent_frequency"] == "A", :
+                ]
+                .set_index("respondent_freqency")
                 .rename("% of output data mixing CEMS and annually-reported EIA data")
                 .round(2)
             ).T,
