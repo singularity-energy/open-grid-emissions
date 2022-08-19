@@ -588,6 +588,8 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
         axis=0,
     )
 
+    annual_data_summary = annual_data_summary.reset_index()
+
     return annual_data_summary
 
 
