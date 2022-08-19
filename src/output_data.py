@@ -63,7 +63,7 @@ def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
 def output_plant_data(df, path_prefix, resolution, skip_outputs):
     """
     Helper function for plant-level output.
-    Output for each time granularity, and output separately for real and synthetic plants
+    Output for each time granularity, and output separately for real and shaped plants
 
     Note: plant-level does not include rates, so all aggregation is summation.
     """
@@ -73,14 +73,14 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs):
             # Separately save real and aggregate plants
             output_to_results(
                 df[df.plant_id_eia > 900000],
-                "synthetic_plant_data",
+                "shaped_fleet_data",
                 "plant_data/hourly/",
                 path_prefix,
                 skip_outputs,
             )
             output_to_results(
                 df[df.plant_id_eia < 900000],
-                "CEMS_plant_data",
+                "individual_plant_data",
                 "plant_data/hourly/",
                 path_prefix,
                 skip_outputs,
@@ -172,9 +172,14 @@ def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
 
 
 def write_plant_metadata(
-    cems, partial_cems, shaped_eia_data, path_prefix, skip_outputs
+    cems,
+    partial_cems_subplant,
+    partial_cems_plant,
+    shaped_eia_data,
+    path_prefix,
+    skip_outputs,
 ):
-    """Outputs metadata for each subplant-hour."""
+    """Outputs metadata for each subplant-month."""
 
     KEY_COLUMNS = [
         "plant_id_eia",
@@ -191,17 +196,20 @@ def write_plant_metadata(
     if not skip_outputs:
         # identify the source
         cems["data_source"] = "CEMS"
-        partial_cems["data_source"] = "partial CEMS/EIA"
+        partial_cems_subplant["data_source"] = "EIA"
+        partial_cems_plant["data_source"] = "EIA"
         shaped_eia_data["data_source"] = "EIA"
 
         # identify net generation method
         cems = cems.rename(columns={"gtn_method": "net_generation_method"})
         shaped_eia_data["net_generation_method"] = shaped_eia_data["profile_method"]
-        partial_cems["net_generation_method"] = "partial_cems"
+        partial_cems_subplant["net_generation_method"] = "scaled_partial_cems_subplant"
+        partial_cems_plant["net_generation_method"] = "shaped_from_partial_cems_plant"
 
         # identify hourly profile method
         cems["hourly_profile_source"] = "CEMS"
-        partial_cems["hourly_profile_source"] = "partial CEMS"
+        partial_cems_subplant["hourly_profile_source"] = "partial CEMS subplant"
+        partial_cems_plant["hourly_profile_source"] = "partial CEMS plant"
         shaped_eia_data = shaped_eia_data.rename(
             columns={"profile_method": "hourly_profile_source"}
         )
@@ -210,7 +218,10 @@ def write_plant_metadata(
         cems_meta = cems.copy()[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(
             subset=KEY_COLUMNS
         )
-        partial_cems_meta = partial_cems.copy()[
+        partial_cems_subplant_meta = partial_cems_subplant.copy()[
+            KEY_COLUMNS + METADATA_COLUMNS
+        ].drop_duplicates(subset=KEY_COLUMNS)
+        partial_cems_plant_meta = partial_cems_plant.copy()[
             KEY_COLUMNS + METADATA_COLUMNS
         ].drop_duplicates(subset=KEY_COLUMNS)
         shaped_eia_data_meta = shaped_eia_data.copy()[
@@ -219,17 +230,22 @@ def write_plant_metadata(
 
         # concat the metadata into a one file and export
         metadata = pd.concat(
-            [cems_meta, partial_cems_meta, shaped_eia_data_meta], axis=0
+            [
+                cems_meta,
+                partial_cems_subplant_meta,
+                partial_cems_plant_meta,
+                shaped_eia_data_meta,
+            ],
+            axis=0,
         )
 
         metadata.to_csv(results_folder(f"{path_prefix}plant_data/plant_metadata.csv"))
 
         # drop the metadata columns from each dataframe
         cems = cems.drop(columns=METADATA_COLUMNS)
-        partial_cems = partial_cems.drop(columns=METADATA_COLUMNS)
+        partial_cems_subplant = partial_cems_subplant.drop(columns=METADATA_COLUMNS)
+        partial_cems_plant = partial_cems_plant.drop(columns=METADATA_COLUMNS)
         shaped_eia_data = shaped_eia_data.drop(columns=METADATA_COLUMNS)
-
-    return cems, partial_cems, shaped_eia_data
 
 
 def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):

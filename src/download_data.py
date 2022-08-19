@@ -42,7 +42,7 @@ def download_helper(
         return False
 
     # Otherwise, download to the file in chunks.
-    print(f"    Downloading from {input_url}")
+    print(f"    Downloading {final_destination.split('/')[-1]}")
     r = requests.get(input_url, stream=True)
     with open(download_path, "wb") as fd:
         for chunk in r.iter_content(chunk_size=chunk_size):

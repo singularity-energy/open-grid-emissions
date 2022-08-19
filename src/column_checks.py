@@ -99,7 +99,7 @@ COLUMNS = {
         # "nox_mass_measurement_code",
         # "so2_mass_measurement_code",
     },
-    "partial_cems": {
+    "partial_cems_subplant": {
         "report_date",
         "plant_id_eia",
         "subplant_id",
@@ -144,7 +144,7 @@ COLUMNS = {
         "timezone",
         "data_availability",
     },
-    "plant_attributes_with_synthetic": {
+    "plant_attributes_with_shaped": {
         "plant_id_eia",
         "plant_primary_fuel",
         "fuel_category",
@@ -275,7 +275,7 @@ COLUMNS = {
         "plant_regression_ratio",
         "plant_regression_shift_mw",
     },
-    "synthetic_aggregated_plants_": {
+    "shaped_aggregated_plants_": {
         "plant_id_eia",
         "report_date",
         "fuel_category",

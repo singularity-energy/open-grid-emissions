@@ -1298,17 +1298,17 @@ def filter_unique_cems_data(cems, partial_cems):
 def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table):
 
     # create a table that has data for the sythetic plant attributes
-    synthetic_plant_attributes = (
-        plant_attributes_table[["plant_id_synthetic", "ba_code", "fuel_category"]]
+    shaped_plant_attributes = (
+        plant_attributes_table[["shaped_plant_id", "ba_code", "fuel_category"]]
         .drop_duplicates()
-        .dropna(subset="plant_id_synthetic")
-        .rename(columns={"plant_id_synthetic": "plant_id_eia"})
+        .dropna(subset="shaped_plant_id")
+        .rename(columns={"shaped_plant_id": "plant_id_eia"})
     )
 
     combined_plant_attributes = pd.concat(
         [
             plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
-            synthetic_plant_attributes,
+            shaped_plant_attributes,
         ],
         axis=0,
     )
@@ -1339,7 +1339,14 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table)
     return ba_fuel_data
 
 
-def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False):
+def combine_plant_data(
+    cems,
+    partial_cems_subplant,
+    partial_cems_plant,
+    eia_data,
+    resolution,
+    validate=False,
+):
     """
     Combines final hourly subplant data from each source into a single dataframe.
     Inputs:
@@ -1370,7 +1377,7 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False)
 
     if validate:
         validation.ensure_non_overlapping_data_from_all_sources(
-            cems, partial_cems, eia_data
+            cems, partial_cems_subplant, partial_cems_plant, eia_data
         )
 
     # group data by plant-hour and filter columns
@@ -1383,14 +1390,27 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False)
         .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
     )
     # don't group if there is no data in the dataframe
-    if len(partial_cems) > 0:
-        partial_cems = (
-            partial_cems.groupby(
+    if len(partial_cems_subplant) > 0:
+        partial_cems_subplant = (
+            partial_cems_subplant.groupby(
                 KEY_COLUMNS,
                 dropna=False,
             )
             .sum()
-            .reset_index()[[col for col in partial_cems.columns if col in ALL_COLUMNS]]
+            .reset_index()[
+                [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
+            ]
+        )
+    if len(partial_cems_plant) > 0:
+        partial_cems_plant = (
+            partial_cems_plant.groupby(
+                KEY_COLUMNS,
+                dropna=False,
+            )
+            .sum()
+            .reset_index()[
+                [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
+            ]
         )
     eia_data = (
         eia_data.groupby(
@@ -1403,7 +1423,10 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False)
 
     # concat together
     combined_plant_data = pd.concat(
-        [cems, partial_cems, eia_data], axis=0, ignore_index=True, copy=False
+        [cems, partial_cems_subplant, partial_cems_plant, eia_data],
+        axis=0,
+        ignore_index=True,
+        copy=False,
     )
 
     # groupby plant

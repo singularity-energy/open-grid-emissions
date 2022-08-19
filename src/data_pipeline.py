@@ -4,89 +4,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
 Optional arguments are --year (default 2020), --gtn_years (default 5)
-
-# Overview of Data Pipeline
-
-## Data Used
-EPA Continuous Emissions Monitoring System (CEMS) data
- - What is it: Measured hourly gross generation, fuel consumption, and emissions data for emitting power generation units > 25MW
- - How we use it: Primary source for hourly emissions and generation data
-
-EIA Form 923
- - What is it: Reported monthly net generation and fuel consumption data for power generators > 1 MW
- - How we use it: To convert gross generation data from CEMS to net generation, and to calculate emissions that are not reported to CEMS
-
-EIA Form 860
- - What is it: Inventory of all generators and plants and their static characteristics
- - How we use it: to transform and aggregate the data reported in CEMS and EIA-923 based on plant and generator characteristics
-
-EPA-EIA Power Sector Data Crosswalk
- - What is it: Maps EPA plant IDs and unit IDs to EIA plant IDs and generator IDs
- - How we use it: To match data between CEMS and EIA-923
-
-EIA Form 930 / Hourly Electric Grid Monitor
- - What is it: Reported hourly net generation by fuel category, demand, and interchange for each Balancing Area in the U.S.
- - How we use it: To assign an hourly profile to the monthly generation and fuel data reported in EIA-923
-
-EPA eGRID database
- - What is it: Reports annual-level generation and emissions statistics at the plant and BA level
- - How we use it: to validate our outputs
-
-## Process
-1. Download data, including CEMS (via PUDL), EIA Forms 860 and 923 (via PUDL), EPA-EIA Power Sector Data Crosswalk, EIA-930 data
-    - Downloads are cached on first run so do not need to be redownloaded
-2. Identify subplants and gross-to-net generation factors using multiple years of historical data.
-    - Using Power Sector Data Crosswalk, identify distinct subplant clusters of EPA units and EIA generators in each plant
-    - Using multiple years of generation data from CEMS and EIA-923, run linear regressions of net generation on gross generation at teh subplant and plant level
-    - Calculate simple monthly ratios between gross and net generation at teh subplant and plant level.
-3. Clean monthly generation and fuel data from EIA-923
-    - allocate monthly net generation and fuel consumption data reported for each plant prime mover to each plant generator
-    - Calculate monthly emissions for each generator based on its fuel consumption and fuel source
-    - Remove data for non grid-connected plants and plants in Puerto Rico
-    - Assign a primary fuel type and balancing authority location to each generator
-4. Clean hourly generation, fuel, and emissions data from CEMS
-    - Remove data for non grid-connected plants, plants in Puerto Rico, and certain steam-only units
-    - Assign a monthly "report_date" to each hourly observation based on the date of the local timestamp (this allows us to match the data to EIA-923 report dates)
-    - Assign a fuel type to each unit
-    - Fill in missing hourly emissions data using the assigned fuel type and reported hourly fuel consumption data
-    - Remove all observations for each unit-month when no operation is reported for that unit in that month
-    - Allocate hourly data for combined heat and power plants between electricity generation and steam production
-    - Remove data for units for which we are unable to fill missing emissions data
-5. Convert hourly gross generation in CEMS to hourly net generation
-    - aggregate CEMS gross generation to monthly level to match with monthly-reported net generation
-    - Apply several methodologies to calculate gross-to-net generation conversion factors
-    - apply GTN factors to convert hourly gross generation to hourly net generation using the following hierarchy:
-        - Use regression value if regression has good r2
-        - If there is not a good regrssion, use monthly ratio unless ratio is outside of normal bounds (negative, >>1, missing)
-        - Where there are outliers (eg gross generation is very different from net generation):
-            - if EIA reported monthly and not distributed, maybe trust EIA (monthly ratio).
-            - Otherwise, trust general regression
-6. Crosswalk the CEMS data to the EIA-923 data to identify for which generator-months there is no hourly data reported in CEMS
-    - Use the EPA-EIA Power Sector Data Crosswalk
-    - Assign subplant groupings to data
-7. Assign static plant characteristics to CEMS and EIA data to allow for data aggregation and matching with EIA-930
-    - assign generator and plant-level primary fuel
-    - assign Balancing Authority and State to each plant
-    - assign fuel categories to each plant that match EIA-930 categories
-8. Clean and reconcile EIA-930 data
-    - Fix timezone/timestamp issues with raw 930 data
-    - Perform physics-based reconciliation so that data satisfies conservation of energy equations
-9. Calculate residual net generation profiles for each BA-fuel category by comparing EIA-930 and CEMS hourly net generation data
-10. Assign monthly EIA-923 data an hourly profile based on the residual net generation profile
-11. Concatenate the shaped hourly EIA-923 data to the hourly CEMS data
-12. Run validation checks on processed data
-13. Aggregate the hourly data to the BA level and output
-
-
-## Outputs
- - Processed hourly subplant-level data
- - Aggregated hourly data for each BA (total emissions, total generation, generated carbon intensity)
-
-## Output Validation Checks
- - Aggregate data to annual level and compare with published eGRID results
- - Check that aggregated heat rates and emissions rates by fuel type are within reasonable ranges for each BA
- - Plant-level checks for anomolous data
-
+Optional arguments for development are --small, --flat, and --skip_outputs
 """
 
 
@@ -269,10 +187,15 @@ def main():
     # 8. Calculate hourly data for partial_cems plants
     ####################################################################################
     print("8. Shaping partial CEMS data")
+    # shape partial CEMS plant data
+    partial_cems_plant = impute_hourly_profiles.shape_partial_cems_plants(
+        cems, eia923_allocated
+    )
+    # shape partial CEMS subplant data
     (
         cems,
-        partial_cems,
-    ) = impute_hourly_profiles.shape_partial_cems_data(cems, eia923_allocated)
+        partial_cems_subplant,
+    ) = impute_hourly_profiles.shape_partial_cems_subplants(cems, eia923_allocated)
     # Export data cleaned by above for later validation, visualization, analysis
     output_data.output_intermediate_data(
         eia923_allocated.drop(columns="plant_primary_fuel"),
@@ -282,7 +205,11 @@ def main():
         args.skip_outputs,
     )
     output_data.output_intermediate_data(
-        partial_cems, "partial_cems", path_prefix, year, args.skip_outputs
+        partial_cems_subplant,
+        "partial_cems_subplant",
+        path_prefix,
+        year,
+        args.skip_outputs,
     )
 
     # 9. Convert CEMS Hourly Gross Generation to Hourly Net Generation
@@ -330,7 +257,11 @@ def main():
     del eia923_allocated
     output_data.output_data_quality_metrics(
         validation.identify_percent_of_data_by_input_source(
-            cems, partial_cems, monthly_eia_data_to_shape, year
+            cems,
+            partial_cems_subplant,
+            partial_cems_plant,
+            monthly_eia_data_to_shape,
+            year,
         ),
         "input_data_source",
         path_prefix,
@@ -338,7 +269,12 @@ def main():
     )
     # combine and export plant data at monthly and annual level
     monthly_plant_data = data_cleaning.combine_plant_data(
-        cems, partial_cems, monthly_eia_data_to_shape, "monthly", True
+        cems,
+        partial_cems_subplant,
+        partial_cems_plant,
+        monthly_eia_data_to_shape,
+        "monthly",
+        True,
     )
     output_data.output_plant_data(
         monthly_plant_data, path_prefix, "monthly", args.skip_outputs
@@ -377,7 +313,8 @@ def main():
     print("13. Estimating hourly profiles for EIA data")
     hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
         cems,
-        partial_cems,
+        partial_cems_subplant,
+        partial_cems_plant,
         eia930_data,
         plant_attributes,
         monthly_eia_data_to_shape,
@@ -407,7 +344,11 @@ def main():
     # 14. Assign hourly profile to monthly data
     ####################################################################################
     print("14. Assigning hourly profiles to monthly EIA-923 data")
-    hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(hourly_profiles)
+    hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
+        hourly_profiles,
+        group_keys=["ba_code", "fuel_category", "profile_method"],
+        columns_to_convert=["profile", "flat_profile"],
+    )
     # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
     (
         monthly_eia_data_to_shape,
@@ -419,7 +360,9 @@ def main():
         monthly_eia_data_to_shape, hourly_profiles
     )
     output_data.output_data_quality_metrics(
-        validation.hourly_profile_source_metric(cems, partial_cems, shaped_eia_data),
+        validation.hourly_profile_source_metric(
+            cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data
+        ),
         "hourly_profile_method",
         path_prefix,
         args.skip_outputs,
@@ -438,14 +381,19 @@ def main():
     # 15. Combine plant-level data from all sources
     ####################################################################################
     print("15. Combining and exporting plant-level hourly results")
-    # write metadata and remove metadata columns
-    cems, partial_cems, shaped_eia_data = output_data.write_plant_metadata(
-        cems, partial_cems, shaped_eia_data, path_prefix, args.skip_outputs
+    # write metadata outputs
+    output_data.write_plant_metadata(
+        cems, partial_cems_subplant, shaped_eia_data, path_prefix, args.skip_outputs
     )
     combined_plant_data = data_cleaning.combine_plant_data(
-        cems, partial_cems, shaped_eia_data, "hourly"
+        cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, "hourly"
     )
-    del shaped_eia_data, cems, partial_cems  # free memory back to python
+    del (
+        shaped_eia_data,
+        cems,
+        partial_cems_subplant,
+        partial_cems_plant,
+    )  # free memory back to python
     # export to a csv.
     output_data.output_plant_data(
         combined_plant_data, path_prefix, "hourly", args.skip_outputs

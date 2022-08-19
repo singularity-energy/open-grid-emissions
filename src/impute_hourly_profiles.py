@@ -1,8 +1,11 @@
-import load_data
-from column_checks import apply_dtypes
 import pandas as pd
 import numpy as np
+
+# import open-grid-emissions modules
+from column_checks import apply_dtypes
+import load_data
 from filepaths import manual_folder
+import validation
 
 # specify the ba numbers with leading zeros
 FUEL_NUMBERS = {
@@ -53,7 +56,8 @@ DATA_COLUMNS = [
 
 def calculate_hourly_profiles(
     cems,
-    partial_cems,
+    partial_cems_subplant,
+    partial_cems_plant,
     eia930_data,
     plant_attributes,
     monthly_eia_data_to_shape,
@@ -64,7 +68,8 @@ def calculate_hourly_profiles(
 ):
     residual_profiles = calculate_residual(
         cems,
-        partial_cems,
+        partial_cems_subplant,
+        partial_cems_plant,
         eia930_data,
         plant_attributes,
         year,
@@ -246,7 +251,8 @@ def select_best_available_profile(hourly_profiles):
 
 def aggregate_for_residual(
     cems,
-    partial_cems,
+    partial_cems_subplant,
+    partial_cems_plant,
     plant_attributes,
     time_key: str = "datetime_utc",
     ba_key: str = "ba_code",
@@ -261,7 +267,7 @@ def aggregate_for_residual(
     """
 
     # add the partial cems data
-    cems = pd.concat([cems, partial_cems], axis=0)
+    cems = pd.concat([cems, partial_cems_subplant, partial_cems_plant], axis=0)
 
     # merge in plant attributes
     cems = cems.merge(plant_attributes, how="left", on="plant_id_eia", validate="m:1")
@@ -330,7 +336,8 @@ def aggregate_non_930_fuel_categories(cems, plant_attributes):
 
 def calculate_residual(
     cems,
-    partial_cems,
+    partial_cems_subplant,
+    partial_cems_plant,
     eia930_data,
     plant_attributes,
     year: int,
@@ -366,7 +373,8 @@ def calculate_residual(
 
     cems_agg = aggregate_for_residual(
         cems,
-        partial_cems,
+        partial_cems_subplant,
+        partial_cems_plant,
         plant_attributes,
         "datetime_utc",
         ba_column_name,
@@ -827,43 +835,35 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     return hourly_profiles
 
 
-def convert_profile_to_percent(hourly_profiles):
+def convert_profile_to_percent(hourly_profiles, group_keys, columns_to_convert):
     """converts hourly timeseries profiles from absolute mwh to percentage of monthly total mwh."""
     # convert the profile so that each hour is a percent of the monthly total
-    MONTHLY_GROUP_COLUMNS = [
-        "ba_code",
-        "fuel_category",
-        "report_date",
-        "profile_method",
-    ]
+    monthly_group_columns = group_keys + ["report_date"]
 
     monthly_total = (
-        hourly_profiles.groupby(MONTHLY_GROUP_COLUMNS, dropna=False)
-        .sum()[["profile", "flat_profile"]]
+        hourly_profiles.groupby(monthly_group_columns, dropna=False)
+        .sum()[columns_to_convert]
         .reset_index()
     )
 
+    # merge the hourly totals back into the hourly data
     hourly_profiles = hourly_profiles.merge(
         monthly_total,
         how="left",
-        on=MONTHLY_GROUP_COLUMNS,
+        on=monthly_group_columns,
         suffixes=(None, "_monthly_total"),
         validate="m:1",
     )
-    hourly_profiles["profile"] = (
-        hourly_profiles["profile"] / hourly_profiles["profile_monthly_total"]
-    )
-    hourly_profiles["flat_profile"] = (
-        hourly_profiles["flat_profile"] / hourly_profiles["flat_profile_monthly_total"]
-    )
-    hourly_profiles = hourly_profiles.drop(
-        columns=["profile_monthly_total", "flat_profile_monthly_total"]
-    )
+    for col in columns_to_convert:
+        hourly_profiles[col] = (
+            hourly_profiles[col] / hourly_profiles[f"{col}_monthly_total"]
+        )
+        hourly_profiles = hourly_profiles.drop(columns=[f"{col}_monthly_total"])
 
     return hourly_profiles
 
 
-def get_synthetic_plant_id_from_ba_fuel(df):
+def get_shaped_plant_id_from_ba_fuel(df):
     """
     Return artificial plant code. Max real plant is 64663
     Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the
@@ -883,13 +883,13 @@ def get_synthetic_plant_id_from_ba_fuel(df):
 
     # make sure the ba codes are strings
     df["ba_code"] = df["ba_code"].astype(str)
-    # create a new column with the synthetic plant ids
-    df["plant_id_synthetic"] = df.apply(
+    # create a new column with the shaped plant ids
+    df["shaped_plant_id"] = df.apply(
         lambda row: f"9{ba_numbers[row['ba_code']]}{FUEL_NUMBERS[row['fuel_category']]}",
         axis=1,
     )
     # convert to an int32 column
-    df["plant_id_synthetic"] = df["plant_id_synthetic"].astype("Int32")
+    df["shaped_plant_id"] = df["shaped_plant_id"].astype("Int32")
 
     return df
 
@@ -900,7 +900,7 @@ def aggregate_eia_data_to_ba_fuel(
     """
     Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
     using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
-    and YY=fuel (see `impute_hourly_profiles.get_synthetic_plant_id_from_ba_fuel`)
+    and YY=fuel (see `impute_hourly_profiles.get_shaped_plant_id_from_ba_fuel`)
 
     Add new artificial plants to plant_attributes frame.
     """
@@ -917,27 +917,27 @@ def aggregate_eia_data_to_ba_fuel(
     # Make nan BA "None" so equality test works
     eia_agg.ba_code = eia_agg.ba_code.replace(np.nan, None)
 
-    # create a column with synthetic plant ids
-    eia_agg = get_synthetic_plant_id_from_ba_fuel(eia_agg)
+    # create a column with shaped plant ids
+    eia_agg = get_shaped_plant_id_from_ba_fuel(eia_agg)
 
-    # create a table that maps plant_id_eia to plant_id_synthetic
-    synthetic_id_map = eia_agg[["plant_id_synthetic", "plant_id_eia"]].drop_duplicates()
+    # create a table that maps plant_id_eia to shaped_plant_id
+    shaped_id_map = eia_agg[["shaped_plant_id", "plant_id_eia"]].drop_duplicates()
 
     # Group
     eia_agg = (
         eia_agg.groupby(
-            ["plant_id_synthetic", "ba_code", "report_date", "fuel_category"],
+            ["shaped_plant_id", "ba_code", "report_date", "fuel_category"],
             dropna=False,
         )
         .sum()
         .reset_index()
         .drop(columns=["plant_id_eia", "subplant_id"])
-        .rename(columns={"plant_id_synthetic": "plant_id_eia"})
+        .rename(columns={"shaped_plant_id": "plant_id_eia"})
     )
 
-    # Add BA code and fuel type for synthetic plants into plant_attributes.
+    # Add BA code and fuel type for shaped plants into plant_attributes.
     plant_attributes = plant_attributes.merge(
-        synthetic_id_map, how="left", on="plant_id_eia", validate="1:1"
+        shaped_id_map, how="left", on="plant_id_eia", validate="1:1"
     )
 
     return eia_agg, plant_attributes
@@ -1003,7 +1003,144 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
     return shaped_monthly_data
 
 
-def shape_partial_cems_data(cems, eia923_allocated):
+def shape_partial_cems_plants(cems, eia923_allocated):
+    """Shapes the monthly data for subplants where partial plant data is available in CEMS."""
+
+    SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
+
+    # identify all of the partial cems plants and group by subplant-month
+    eia_data_to_shape = eia923_allocated.copy().loc[
+        eia923_allocated.hourly_data_source == "partial_cems_plant"
+    ]
+
+    # if there is no data in the partial cems dataframe, skip.
+    if len(eia_data_to_shape) > 0:
+
+        # group the eia data by subplant
+        eia_data_to_shape = (
+            eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)
+            .sum()[DATA_COLUMNS]
+            .reset_index()
+        )
+
+        # get a list of plant ids for plants with partial plant data in CEMS
+        partial_cems_plant_ids = list(eia_data_to_shape.plant_id_eia.unique())
+
+        # get the hourly cems data for the partial plants and aggregate by plant-hour to use for shaping
+        partial_cems_profiles = (
+            cems[cems["plant_id_eia"].isin(partial_cems_plant_ids)]
+            .groupby(["plant_id_eia", "report_date", "datetime_utc"], dropna=False)
+            .sum()[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
+            .reset_index()
+        )
+        # add a column for flat profiles
+        partial_cems_profiles["flat_profile"] = 1
+        # convert the profiles to a percent
+        partial_cems_profiles = convert_profile_to_percent(
+            partial_cems_profiles,
+            group_keys=["plant_id_eia"],
+            columns_to_convert=[
+                "gross_generation_mwh",
+                "fuel_consumed_mmbtu",
+                "flat_profile",
+            ],
+        )
+        partial_cems_profiles = partial_cems_profiles.rename(
+            columns={
+                "gross_generation_mwh": "generation_profile",
+                "fuel_consumed_mmbtu": "fuel_profile",
+            }
+        )
+
+        # prepare the profiles
+        # generation or fuel profiles will be missing for a month if there was zero generation or fuel reported for that month
+        # if we are missing a profile, try filling it with the other profile (e.g. fill generation with fuel profile)
+        partial_cems_profiles["generation_profile"] = partial_cems_profiles[
+            "generation_profile"
+        ].fillna(partial_cems_profiles["fuel_profile"])
+        partial_cems_profiles["fuel_profile"] = partial_cems_profiles[
+            "fuel_profile"
+        ].fillna(partial_cems_profiles["generation_profile"])
+        # if the profile is still missing, fill it using a flat profile
+        partial_cems_profiles["generation_profile"] = partial_cems_profiles[
+            "generation_profile"
+        ].fillna(partial_cems_profiles["flat_profile"])
+        partial_cems_profiles["fuel_profile"] = partial_cems_profiles[
+            "fuel_profile"
+        ].fillna(partial_cems_profiles["flat_profile"])
+
+        # merge the profiles into the monthly data
+        shaped_partial_plants = eia_data_to_shape.merge(
+            partial_cems_profiles,
+            how="left",
+            on=["plant_id_eia", "report_date"],
+            validate="m:m",
+        )
+
+        # where monthly net generation is negative, replace the generation profile with a flat profile
+        shaped_partial_plants.loc[
+            shaped_partial_plants["net_generation_mwh"] < 0, "generation_profile"
+        ] = shaped_partial_plants.loc[
+            shaped_partial_plants["net_generation_mwh"] < 0, "flat_profile"
+        ]
+
+        # check that no profiles contain NA values
+        missing_profiles = shaped_partial_plants[
+            shaped_partial_plants["generation_profile"].isna()
+            | shaped_partial_plants["fuel_profile"].isna()
+        ]
+        if len(missing_profiles) > 0:
+            print(
+                "WARNING: Certain partial CEMS plants are missing hourly profile data. This will result in inaccurate results"
+            )
+        # check that all profiles add to 1 for each month
+        incorrect_profiles = (
+            shaped_partial_plants.groupby(SUBPLANT_KEYS)[
+                ["generation_profile", "fuel_profile"]
+            ]
+            .sum()
+            .reset_index()
+        )
+        incorrect_profiles = incorrect_profiles[
+            (~np.isclose(incorrect_profiles["generation_profile"], 1))
+            | (~np.isclose(incorrect_profiles["fuel_profile"], 1))
+        ]
+        if len(incorrect_profiles) > 0:
+            print(
+                "WARNING: Certain partial CEMS profiles do not add to 100%. This will result in inaccurate results"
+            )
+
+        # shape the profiles
+        for col in DATA_COLUMNS:
+            # use the generation profile to shape net generation data, otherwise use the fuel profile
+            if col == "net_generation_mwh":
+                profile_to_use = "generation_profile"
+            else:
+                profile_to_use = "fuel_profile"
+
+            shaped_partial_plants[col] = (
+                shaped_partial_plants[col] * shaped_partial_plants[profile_to_use]
+            )
+
+        # remove the intermediate columns
+        shaped_partial_plants = shaped_partial_plants.drop(
+            columns=["generation_profile", "fuel_profile", "flat_profile"]
+        )
+
+        # validate that the shaping process did not alter the data
+        validation.validate_shaped_totals(shaped_partial_plants, eia_data_to_shape)
+
+    else:
+        shaped_partial_plants = pd.DataFrame(
+            columns=(
+                ["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
+                + DATA_COLUMNS
+            )
+        )
+    return shaped_partial_plants
+
+
+def shape_partial_cems_subplants(cems, eia923_allocated):
     """Scales CEMS subplant data for which there is partial units reporting.
 
     Returns:
@@ -1102,8 +1239,8 @@ def shape_partial_cems_data(cems, eia923_allocated):
                         cems_column,
                         scaling_factor,
                     )
-                # if the eia data is negative, or if it is positive but there is no fuel data available, shift the profile
-                elif ((row[eia_column] < 0) & (row[cems_total_column] == 0)) | (
+                # if the eia data is positive but all cems data is zero, assign a flat profile
+                elif (
                     (row[eia_column] > 0)
                     & (row[cems_total_column] == 0)
                     & (row["fuel_consumed_mmbtu_cems"] == 0)
@@ -1168,41 +1305,7 @@ def shape_partial_cems_data(cems, eia923_allocated):
                     )
 
         # validate that the scaled totals match
-        validate = (
-            partial_cems_shaped.groupby(
-                ["plant_id_eia", "subplant_id", "report_date"], dropna=False
-            )
-            .sum()[["fuel_consumed_mmbtu", "net_generation_mwh"]]
-            .reset_index()
-            .merge(
-                eia_data_to_shape[
-                    [
-                        "report_date",
-                        "plant_id_eia",
-                        "subplant_id",
-                        "fuel_consumed_mmbtu",
-                        "net_generation_mwh",
-                    ]
-                ],
-                how="left",
-                on=["report_date", "plant_id_eia", "subplant_id"],
-                validate="1:1",
-                suffixes=("_calculated", "_eia"),
-            )
-        )
-        validate["netgen_diff"] = (
-            validate["net_generation_mwh_calculated"]
-            - validate["net_generation_mwh_eia"]
-        ).round(0)
-        validate["fuel_diff"] = (
-            validate["fuel_consumed_mmbtu_calculated"]
-            - validate["fuel_consumed_mmbtu_eia"]
-        ).round(0)
-        if (
-            len(validate[(validate["netgen_diff"] != 0) | (validate["fuel_diff"] != 0)])
-            > 0
-        ):
-            raise UserWarning("Partial CEMS scaled totals do not match EIA data")
+        validation.validate_shaped_totals(partial_cems_shaped, eia_data_to_shape)
 
         partial_cems_shaped = partial_cems_shaped.drop(
             columns=["steam_load_1000_lb", "gross_generation_mwh"]

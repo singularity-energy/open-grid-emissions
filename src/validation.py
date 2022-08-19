@@ -247,7 +247,9 @@ def test_emissions_adjustments(df):
         print("OK")
 
 
-def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
+def ensure_non_overlapping_data_from_all_sources(
+    cems, partial_cems_subplant, partial_cems_plant, eia_data
+):
 
     print("    Checking that all data to be combined is unique...  ", end="")
 
@@ -265,10 +267,15 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
     cems_data = cems[["plant_id_eia", "subplant_id", "report_date"]].drop_duplicates()
     cems_data["in_cems"] = 1
 
-    partial_cems_data = partial_cems[
+    partial_cems_subplant_data = partial_cems_subplant[
         ["plant_id_eia", "subplant_id", "report_date"]
     ].drop_duplicates()
-    partial_cems_data["in_partial_cems"] = 1
+    partial_cems_subplant_data["in_partial_cems_subplant"] = 1
+
+    partial_cems_plant_data = partial_cems_plant[
+        ["plant_id_eia", "subplant_id", "report_date"]
+    ].drop_duplicates()
+    partial_cems_plant_data["in_partial_cems_plant"] = 1
 
     data_overlap = eia_only_data.merge(
         cems_data,
@@ -277,18 +284,29 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
         validate="1:1",
     )
     data_overlap = data_overlap.merge(
-        partial_cems_data,
+        partial_cems_subplant_data,
         how="outer",
         on=["plant_id_eia", "subplant_id", "report_date"],
         validate="1:1",
     )
-    data_overlap[["in_eia", "in_cems", "in_partial_cems"]] = data_overlap[
-        ["in_eia", "in_cems", "in_partial_cems"]
-    ].fillna(0)
+    data_overlap = data_overlap.merge(
+        partial_cems_plant_data,
+        how="outer",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        validate="1:1",
+    )
+    data_overlap[
+        ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
+    ] = data_overlap[
+        ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
+    ].fillna(
+        0
+    )
     data_overlap["number_of_locations"] = (
         data_overlap["in_eia"]
         + data_overlap["in_cems"]
-        + data_overlap["in_partial_cems"]
+        + data_overlap["in_partial_cems_subplant"]
+        + data_overlap["in_partial_cems_plant"]
     )
 
     if len(data_overlap[data_overlap["number_of_locations"] > 1]) > 0:
@@ -300,23 +318,51 @@ def ensure_non_overlapping_data_from_all_sources(cems, partial_cems, eia_data):
             print(
                 f"WARNING: There are {len(eia_cems_overlap)} subplant-months that exist in both shaped EIA data and CEMS"
             )
-        eia_pc_overlap = data_overlap[
-            (data_overlap["in_eia"] == 1) & (data_overlap["in_partial_cems"] == 1)
+        eia_pcs_overlap = data_overlap[
+            (data_overlap["in_eia"] == 1)
+            & (data_overlap["in_partial_cems_subplant"] == 1)
         ]
-        if len(eia_pc_overlap) > 0:
+        if len(eia_pcs_overlap) > 0:
             print(" ")
             print(
-                f"WARNING: There are {len(eia_pc_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
+                f"WARNING: There are {len(eia_pcs_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
             )
-        cems_pc_overlap = data_overlap[
-            (data_overlap["in_cems"] == 1) & (data_overlap["in_partial_cems"] == 1)
+        cems_pcs_overlap = data_overlap[
+            (data_overlap["in_cems"] == 1)
+            & (data_overlap["in_partial_cems_subplant"] == 1)
         ]
-        if len(cems_pc_overlap) > 0:
+        if len(cems_pcs_overlap) > 0:
             print(" ")
             print(
-                f"WARNING: There are {len(cems_pc_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
+                f"WARNING: There are {len(cems_pcs_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
             )
-        all_overlap = data_overlap[data_overlap["number_of_locations"] == 3]
+        eia_pcp_overlap = data_overlap[
+            (data_overlap["in_eia"] == 1) & (data_overlap["in_partial_cems_plant"] == 1)
+        ]
+        if len(eia_pcp_overlap) > 0:
+            print(" ")
+            print(
+                f"WARNING: There are {len(eia_pcp_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
+            )
+        cems_pcp_overlap = data_overlap[
+            (data_overlap["in_cems"] == 1)
+            & (data_overlap["in_partial_cems_plant"] == 1)
+        ]
+        if len(cems_pcp_overlap) > 0:
+            print(" ")
+            print(
+                f"WARNING: There are {len(cems_pcp_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
+            )
+        pcs_pcp_overlap = data_overlap[
+            (data_overlap["in_partial_cems_subplant"] == 1)
+            & (data_overlap["in_partial_cems_plant"] == 1)
+        ]
+        if len(pcs_pcp_overlap) > 0:
+            print(" ")
+            print(
+                f"WARNING: There are {len(pcs_pcp_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
+            )
+        all_overlap = data_overlap[data_overlap["number_of_locations"] == 4]
         if len(all_overlap) > 0:
             print(" ")
             print(
@@ -351,7 +397,7 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape):
             ]
         )
         raise UserWarning(
-            "The EIA process is changing the monthly total values compared to reported EIA values. This process should only shape the data, not alter it."
+            "The data shaping process is changing the monthly total values compared to reported EIA values. This process should only shape the data, not alter it."
         )
     else:
         print("OK")
@@ -361,7 +407,9 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape):
 ########################################################################################
 
 
-def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
+def hourly_profile_source_metric(
+    cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data
+):
     """Calculates the percentage of data whose hourly profile was determined by method"""
     data_metrics = ["net_generation_mwh", "co2_mass_lb"]
 
@@ -369,8 +417,17 @@ def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     profile_from_cems = pd.DataFrame(cems[data_metrics].sum(axis=0)).T
     profile_from_cems["profile_method"] = "cems_reported"
 
-    profile_from_partial_cems = pd.DataFrame(partial_cems[data_metrics].sum(axis=0)).T
-    profile_from_partial_cems["profile_method"] = "eia_shaped_partial_cems"
+    profile_from_partial_cems_subplant = pd.DataFrame(
+        partial_cems_subplant[data_metrics].sum(axis=0)
+    ).T
+    profile_from_partial_cems_subplant[
+        "profile_method"
+    ] = "eia_scaled_partial_cems_subplant"
+
+    profile_from_partial_cems_plant = pd.DataFrame(
+        partial_cems_plant[data_metrics].sum(axis=0)
+    ).T
+    profile_from_partial_cems_plant["profile_method"] = "eia_shaped_partial_cems_plant"
 
     profile_from_eia = (
         shaped_eia_data.groupby("profile_method", dropna=False)[data_metrics]
@@ -382,7 +439,12 @@ def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     )
 
     profile_source = pd.concat(
-        [profile_from_cems, profile_from_partial_cems, profile_from_eia]
+        [
+            profile_from_cems,
+            profile_from_partial_cems_subplant,
+            profile_from_partial_cems_plant,
+            profile_from_eia,
+        ]
     )
     profile_source = profile_source.set_index("profile_method")
     profile_source = profile_source / profile_source.sum(axis=0)
@@ -391,10 +453,13 @@ def hourly_profile_source_metric(cems, partial_cems, shaped_eia_data):
     return profile_source
 
 
-def identify_percent_of_data_by_input_source(cems, partial_cems, eia_only_data, year):
+def identify_percent_of_data_by_input_source(
+    cems, partial_cems_subplant, partial_cems_plant, eia_only_data, year
+):
     data_sources = {
         "cems": cems,
-        "partial_cems": partial_cems,
+        "partial_cems_subplant": partial_cems_subplant,
+        "partial_cems_plant": partial_cems_plant,
         "eia": eia_only_data,
     }
     if year % 4 == 0:
@@ -435,7 +500,10 @@ def identify_percent_of_data_by_input_source(cems, partial_cems, eia_only_data, 
     source_of_input_data = pd.concat(source_of_input_data)
 
     source_of_input_data["source"] = source_of_input_data["source"].replace(
-        "partial_cems", "eia"
+        "partial_cems_subplant", "eia"
+    )
+    source_of_input_data["source"] = source_of_input_data["source"].replace(
+        "partial_cems_plant", "eia"
     )
     source_of_input_data = source_of_input_data.groupby("source").sum()
     source_of_input_data = source_of_input_data / source_of_input_data.sum(axis=0)
