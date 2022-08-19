@@ -796,8 +796,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     gtn_ratio = gtn_ratio[groupby_columns + ["gtn_ratio"]]
 
-    if not os.path.exists(outputs_folder("gross_to_net")):
-        os.mkdir(outputs_folder("gross_to_net"))
+    os.makedirs(outputs_folder("gross_to_net"), exist_ok=True)
 
     gtn_ratio.to_csv(
         outputs_folder(f"gross_to_net/{agg_level}_gross_to_net_ratio.csv"),

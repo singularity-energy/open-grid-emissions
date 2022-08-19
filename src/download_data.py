@@ -9,17 +9,6 @@ import zipfile
 from filepaths import downloads_folder, data_folder
 
 
-class InputDataFilenames:
-    # EIA-860 filenames.
-    EIA_860_ENVIRO_ASSOC_FILE_FMT = "6_1_EnviroAssoc_Y{}.xlsx"  # .format(year)
-    EIA_860_ENVIRO_EQUIP_FILE_FMT = "6_2_EnviroEquip_Y{}.xlsx"  # .format(year)
-
-    # EIA-923 filenames.
-    EIA_923_ENVIRONMENTAL_INFO_FMT = (
-        "EIA923_Schedule_8_Annual_Environmental_Information_{}_Final_Revision.xlsx"
-    )
-
-
 def download_helper(
     input_url: str,
     download_path: str,
@@ -53,7 +42,7 @@ def download_helper(
         return False
 
     # Otherwise, download to the file in chunks.
-    print(f"    Downloading from {input_url}")
+    print(f"    Downloading {final_destination.split('/')[-1]}")
     r = requests.get(input_url, stream=True)
     with open(download_path, "wb") as fd:
         for chunk in r.iter_content(chunk_size=chunk_size):

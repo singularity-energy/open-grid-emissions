@@ -200,8 +200,7 @@ def generate_subplant_ids(start_year, end_year, cems_monthly):
         validate="m:1",
     )
 
-    if not os.path.exists(outputs_folder(f"{end_year}")):
-        os.mkdir(outputs_folder(f"{end_year}"))
+    os.makedirs(outputs_folder(f"{end_year}"), exist_ok=True)
 
     # export the crosswalk to csv
     crosswalk_with_subplant_ids.to_csv(
@@ -1093,6 +1092,9 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
 
     all_data = all_data.drop(columns=["reported_eia923"])
 
+    # identify the partial cems plants
+    all_data = identify_partial_cems_plants(all_data)
+
     return all_data
 
 
@@ -1157,7 +1159,7 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
                 (x.reported_units_in_subplant < x.units_in_subplant)
                 & (x.fuel_consumed_mmbtu_cems < (x.fuel_consumed_mmbtu_eia * 0.95))
             ),
-            "partial_cems",
+            "partial_cems_subplant",
             "cems",
         )
     )
@@ -1211,6 +1213,67 @@ def count_reported_units_in_subplant(cems_monthly):
     return reported_units_in_subplant
 
 
+def identify_partial_cems_plants(all_data):
+    """Identifies subplants for which CEMS data is reported for at least one other subplant at the plant.
+
+    Args:
+        all_data: dataframe identifying the hourly data source for each subplant-month
+    Returns:
+        all_data with updated hourly_data_source column indicating partial cems plants"""
+
+    # create a column that indicates EIA-only subplant data
+    all_data = all_data.assign(
+        eia_data=lambda x: np.where(x.hourly_data_source == "eia", 1, 0)
+    )
+
+    # create a column that indicates whether cems data is reported
+    all_data = all_data.assign(
+        cems_data=lambda x: np.where(
+            x.hourly_data_source.isin(["cems", "partial_cems_subplant"]), 1, 0
+        )
+    )
+
+    # count the number of records for each plant-month that have EIA-only data and CEMS data
+    partial_plant = (
+        all_data.groupby(["plant_id_eia", "report_date"], dropna=False)[
+            ["eia_data", "cems_data"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    # we want to identify plants where there is some EIA data and some cems data
+    # if eia_data = 0, then all of the data for that plant-month is from cems
+    # if if cems_data = 0, then all of the data for that plant-month is from EIA
+    partial_plant = partial_plant[
+        (partial_plant["eia_data"] > 0) & (partial_plant["cems_data"] > 0)
+    ]
+
+    # drop intermediate columns
+    partial_plant = partial_plant.drop(columns=["eia_data", "cems_data"])
+
+    # merge this data into all_data
+    all_data = all_data.merge(
+        partial_plant,
+        how="outer",
+        on=["plant_id_eia", "report_date"],
+        indicator="partial_plant",
+        validate="m:1",
+    )
+
+    # for plants where the data source is eia only, and it exists in partial plant, change the source to partial_cems_plant
+    all_data.loc[
+        (all_data["hourly_data_source"] == "eia")
+        & (all_data["partial_plant"] == "both"),
+        "hourly_data_source",
+    ] = "partial_cems_plant"
+
+    # remove the intermediate indicator column
+    all_data = all_data.drop(columns=["partial_plant", "eia_data", "cems_data"])
+
+    return all_data
+
+
 def filter_unique_cems_data(cems, partial_cems):
     """Removes subplant-months from cems that also appear in partial_cems."""
     # filter the cems data to remove data that was scaled in partial_cems
@@ -1235,17 +1298,17 @@ def filter_unique_cems_data(cems, partial_cems):
 def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table):
 
     # create a table that has data for the sythetic plant attributes
-    synthetic_plant_attributes = (
-        plant_attributes_table[["plant_id_synthetic", "ba_code", "fuel_category"]]
+    shaped_plant_attributes = (
+        plant_attributes_table[["shaped_plant_id", "ba_code", "fuel_category"]]
         .drop_duplicates()
-        .dropna(subset="plant_id_synthetic")
-        .rename(columns={"plant_id_synthetic": "plant_id_eia"})
+        .dropna(subset="shaped_plant_id")
+        .rename(columns={"shaped_plant_id": "plant_id_eia"})
     )
 
     combined_plant_attributes = pd.concat(
         [
             plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
-            synthetic_plant_attributes,
+            shaped_plant_attributes,
         ],
         axis=0,
     )
@@ -1276,7 +1339,14 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table)
     return ba_fuel_data
 
 
-def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False):
+def combine_plant_data(
+    cems,
+    partial_cems_subplant,
+    partial_cems_plant,
+    eia_data,
+    resolution,
+    validate=False,
+):
     """
     Combines final hourly subplant data from each source into a single dataframe.
     Inputs:
@@ -1307,7 +1377,7 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False)
 
     if validate:
         validation.ensure_non_overlapping_data_from_all_sources(
-            cems, partial_cems, eia_data
+            cems, partial_cems_subplant, partial_cems_plant, eia_data
         )
 
     # group data by plant-hour and filter columns
@@ -1320,14 +1390,27 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False)
         .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
     )
     # don't group if there is no data in the dataframe
-    if len(partial_cems) > 0:
-        partial_cems = (
-            partial_cems.groupby(
+    if len(partial_cems_subplant) > 0:
+        partial_cems_subplant = (
+            partial_cems_subplant.groupby(
                 KEY_COLUMNS,
                 dropna=False,
             )
             .sum()
-            .reset_index()[[col for col in partial_cems.columns if col in ALL_COLUMNS]]
+            .reset_index()[
+                [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
+            ]
+        )
+    if len(partial_cems_plant) > 0:
+        partial_cems_plant = (
+            partial_cems_plant.groupby(
+                KEY_COLUMNS,
+                dropna=False,
+            )
+            .sum()
+            .reset_index()[
+                [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
+            ]
         )
     eia_data = (
         eia_data.groupby(
@@ -1340,7 +1423,10 @@ def combine_plant_data(cems, partial_cems, eia_data, resolution, validate=False)
 
     # concat together
     combined_plant_data = pd.concat(
-        [cems, partial_cems, eia_data], axis=0, ignore_index=True, copy=False
+        [cems, partial_cems_subplant, partial_cems_plant, eia_data],
+        axis=0,
+        ignore_index=True,
+        copy=False,
     )
 
     # groupby plant

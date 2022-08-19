@@ -99,7 +99,7 @@ COLUMNS = {
         # "nox_mass_measurement_code",
         # "so2_mass_measurement_code",
     },
-    "partial_cems": {
+    "partial_cems_subplant": {
         "report_date",
         "plant_id_eia",
         "subplant_id",
@@ -143,18 +143,15 @@ COLUMNS = {
         "distribution_flag",
         "timezone",
         "data_availability",
+        "shaped_plant_id",
     },
-    "plant_attributes_with_synthetic": {
+    "plant_metadata": {
         "plant_id_eia",
-        "plant_primary_fuel",
-        "fuel_category",
-        "fuel_category_eia930",
-        "ba_code",
-        "ba_code_physical",
-        "state",
-        "distribution_flag",
-        "timezone",
-        "data_availability",
+        "subplant_id",
+        "report_date",
+        "data_source",
+        "hourly_profile_source",
+        "net_generation_method",
     },
     "hourly_profiles": {
         "ba_code",
@@ -275,7 +272,7 @@ COLUMNS = {
         "plant_regression_ratio",
         "plant_regression_shift_mw",
     },
-    "synthetic_aggregated_plants_": {
+    "shaped_aggregated_plants": {
         "plant_id_eia",
         "report_date",
         "fuel_category",
@@ -314,6 +311,7 @@ def check_columns(df, file_name):
 
 
 def get_dtypes():
+    """Returns a dictionary of dtypes that should be used for each column name."""
     dtypes_to_use = {
         "plant_id_eia": "Int32",
         "plant_id_epa": "Int32",
@@ -406,6 +404,7 @@ def get_dtypes():
 
 
 def apply_dtypes(df):
+    """Applies specified dtypes to a dataframe and identifies if a dtype is not specified for a column."""
     dtypes = get_dtypes()
     datetime_columns = ["datetime_utc", "datetime_local", "report_date"]
     cols_missing_dtypes = [
