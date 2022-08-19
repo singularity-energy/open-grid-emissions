@@ -373,16 +373,18 @@ def ensure_non_overlapping_data_from_all_sources(
         print("OK")
 
 
-def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape):
+def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_keys):
 
     print("    Checking that shaped hourly data matches monthly totals...  ", end="")
 
+    monthly_group_keys = group_keys + ["report_date"]
+
     # aggregate data to ba fuel month
     shaped_data_agg = shaped_eia_data.groupby(
-        ["ba_code", "fuel_category", "report_date"], dropna=False
+        [monthly_group_keys], dropna=False
     ).sum()[["net_generation_mwh", "fuel_consumed_mmbtu"]]
     eia_data_agg = monthly_eia_data_to_shape.groupby(
-        ["ba_code", "fuel_category", "report_date"], dropna=False
+        [monthly_group_keys], dropna=False
     ).sum()[["net_generation_mwh", "fuel_consumed_mmbtu"]]
 
     # calculate the difference between the two datasets

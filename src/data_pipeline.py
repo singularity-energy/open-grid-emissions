@@ -376,7 +376,11 @@ def main():
             results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv")
         )
     # validate that the shaping did not alter data at the monthly level
-    validation.validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape)
+    validation.validate_shaped_totals(
+        shaped_eia_data,
+        monthly_eia_data_to_shape,
+        group_keys=["ba_code", "fuel_category"],
+    )
 
     # 15. Combine plant-level data from all sources
     ####################################################################################

@@ -1128,7 +1128,11 @@ def shape_partial_cems_plants(cems, eia923_allocated):
         )
 
         # validate that the shaping process did not alter the data
-        validation.validate_shaped_totals(shaped_partial_plants, eia_data_to_shape)
+        validation.validate_shaped_totals(
+            shaped_partial_plants,
+            eia_data_to_shape,
+            group_keys=["plant_id_eia", "subplant_id"],
+        )
 
     else:
         shaped_partial_plants = pd.DataFrame(
@@ -1305,7 +1309,11 @@ def shape_partial_cems_subplants(cems, eia923_allocated):
                     )
 
         # validate that the scaled totals match
-        validation.validate_shaped_totals(partial_cems_shaped, eia_data_to_shape)
+        validation.validate_shaped_totals(
+            partial_cems_shaped,
+            eia_data_to_shape,
+            group_keys=["plant_id_eia", "subplant_id"],
+        )
 
         partial_cems_shaped = partial_cems_shaped.drop(
             columns=["steam_load_1000_lb", "gross_generation_mwh"]
