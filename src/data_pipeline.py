@@ -373,7 +373,9 @@ def main():
     )
     if not args.skip_outputs:
         plant_attributes.to_csv(
-            results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv")
+            results_folder(
+                f"{path_prefix}plant_data/plant_static_attributes.csv", index=False
+            )
         )
     # validate that the shaping did not alter data at the monthly level
     validation.validate_shaped_totals(
@@ -387,7 +389,12 @@ def main():
     print("15. Combining and exporting plant-level hourly results")
     # write metadata outputs
     output_data.write_plant_metadata(
-        cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, path_prefix, args.skip_outputs
+        cems,
+        partial_cems_subplant,
+        partial_cems_plant,
+        shaped_eia_data,
+        path_prefix,
+        args.skip_outputs,
     )
     combined_plant_data = data_cleaning.combine_plant_data(
         cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, "hourly"

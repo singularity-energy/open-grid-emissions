@@ -54,6 +54,8 @@ def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
             f"    Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
         )
 
+        # TODO: Add column checks
+
         df.to_csv(
             results_folder(f"{path_prefix}data_quality_metrics/{file_name}.csv"),
             index=False,
@@ -239,7 +241,9 @@ def write_plant_metadata(
             axis=0,
         )
 
-        metadata.to_csv(results_folder(f"{path_prefix}plant_data/plant_metadata.csv"))
+        column_checks.check_columns(metadata, "plant_metadata")
+
+        metadata.to_csv(results_folder(f"{path_prefix}plant_data/plant_metadata.csv"), index=False)
 
         # drop the metadata columns from each dataframe
         cems = cems.drop(columns=METADATA_COLUMNS)
