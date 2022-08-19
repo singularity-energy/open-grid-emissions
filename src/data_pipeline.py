@@ -364,18 +364,17 @@ def main():
     output_data.output_intermediate_data(
         shaped_eia_data, "shaped_eia923_data", path_prefix, year, args.skip_outputs
     )
+    output_data.output_intermediate_data(
+        plant_attributes,
+        "plant_static_attributes",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
     if not args.skip_outputs:
-        output_data.output_intermediate_data(
-            plant_attributes,
-            "plant_static_attributes",
-            path_prefix,
-            year,
-            args.skip_outputs,
-        )
         plant_attributes.to_csv(
-            results_folder(
-                f"{path_prefix}plant_data/plant_static_attributes.csv", index=False
-            )
+            results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
+            index=False,
         )
     # validate that the shaping did not alter data at the monthly level
     validation.validate_shaped_totals(
@@ -435,8 +434,7 @@ def main():
         skip_outputs=args.skip_outputs,
     )
     hourly_consumed_calc.run()
-    if not args.skip_outputs:
-        hourly_consumed_calc.output_results()
+    hourly_consumed_calc.output_results()
 
 
 if __name__ == "__main__":
