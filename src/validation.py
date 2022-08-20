@@ -642,7 +642,7 @@ def validate_diba_imputation_method(hourly_profiles, year):
     ].drop_duplicates()
 
     profiles_to_impute = profiles_to_impute[
-        profiles_to_impute["report_date"].dt.year == 2020
+        profiles_to_impute["report_date"].dt.year == year
     ]
 
     dibas = load_data.load_diba_data(year)

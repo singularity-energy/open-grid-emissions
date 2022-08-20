@@ -184,6 +184,13 @@ def main():
     partial_cems_plant = impute_hourly_profiles.shape_partial_cems_plants(
         cems, eia923_allocated
     )
+    output_data.output_intermediate_data(
+        partial_cems_plant,
+        "partial_cems_plant",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
     # shape partial CEMS subplant data
     (
         cems,
