@@ -1618,18 +1618,6 @@ def fill_cems_missing_co2(cems, year):
         "co2_mass_lb",
     ] = np.NaN
 
-    # check that all records with missing co2 have a non-missing energy source code
-    missing_esc = cems[
-        (cems["energy_source_code"].isna()) & (cems["co2_mass_lb"].isna())
-    ]
-    if len(missing_esc) > 0:
-        print(" ")
-        print(
-            "WARNING: the following units are missing co2 data and energy source codes. This may be because they burn multiple fuels."
-        )
-        print(missing_esc[["plant_id_eia", "unitid"]].drop_duplicates())
-        print(" ")
-
     # create a new df with all observations with missing co2 data
     missing_co2 = cems[cems["co2_mass_lb"].isnull()]
 

@@ -236,15 +236,16 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     foreign_bas = list(ba_ref.loc[ba_ref["us_ba"] == "No", "ba_code"])
     data = data[~data["ba_code"].isin(foreign_bas)]
 
-    # create a local datetime column
-    data["datetime_local"] = data["datetime_utc"]
+    data["datetime_local"] = ""
     for ba in list(data["ba_code"].unique()):
-        data.loc[data.ba_code == ba, "datetime_local"] = data.loc[
-            data.ba_code == ba, "datetime_utc"
-        ].dt.tz_convert(load_data.ba_timezone(ba=ba, type="local"))
+        data.loc[data.ba_code == ba, "datetime_local"] = (
+            data.loc[data.ba_code == ba, "datetime_utc"]
+            .dt.tz_convert(load_data.ba_timezone(ba=ba, type="local"))
+            .astype(str)
+        )
 
     # create a report date column
-    data["report_date"] = data["datetime_local"].astype(str).str[:7]
+    data["report_date"] = data["datetime_local"].str[:7]
     data["report_date"] = pd.to_datetime(data["report_date"])
 
     # rename the fuel categories using format in

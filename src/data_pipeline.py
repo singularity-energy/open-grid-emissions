@@ -156,13 +156,6 @@ def main():
     plant_attributes = data_cleaning.create_plant_attributes_table(
         cems, eia923_allocated, year, primary_fuel_table
     )
-    output_data.output_intermediate_data(
-        plant_attributes,
-        "plant_static_attributes",
-        path_prefix,
-        year,
-        args.skip_outputs,
-    )
 
     # 6. Crosswalk CEMS and EIA data
     ####################################################################################
@@ -190,6 +183,13 @@ def main():
     # shape partial CEMS plant data
     partial_cems_plant = impute_hourly_profiles.shape_partial_cems_plants(
         cems, eia923_allocated
+    )
+    output_data.output_intermediate_data(
+        partial_cems_plant,
+        "partial_cems_plant",
+        path_prefix,
+        year,
+        args.skip_outputs,
     )
     # shape partial CEMS subplant data
     (
@@ -371,11 +371,17 @@ def main():
     output_data.output_intermediate_data(
         shaped_eia_data, "shaped_eia923_data", path_prefix, year, args.skip_outputs
     )
+    output_data.output_intermediate_data(
+        plant_attributes,
+        "plant_static_attributes",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
     if not args.skip_outputs:
         plant_attributes.to_csv(
-            results_folder(
-                f"{path_prefix}plant_data/plant_static_attributes.csv", index=False
-            )
+            results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
+            index=False,
         )
     # validate that the shaping did not alter data at the monthly level
     validation.validate_shaped_totals(
@@ -435,8 +441,7 @@ def main():
         skip_outputs=args.skip_outputs,
     )
     hourly_consumed_calc.run()
-    if not args.skip_outputs:
-        hourly_consumed_calc.output_results()
+    hourly_consumed_calc.output_results()
 
 
 if __name__ == "__main__":
