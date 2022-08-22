@@ -342,7 +342,7 @@ class HourlyConsumed:
 
                 # Output
                 output_to_results(
-                    time_dat[time_cols + CONSUMED_EMISSION_RATE_COLS],
+                    time_dat[time_cols + CONSUMED_EMISSION_RATE_COLS + ["net_consumed_mwh"]],
                     ba,
                     f"/carbon_accounting/{time_resolution}/",
                     self.prefix,
