@@ -288,7 +288,7 @@ def remove_imputed_ones(eia930_data):
     )
     # replace all 1.0 values with zero
     print(
-        f"replacing {len(eia930_data[eia930_data['net_generation_mwh_930'] == 1])} imputed 1 values with 0"
+        f"  replacing {len(eia930_data[eia930_data['net_generation_mwh_930'] == 1])} imputed 1 values with 0"
     )
     eia930_data["net_generation_mwh_930"] = eia930_data[
         "net_generation_mwh_930"
