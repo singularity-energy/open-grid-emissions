@@ -242,23 +242,6 @@ class HourlyConsumed:
             self.ba_ref[self.ba_ref.ba_category == "generation_only"].index
         )
 
-        # # Check each generation-only BA to ensure that there's generation data in this year (slow)
-        # ok_gen = np.full(len(generation_only), True)
-        # for (i, ba) in enumerate(generation_only):
-        #     # Check for non-nan net gen
-        #     col = KEYS["E"]["NG"] % ba
-        #     if col not in self.eia930.df.columns:
-        #         ok_gen[i] = False  # we don't have gen data
-        #         continue
-        #     y_idx = self.eia930.df.index.year == self.year
-        #     bad = pd.isnull(self.eia930.df.loc[y_idx, col])
-        #     if sum(bad) / len(bad) > 0.9:
-        #         print(
-        #             f"Dropping import-only BA {ba} because it is missing most of its values."
-        #         )
-        #         ok_gen[i] = False
-        # generation_only = list(np.array(generation_only)[ok_gen])
-
         # Get import-only regions
         import_only = [
             b
@@ -320,13 +303,15 @@ class HourlyConsumed:
                     self.ba_ref.loc[ba, "timezone_local"]
                 )
                 time_dat = time_dat.reset_index()  # move datetime_utc to column
+                time_dat = time_dat[
+                    time_dat.datetime_local.dt.year == self.year
+                ]  # keep year of local data
 
                 if time_resolution == "hourly":
                     # No resampling needed; keep timestamp cols in output
                     time_cols = ["datetime_utc", "datetime_local"]
                 elif time_resolution == "monthly":
                     time_dat["month"] = time_dat.datetime_local.dt.month
-                    time_dat = time_dat[time_dat.datetime_local.dt.year == self.year]
                     # Aggregate to appropriate resolution
                     time_dat = (
                         time_dat.groupby("month")
@@ -336,7 +321,6 @@ class HourlyConsumed:
                     time_cols = ["month"]
                 elif time_resolution == "annual":
                     time_dat["year"] = time_dat.datetime_local.dt.year
-                    time_dat = time_dat[time_dat.datetime_local.dt.year == self.year]
                     # Aggregate to appropriate resolution
                     time_dat = (
                         time_dat.groupby("year")
@@ -364,9 +348,31 @@ class HourlyConsumed:
                 )
         return
 
+    def _impute_border_hours(self, temp):
+        """
+        Add three hours to beginning and end of series.
+        Impute hours by taking same hour from previous (or next) day of series
+        This matches EIA-930's imputation approach
+        """
+        temp = temp.dropna()
+        last_day = temp.index.max()
+        first_day = temp.index.min()
+        for hour in range(1, 4):
+            new_hour = first_day - pd.DateOffset(hours=hour)
+            # Get closest hour
+            best = new_hour + pd.DateOffset(days=1)
+            # Fill in
+            temp[new_hour] = temp[best]
+
+            # Now at end of time series
+            new_hour = last_day + pd.DateOffset(hours=hour)
+            best = new_hour - pd.DateOffset(days=1)
+            temp[new_hour] = temp[best]
+        return temp.sort_index()
+
     def _load_rates(self):
         # Load all rates
-        rates = {}
+        rates = {}  # (adj, pol) -> {(BA, rate series)}
         gens = {}
         for f in os.listdir(
             results_folder(f"{self.prefix}/power_sector_data/hourly/us_units/")
@@ -383,14 +389,16 @@ class HourlyConsumed:
             for adj in ADJUSTMENTS:
                 for pol in POLLUTANTS:
                     this_rate = rates.get((adj, pol), {})
-                    this_rate[ba_name] = this_ba[get_column(pol, adjustment=adj)]
+                    this_rate[ba_name] = self._impute_border_hours(
+                        this_ba[get_column(pol, adjustment=adj)]
+                    )
                     rates[(adj, pol)] = this_rate
-            gens[ba_name] = this_ba["net_generation_mwh"]
+            gens[ba_name] = self._impute_border_hours(this_ba["net_generation_mwh"])
 
         # Make each rate into a DF and add emissions for import-only regions
         for pol in POLLUTANTS:
             for adj in ADJUSTMENTS:
-                # Calculate emissions
+                # Most rates we already loaded above
                 emissions = pd.DataFrame(rates[(adj, pol)])
 
                 # Add import regions to emissions DF

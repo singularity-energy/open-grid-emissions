@@ -123,18 +123,25 @@ def calculate_hourly_profiles(
         .astype(int)
         .droplevel(level=0, axis=1)
     )
+
+    # Format outputs
+    profile_methods = [
+        "residual_profile",
+        "shifted_residual_profile",
+        "eia930_profile",
+        "cems_profile",
+        "DIBA_average",
+        "national_average",
+        "assumed_flat",
+    ]
+    # Add default value of zero: let users know this method exists but was not used
+    for pm in profile_methods:
+        if pm not in summary_table.columns:
+            summary_table[pm] = 0
     # re-order columns
     summary_table = summary_table.loc[
         :,
-        [
-            "residual_profile",
-            "shifted_residual_profile",
-            "eia930_profile",
-            "cems_profile",
-            "DIBA_average",
-            "national_average",
-            "assumed_flat",
-        ],
+        profile_methods,
     ]
     print(summary_table)
 
