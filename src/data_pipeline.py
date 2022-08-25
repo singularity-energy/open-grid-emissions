@@ -145,7 +145,7 @@ def main():
     # 4. Clean Hourly Data from CEMS
     ####################################################################################
     print("4. Cleaning CEMS data")
-    cems = data_cleaning.clean_cems(year, args.small)
+    cems = data_cleaning.clean_cems(year, args.small, primary_fuel_table)
 
     # calculate biomass-adjusted emissions while cems data is at the unit level
     cems = emissions.adjust_emissions_for_biomass(cems)

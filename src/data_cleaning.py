@@ -649,7 +649,7 @@ def remove_non_grid_connected_plants(df):
     return df
 
 
-def clean_cems(year: int, small: bool):
+def clean_cems(year: int, small: bool, primary_fuel_table):
     """
     Coordinating function for all of the cems data cleaning
     """
@@ -681,9 +681,10 @@ def clean_cems(year: int, small: bool):
     # TODO: identify and remove any hourly values that appear to be outliers
 
     # add a fuel type to each observation
-    cems = assign_fuel_type_to_cems(cems, year)
+    cems = assign_fuel_type_to_cems(cems, year, primary_fuel_table)
 
     # fill in missing hourly emissions data using the fuel type and heat input
+    validation.test_for_missing_energy_source_code(cems)
     cems = emissions.fill_cems_missing_co2(cems, year)
 
     # TODO: Add functions for filling missing NOx and SOx
@@ -790,7 +791,7 @@ def remove_incomplete_unit_months(cems):
     return cems
 
 
-def assign_fuel_type_to_cems(cems, year):
+def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
     "Assigns a fuel type to each observation in CEMS"
 
     fuel_types = get_epa_unit_fuel_types(year)
@@ -820,6 +821,18 @@ def assign_fuel_type_to_cems(cems, year):
 
     # TODO: fill fuel codes for plants that only have a single fossil type identified in EIA
     cems = fill_missing_fuel_for_single_fuel_plant_months(cems, year)
+
+    # fill any remaining missing fuel codes with the plant primary fuel identified from EIA-923
+    cems = cems.merge(
+        primary_fuel_table[["plant_id_eia", "plant_primary_fuel"]].drop_duplicates(),
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    cems["energy_source_code"] = cems["energy_source_code"].fillna(
+        cems["plant_primary_fuel"]
+    )
+    cems = cems.drop(columns=["plant_primary_fuel"])
 
     # update
     cems = update_energy_source_codes(cems)
