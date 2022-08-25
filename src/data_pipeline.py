@@ -443,6 +443,9 @@ def main():
     hourly_consumed_calc.run()
     hourly_consumed_calc.output_results()
 
+    # Make archives and compress
+    output_data.zip_results(year)
+
 
 if __name__ == "__main__":
     main()

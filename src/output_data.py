@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
-
+import shutil
+import os
 import load_data
 import column_checks
 from filepaths import outputs_folder, results_folder
@@ -23,6 +24,22 @@ GENERATED_EMISSION_RATE_COLS = [
 UNIT_CONVERSIONS = {"lb": ("kg", 0.453592), "mmbtu": ("GJ", 1.055056)}
 
 TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
+
+
+def zip_results(year):
+    """
+    Results are currently per-BA, but will be downloaded per time
+    """
+    for data_type in ["power_sector_data", "carbon_accounting"]:
+        for aggregation in ["hourly", "monthly", "annual"]:
+            for unit in ["metric_units", "us_units"]:
+                folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
+                shutil.make_archive(
+                    f"{results_folder()}/{year}/{data_type}/{data_type}_{aggregation}_{unit}",
+                    "gztar",
+                    root_dir=folder,
+                    # base_dir="",
+                )
 
 
 def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
@@ -243,7 +260,9 @@ def write_plant_metadata(
 
         column_checks.check_columns(metadata, "plant_metadata")
 
-        metadata.to_csv(results_folder(f"{path_prefix}plant_data/plant_metadata.csv"), index=False)
+        metadata.to_csv(
+            results_folder(f"{path_prefix}plant_data/plant_metadata.csv"), index=False
+        )
 
         # drop the metadata columns from each dataframe
         cems = cems.drop(columns=METADATA_COLUMNS)
