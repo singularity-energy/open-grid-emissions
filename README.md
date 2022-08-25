@@ -40,6 +40,7 @@ Notebooks are organized into five directories based on their purpose
 - `explore_methods`: notebooks that can be used to explore specific methods step-by-step
 - `manual_data`: notebooks that are used to create/update certain files in `data/manual`
 - `validation`: notebooks related to validating results
+- `visualization`: notebooks used to visualize data
 - `work_in_progress`: temporary notebooks being used for development purposes on specific branches
 
 ### Data Structure

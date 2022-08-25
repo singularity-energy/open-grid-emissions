@@ -472,6 +472,7 @@ def calculate_nox_from_fuel_consumption(
     ]
     if len(missing_ef) > 0:
         print("WARNING: NOx emission factors are missing for the following records")
+        print("Missing factors for FC prime movers are currently expected")
         print(
             missing_ef[
                 [
@@ -628,6 +629,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         print(
             "WARNING: NOx emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
         )
+        print("Missing factors for FC prime movers are currently expected")
         print(missing_nox_efs)
         print(" ")
     gen_nox_factors = fill_missing_factors_based_on_pm_fuel(
@@ -660,6 +662,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         print(
             "WARNING: After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types. An emission factor of zero will be used for these boilers."
         )
+        print("Missing factors for FC prime movers are currently expected")
         print(missing_nox_efs)
         print(" ")
     gen_nox_factors["emission_factor"] = gen_nox_factors["emission_factor"].fillna(0)
@@ -1121,6 +1124,7 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
     ]
     if len(missing_ef) > 0:
         print("WARNING: SO2 emission factors are missing for the above records")
+        print("Missing factors for FC prime movers are currently expected")
         print(
             missing_ef[
                 [
@@ -1286,6 +1290,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
         print(
             "WARNING: SO2 emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
         )
+        print("Missing factors for FC prime movers are currently expected")
         print(missing_so2_efs)
         print(" ")
     gen_so2_factors = fill_missing_factors_based_on_pm_fuel(
@@ -1316,6 +1321,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
         print(
             "WARNING: SO2 emission factors are missing for the following boiler types. An emission factor of zero will be used for these boilers."
         )
+        print("Missing factors for FC prime movers are currently expected")
         print(missing_so2_efs)
         print(" ")
     gen_so2_factors["emission_factor"] = gen_so2_factors["emission_factor"].fillna(0)

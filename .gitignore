@@ -12,6 +12,7 @@ src/__pycache__/
 
 CHANGELOG.md
 
+notebooks/visualization/outputs/*
 
 # Python 
 notebooks/.ipynb_checkpoints
