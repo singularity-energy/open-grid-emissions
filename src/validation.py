@@ -527,13 +527,13 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
 
     # load data about the respondent frequency for each plant and merge into the EIA-923 data
     pudl_out = load_data.initialize_pudl_out(year)
-    plant_frequency = pudl_out.plants_eia860()[["plant_id_eia", "respondent_frequency"]]
+    plant_frequency = pudl_out.plants_eia860()[["plant_id_eia", "reporting_frequency_code"]]
     eia_data = eia923_allocated.merge(
         plant_frequency, how="left", on="plant_id_eia", validate="m:1"
     )
 
     data_from_annual = (
-        eia_data.groupby(["respondent_frequency"], dropna=False)[
+        eia_data.groupby(["reporting_frequency_code"], dropna=False)[
             ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
         ].sum()
         / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
@@ -542,7 +542,7 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
 
     annual_eia_used = (
         eia_data[eia_data["hourly_data_source"] != "cems"]
-        .groupby(["respondent_frequency"], dropna=False)[
+        .groupby(["reporting_frequency_code"], dropna=False)[
             ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
         ]
         .sum()
@@ -562,7 +562,7 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
         multi_source_subplants, how="inner", on=["plant_id_eia", "subplant_id"]
     )
     multi_source_summary = (
-        multi_source_subplants.groupby(["respondent_frequency"], dropna=False)[
+        multi_source_subplants.groupby(["reporting_frequency_code"], dropna=False)[
             ["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]
         ].sum()
         / eia_data[["fuel_consumed_mmbtu", "net_generation_mwh", "co2_mass_lb"]].sum()
@@ -572,24 +572,24 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
     annual_data_summary = pd.concat(
         [
             pd.DataFrame(
-                data_from_annual.loc[data_from_annual["respondent_frequency"] == "A", :]
-                .set_index("respondent_frequency")
+                data_from_annual.loc[data_from_annual["reporting_frequency_code"] == "A", :]
+                .set_index("reporting_frequency_code")
                 .rename(
                     index={"A": "% of EIA-923 input data from EIA annual reporters"}
                 )
                 .round(2)
             ),
             pd.DataFrame(
-                annual_eia_used.loc[annual_eia_used["respondent_frequency"] == "A", :]
-                .set_index("respondent_frequency")
+                annual_eia_used.loc[annual_eia_used["reporting_frequency_code"] == "A", :]
+                .set_index("reporting_frequency_code")
                 .rename(index={"A": "% of output data from EIA annual reporters"})
                 .round(2)
             ),
             pd.DataFrame(
                 multi_source_summary.loc[
-                    multi_source_summary["respondent_frequency"] == "A", :
+                    multi_source_summary["reporting_frequency_code"] == "A", :
                 ]
-                .set_index("respondent_frequency")
+                .set_index("reporting_frequency_code")
                 .rename(
                     index={
                         "A": "% of output data mixing CEMS and annually-reported EIA data"
@@ -601,7 +601,7 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
         axis=0,
     )
 
-    annual_data_summary.rename(columns={"respondent_frequency": "category"})
+    annual_data_summary.rename(columns={"reporting_frequency_code": "category"})
 
     annual_data_summary = annual_data_summary.reset_index()
 
@@ -1364,7 +1364,7 @@ def identify_plants_missing_from_egrid(egrid_plant, annual_plant_results):
         - set(egrid_plant["plant_id_egrid"].unique())
     )
 
-    plant_names = load_data.load_pudl_table("plants_entity_eia")[
+    plant_names = load_data.load_pudl_table(table_name="plants_eia860", year=2020)[
         ["plant_id_eia", "plant_name_eia", "sector_name_eia"]
     ]
     missing_from_egrid = annual_plant_results[

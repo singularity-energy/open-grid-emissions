@@ -8,15 +8,13 @@ authors:
   - given-names: Gregory
     family-names: Miller
     orcid: 'https://orcid.org/0000-0003-3750-9292'
-    affiliation: University of California Davis
   - given-names: Gailin
     family-names: Pease
-    affiliation: Singularity Energy
+    orcid: 'https://orcid.org/0000-0003-3528-6048'
   - given-names: Milo
     family-names: Knowles
-    affiliation: Singularity Energy
 identifiers:
   - type: doi
     value: ''
-version: 1.0.0
+version: 0.1.0
 date-released: '2022-08-30'
