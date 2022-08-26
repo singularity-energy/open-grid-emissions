@@ -405,27 +405,31 @@ def calculate_co2e_mass(df, year, gwp_horizon=100, ar5_climate_carbon_feedback=T
         "gwp",
     ].item()
 
+    # fill missing ch4 and n2o with zero so that the calculation works for geothermal plants
+    # don't fill co2 so that if the data actually are misisng, a missing value is also returned
     df["co2e_mass_lb"] = (
-        df["co2_mass_lb"] + ch4_gwp * df["ch4_mass_lb"] + n2o_gwp * df["n2o_mass_lb"]
+        df["co2_mass_lb"]
+        + (ch4_gwp * df["ch4_mass_lb"].fillna(0))
+        + (n2o_gwp * df["n2o_mass_lb"].fillna(0))
     )
 
     if "co2_mass_lb_adjusted" in df:
         df["co2e_mass_lb_adjusted"] = (
             df["co2_mass_lb_adjusted"]
-            + ch4_gwp * df["ch4_mass_lb_adjusted"]
-            + n2o_gwp * df["n2o_mass_lb_adjusted"]
+            + (ch4_gwp * df["ch4_mass_lb_adjusted"].fillna(0))
+            + (n2o_gwp * df["n2o_mass_lb_adjusted"].fillna(0))
         )
     if "co2_mass_lb_for_electricity" in df:
         df["co2e_mass_lb_for_electricity"] = (
             df["co2_mass_lb_for_electricity"]
-            + ch4_gwp * df["ch4_mass_lb_for_electricity"]
-            + n2o_gwp * df["n2o_mass_lb_for_electricity"]
+            + (ch4_gwp * df["ch4_mass_lb_for_electricity"].fillna(0))
+            + (n2o_gwp * df["n2o_mass_lb_for_electricity"].fillna(0))
         )
     if "co2_mass_lb_for_electricity_adjusted" in df:
         df["co2e_mass_lb_for_electricity_adjusted"] = (
             df["co2_mass_lb_for_electricity_adjusted"]
-            + ch4_gwp * df["ch4_mass_lb_for_electricity_adjusted"]
-            + n2o_gwp * df["n2o_mass_lb_for_electricity_adjusted"]
+            + (ch4_gwp * df["ch4_mass_lb_for_electricity_adjusted"].fillna(0))
+            + (n2o_gwp * df["n2o_mass_lb_for_electricity_adjusted"].fillna(0))
         )
 
     return df
