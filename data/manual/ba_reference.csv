@@ -212,6 +212,7 @@ YAD,"Alcoa Power Generating, Inc. - Yadkin Division",generation_only,US/Eastern,
 AKMS,No Balancing Authority - Alaska,miscellaneous,US/Alaska,US/Alaska,Yes,,,,,,,902
 CAMS,No Balancing Authority - California,miscellaneous,US/Pacific,US/Pacific,Yes,,,,,,,906
 HIMS,No Balancing Authority - Hawaii,miscellaneous,US/Hawaii,US/Hawaii,Yes,,,,,,,915
+ILMS,No Balancing Authority - Illinois,miscellaneous,US/Central,US/Central,Yes,,,,,,,917
 INMS,No Balancing Authority - Indiana,miscellaneous,US/Eastern,US/Eastern,Yes,,,,,,,918
 MOMS,No Balancing Authority - Missouri,miscellaneous,US/Central,US/Central,Yes,,,,,,,929
 NEMS,No Balancing Authority - Nebraska,miscellaneous,US/Central,US/Central,Yes,,,,,,,931
