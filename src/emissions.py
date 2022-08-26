@@ -603,6 +603,29 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         validate="m:1",
     )
 
+    # fill in geotype-specific geothermal emission factors
+    if gen_nox_factors["energy_source_code"].str.contains("GEO").any():
+        gen_nox_factors = add_geothermal_emission_factors(
+            gen_nox_factors,
+            year,
+            include_co2=False,
+            include_nox=True,
+            include_so2=False,
+        )
+        gen_nox_factors.loc[
+            gen_nox_factors["energy_source_code"] == "GEO", "emission_factor"
+        ] = gen_nox_factors.loc[
+            gen_nox_factors["energy_source_code"] == "GEO", "nox_lb_per_mmbtu"
+        ]
+        gen_nox_factors.loc[
+            gen_nox_factors["energy_source_code"] == "GEO", "emission_factor_numerator"
+        ] = "lb"
+        gen_nox_factors.loc[
+            gen_nox_factors["energy_source_code"] == "GEO",
+            "emission_factor_denominator",
+        ] = "mmbtu"
+        gen_nox_factors = gen_nox_factors.drop(columns="nox_lb_per_mmbtu")
+
     # identify missing emission factors and replace with PM-fuel factors if available
     missing_nox_efs = (
         gen_nox_factors.loc[
