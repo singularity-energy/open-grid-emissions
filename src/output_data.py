@@ -326,7 +326,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
 
             # calculate a total for the BA
             ba_total = (
-                ba_table.groupby(["datetime_utc"], dropna=False)
+                ba_table.groupby(["datetime_utc","report_date"], dropna=False)
                 .sum()[data_columns]
                 .reset_index()
             )
