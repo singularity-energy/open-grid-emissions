@@ -417,9 +417,15 @@ class HourlyConsumed:
                         axis=1,
                     )
 
+                # Cut off emissions at 9 hours after UTC year
+                emissions = emissions[:f"{self.year+1}-01-01 09:00:00+00:00"]
                 rates[((adj, pol))] = emissions
 
-        return rates, pd.DataFrame(data=gens)
+        # Make generation data frame
+        generation = pd.DataFrame(data=gens)
+        generation = generation[:f"{self.year+1}-01-01 09:00:00+00:00"]
+
+        return rates, generation
 
     def build_matrices(self, pol: str, adj: str, date):
         # return emissions, interchange, and generation
