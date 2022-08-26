@@ -184,6 +184,11 @@ def main():
     partial_cems_plant = impute_hourly_profiles.shape_partial_cems_plants(
         cems, eia923_allocated
     )
+    validation.validate_unique_datetimes(
+        df=partial_cems_plant,
+        df_name="partial_cems_plant",
+        keys=["plant_id_eia", "subplant_id"],
+    )
     output_data.output_intermediate_data(
         partial_cems_plant,
         "partial_cems_plant",
@@ -203,6 +208,11 @@ def main():
         path_prefix,
         year,
         args.skip_outputs,
+    )
+    validation.validate_unique_datetimes(
+        df=partial_cems_subplant,
+        df_name="partial_cems_subplant",
+        keys=["plant_id_eia", "subplant_id"],
     )
     output_data.output_intermediate_data(
         partial_cems_subplant,
