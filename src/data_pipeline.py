@@ -242,6 +242,11 @@ def main():
         cems, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
     validation.test_emissions_adjustments(cems)
+    validation.validate_unique_datetimes(
+        df=cems,
+        df_name="cems",
+        keys=["plant_id_eia", "subplant_id"],
+    )
     output_data.output_intermediate_data(
         cems, "cems", path_prefix, year, args.skip_outputs
     )
@@ -368,6 +373,11 @@ def main():
         args.skip_outputs,
     )
     # Export data
+    validation.validate_unique_datetimes(
+        df=shaped_eia_data,
+        df_name="shaped_eia_data",
+        keys=["plant_id_eia"],
+    )
     output_data.output_intermediate_data(
         shaped_eia_data, "shaped_eia923_data", path_prefix, year, args.skip_outputs
     )
@@ -412,6 +422,11 @@ def main():
         partial_cems_plant,
     )  # free memory back to python
     # export to a csv.
+    validation.validate_unique_datetimes(
+        df=combined_plant_data,
+        df_name="combined_plant_data",
+        keys=["plant_id_eia"],
+    )
     output_data.output_plant_data(
         combined_plant_data, path_prefix, "hourly", args.skip_outputs
     )

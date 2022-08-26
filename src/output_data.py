@@ -4,6 +4,7 @@ import shutil
 import os
 import load_data
 import column_checks
+import validation
 from filepaths import outputs_folder, results_folder
 
 GENERATED_EMISSION_RATE_COLS = [
@@ -383,6 +384,12 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 + data_columns
                 + GENERATED_EMISSION_RATE_COLS
             ]
+
+            validation.validate_unique_datetimes(
+                df=ba_table_hourly,
+                df_name="power sector hourly ba table",
+                keys=["fuel_category"],
+            )
 
             # export to a csv
             output_to_results(
