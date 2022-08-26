@@ -135,8 +135,8 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
 
     # if not small, scrape 2 months before start of year for rolling window cleaning
     start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"
-    # Scrape 1 week if small, else 1 year
-    end = f"{year}0107T23Z" if small else f"{year}1231T23Z"
+    # Scrape 1 week if small, else 1 year (plus one day for timezone flexibility)
+    end = f"{year}0107T23Z" if small else f"{year+1}0101T23Z"
     if small:
         df = df.loc[start:end]  # Don't worry about processing everything
 
