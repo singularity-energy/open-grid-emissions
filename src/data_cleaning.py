@@ -592,10 +592,9 @@ def remove_plants(
     if non_grid_connected:
         df = remove_non_grid_connected_plants(df)
     if len(remove_states) > 0:
-        plant_states = (
-            load_data.load_pudl_table("plants_entity_eia")
-            .loc[:, ["plant_id_eia", "state"]]
-        )
+        plant_states = load_data.load_pudl_table("plants_entity_eia").loc[
+            :, ["plant_id_eia", "state"]
+        ]
         plants_in_states_to_remove = list(
             plant_states[
                 plant_states["state"].isin(remove_states)
@@ -1674,7 +1673,9 @@ def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
     # load the EIA-860 data
     pudl_out = load_data.initialize_pudl_out(year=year)
 
-    plant_voltage = pudl_out.plants_eia860().loc[:, ["plant_id_eia", "grid_voltage_1_kv"]]
+    plant_voltage = pudl_out.plants_eia860().loc[
+        :, ["plant_id_eia", "grid_voltage_1_kv"]
+    ]
 
     plant_voltage = plant_voltage.assign(
         distribution_flag=lambda x: np.where(
@@ -1724,7 +1725,9 @@ def assign_fuel_category_to_ESC(
 
 
 def add_plant_local_timezone(df, year):
-    plant_tz = load_data.load_pudl_table("plants_entity_eia")[["plant_id_eia", "timezone"]]
+    plant_tz = load_data.load_pudl_table("plants_entity_eia")[
+        ["plant_id_eia", "timezone"]
+    ]
     df = df.merge(plant_tz, how="left", on=["plant_id_eia"], validate="m:1")
 
     return df
