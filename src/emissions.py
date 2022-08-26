@@ -406,26 +406,28 @@ def calculate_co2e_mass(df, year, gwp_horizon=100, ar5_climate_carbon_feedback=T
     ].item()
 
     df["co2e_mass_lb"] = (
-        df["co2_mass_lb"] + ch4_gwp * df["ch4_mass_lb"] + n2o_gwp * df["n2o_mass_lb"]
+        df["co2_mass_lb"]
+        + (ch4_gwp * df["ch4_mass_lb"])
+        + (n2o_gwp * df["n2o_mass_lb"])
     )
 
     if "co2_mass_lb_adjusted" in df:
         df["co2e_mass_lb_adjusted"] = (
             df["co2_mass_lb_adjusted"]
-            + ch4_gwp * df["ch4_mass_lb_adjusted"]
-            + n2o_gwp * df["n2o_mass_lb_adjusted"]
+            + (ch4_gwp * df["ch4_mass_lb_adjusted"])
+            + (n2o_gwp * df["n2o_mass_lb_adjusted"])
         )
     if "co2_mass_lb_for_electricity" in df:
         df["co2e_mass_lb_for_electricity"] = (
             df["co2_mass_lb_for_electricity"]
-            + ch4_gwp * df["ch4_mass_lb_for_electricity"]
-            + n2o_gwp * df["n2o_mass_lb_for_electricity"]
+            + (ch4_gwp * df["ch4_mass_lb_for_electricity"])
+            + (n2o_gwp * df["n2o_mass_lb_for_electricity"])
         )
     if "co2_mass_lb_for_electricity_adjusted" in df:
         df["co2e_mass_lb_for_electricity_adjusted"] = (
             df["co2_mass_lb_for_electricity_adjusted"]
-            + ch4_gwp * df["ch4_mass_lb_for_electricity_adjusted"]
-            + n2o_gwp * df["n2o_mass_lb_for_electricity_adjusted"]
+            + (ch4_gwp * df["ch4_mass_lb_for_electricity_adjusted"])
+            + (n2o_gwp * df["n2o_mass_lb_for_electricity_adjusted"])
         )
 
     return df
