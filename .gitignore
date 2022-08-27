@@ -1,9 +1,4 @@
 data/*
-# keep the egrid static tables
-!data/egrid/*
-!data/egrid/
-data/egrid/*
-
 !data/manual/
 
 example/.ipynb_checkpoints/
