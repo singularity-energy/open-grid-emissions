@@ -411,6 +411,26 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_key
         print("OK")
 
 
+def validate_unique_datetimes(df, df_name, keys):
+    """Validates that there are unique datetimes per group in a dataframe.
+
+    Args:
+        df: dataframe containing datetime columns
+        df_name: a descriptive name for the dataframe
+        keys: list of column names that contain the groups within which datetimes should be unique"""
+
+    for datetime_column in ["datetime_utc", "datetime_local"]:
+        if datetime_column in list(df.columns):
+            duplicate_dt = df[
+                df.duplicated(subset=(keys + [datetime_column]), keep=False)
+            ]
+            if len(duplicate_dt) > 0:
+                print(duplicate_dt)
+                raise UserWarning(
+                    f"The dataframe {df_name} contains duplicate {datetime_column} values within each group of {keys}. See above output"
+                )
+
+
 # DATA QUALITY METRIC FUNCTIONS
 ########################################################################################
 
@@ -527,7 +547,9 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
 
     # load data about the respondent frequency for each plant and merge into the EIA-923 data
     pudl_out = load_data.initialize_pudl_out(year)
-    plant_frequency = pudl_out.plants_eia860()[["plant_id_eia", "reporting_frequency_code"]]
+    plant_frequency = pudl_out.plants_eia860()[
+        ["plant_id_eia", "reporting_frequency_code"]
+    ]
     eia_data = eia923_allocated.merge(
         plant_frequency, how="left", on="plant_id_eia", validate="m:1"
     )
@@ -572,7 +594,9 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
     annual_data_summary = pd.concat(
         [
             pd.DataFrame(
-                data_from_annual.loc[data_from_annual["reporting_frequency_code"] == "A", :]
+                data_from_annual.loc[
+                    data_from_annual["reporting_frequency_code"] == "A", :
+                ]
                 .set_index("reporting_frequency_code")
                 .rename(
                     index={"A": "% of EIA-923 input data from EIA annual reporters"}
@@ -580,7 +604,9 @@ def identify_annually_reported_eia_data(eia923_allocated, year):
                 .round(2)
             ),
             pd.DataFrame(
-                annual_eia_used.loc[annual_eia_used["reporting_frequency_code"] == "A", :]
+                annual_eia_used.loc[
+                    annual_eia_used["reporting_frequency_code"] == "A", :
+                ]
                 .set_index("reporting_frequency_code")
                 .rename(index={"A": "% of output data from EIA annual reporters"})
                 .round(2)

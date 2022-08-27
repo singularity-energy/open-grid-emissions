@@ -4,6 +4,7 @@ import shutil
 import os
 import load_data
 import column_checks
+import validation
 from filepaths import outputs_folder, results_folder
 
 GENERATED_EMISSION_RATE_COLS = [
@@ -325,6 +326,10 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             )
 
             # calculate a total for the BA
+            # grouping by datetime_utc and report_date will create some duplicate datetime_utc
+            # values for certain bas where there are plants located in multiple timezones
+            # the report date column is necessary for monthly aggregation, but we will have to
+            # remove it and group values by datetime_utc for the hourly calculations
             ba_total = (
                 ba_table.groupby(["datetime_utc", "report_date"], dropna=False)
                 .sum()[data_columns]
@@ -337,6 +342,14 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
 
             # round all values to one decimal place
             ba_table = ba_table.round(2)
+
+            # create a dataframe for the hourly values that groups duplicate datetime_utc values
+            ba_table_hourly = ba_table.copy().drop(columns=["report_date"])
+            ba_table_hourly = (
+                ba_table_hourly.groupby(["fuel_category", "datetime_utc"])
+                .sum()
+                .reset_index()
+            )
 
             def add_generated_emission_rate_columns(df):
                 for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
@@ -353,7 +366,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 return df
 
             # output the hourly data
-            ba_table_hourly = add_generated_emission_rate_columns(ba_table)
+            ba_table_hourly = add_generated_emission_rate_columns(ba_table_hourly)
 
             # create a local datetime column
             try:
@@ -371,6 +384,12 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 + data_columns
                 + GENERATED_EMISSION_RATE_COLS
             ]
+
+            validation.validate_unique_datetimes(
+                df=ba_table_hourly,
+                df_name="power sector hourly ba table",
+                keys=["fuel_category"],
+            )
 
             # export to a csv
             output_to_results(
