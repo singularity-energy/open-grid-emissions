@@ -592,11 +592,9 @@ def remove_plants(
     if non_grid_connected:
         df = remove_non_grid_connected_plants(df)
     if len(remove_states) > 0:
-        plant_states = (
-            load_data.initialize_pudl_out()
-            .plants_eia860()
-            .loc[:, ["plant_id_eia", "state"]]
-        )
+        plant_states = load_data.load_pudl_table("plants_entity_eia").loc[
+            :, ["plant_id_eia", "state"]
+        ]
         plants_in_states_to_remove = list(
             plant_states[
                 plant_states["state"].isin(remove_states)
@@ -1598,22 +1596,6 @@ def create_plant_ba_table(year):
     plant_ba["balancing_authority_code_eia"] = plant_ba[
         "balancing_authority_code_eia"
     ].astype(object)
-
-    # add plants from the plants_entity table in case any are missing from EIA-860
-    plants_entity_ba = load_data.load_pudl_table("plants_entity_eia")[
-        ["plant_id_eia", "balancing_authority_code_eia", "state"]
-    ]
-    plant_ba = plant_ba.merge(
-        plants_entity_ba,
-        how="outer",
-        on="plant_id_eia",
-        suffixes=(None, "_entity"),
-        validate="1:1",
-    )
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(plant_ba["balancing_authority_code_eia_entity"])
-    plant_ba["state"] = plant_ba["state"].fillna(plant_ba["state_entity"].astype(str))
     plant_ba["balancing_authority_code_eia"] = plant_ba[
         "balancing_authority_code_eia"
     ].fillna(value=np.NaN)
@@ -1638,26 +1620,9 @@ def create_plant_ba_table(year):
         "balancing_authority_code_eia"
     ].fillna(plant_ba["transmission_distribution_owner_name"].map(utility_as_ba_code))
 
-    # use this to explore plants without an assigned ba
-    # sorted(plant_ba[plant_ba['balancing_authority_code_eia'].isna()]['utility_name_eia'].unique().astype(str))
-
     # rename the ba column
     plant_ba = plant_ba.rename(columns={"balancing_authority_code_eia": "ba_code"})
 
-    # TODO: Remove this once the PUDL issue is fixed
-    # As of 4/16/22, there are currently a few incorrect BA assignments in the pudl tables (see https://github.com/catalyst-cooperative/pudl/issues/1584)
-    # thus, we will manually correct some of the BA codes based on data in the most recent EIA forms
-    manual_ba_corrections = pd.read_csv(
-        manual_folder("corrected_bas_to_patch_pudl.csv")
-    )
-    manual_ba_corrections = dict(
-        zip(
-            manual_ba_corrections["plant_id_eia"],
-            manual_ba_corrections["corrected_ba_code"],
-        )
-    )
-
-    plant_ba["ba_code"].update(plant_ba["plant_id_eia"].map(manual_ba_corrections))
     plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
 
     # get a list of all of the BAs that retired prior to the current year
@@ -1708,11 +1673,13 @@ def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
     # load the EIA-860 data
     pudl_out = load_data.initialize_pudl_out(year=year)
 
-    plant_voltage = pudl_out.plants_eia860().loc[:, ["plant_id_eia", "grid_voltage_kv"]]
+    plant_voltage = pudl_out.plants_eia860().loc[
+        :, ["plant_id_eia", "grid_voltage_1_kv"]
+    ]
 
     plant_voltage = plant_voltage.assign(
         distribution_flag=lambda x: np.where(
-            x.grid_voltage_kv <= voltage_threshold_kv, True, False
+            x.grid_voltage_1_kv <= voltage_threshold_kv, True, False
         )
     )
 
@@ -1758,8 +1725,9 @@ def assign_fuel_category_to_ESC(
 
 
 def add_plant_local_timezone(df, year):
-    pudl_out = load_data.initialize_pudl_out(year=year)
-    plant_tz = pudl_out.plants_eia860()[["plant_id_eia", "timezone"]]
+    plant_tz = load_data.load_pudl_table("plants_entity_eia")[
+        ["plant_id_eia", "timezone"]
+    ]
     df = df.merge(plant_tz, how="left", on=["plant_id_eia"], validate="m:1")
 
     return df

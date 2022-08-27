@@ -1,6 +1,25 @@
 # Open Grid Emissions Initiative
 The Open Grid Emissions Initiative seeks to fill a critical need for high-quality, publicly-accessible, hourly grid emissions data that can be used for GHG accounting, policymaking, academic research, and energy attribute certificate markets. The initiative includes this repository of open-source grid emissions data processing tools that use peer-reviewed, well-documented, and validated methodologies to create the accompanying public dataset of hourly, monthly, and annual U.S. electric grid generation, GHG, and air pollution data.
 
+Please check out [our documentation](https://docs.singularity.energy/docs/open-grid-emissions-docs) for more details about the Open Grid Emissions methodology.
+
+## Installing and running the data pipeline
+
+To install and run the pipeline on your computer, open anaconda prompt, navigate to the folder where you want to save the repository, and run the following commands:
+
+```
+conda install git
+git clone https://github.com/singularity-energy/open-grid-emissions.git
+conda update conda
+cd open-grid-emissions
+conda env create -f environment.yml
+conda activate open_grid_emissions
+cd src
+python data_pipeline.py --year 2020
+```
+
+A more detailed walkthough of these steps can be found below in the "Development Setup" section.
+
 ## Data Availability and Release Schedule
 The latest release includes data for year 2019-2020 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data. 
 
@@ -49,7 +68,7 @@ Notebooks are organized into five directories based on their purpose
 - `data/outputs` contains intermediate outputs from the data pipeline... any files created by our code that are not final results
 - `data/results` contains all final output files that will be published
 
-# Development Setup and contribution guidelines
+# Development Setup
 
 If you would like to run the code on your own computer and/or contribute updates to the code, the following steps can help get you started.
 
@@ -100,11 +119,11 @@ try setting your channel priority to flexible by running the following command:
 
 ## Running the complete data pipeline
 
-If you would like to run the full data pipeline to generate all intermediate outputs and results files, open anaconda prompt, navigate to the directory where the repository is saved, and run the following (replacing 2020 with whichever year you want to run):
+If you would like to run the full data pipeline to generate all intermediate outputs and results files, open anaconda prompt, navigate to `open-grid-emissions/src`, and run the following (replacing 2020 with whichever year you want to run):
 
 ```
 conda activate open_grid_emissions
-python src/data_pipeline.py --year 2020
+python data_pipeline.py --year 2020
 ```
 
 ## Keeping the code updated
@@ -122,7 +141,7 @@ git add .
 git pull origin main
 ```
 
-## Contributing edits to the code
+# Contribution Guidelines
 
 If you plan on contributing edits to the codebase that will be merged into the main branch, please follow these best practices:
 
@@ -149,7 +168,7 @@ If you plan on contributing edits to the codebase that will be merged into the m
 	- Click "Create pull request"
 	- The changes will be reviewed and discussed. Once any edits have been made, the code will be merged into the main branch.
 
-### Conventions and standards
+## Conventions and standards
 - We generally follow the naming conventions used by the Public Utility Data Liberation Project: https://catalystcoop-pudl.readthedocs.io/en/latest/dev/naming_conventions.html
 - Functions should include descriptive docstrings (using the Google style guide https://google.github.io/styleguide/pyguide.html#383-functions-and-methods), inline comments should be used to describe individual steps, and variable names should be made descriptive (e.g. `cems_plants_with_missing_co2_data` not `cems_missing` or `cpmco2`)
 - All pandas merge operations should include the `validate` parameter to ensure that unintentional duplicate entries are not created (https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.merge.html)
