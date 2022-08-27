@@ -56,12 +56,6 @@ def get_args():
         type=bool,
         default=False,
     )
-    parser.add_argument(
-        "--zip_outputs",
-        help="Zip final output files for upload and archiving",
-        type=bool,
-        default=False,
-    )
 
     args = parser.parse_args()
     return args
@@ -473,9 +467,6 @@ def main():
     )
     hourly_consumed_calc.run()
     hourly_consumed_calc.output_results()
-
-    if args.zip_outputs:
-        output_data.prepare_files_for_upload(year)
 
 
 if __name__ == "__main__":

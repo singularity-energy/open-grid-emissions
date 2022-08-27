@@ -27,14 +27,15 @@ UNIT_CONVERSIONS = {"lb": ("kg", 0.453592), "mmbtu": ("GJ", 1.055056)}
 TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
 
 
-def prepare_files_for_upload(year):
+def prepare_files_for_upload(years):
     """
     Zips files in preparation for upload to cloud storage and Zenodo.
 
     This should only be run when releasing a new minor or major version of the repo.
     """
-    zip_data_for_zenodo(year)
-    zip_results_for_s3(year)
+    zip_data_for_zenodo()
+    for year in years:
+        zip_results_for_s3(year)
 
 
 def zip_results_for_s3(year):
@@ -53,7 +54,7 @@ def zip_results_for_s3(year):
                 )
 
 
-def zip_data_for_zenodo(year):
+def zip_data_for_zenodo():
     """
     Zips each of the four data directories for archiving on Zenodo.
     """
