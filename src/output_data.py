@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 import numpy as np
 import shutil
@@ -42,7 +43,7 @@ def zip_results_for_s3(year):
     """
     Zips results directories that contain more than a single file for hosting on an Amazon S3 bucket.
     """
-    for data_type in ["power_sector_data", "carbon_accounting"]:
+    for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
         for aggregation in ["hourly", "monthly", "annual"]:
             for unit in ["metric_units", "us_units"]:
                 folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
@@ -80,6 +81,8 @@ def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
         print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
         metric = convert_results(df)
+        metric = round_table(metric)
+        df = round_table(df)
 
         df.to_csv(
             results_folder(f"{path_prefix}{subfolder}us_units/{file_name}.csv"),
@@ -297,6 +300,33 @@ def write_plant_metadata(
         shaped_eia_data = shaped_eia_data.drop(columns=METADATA_COLUMNS)
 
 
+def round_table(table):
+    """
+    Round each numeric column.
+    All values in a column have the same rounding.
+    Rounding for each col is based on the smallest non-zero value: if < 1, sigfigs = 3, else 2 decimal places
+    """
+    decimals = {}
+    # Iterate through numeric columns
+    for c in table.select_dtypes(include=np.number).columns:
+        # Non-zero minimum
+        val = table.loc[table[c] > 0, c].min()
+        if val > 1:
+            decimals[c] = 2
+        elif np.isnan(
+            val
+        ):  # if val is NaN, then this col has only NaN or only 0 values
+            decimals[c] = 4
+        else:
+            try:
+                decimals[c] = abs(math.floor(math.log10(val))) + 2
+            # Always 3 sigfigs (for median)
+            except ValueError:
+                print(val)
+                raise Exception
+    return table.round(decimals)
+
+
 def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
     """
     Helper function to write combined data by BA
@@ -364,9 +394,6 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
 
             # concat the totals to the fuel-specific totals
             ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
-
-            # round all values to one decimal place
-            ba_table = ba_table.round(2)
 
             # create a dataframe for the hourly values that groups duplicate datetime_utc values
             ba_table_hourly = ba_table.copy().drop(columns=["report_date"])
