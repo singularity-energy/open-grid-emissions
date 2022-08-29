@@ -11,11 +11,17 @@ authors:
   - given-names: Gailin
     family-names: Pease
     orcid: 'https://orcid.org/0000-0003-3528-6048'
+    affiliation: "Singularity Energy"
   - given-names: Milo
     family-names: Knowles
     orcid: 'https://orcid.org/0000-0003-4052-5517'
+    affiliation: "Singularity Energy"
+  - given-names: Wenbo
+    family-names: Shi
+    affiliation: "Singularity Energy"
 identifiers:
   - type: doi
     value: ''
 version: 0.1.0
+license: MIT
 date-released: '2022-08-30'
