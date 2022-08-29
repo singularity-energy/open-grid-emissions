@@ -18,4 +18,4 @@ notebooks/*/.ipynb_checkpoints
 .DS_Store
 
 # VS Code
-.vscode
+.vscode/
