@@ -281,7 +281,7 @@ class HourlyConsumed:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
             self.results[ba]["net_consumed_mwh"] = (
-                self.generation[ba] + self.eia930.df[KEYS["E"]["TI"] % ba]
+                self.generation[ba] - self.eia930.df[KEYS["E"]["TI"] % ba]
             )[self.generation.index]
             for pol in POLLUTANTS:
                 for adj in ADJUSTMENTS:
@@ -340,9 +340,9 @@ class HourlyConsumed:
 
                 # Output
                 output_to_results(
-                    time_dat[time_cols + CONSUMED_EMISSION_RATE_COLS],
+                    time_dat[time_cols + CONSUMED_EMISSION_RATE_COLS + ["net_consumed_mwh"]],
                     ba,
-                    f"/carbon_accounting/{time_resolution}/",
+                    f"/carbon_accounting_TEST/{time_resolution}/",
                     self.prefix,
                     skip_outputs=self.skip_outputs,
                 )
