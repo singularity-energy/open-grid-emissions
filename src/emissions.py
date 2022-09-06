@@ -1378,6 +1378,11 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
 
 
 def return_monthly_plant_fuel_sulfur_content(pudl_out):
+    """
+    Returns the month specific, plant average sulfur content.
+
+    Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+    """
     plant_specific_fuel_sulfur_content = pudl_out.bf_eia923().loc[
         :,
         [
@@ -1389,11 +1394,6 @@ def return_monthly_plant_fuel_sulfur_content(pudl_out):
             "sulfur_content_pct",
         ],
     ]
-
-    # divide by 100 to get decimal percent
-    plant_specific_fuel_sulfur_content["sulfur_content_pct"] = (
-        plant_specific_fuel_sulfur_content["sulfur_content_pct"] / 100
-    )
 
     plant_specific_fuel_sulfur_content = plant_specific_fuel_sulfur_content[
         ~plant_specific_fuel_sulfur_content["energy_source_code"].isin(CLEAN_FUELS)
