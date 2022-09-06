@@ -304,13 +304,13 @@ def round_table(table):
     """
     Round each numeric column.
     All values in a column have the same rounding.
-    Rounding for each col is based on the smallest non-zero value: if < 1, sigfigs = 3, else 2 decimal places
+    Rounding for each col is based on the median non-zero value: if < 1, sigfigs = 3, else 2 decimal places
     """
     decimals = {}
     # Iterate through numeric columns
     for c in table.select_dtypes(include=np.number).columns:
         # Non-zero minimum
-        val = table.loc[table[c] > 0, c].min()
+        val = table.loc[table[c] > 0, c].median()
         if val > 1:
             decimals[c] = 2
         elif np.isnan(

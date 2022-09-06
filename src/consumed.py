@@ -102,6 +102,8 @@ def get_average_emission_factors(prefix: str = "2020/", year: int = 2020):
     Used to fill in emissions from BAs outside of US, where we have generation by
     fuel (from gridemissions) but no open-grid-emissions data
 
+    We use `gridemissions` assumptions for fuel mix for non-US BAs, which are simple and not time-varying
+
     Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
@@ -281,7 +283,7 @@ class HourlyConsumed:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
             self.results[ba]["net_consumed_mwh"] = (
-                self.generation[ba] + self.eia930.df[KEYS["E"]["TI"] % ba]
+                self.generation[ba] - self.eia930.df[KEYS["E"]["TI"] % ba]
             )[self.generation.index]
             for pol in POLLUTANTS:
                 for adj in ADJUSTMENTS:
