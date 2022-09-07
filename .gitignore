@@ -14,9 +14,6 @@ notebooks/.ipynb_checkpoints
 notebooks/*/.ipynb_checkpoints
 .hypothesis/
 
-# Editor settings
-.vscode/*
-
 # Mac junk
 .DS_Store
 
