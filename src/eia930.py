@@ -401,6 +401,10 @@ def manual_930_adjust(raw: pd.DataFrame):
             - PJM-OVEC, all time. Based on OVEC demand - generation, OVEC
                 should be a net exporter to PJM
                 - Note: OVEC's data repeats daily starting in 2018...
+        - Interchange mysterious
+            - AZPS - SRP flips gradually in Nov 2019, then abruptly back in June 2020.
+                throughout, SRP - AZPS remains constant around 3000 lb imported to AZPS from SRP
+                We assume SRP - AZPS is correct, and assign AZPS - SRP to be the inverse
     - Make all start-of-hour
         - Generation
             - - 1 hour
@@ -436,6 +440,13 @@ def manual_930_adjust(raw: pd.DataFrame):
     # OVEC sign still appears to be wrong
     ovec_col = get_int_columns("PJM", raw.columns, ["OVEC"])
     raw.loc[:, ovec_col] = raw.loc[:, ovec_col] * -1
+
+    # Interchange AZPS - SRP is wonky. Use SRP - AZPS (inverted)
+    azps_srp = get_int_columns("AZPS", raw.columns, ["SRP"])
+    srp_azps = get_int_columns("SRP", raw.columns, ["AZPS"])
+    raw.loc[:, azps_srp] = (raw.loc[:, srp_azps] * (-1)).rename(
+        columns={srp_azps[0]: azps_srp[0]}  # rename so Pandas will do the right thing
+    )
 
     # Interchange TEPC is uniformly lagged
     cols = get_int_columns("TEPC", raw.columns)
