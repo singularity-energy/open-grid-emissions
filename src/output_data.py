@@ -49,7 +49,7 @@ def prepare_files_for_upload(years):
 
     This should only be run when releasing a new minor or major version of the repo.
     """
-    # zip_data_for_zenodo()
+    zip_data_for_zenodo()
     for year in years:
         zip_results_for_s3(year)
 
