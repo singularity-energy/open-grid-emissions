@@ -63,11 +63,17 @@ def zip_results_for_s3(year):
             for unit in ["metric_units", "us_units"]:
                 folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
                 shutil.make_archive(
-                    f"{results_folder()}/{year}/{data_type}/{data_type}_{aggregation}_{unit}",
+                    f"{results_folder()}/{year}/{data_type}/{year}_{data_type}_{aggregation}_{unit}",
                     "zip",
                     root_dir=folder,
                     # base_dir="",
                 )
+    shutil.make_archive(
+        f"{results_folder()}/{year}/data_quality_metrics/{year}_data_quality_metrics",
+        "zip",
+        root_dir=f"{results_folder()}/{year}/data_quality_metrics",
+        # base_dir="",
+    )
 
 
 def zip_data_for_zenodo():
