@@ -39,7 +39,7 @@ def validate_year(year):
         raise UserWarning(year_warning)
 
 
-def test_for_negative_values(df):
+def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
     print("    Checking that fuel and emissions values are positive...  ", end="")
     columns_that_should_be_positive = [
@@ -69,6 +69,30 @@ def test_for_negative_values(df):
         "co2e_mass_lb_for_electricity_adjusted",
         "nox_mass_lb_for_electricity_adjusted",
         "so2_mass_lb_for_electricity_adjusted",
+        "generated_co2_rate_lb_per_mwh_for_electricity",
+        "generated_ch4_rate_lb_per_mwh_for_electricity",
+        "generated_n2o_rate_lb_per_mwh_for_electricity",
+        "generated_co2e_rate_lb_per_mwh_for_electricity",
+        "generated_nox_rate_lb_per_mwh_for_electricity",
+        "generated_so2_rate_lb_per_mwh_for_electricity",
+        "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_co2e_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
+        "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_co2_rate_lb_per_mwh_for_electricity",
+        "consumed_ch4_rate_lb_per_mwh_for_electricity",
+        "consumed_n2o_rate_lb_per_mwh_for_electricity",
+        "consumed_co2e_rate_lb_per_mwh_for_electricity",
+        "consumed_nox_rate_lb_per_mwh_for_electricity",
+        "consumed_so2_rate_lb_per_mwh_for_electricity",
+        "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
     ]
     columns_to_test = [
         col for col in columns_that_should_be_positive if col in df.columns
@@ -84,7 +108,12 @@ def test_for_negative_values(df):
             print(" ")
             negative_warnings += 1
     if negative_warnings > 0:
-        raise UserWarning("The above negative values are errors and must be fixed")
+        if small:
+            print(
+                " Found negative values during small run, these may be fixed with full data"
+            )
+        else:
+            raise UserWarning("The above negative values are errors and must be fixed")
     else:
         print("OK")
     return negative_test
