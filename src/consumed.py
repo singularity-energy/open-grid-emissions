@@ -9,9 +9,19 @@ from filepaths import outputs_folder, manual_folder, results_folder
 
 from output_data import (
     GENERATED_EMISSION_RATE_COLS,
+    CONSUMED_EMISSION_RATE_COLS,
     output_to_results,
     TIME_RESOLUTIONS,
 )
+
+""" For these BAs, there are significant and systematic differences 
+between our net_generation_mwh and EIA-930 net generation and interchange, 
+so we cannot combine our net generation and 930 interchange to get net_consumed. 
+Instead, we use 930 demand as net_consumed. Note: there may be issues with the 930 
+demand! But it is better than combining inconsistent generation and interchange, 
+which results in unreasonable profiles with many negative hours.
+"""
+BA_930_INCONSISTENCY = ["SPA", "CPLW", "GCPD", "AZPS", "EEI"]
 
 # Defined in output_data, written to each BA file
 EMISSION_COLS = [
@@ -27,21 +37,6 @@ EMISSION_COLS = [
     "co2e_mass_lb_for_electricity_adjusted",
     "nox_mass_lb_for_electricity_adjusted",
     "so2_mass_lb_for_electricity_adjusted",
-]
-
-CONSUMED_EMISSION_RATE_COLS = [
-    "consumed_co2_rate_lb_per_mwh_for_electricity",
-    "consumed_ch4_rate_lb_per_mwh_for_electricity",
-    "consumed_n2o_rate_lb_per_mwh_for_electricity",
-    "consumed_co2e_rate_lb_per_mwh_for_electricity",
-    "consumed_nox_rate_lb_per_mwh_for_electricity",
-    "consumed_so2_rate_lb_per_mwh_for_electricity",
-    "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
-    "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-    "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-    "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
-    "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
-    "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
 ]
 
 FUEL_TYPE_MAP = {
@@ -101,6 +96,8 @@ def get_average_emission_factors(prefix: str = "2020/", year: int = 2020):
     Locate per-fuel, per-adjustment, per-poll emission factors.
     Used to fill in emissions from BAs outside of US, where we have generation by
     fuel (from gridemissions) but no open-grid-emissions data
+
+    We use `gridemissions` assumptions for fuel mix for non-US BAs, which are simple and not time-varying
 
     Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
@@ -280,9 +277,14 @@ class HourlyConsumed:
         for ba in self.regions:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
-            self.results[ba]["net_consumed_mwh"] = (
-                self.generation[ba] + self.eia930.df[KEYS["E"]["TI"] % ba]
-            )[self.generation.index]
+            if ba in BA_930_INCONSISTENCY:
+                self.results[ba]["net_consumed_mwh"] = self.eia930.df[
+                    KEYS["E"]["D"] % ba
+                ][self.generation.index]
+            else:
+                self.results[ba]["net_consumed_mwh"] = (
+                    self.generation[ba] - self.eia930.df[KEYS["E"]["TI"] % ba]
+                )[self.generation.index]
             for pol in POLLUTANTS:
                 for adj in ADJUSTMENTS:
                     self.results[ba][get_column(pol, adjustment=adj)] = (
