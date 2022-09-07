@@ -146,6 +146,13 @@ def main():
     ####################################################################################
     print("4. Cleaning CEMS data")
     cems = data_cleaning.clean_cems(year, args.small, primary_fuel_table)
+    # output data quality metrics about measured vs imputed CEMS data
+    output_data.output_data_quality_metrics(
+        validation.summarize_cems_measurement_quality(cems),
+        "cems_pollutant_measurement_quality",
+        path_prefix,
+        args.skip_outputs,
+    )
 
     # calculate biomass-adjusted emissions while cems data is at the unit level
     cems = emissions.adjust_emissions_for_biomass(cems)
@@ -165,7 +172,7 @@ def main():
     )
     # output data quality metrics about annually-reported EIA-923 data
     output_data.output_data_quality_metrics(
-        validation.identify_annually_reported_eia_data(eia923_allocated, year),
+        validation.summarize_annually_reported_eia_data(eia923_allocated, year),
         "annually_reported_eia_data",
         path_prefix,
         args.skip_outputs,
@@ -341,14 +348,8 @@ def main():
     del eia930_data
     # validate how well the wind and solar imputation methods work
     output_data.output_data_quality_metrics(
-        validation.validate_diba_imputation_method(hourly_profiles, year),
-        "diba_imputation_performance",
-        path_prefix,
-        args.skip_outputs,
-    )
-    output_data.output_data_quality_metrics(
-        validation.validate_national_imputation_method(hourly_profiles),
-        "national_imputation_performance",
+        validation.validate_wind_solar_imputation(hourly_profiles, year),
+        "wind_solar_profile_imputation_performance",
         path_prefix,
         args.skip_outputs,
     )
