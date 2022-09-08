@@ -23,6 +23,21 @@ GENERATED_EMISSION_RATE_COLS = [
     "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
 ]
 
+CONSUMED_EMISSION_RATE_COLS = [
+    "consumed_co2_rate_lb_per_mwh_for_electricity",
+    "consumed_ch4_rate_lb_per_mwh_for_electricity",
+    "consumed_n2o_rate_lb_per_mwh_for_electricity",
+    "consumed_co2e_rate_lb_per_mwh_for_electricity",
+    "consumed_nox_rate_lb_per_mwh_for_electricity",
+    "consumed_so2_rate_lb_per_mwh_for_electricity",
+    "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
+    "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
+]
+
 UNIT_CONVERSIONS = {"lb": ("kg", 0.453592), "mmbtu": ("GJ", 1.055056)}
 
 TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
@@ -48,11 +63,17 @@ def zip_results_for_s3(year):
             for unit in ["metric_units", "us_units"]:
                 folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
                 shutil.make_archive(
-                    f"{results_folder()}/{year}/{data_type}/{data_type}_{aggregation}_{unit}",
+                    f"{results_folder()}/{year}/{data_type}/{year}_{data_type}_{aggregation}_{unit}",
                     "zip",
                     root_dir=folder,
                     # base_dir="",
                 )
+    shutil.make_archive(
+        f"{results_folder()}/{year}/data_quality_metrics/{year}_data_quality_metrics",
+        "zip",
+        root_dir=f"{results_folder()}/{year}/data_quality_metrics",
+        # base_dir="",
+    )
 
 
 def zip_data_for_zenodo():
@@ -77,12 +98,17 @@ def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
 
 
 def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
+    # Always check columns that should not be negative.
+    small = "small" in path_prefix
     if not skip_outputs:
         print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
         metric = convert_results(df)
         metric = round_table(metric)
         df = round_table(df)
+
+        # Check for negatives after rounding
+        validation.test_for_negative_values(df, small)
 
         df.to_csv(
             results_folder(f"{path_prefix}{subfolder}us_units/{file_name}.csv"),
@@ -304,13 +330,13 @@ def round_table(table):
     """
     Round each numeric column.
     All values in a column have the same rounding.
-    Rounding for each col is based on the smallest non-zero value: if < 1, sigfigs = 3, else 2 decimal places
+    Rounding for each col is based on the median non-zero value: if < 1, sigfigs = 3, else 2 decimal places
     """
     decimals = {}
     # Iterate through numeric columns
     for c in table.select_dtypes(include=np.number).columns:
         # Non-zero minimum
-        val = table.loc[table[c] > 0, c].min()
+        val = table.loc[table[c] > 0, c].median()
         if val > 1:
             decimals[c] = 2
         elif np.isnan(
@@ -406,7 +432,10 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             def add_generated_emission_rate_columns(df):
                 for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
                     for emission in ["co2", "ch4", "n2o", "co2e", "nox", "so2"]:
-                        df[f"generated_{emission}_rate_lb_per_mwh{emission_type}"] = (
+                        col_name = (
+                            f"generated_{emission}_rate_lb_per_mwh{emission_type}"
+                        )
+                        df[col_name] = (
                             (
                                 df[f"{emission}_mass_lb{emission_type}"]
                                 / df["net_generation_mwh"]
@@ -415,6 +444,8 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                             .replace(np.inf, np.NaN)
                             .replace(-np.inf, np.NaN)
                         )
+                        # Set negative rates to zero, following eGRID methodology
+                        df.loc[df[col_name] < 0, col_name] = 0
                 return df
 
             # output the hourly data
