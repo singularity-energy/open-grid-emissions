@@ -284,6 +284,7 @@ def main():
             partial_cems_plant,
             monthly_eia_data_to_shape,
             year,
+            plant_attributes,
         ),
         "input_data_source",
         path_prefix,

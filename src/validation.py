@@ -535,7 +535,12 @@ def hourly_profile_source_metric(
 
 
 def identify_percent_of_data_by_input_source(
-    cems, partial_cems_subplant, partial_cems_plant, eia_only_data, year
+    cems,
+    partial_cems_subplant,
+    partial_cems_plant,
+    eia_only_data,
+    year,
+    plant_attributes,
 ):
     """Identifies what percent of output data comes from each input source (CEMS or EIA)."""
 
@@ -556,6 +561,20 @@ def identify_percent_of_data_by_input_source(
     partial_cems_subplant = identify_reporting_frequency(partial_cems_subplant, year)
     partial_cems_plant = identify_reporting_frequency(partial_cems_plant, year)
 
+    # add ba codes to all of the data
+    eia_only_data = eia_only_data.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]], how="left", on="plant_id_eia"
+    )
+    cems = cems.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]], how="left", on="plant_id_eia"
+    )
+    partial_cems_subplant = partial_cems_subplant.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]], how="left", on="plant_id_eia"
+    )
+    partial_cems_plant = partial_cems_plant.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]], how="left", on="plant_id_eia"
+    )
+
     # associate each dataframe with a data source label
     data_sources = {
         "cems": cems,
@@ -572,7 +591,8 @@ def identify_percent_of_data_by_input_source(
             continue
         if name == "eia":
             subplant_data = df.groupby(
-                ["plant_id_eia", "subplant_id", "eia_data_resolution"], dropna=False
+                ["ba_code", "plant_id_eia", "subplant_id", "eia_data_resolution"],
+                dropna=False,
             ).sum()[columns_to_use]
             # because EIA data is not hourly, we have to multiply the number of subplants by the number of hours in a year
             if year % 4 == 0:
@@ -583,7 +603,7 @@ def identify_percent_of_data_by_input_source(
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby("eia_data_resolution", dropna=False)
+                .groupby(["ba_code", "eia_data_resolution"], dropna=False)
                 .sum()[["subplant_hours"] + columns_to_use]
                 .reset_index()
             )
@@ -591,20 +611,30 @@ def identify_percent_of_data_by_input_source(
                 columns={"eia_data_resolution": "source"}
             )
             subplant_data["source"] = subplant_data["source"].replace(
-                {"annual": "eia_annual", "monthly": "eia_monthly"}
+                {
+                    "annual": "eia_annual",
+                    "monthly": "eia_monthly",
+                    "multiple": "eia_multiple",
+                }
             )
             source_of_input_data.append(subplant_data)
         # for the partial cems data
         elif (name == "partial_cems_subplant") | (name == "partial_cems_plant"):
             subplant_data = df.groupby(
-                ["plant_id_eia", "subplant_id", "datetime_utc", "eia_data_resolution"],
+                [
+                    "ba_code",
+                    "plant_id_eia",
+                    "subplant_id",
+                    "datetime_utc",
+                    "eia_data_resolution",
+                ],
                 dropna=False,
             ).sum()[columns_to_use]
             subplant_data["subplant_hours"] = 1
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby("eia_data_resolution", dropna=False)
+                .groupby(["ba_code", "eia_data_resolution"], dropna=False)
                 .sum()[["subplant_hours"] + columns_to_use]
                 .reset_index()
             )
@@ -612,20 +642,24 @@ def identify_percent_of_data_by_input_source(
                 columns={"eia_data_resolution": "source"}
             )
             subplant_data["source"] = subplant_data["source"].replace(
-                {"annual": "eia_annual", "monthly": "eia_monthly"}
+                {
+                    "annual": "eia_annual",
+                    "monthly": "eia_monthly",
+                    "multiple": "eia_multiple",
+                }
             )
             source_of_input_data.append(subplant_data)
         # for the cems data
         else:
             subplant_data = df.groupby(
-                ["plant_id_eia", "subplant_id", "datetime_utc"], dropna=False
+                ["ba_code", "plant_id_eia", "subplant_id", "datetime_utc"], dropna=False
             ).sum()[columns_to_use]
             subplant_data["subplant_hours"] = 1
             subplant_data["source"] = "cems_hourly"
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby("source", dropna=False)
+                .groupby(["ba_code", "source"], dropna=False)
                 .sum()[["subplant_hours"] + columns_to_use]
                 .reset_index()
             )
@@ -634,11 +668,18 @@ def identify_percent_of_data_by_input_source(
     # concat the dataframes together
     source_of_input_data = pd.concat(source_of_input_data, axis=0)
 
-    # groupby and calculate percentages
-    source_of_input_data = source_of_input_data.groupby("source").sum()
-    source_of_input_data = source_of_input_data / source_of_input_data.sum(axis=0)
+    # groupby and calculate percentages for the entire country
+    national_source = source_of_input_data.groupby("source").sum()
+    national_source = (national_source / national_source.sum(axis=0)).reset_index()
+    national_source["ba_code"] = "US Total"
 
-    source_of_input_data = source_of_input_data.reset_index()
+    # calculate percentages by ba
+    source_of_input_data = (
+        source_of_input_data.groupby(["ba_code", "source"]).sum()
+        / source_of_input_data.groupby(["ba_code"]).sum()
+    ).reset_index()
+    # concat the national data to the ba data
+    source_of_input_data = pd.concat([source_of_input_data, national_source], axis=0)
 
     return source_of_input_data
 
@@ -651,7 +692,10 @@ def identify_reporting_frequency(eia923_allocated, year):
     pudl_out = load_data.initialize_pudl_out(year)
     plant_frequency = pudl_out.plants_eia860()[
         ["plant_id_eia", "reporting_frequency_code"]
-    ]
+    ].copy()
+    plant_frequency["reporting_frequency_code"] = plant_frequency[
+        "reporting_frequency_code"
+    ].fillna("multiple")
     # rename the column and recode the values
     plant_frequency = plant_frequency.rename(
         columns={"reporting_frequency_code": "eia_data_resolution"}
@@ -831,7 +875,7 @@ def summarize_cems_measurement_quality(cems):
     # drop NA values
     cems_quality_summary = cems_quality_summary.loc[["Measured", "Imputed"], :]
     cems_quality_summary = cems_quality_summary.reset_index()
-    
+
     return cems_quality_summary
 
 
