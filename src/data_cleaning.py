@@ -4,7 +4,7 @@ import os
 import sqlalchemy as sa
 
 import pudl.analysis.allocate_net_gen as allocate_gen_fuel
-import pudl.analysis.epa_crosswalk as epa_crosswalk
+import pudl.analysis.epacamd_eia as epa_crosswalk
 import pudl.output.pudltabl
 
 import load_data
