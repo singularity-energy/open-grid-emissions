@@ -754,7 +754,7 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,
         how="left",
-        on=(["plant_id_eia", "subplant_id", "unitid", "generator_id"]),
+        on=(["plant_id_eia", "subplant_id", "emissions_unit_id_epa", "generator_id"]),
         validate="m:1",
     ).drop(columns="plant_id_epa")
 
