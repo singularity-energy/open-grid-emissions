@@ -24,7 +24,7 @@ def load_cems_data(year):
     # specify the columns to use from the CEMS database
     cems_columns = [
         "plant_id_eia",
-        "emissions_unit_id_epa",
+        "unitid",
         "operating_datetime_utc",
         "operating_time_hours",
         "gross_load_mw",
@@ -55,8 +55,8 @@ def load_cems_data(year):
         }
     )
 
-    # if the emissions_unit_id_epa has any leading zeros, remove them
-    cems["emissions_unit_id_epa"] = cems["emissions_unit_id_epa"].str.lstrip("0")
+    # if the unitid has any leading zeros, remove them
+    cems["unitid"] = cems["unitid"].str.lstrip("0")
 
     # crosswalk the plant IDs and add a plant_id_eia column
     cems = crosswalk_epa_eia_plant_ids(cems, year)
@@ -71,7 +71,7 @@ def load_cems_data(year):
     cems = cems[
         [
             "plant_id_eia",
-            "emissions_unit_id_epa",
+            "unitid",
             "datetime_utc",
             "operating_time_hours",
             "gross_generation_mwh",
@@ -91,7 +91,7 @@ def load_cems_data(year):
     cems = cems.astype(
         {
             "plant_id_eia": "int",
-            "emissions_unit_id_epa": "str",
+            "unitid": "str",
             "co2_mass_measurement_code": "category",
             "nox_mass_measurement_code": "category",
             "so2_mass_measurement_code": "category",
@@ -105,7 +105,7 @@ def crosswalk_epa_eia_plant_ids(cems, year):
     """
     Adds a column to the CEMS data that matches the EPA plant ID to the EIA plant ID
     Inputs:
-        cems: pandas dataframe with hourly emissions data and columns for "plant_id_epa" and "emissions_unit_id_epa"
+        cems: pandas dataframe with hourly emissions data and columns for "plant_id_epa" and "unitid"
     Returns:
         cems: pandas dataframe with an additional column for "plant_id_eia"
     """
@@ -114,7 +114,7 @@ def crosswalk_epa_eia_plant_ids(cems, year):
 
     # create a table that matches EPA plant and unit IDs to an EIA plant ID
     plant_id_crosswalk = psdc[
-        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"]
+        ["plant_id_epa", "unitid", "plant_id_eia"]
     ].drop_duplicates()
 
     # only keep plant ids where the two are different
@@ -122,9 +122,9 @@ def crosswalk_epa_eia_plant_ids(cems, year):
         plant_id_crosswalk["plant_id_epa"] != plant_id_crosswalk["plant_id_eia"]
     ].dropna()
 
-    # match plant_id_eia on plant_id_epa and emissions_unit_id_epa
+    # match plant_id_eia on plant_id_epa and unitid
     cems = cems.merge(
-        plant_id_crosswalk, how="left", on=["plant_id_epa", "emissions_unit_id_epa"], validate="m:1"
+        plant_id_crosswalk, how="left", on=["plant_id_epa", "unitid"], validate="m:1"
     )
 
     # if the merge resulted in any missing plant_id associations, fill with the plant_id_epa, assuming that they are the same
@@ -148,7 +148,7 @@ def load_cems_gross_generation(start_year, end_year):
         # specify the columns to use from the CEMS database
         cems_columns = [
             "plant_id_eia",
-            "emissions_unit_id_epa",
+            "unitid",
             "operating_datetime_utc",
             "operating_time_hours",
             "gross_load_mw",
@@ -172,8 +172,8 @@ def load_cems_gross_generation(start_year, end_year):
             }
         )
 
-        # if the emissions_unit_id_epa has any leading zeros, remove them
-        cems["emissions_unit_id_epa"] = cems["emissions_unit_id_epa"].str.lstrip("0")
+        # if the unitid has any leading zeros, remove them
+        cems["unitid"] = cems["unitid"].str.lstrip("0")
 
         # crosswalk the plant IDs and add a plant_id_eia column
         cems = crosswalk_epa_eia_plant_ids(cems, year)
@@ -184,7 +184,7 @@ def load_cems_gross_generation(start_year, end_year):
         cems = cems[
             [
                 "plant_id_eia",
-                "emissions_unit_id_epa",
+                "unitid",
                 "report_date",
                 "gross_generation_mwh",
             ]
@@ -192,7 +192,7 @@ def load_cems_gross_generation(start_year, end_year):
 
         # group data by plant, unit, month
         cems = cems.groupby(
-            ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
+            ["plant_id_eia", "unitid", "report_date"], dropna=False
         ).sum()
 
         cems_all.append(cems)
@@ -371,7 +371,7 @@ def load_epa_eia_crosswalk(year):
 
     return pd.read_csv(
         map_eia_epa_file,
-        usecols=['plant_id_epa', 'plant_id_eia', 'emissions_unit_id_epa',
+        usecols=['plant_id_epa', 'plant_id_eia', 'unitid',
                  'generator_id', 'boiler_id', 'energy_source_code'],
         dtype={'plant_id_epa': 'int32', 'plant_id_eia': 'int32'})"""
 
@@ -388,7 +388,7 @@ def load_epa_eia_crosswalk(year):
         ],
     )
 
-    # remove leading zeros from the generator id and emissions_unit_id_epa
+    # remove leading zeros from the generator id and unitid
     crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
     crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
@@ -404,7 +404,7 @@ def load_epa_eia_crosswalk(year):
         columns={
             "CAMD_PLANT_ID": "plant_id_epa",
             "EIA_PLANT_ID": "plant_id_eia",
-            "CAMD_UNIT_ID": "emissions_unit_id_epa",
+            "CAMD_UNIT_ID": "unitid",
             "EIA_GENERATOR_ID": "generator_id",
             "EIA_BOILER_ID": "boiler_id",
             "EIA_FUEL_TYPE": "energy_source_code_eia",
@@ -522,7 +522,7 @@ def load_gross_to_net_data(
             dtype=get_dtypes(),
         )
         subplant_crosswalk = subplant_crosswalk[
-            ["plant_id_eia", "emissions_unit_id_epa", "subplant_id"]
+            ["plant_id_eia", "unitid", "subplant_id"]
         ].drop_duplicates()
 
         if level == "plant":
@@ -533,7 +533,7 @@ def load_gross_to_net_data(
             subplant_crosswalk.groupby(groupby_columns, dropna=False)
             .count()
             .reset_index()
-            .rename(columns={"emissions_unit_id_epa": f"units_in_{level}"})
+            .rename(columns={"unitid": f"units_in_{level}"})
         )
 
         gtn_data = gtn_data.merge(

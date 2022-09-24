@@ -950,7 +950,7 @@ def return_monthly_plant_fuel_heat_content(pudl_out):
 def calculate_unit_specific_controlled_nox_rates(year):
     nox_rates = load_controlled_nox_emission_rates(year)
     nox_rates = calculate_non_ozone_season_nox_rate(nox_rates)
-    weighted_nox_rates = calculate_weighted_nox_rates(year, nox_rates, "emissions_unit_id_epa")
+    weighted_nox_rates = calculate_weighted_nox_rates(year, nox_rates, "unitid")
 
     return weighted_nox_rates
 
@@ -1006,7 +1006,7 @@ def load_controlled_nox_emission_rates(year):
 
 
 def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
-    """Aggregates nox rate data from nox_control_id to boiler_id, generator_id, or emissions_unit_id_epa"""
+    """Aggregates nox rate data from nox_control_id to boiler_id, generator_id, or unitid"""
     # load the association tables
     boiler_nox_association_eia860 = load_data.load_boiler_nox_association_eia860(year)
 
@@ -1036,12 +1036,12 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
             on=["plant_id_eia", "boiler_id"],
             validate="m:m",
         )
-    elif aggregation_level == "emissions_unit_id_epa":
+    elif aggregation_level == "unitid":
         epa_eia_crosswalk = load_data.load_epa_eia_crosswalk(year)
         boiler_to_unit_crosswalk = epa_eia_crosswalk[
-            ["plant_id_eia", "emissions_unit_id_epa", "boiler_id"]
+            ["plant_id_eia", "unitid", "boiler_id"]
         ].drop_duplicates()
-        # associate a emissions_unit_id_epa with each record
+        # associate a unitid with each record
         nox_rates = nox_rates.merge(
             boiler_to_unit_crosswalk,
             how="left",

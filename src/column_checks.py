@@ -92,7 +92,7 @@ COLUMNS = {
         "so2_mass_lb_for_electricity_adjusted",
         # columns dropped when aggregating to subplant
         # "plant_id_epa",
-        # "emissions_unit_id_epa",
+        # "unitid",
         # "energy_source_code",
         # "operating_time_hours",
         # "co2_mass_measurement_code",
@@ -350,7 +350,7 @@ def get_dtypes():
         "plant_id_epa": "Int32",
         "subplant_id": "Int16",
         "generator_id": "str",
-        "emissions_unit_id_epa": "str",
+        "unitid": "str",
         "boiler_id": "str",
         "operating_time_hours": "float16",
         "gross_generation_mwh": "float64",

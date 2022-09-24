@@ -1,4 +1,4 @@
-plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,notes
+plant_id_epa,unitid,plant_id_eia,generator_id,notes
 389,3,389,3,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 1363,7A,1363,7A,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 1363,7B,1363,7B,CAMD_UNIT_ID matches EIA_GENERATOR_ID
