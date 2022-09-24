@@ -77,7 +77,7 @@ def generate_subplant_ids(start_year, end_year, cems_monthly):
         cems_monthly and gen_fuel_allocated with subplant_id added
     """
 
-    ids = cems_monthly[["plant_id_eia", "unitid"]].drop_duplicates()
+    ids = cems_monthly[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
 
     # load the crosswalk and filter it by the data that actually exists in cems
     crosswalk = pudl.output.epacems.epa_crosswalk()

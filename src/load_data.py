@@ -185,6 +185,7 @@ def load_cems_gross_generation(start_year, end_year):
             [
                 "plant_id_eia",
                 "unitid",
+                "unit_id_epa",
                 "report_date",
                 "gross_generation_mwh",
             ]
@@ -192,7 +193,7 @@ def load_cems_gross_generation(start_year, end_year):
 
         # group data by plant, unit, month
         cems = cems.groupby(
-            ["plant_id_eia", "unitid", "report_date"], dropna=False
+            ["plant_id_eia", "unitid", "unit_id_epa", "report_date"], dropna=False
         ).sum()
 
         cems_all.append(cems)
