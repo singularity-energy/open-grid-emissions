@@ -11,6 +11,7 @@ Optional arguments for development are --small, --flat, and --skip_outputs
 # import packages
 import argparse
 import os
+import shutil
 
 # import local modules
 # import local modules
@@ -74,7 +75,12 @@ def main():
     os.makedirs(downloads_folder(), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}/eia930"), exist_ok=True)
-    os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
+    # If we are outputing, wipe results dir so we can be confident there are no old result files (eg because of a file name change)
+    if not args.skip_outputs:
+        shutil.rmtree(results_folder(f"{path_prefix}"))
+        os.makedirs(results_folder(f"{path_prefix}"), exist_ok=False)
+    else: # still make sure results dir exists, but exist is ok and we won't be writing to it 
+        os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(
         results_folder(f"{path_prefix}data_quality_metrics"),
         exist_ok=True,
