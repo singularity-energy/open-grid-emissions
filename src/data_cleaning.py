@@ -1295,16 +1295,21 @@ def identify_partial_cems_plants(all_data):
     # due to the hourly source code check above. In those cases, we need to select one methodology -- otherwise we'll double-count the generation
     # We'll choose the generator with the largest net_generation_mwh and use its methodology.
     # If they're all zero, we'll choose the generator with the largest fuel_consumed_mmbtu
+    key_cols = [
+        "plant_id_eia",
+        "subplant_id",
+        "report_date",
+    ]  # not unique key, because same subplant may have multiple generators
     problem_subplant_months = (
-        all_data.groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)
-        .hourly_data_source.nunique()
+        all_data.groupby(key_cols, dropna=False)
+        .agg({"hourly_data_source": "nunique", "net_generation_mwh": "sum"})
         .reset_index()
     )
     problem_subplant_months = problem_subplant_months[
         problem_subplant_months.hourly_data_source > 1
     ]
     print(
-        f"    WARNING: {len(problem_subplant_months)} subplant-months have multiple hourly methods assigned. Choosing one."
+        f"    WARNING: {len(problem_subplant_months)} subplant-months totaling {problem_subplant_months.net_generation_mwh.sum()} MWh generation have multiple hourly methods assigned. Choosing one."
     )
 
     # for each problem subplant-month, identify the record with the largest net_generation_mwh or fuel_consumed_mmbtu
