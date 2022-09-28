@@ -1053,7 +1053,11 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
             we will use the hourly values reported in CEMS. (Add a validation check for the net generation and fuel consumption totals)
         2. `partial_cems`: For subplant-months for which we have hourly CEMS data
             for only some of the CEMS units that make up a subplant, we will use the reported
-            EIA-923 values to scale the partial hourly CEMS data from the other units to match the total value for the entire subplant. This will also calculate a partial subplant scaling factor for each data column (e.g. net generation, fuel consumption) by comparing the total monthly CEMS data to the monthly EIA-923 data.
+            EIA-923 values to scale the partial hourly CEMS data from the other units to match the total value for the entire subplant.
+            This will also calculate a partial subplant scaling factor for each data column (e.g. net generation, fuel consumption) by
+            comparing the total monthly CEMS data to the monthly EIA-923 data.
+        2.5 `partial_cems_plant`: when some subplants in a plant have CEMS data, use the shape from those subplants to shape the remaining generation
+            from that plant.
         3. `eia`: for subplant-months for which no hourly data is reported in CEMS,
             we will attempt to use EIA-930 data to assign an hourly profile to the monthly EIA-923 data
     Inputs:
@@ -1272,15 +1276,73 @@ def identify_partial_cems_plants(all_data):
         validate="m:1",
     )
 
+    # Plants with these primary fuel types shouldn't be shaped using CEMS data --
+    # any cems data is likely to be a backup generator and therefore not representative of overall generation.
+    non_cems = ["WND", "WAT", "NUC", "SUN", "GEO"]
+
     # for plants where the data source is eia only, and it exists in partial plant, change the source to partial_cems_plant
+    # but only if the fuel type is consistent with CEMS fuel types
     all_data.loc[
         (all_data["hourly_data_source"] == "eia")
-        & (all_data["partial_plant"] == "both"),
+        & (all_data["partial_plant"] == "both")
+        & (
+            ~all_data["energy_source_code"].isin(non_cems)
+        ),  # CEMS data should only be used to shape if plant is primarilly fossil
         "hourly_data_source",
     ] = "partial_cems_plant"
 
+    # We might have some plants with NaN-ID subplants with mixed hourly methods
+    # due to the hourly source code check above. In those cases, we need to select one methodology -- otherwise we'll double-count the generation
+    # We'll choose the generator with the largest net_generation_mwh and use its methodology.
+    # If they're all zero, we'll choose the generator with the largest fuel_consumed_mmbtu
+    problem_subplant_months = (
+        all_data.groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)
+        .hourly_data_source.nunique()
+        .reset_index()
+    )
+    problem_subplant_months = problem_subplant_months[
+        problem_subplant_months.hourly_data_source > 1
+    ]
+    print(
+        f"    WARNING: {len(problem_subplant_months)} subplant-months have multiple hourly methods assigned. Choosing one."
+    )
+
+    # for each problem subplant-month, identify the record with the largest net_generation_mwh or fuel_consumed_mmbtu
+    def subplant_month_to_method(rows):
+        rows.sort_values(by=["net_generation_mwh", "fuel_consumed_mmbtu"])
+        return rows.iloc[0].hourly_data_source
+
+    method_assignments = (
+        all_data[
+            all_data.plant_id_eia.isin(problem_subplant_months.plant_id_eia.unique())
+            & all_data.subplant_id.isna()
+        ]
+        .groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)
+        .apply(subplant_month_to_method)
+    )
+    ma = method_assignments.reset_index().rename(
+        columns={0: "corrected_hourly_data_source"}
+    )
+    all_data = all_data.merge(
+        ma,
+        how="left",
+        on=["plant_id_eia", "subplant_id", "report_date"],
+        validate="m:m",
+    )  # multiple generators per subplant, so multiple records
+    to_replace = ~all_data.corrected_hourly_data_source.isna()
+    all_data.loc[to_replace, "hourly_data_source"] = all_data.loc[
+        to_replace, "corrected_hourly_data_source"
+    ]
+
     # remove the intermediate indicator column
-    all_data = all_data.drop(columns=["partial_plant", "eia_data", "cems_data"])
+    all_data = all_data.drop(
+        columns=[
+            "partial_plant",
+            "eia_data",
+            "cems_data",
+            "corrected_hourly_data_source",
+        ]
+    )
 
     return all_data
 

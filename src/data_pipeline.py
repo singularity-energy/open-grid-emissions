@@ -85,6 +85,7 @@ def main():
         results_folder(f"{path_prefix}data_quality_metrics"),
         exist_ok=True,
     )
+    # Make results subfolders
     for unit in ["us_units", "metric_units"]:
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
