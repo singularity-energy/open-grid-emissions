@@ -134,10 +134,36 @@ def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
         )
 
 
-def output_plant_data(df, path_prefix, resolution, skip_outputs):
+def _identify_mixed_method_plants(eia923_allocated):
+    """
+    Using eia923 after hourly method assignment,
+    identify plants whose hourly output will not be complete
+    (ie, some subplants are CEMS, partial_cems, or partial_cems_plant,
+    while others are EIA)
+    Helper function for output_plant_data.
+    """
+
+    def split_hourly(hourlies):
+        # if EIA is a method and there is more than one method,
+        # then the hourly plant-level data will not contain all subplants
+        return ("eia" in hourlies.to_list()) & (hourlies.nunique() > 1)
+
+    methods = (
+        eia923_allocated.groupby(["plant_id_eia", "report_date"])
+        .hourly_data_source.apply(split_hourly)
+        .reset_index()
+    )
+    methods = methods[methods.hourly_data_source]
+    return methods.plant_id_eia.unique()
+
+
+def output_plant_data(df, path_prefix, resolution, skip_outputs, eia923=np.NaN):
     """
     Helper function for plant-level output.
     Output for each time granularity, and output separately for real and shaped plants
+    `df` contains all plant-level data, both CEMS and synthetic.
+    `eia923` is used to identify plants whose hourly data comes from different sources; none
+        of its data is written or modified here (optional, only needed for hourly)
 
     Note: plant-level does not include rates, so all aggregation is summation.
     """
@@ -145,6 +171,18 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs):
         if resolution == "hourly":
             # output hourly data
             # Separately save real and aggregate plants
+            # Separately save complete plant CEMS and subplant CEMS
+            partial_plants = _identify_mixed_method_plants(eia923)
+            for ptype in ["individual", "partial"]:
+                condition = df.plant_id_eia.isin(partial_plants)
+                condition = condition if ptype == "partial" else ~condition
+                output_to_results(
+                    df[(df.plant_id_eia < 900000) & (condition)],
+                    f"{ptype}_plant_data",
+                    "plant_data/hourly/",
+                    path_prefix,
+                    skip_outputs,
+                )
             output_to_results(
                 df[df.plant_id_eia > 900000],
                 "shaped_fleet_data",
@@ -152,13 +190,7 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs):
                 path_prefix,
                 skip_outputs,
             )
-            output_to_results(
-                df[df.plant_id_eia < 900000],
-                "individual_plant_data",
-                "plant_data/hourly/",
-                path_prefix,
-                skip_outputs,
-            )
+
         elif resolution == "monthly":
             # output monthly data
             output_to_results(
@@ -337,12 +369,11 @@ def round_table(table):
     for c in table.select_dtypes(include=np.number).columns:
         # Non-zero minimum
         val = table.loc[table[c] > 0, c].median()
-        if val > 1:
-            decimals[c] = 2
-        elif np.isnan(
-            val
-        ):  # if val is NaN, then this col has only NaN or only 0 values
+        if pd.isna(val):  # if val is NaN, then this col has only NaN or only 0 values
             decimals[c] = 4
+        # >1 gets 2 decimals
+        elif val > 1:
+            decimals[c] = 2
         else:
             try:
                 decimals[c] = abs(math.floor(math.log10(val))) + 2
