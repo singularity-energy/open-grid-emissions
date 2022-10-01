@@ -123,7 +123,7 @@ def main():
     ####################################################################################
     print("2. Identifying subplant IDs")
     # GTN ratios are saved for reloading, as this is computationally intensive
-    if not os.path.exists(outputs_folder(f"{year}/subplant_crosswalk.csv")):
+    if not os.path.exists(outputs_folder(f"{year}/subplant_crosswalk_{year}.csv")):
         print("    Generating subplant IDs")
         number_of_years = args.gtn_years
         data_cleaning.identify_subplants(year, number_of_years)

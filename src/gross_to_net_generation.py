@@ -376,7 +376,7 @@ def calculate_subplant_nameplate_capacity(year):
     ]
 
     subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk.csv"),
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
     gen_capacity = gen_capacity.merge(
@@ -748,9 +748,9 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     # load the activation and retirement dates into the data
     subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk.csv"),
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
-    )
+    ).dropna(subset="unitid")
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,
         how="left",
