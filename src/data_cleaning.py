@@ -216,11 +216,16 @@ def update_subplant_ids(subplant_crosswalk):
         0 (we always use the lowest number subplant_id in each unit_id_pudl group). This may result in some subplant_id
         being skipped, but this is okay because we will later renumber all subplant ids (i.e. if there were also a
         generator C with subplant_id 2, there would no be no subplant_id 1 at the plant)
-        3. The second issue is that there are many NA subplant_id that we should fill. To do this, we first look at
+        Likewise, sometimes multiple unit_id_pudl are connected to a single subplant_id, so we also correct the 
+        unit_id_pudl basedon these connections.
+        2. The second issue is that there are many NA subplant_id that we should fill. To do this, we first look at
         unit_id_pudl. If a group of generators are assigned a unit_id_pudl but have NA subplant_ids, we assign a single
         new subplant_id to this group of generators. If there are still generators at a plant that have both NA subplant_id
         and NA unit_id_pudl, we for now assume that each of these generators consitutes its own subplant. We thus assign a unique
         subplant_id to each generator that is unique from any existing subplant_id already at the plant.
+        In the case that there are multiple unitid at a plant that are not matched to any other identifiers (generator_id, 
+        unit_id_pudl, or subplant_id), as is the case when there are units that report to CEMS but which do not exist in the EIA
+        data, we assign these units to a single subplant.
 
         Args:
             subplant_crosswalk: a dataframe containing the output of `epa_crosswalk.make_subplant_ids` with
@@ -528,6 +533,7 @@ def clean_eia923(
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
+        validation.test_for_missing_subplant_id(gen_fuel_allocated)
 
     # add the cleaned prime mover code to the data
     gen_pm = pudl_out.gens_eia860()[
