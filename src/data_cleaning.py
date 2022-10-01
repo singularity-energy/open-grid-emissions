@@ -100,22 +100,9 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
 
     # change the plant id to an int
     filtered_crosswalk["EIA_PLANT_ID"] = filtered_crosswalk["EIA_PLANT_ID"].astype(int)
-
-    # filter to generators that exist in the EIA data
-    # load a list of unique generator ids that exist in EIA
-    pudl_out = load_data.initialize_pudl_out(year=end_year)
-    """gens_eia860 = pudl_out.gens_eia860()
-    unique_eia_ids = gens_eia860[["plant_id_eia", "generator_id"]].drop_duplicates()
-    filtered_crosswalk = unique_eia_ids.merge(
-        filtered_crosswalk,
-        left_on=["plant_id_eia", "generator_id"],
-        right_on=["EIA_PLANT_ID", "EIA_GENERATOR_ID"],
-        how="inner",
-        suffixes=("_actual", None),
-        validate="1:m",
-    ).drop(columns=["plant_id_eia_actual", "generator_id"])"""
-
+    # use graph analysis to identify subplants
     crosswalk_with_subplant_ids = epa_crosswalk.make_subplant_ids(filtered_crosswalk)
+
     # fix the column names
     crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.drop(
         columns=["plant_id_eia", "unitid", "CAMD_GENERATOR_ID"]
@@ -140,11 +127,22 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
 
     # update the subplant_crosswalk to ensure completeness
     # prepare the subplant crosswalk by adding a complete list of generators and adding the unit_id_pudl column
+    pudl_out = load_data.initialize_pudl_out(year=end_year)
     complete_generator_ids = pudl_out.gens_eia860()[
         ["plant_id_eia", "generator_id", "unit_id_pudl"]
     ].drop_duplicates()
     subplant_crosswalk_complete = crosswalk_with_subplant_ids.merge(
-        complete_generator_ids, how="outer", on=["plant_id_eia", "generator_id"], validate="m:1"
+        complete_generator_ids,
+        how="outer",
+        on=["plant_id_eia", "generator_id"],
+        validate="m:1",
+    )
+    # also add a complete list of cems unitid
+    subplant_crosswalk_complete = subplant_crosswalk_complete.merge(
+        cems_ids[["plant_id_eia", "unitid"]].drop_duplicates(),
+        how="outer",
+        on=["plant_id_eia", "unitid"],
+        validate="m:1",
     )
     # update the subplant ids for each plant
     subplant_crosswalk_complete = subplant_crosswalk_complete.groupby(
@@ -302,7 +300,7 @@ def connect_ids(df, id_to_update, connecting_id):
             duplicates,
             how="left",
             on=["plant_id_eia", id_to_update, connecting_id],
-            validate="m:1"
+            validate="m:1",
         )
         df[f"{connecting_id}_connected"].update(df[f"{connecting_id}_to_replace"])
     return df
@@ -861,10 +859,14 @@ def clean_cems(year: int, small: bool, primary_fuel_table):
     validation.test_for_negative_values(cems)
 
     # add subplant id
-    subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-        dtype=get_dtypes(),
-    )[["plant_id_eia", "unitid", "subplant_id"]].drop_duplicates().dropna(subset="unitid")
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "unitid", "subplant_id"]]
+        .drop_duplicates()
+        .dropna(subset="unitid")
+    )
     cems = cems.merge(
         subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"], validate="m:1"
     )
@@ -1345,11 +1347,15 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
 
 def count_total_units_in_subplant(year):
     # load the subplant crosswalk and identify unique unitids in each subplant
-    units_in_subplant = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-        dtype=get_dtypes(),
-        parse_dates=["current_planned_operating_date", "retirement_date"],
-    )[["plant_id_eia", "unitid", "subplant_id", "retirement_date"]].drop_duplicates().dropna(subset="unitid")
+    units_in_subplant = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+            parse_dates=["current_planned_operating_date", "retirement_date"],
+        )[["plant_id_eia", "unitid", "subplant_id", "retirement_date"]]
+        .drop_duplicates()
+        .dropna(subset="unitid")
+    )
 
     # remove units that retired before the current year
     units_in_subplant = units_in_subplant[

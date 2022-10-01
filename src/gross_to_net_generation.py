@@ -335,10 +335,11 @@ def calculate_gross_to_net_conversion_factors(
         columns={
             "slope": "subplant_regression_ratio",
             "intercept": "subplant_regression_shift_mw",
+            "rsquared_adj": "subplant_regression_rsq_adj",
         }
     )
     gtn_regression_subplant = gtn_regression_subplant.drop(
-        columns=["rsquared", "rsquared_adj", "observations"]
+        columns=["rsquared", "observations"]
     )
 
     gtn_regression_plant = gross_to_net_regression(combined_gen_data, "plant")
@@ -349,10 +350,11 @@ def calculate_gross_to_net_conversion_factors(
         columns={
             "slope": "plant_regression_ratio",
             "intercept": "plant_regression_shift_mw",
+            "rsquared_adj": "plant_regression_rsq_adj",
         }
     )
     gtn_regression_plant = gtn_regression_plant.drop(
-        columns=["rsquared", "rsquared_adj", "observations"]
+        columns=["rsquared", "observations"]
     )
 
     gtn_conversions = gtn_conversions.merge(
