@@ -79,7 +79,7 @@ def main():
     if not args.skip_outputs:
         shutil.rmtree(results_folder(f"{path_prefix}"))
         os.makedirs(results_folder(f"{path_prefix}"), exist_ok=False)
-    else: # still make sure results dir exists, but exist is ok and we won't be writing to it 
+    else:  # still make sure results dir exists, but exist is ok and we won't be writing to it
         os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(
         results_folder(f"{path_prefix}data_quality_metrics"),
@@ -128,13 +128,8 @@ def main():
     # 2. Identify subplants
     ####################################################################################
     print("2. Identifying subplant IDs")
-    # GTN ratios are saved for reloading, as this is computationally intensive
-    if not os.path.exists(outputs_folder(f"{year}/subplant_crosswalk.csv")):
-        print("    Generating subplant IDs")
-        number_of_years = args.gtn_years
-        data_cleaning.identify_subplants(year, number_of_years)
-    else:
-        print("    Subplant IDs already created")
+    number_of_years = args.gtn_years
+    data_cleaning.identify_subplants(year, number_of_years)
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
