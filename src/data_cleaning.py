@@ -52,9 +52,11 @@ def identify_subplants(year, number_of_years):
     end_year = year
 
     # load 5 years of monthly data from CEMS
+    print("    loading CEMS ids")
     cems_ids = load_data.load_cems_ids(start_year, end_year)
 
     # add subplant ids to the data
+    print("    identifying unique subplants")
     generate_subplant_ids(start_year, end_year, cems_ids)
 
 
@@ -205,7 +207,16 @@ def update_subplant_ids(subplant_crosswalk):
         merging in the complete list of generators from EIA-860 (specifically the gens_eia860 table from pudl).
         This dataframe also contains the complete list of `unit_id_pudl` mappings that will be necessary.
 
-    This function follows several steps:
+    High-level overview of method:
+        1. Use the PUDL subplant_id if available. In the case where a unit_id_pudl groups several subplants,
+        we overwrite these multiple existing subplant_id with a single subplant_id.
+        2. Where there is no PUDL subplant_id, we use the unit_id_pudl to assign a unique subplant_id
+        3. Where there is neither a pudl subplant_id nor unit_id_pudl, we use the generator ID to
+        assign a unique subplant_id
+        4. All of the new unique ids are renumbered in consecutive ascending order
+
+
+    Detailed explanation of steps:
         1. Because the current subplant_id code does not take boiler-generator associations into account,
         there may be instances where the code assigns generators to different subplants when in fact, according
         to the boiler-generator association table, these generators are grouped into a single unit based on their
@@ -216,14 +227,14 @@ def update_subplant_ids(subplant_crosswalk):
         0 (we always use the lowest number subplant_id in each unit_id_pudl group). This may result in some subplant_id
         being skipped, but this is okay because we will later renumber all subplant ids (i.e. if there were also a
         generator C with subplant_id 2, there would no be no subplant_id 1 at the plant)
-        Likewise, sometimes multiple unit_id_pudl are connected to a single subplant_id, so we also correct the 
+        Likewise, sometimes multiple unit_id_pudl are connected to a single subplant_id, so we also correct the
         unit_id_pudl basedon these connections.
         2. The second issue is that there are many NA subplant_id that we should fill. To do this, we first look at
         unit_id_pudl. If a group of generators are assigned a unit_id_pudl but have NA subplant_ids, we assign a single
         new subplant_id to this group of generators. If there are still generators at a plant that have both NA subplant_id
         and NA unit_id_pudl, we for now assume that each of these generators consitutes its own subplant. We thus assign a unique
         subplant_id to each generator that is unique from any existing subplant_id already at the plant.
-        In the case that there are multiple unitid at a plant that are not matched to any other identifiers (generator_id, 
+        In the case that there are multiple unitid at a plant that are not matched to any other identifiers (generator_id,
         unit_id_pudl, or subplant_id), as is the case when there are units that report to CEMS but which do not exist in the EIA
         data, we assign these units to a single subplant.
 
@@ -251,6 +262,7 @@ def update_subplant_ids(subplant_crosswalk):
     ).ngroup()
     # when filling in missing unit_id_pudl, we don't want these numeric_generator_id to overlap existing unit_id
     # to ensure this, we will add 1000 to each of these numeric generator ids to ensure they are unique
+    # 1000 was chosen as an arbitrarily high number, since the largest unit_id_pudl is ~ 10.
     subplant_crosswalk["numeric_generator_id"] = (
         subplant_crosswalk["numeric_generator_id"] + 1000
     )

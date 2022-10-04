@@ -141,7 +141,6 @@ def load_cems_ids(start_year, end_year):
     cems_all = []
 
     for year in range(start_year, end_year + 1):
-        print(f"    loading {year} CEMS data")
         # specify the path to the CEMS data
         cems_path = downloads_folder(f"pudl/pudl_data/parquet/epacems/year={year}")
 
