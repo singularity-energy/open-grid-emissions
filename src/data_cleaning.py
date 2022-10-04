@@ -1476,58 +1476,30 @@ def identify_partial_cems_plants(all_data):
         "hourly_data_source",
     ] = "partial_cems_plant"
 
-    # We might have some plants with NaN-ID subplants with mixed hourly methods
-    # due to the hourly source code check above. In those cases, we need to select one methodology -- otherwise we'll double-count the generation
-    # We'll choose the generator with the largest net_generation_mwh and use its methodology.
-    # If they're all zero, we'll choose the generator with the largest fuel_consumed_mmbtu
-    key_cols = [
-        "plant_id_eia",
-        "subplant_id",
-        "report_date",
-    ]  # not unique key, because same subplant may have multiple generators
+    # It is possible to get plants with NaN-ID subplants with mixed hourly methods
+    # due to the hourly source code check above if subplant_id is mixing fuel types.
     problem_subplant_months = (
-        all_data.groupby(key_cols, dropna=False)
-        .agg({"hourly_data_source": "nunique", "net_generation_mwh": "sum"})
+        all_data.groupby(
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "report_date",
+            ],
+            dropna=False,
+        )
+        .nunique()
         .reset_index()
     )
     problem_subplant_months = problem_subplant_months[
         problem_subplant_months.hourly_data_source > 1
     ]
-
-    # May need to fix plants, may not (on small run we don't)
     if len(problem_subplant_months) > 0:
-        print(
-            f"    WARNING: {len(problem_subplant_months)} subplant-months totaling {problem_subplant_months.net_generation_mwh.sum()} MWh generation have multiple hourly methods assigned. Choosing one."
+        # Check for subplants with mixed hourly data sources,
+        # likely resulting from mixed fuel types.
+        # If subplant_id assignment is working, there shouldn't be any
+        raise Exception(
+            f"    ERROR: {len(problem_subplant_months)} subplant-months have multiple hourly methods assigned."
         )
-
-        # for each problem subplant-month, identify the record with the largest net_generation_mwh or fuel_consumed_mmbtu
-        def subplant_month_to_method(rows):
-            rows.sort_values(by=["net_generation_mwh", "fuel_consumed_mmbtu"])
-            return rows.iloc[0].hourly_data_source
-
-        method_assignments = (
-            all_data[
-                all_data.plant_id_eia.isin(
-                    problem_subplant_months.plant_id_eia.unique()
-                )
-                & all_data.subplant_id.isna()
-            ]
-            .groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)
-            .apply(subplant_month_to_method)
-        )
-        ma = method_assignments.reset_index().rename(
-            columns={0: "corrected_hourly_data_source"}
-        )
-        all_data = all_data.merge(
-            ma,
-            how="left",
-            on=["plant_id_eia", "subplant_id", "report_date"],
-            validate="m:m",
-        )  # multiple generators per subplant, so multiple records
-        to_replace = ~all_data.corrected_hourly_data_source.isna()
-        all_data.loc[to_replace, "hourly_data_source"] = all_data.loc[
-            to_replace, "corrected_hourly_data_source"
-        ]
 
     # remove the intermediate indicator column
     all_data = all_data.drop(
@@ -1535,9 +1507,7 @@ def identify_partial_cems_plants(all_data):
             "partial_plant",
             "eia_data",
             "cems_data",
-            "corrected_hourly_data_source",
         ],
-        errors="ignore",  # we'll be missing "corrected_hourly_data_source" if no corrections were needed
     )
 
     return all_data
