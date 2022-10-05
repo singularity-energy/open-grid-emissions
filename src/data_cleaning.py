@@ -1476,9 +1476,10 @@ def identify_partial_cems_plants(all_data):
         "hourly_data_source",
     ] = "partial_cems_plant"
 
-    # It is possible to get plants with NaN-ID subplants with mixed hourly methods
-    # due to the hourly source code check above if subplant_id is mixing fuel types.
-    problem_subplant_months = (
+    # It is possible to have generators within a subplant assigned different hourly methods
+    # due to the source code check above if subplant_id is mixing fuel types.
+    # This was an issue before PR #239; this check will catch it if it reoccurs
+    mixed_method_subplants = (
         all_data.groupby(
             [
                 "plant_id_eia",
@@ -1490,15 +1491,15 @@ def identify_partial_cems_plants(all_data):
         .nunique()
         .reset_index()
     )
-    problem_subplant_months = problem_subplant_months[
-        problem_subplant_months.hourly_data_source > 1
+    mixed_method_subplants = mixed_method_subplants[
+        mixed_method_subplants.hourly_data_source > 1
     ]
-    if len(problem_subplant_months) > 0:
+    if len(mixed_method_subplants) > 0:
         # Check for subplants with mixed hourly data sources,
         # likely resulting from mixed fuel types.
         # If subplant_id assignment is working, there shouldn't be any
         raise Exception(
-            f"    ERROR: {len(problem_subplant_months)} subplant-months have multiple hourly methods assigned."
+            f"    ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
         )
 
     # remove the intermediate indicator column
