@@ -470,6 +470,7 @@ def load_epa_eia_crosswalk(year):
     camd_to_eia_fuel_type = {
         "Pipeline Natural Gas": "NG",
         "Coal": "SUB",  # assume that generic coal is subbituminous to be conservative
+        "Coal Refuse": "WC",
         "Residual Oil": "RFO",
         "Other Oil": "WO",
         "Diesel Oil": "DFO",

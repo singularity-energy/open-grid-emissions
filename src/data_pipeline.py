@@ -119,7 +119,7 @@ def main():
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(
-        psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.2.1/epa_eia_crosswalk.csv"
+        psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.3/epa_eia_crosswalk.csv"
     )
     # download the raw EIA-923 and EIA-860 files for use in NOx/SO2 calculations until integrated into pudl
     download_data.download_raw_eia860(year)
