@@ -297,7 +297,6 @@ def main():
         partial_cems_plant,
         monthly_eia_data_to_shape,
         "monthly",
-        True,
     )
     output_data.output_plant_data(
         monthly_plant_data, path_prefix, "monthly", args.skip_outputs
