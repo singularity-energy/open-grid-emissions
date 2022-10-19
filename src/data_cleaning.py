@@ -1535,7 +1535,7 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table)
     return ba_fuel_data
 
 
-def combine_plant_data(
+def combine_monthly_plant_data(
     cems,
     partial_cems_subplant,
     partial_cems_plant,
@@ -1575,6 +1575,93 @@ def combine_plant_data(
         validation.ensure_non_overlapping_data_from_all_sources(
             cems, partial_cems_subplant, partial_cems_plant, eia_data
         )
+
+    # group data by plant-hour and filter columns
+    cems = (
+        cems.groupby(
+            KEY_COLUMNS,
+            dropna=False,
+        )
+        .sum()
+        .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
+    )
+    # don't group if there is no data in the dataframe
+    if len(partial_cems_subplant) > 0:
+        partial_cems_subplant = (
+            partial_cems_subplant.groupby(
+                KEY_COLUMNS,
+                dropna=False,
+            )
+            .sum()
+            .reset_index()[
+                [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
+            ]
+        )
+    if len(partial_cems_plant) > 0:
+        partial_cems_plant = (
+            partial_cems_plant.groupby(
+                KEY_COLUMNS,
+                dropna=False,
+            )
+            .sum()
+            .reset_index()[
+                [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
+            ]
+        )
+    eia_data = (
+        eia_data.groupby(
+            KEY_COLUMNS,
+            dropna=False,
+        )
+        .sum()
+        .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
+    )
+
+    # concat together
+    combined_plant_data = pd.concat(
+        [cems, partial_cems_subplant, partial_cems_plant, eia_data],
+        axis=0,
+        ignore_index=True,
+        copy=False,
+    )
+
+    # groupby plant
+    combined_plant_data = (
+        combined_plant_data.groupby(KEY_COLUMNS, dropna=False).sum().reset_index()
+    )
+
+    combined_plant_data[DATA_COLUMNS] = combined_plant_data[DATA_COLUMNS].round(2)
+
+    # re-order the columns
+    combined_plant_data = combined_plant_data[ALL_COLUMNS]
+
+    return combined_plant_data
+
+
+def combine_and_export_hourly_plant_data(
+    cems,
+    partial_cems_subplant,
+    partial_cems_plant,
+    eia_data,
+    region_aggregation_column,
+):
+    """
+    Shapes the monthly eia_data as hourly for each plant and combines with the CEMS data before exporting for each aggregation region. 
+    Because shaping the monthly data for the entire country leads to a dataframe size larger 
+
+    """
+
+    KEY_COLUMNS = [
+        "plant_id_eia",
+        "datetime_utc",
+        "report_date",
+    ]
+
+    ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
+
+    validation.ensure_non_overlapping_data_from_all_sources(
+        cems, partial_cems_subplant, partial_cems_plant, eia_data
+    )
 
     # group data by plant-hour and filter columns
     cems = (

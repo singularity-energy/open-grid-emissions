@@ -359,6 +359,13 @@ def main():
 
     # 14. Assign hourly profile to monthly data
     ####################################################################################
+
+    # TODO
+    # This should be split into two steps:
+    # 1. combine the data by state or BA, shaping plant data for each region one at a time and exporting so not stored in memory
+    # 2. Once the plant level data is exported, shape the ba-fuel data and combine with other ba-fuel data from CEMS
+
+
     print("14. Assigning hourly profiles to monthly EIA-923 data")
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
         hourly_profiles,
