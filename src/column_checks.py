@@ -302,8 +302,10 @@ COLUMNS = {
         "monthly_plant_ratio",
         "subplant_regression_ratio",
         "subplant_regression_shift_mw",
+        "subplant_regression_rsq_adj",
         "plant_regression_ratio",
         "plant_regression_shift_mw",
+        "plant_regression_rsq_adj",
     },
     "shaped_aggregated_plants": {
         "plant_id_eia",
