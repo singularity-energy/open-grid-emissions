@@ -418,6 +418,8 @@ def main():
     print("15. Combining and exporting plant-level hourly results")
     # write metadata outputs
     output_data.write_plant_metadata(
+        plant_attributes,
+        eia923_allocated,
         cems,
         partial_cems_subplant,
         partial_cems_plant,

@@ -278,6 +278,8 @@ def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
 
 
 def write_plant_metadata(
+    plant_static_attributes,
+    eia923_allocated,
     cems,
     partial_cems_subplant,
     partial_cems_plant,
@@ -285,7 +287,12 @@ def write_plant_metadata(
     path_prefix,
     skip_outputs,
 ):
-    """Outputs metadata for each subplant-month."""
+    """
+    Outputs metadata for each subplant-month.
+
+    Include rows for subplants aggregated to a synthetic plant,
+    so users can see when a plant's subplants are split across plant-level and synthetic hourly data files
+    """
 
     KEY_COLUMNS = [
         "plant_id_eia",
@@ -300,15 +307,23 @@ def write_plant_metadata(
     ]
 
     if not skip_outputs:
+        # From monthly EIA data, we want only the EIA-only subplants -- these are the ones that got shaped
+        monthly_eia_to_shape = eia923_allocated[
+            (eia923_allocated["hourly_data_source"] == "eia")
+            & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
+        ]
+
         # identify the source
         cems["data_source"] = "CEMS"
         partial_cems_subplant["data_source"] = "EIA"
         partial_cems_plant["data_source"] = "EIA"
         shaped_eia_data["data_source"] = "EIA"
+        monthly_eia_to_shape["data_source"] = "EIA"
 
         # identify net generation method
         cems = cems.rename(columns={"gtn_method": "net_generation_method"})
         shaped_eia_data["net_generation_method"] = shaped_eia_data["profile_method"]
+        monthly_eia_to_shape["net_generation_method"] = "synthetic_plant"
         partial_cems_subplant["net_generation_method"] = "scaled_partial_cems_subplant"
         partial_cems_plant["net_generation_method"] = "shaped_from_partial_cems_plant"
 
@@ -319,6 +334,7 @@ def write_plant_metadata(
         shaped_eia_data = shaped_eia_data.rename(
             columns={"profile_method": "hourly_profile_source"}
         )
+        monthly_eia_to_shape["hourly_profile_source"] = "synthetic_plant"
 
         # only keep one metadata row per plant/subplant-month
         cems_meta = cems.copy()[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(
@@ -333,6 +349,17 @@ def write_plant_metadata(
         shaped_eia_data_meta = shaped_eia_data.copy()[
             ["plant_id_eia", "report_date"] + METADATA_COLUMNS
         ].drop_duplicates(subset=["plant_id_eia", "report_date"])
+        monthly_eia_meta = monthly_eia_to_shape.copy()[
+            ["plant_id_eia", "report_date"] + METADATA_COLUMNS
+        ].drop_duplicates(subset=["plant_id_eia", "report_date"])
+
+        # For monthly only: specify which synthetic plant we were aggregated to
+        monthly_eia_meta = monthly_eia_meta.merge(
+            plant_static_attributes[["plant_id_eia", "shaped_plant_id"]],
+            how="left",
+            on="plant_id_eia",
+            validate="m:1",  # There can be multiple subplants in monthly EIA for each plant in static attributes
+        )
 
         # concat the metadata into a one file and export
         metadata = pd.concat(
@@ -341,6 +368,7 @@ def write_plant_metadata(
                 partial_cems_subplant_meta,
                 partial_cems_plant_meta,
                 shaped_eia_data_meta,
+                monthly_eia_meta,
             ],
             axis=0,
         )
