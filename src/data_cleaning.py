@@ -1541,7 +1541,7 @@ def combine_plant_data(
     partial_cems_plant,
     eia_data,
     resolution,
-    validate=False,
+    validate=True,
 ):
     """
     Combines final hourly subplant data from each source into a single dataframe.
