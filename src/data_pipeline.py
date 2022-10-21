@@ -378,7 +378,11 @@ def main():
     )
     output_data.output_data_quality_metrics(
         validation.hourly_profile_source_metric(
-            cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data
+            cems,
+            partial_cems_subplant,
+            partial_cems_plant,
+            shaped_eia_data,
+            plant_attributes,
         ),
         "hourly_profile_method",
         path_prefix,

@@ -376,7 +376,7 @@ def calculate_subplant_nameplate_capacity(year):
     ]
 
     subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk.csv"),
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
     gen_capacity = gen_capacity.merge(

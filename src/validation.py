@@ -5,6 +5,7 @@ import load_data
 import impute_hourly_profiles
 from column_checks import get_dtypes
 from filepaths import downloads_folder, manual_folder
+from data_cleaning import CLEAN_FUELS
 
 
 # DATA PIPELINE VALIDATION FUNCTIONS
@@ -465,7 +466,7 @@ def validate_unique_datetimes(df, df_name, keys):
 
 
 def hourly_profile_source_metric(
-    cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data
+    cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, plant_attributes
 ):
     """Calculates the percentage of data whose hourly profile was determined by method"""
     data_metrics = [
@@ -478,24 +479,52 @@ def hourly_profile_source_metric(
         "so2_mass_lb_for_electricity",
     ]
 
+    # add ba codes and fuel categories to all of the data
+    cems = cems.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    partial_cems_subplant = partial_cems_subplant.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    partial_cems_plant = partial_cems_plant.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+
     # determine the source of the hourly profile
-    profile_from_cems = pd.DataFrame(cems[data_metrics].sum(axis=0)).T
+    profile_from_cems = (
+        cems.groupby(["ba_code"], dropna=False)[data_metrics].sum().reset_index()
+    )
     profile_from_cems["profile_method"] = "cems_reported"
 
-    profile_from_partial_cems_subplant = pd.DataFrame(
-        partial_cems_subplant[data_metrics].sum(axis=0)
-    ).T
+    profile_from_partial_cems_subplant = (
+        partial_cems_subplant.groupby(["ba_code"], dropna=False)[data_metrics]
+        .sum()
+        .reset_index()
+    )
     profile_from_partial_cems_subplant[
         "profile_method"
     ] = "eia_scaled_partial_cems_subplant"
 
-    profile_from_partial_cems_plant = pd.DataFrame(
-        partial_cems_plant[data_metrics].sum(axis=0)
-    ).T
+    profile_from_partial_cems_plant = (
+        partial_cems_plant.groupby(["ba_code"], dropna=False)[data_metrics]
+        .sum()
+        .reset_index()
+    )
     profile_from_partial_cems_plant["profile_method"] = "eia_shaped_partial_cems_plant"
 
     profile_from_eia = (
-        shaped_eia_data.groupby("profile_method", dropna=False)[data_metrics]
+        shaped_eia_data.groupby(["ba_code", "profile_method"], dropna=False)[
+            data_metrics
+        ]
         .sum()
         .reset_index()
     )
@@ -511,25 +540,42 @@ def hourly_profile_source_metric(
             profile_from_eia,
         ]
     )
-    profile_source = profile_source.set_index("profile_method")
-    profile_source = (profile_source / profile_source.sum(axis=0)).round(4)
 
-    # re-order values from best quality to lowest quality
-    profile_source = profile_source.reindex(
-        [
-            "cems_reported",
-            "eia_scaled_partial_cems_subplant",
-            "eia_shaped_partial_cems_plant",
-            "eia_shaped_residual_profile",
-            "eia_shaped_shifted_residual_profile",
-            "eia_shaped_eia930_profile",
-            "eia_shaped_cems_profile",
-            "eia_shaped_DIBA_average",
-            "eia_shaped_national_average",
-            "eia_shaped_assumed_flat",
-        ]
+    # groupby and calculate percentages for the entire country
+    national_source = profile_source.groupby("profile_method").sum()
+    national_source = (national_source / national_source.sum(axis=0)).reset_index()
+    national_source["ba_code"] = "US Total"
+
+    profile_source = profile_source.set_index(["ba_code", "profile_method"])
+    # calculate percentages by ba
+    profile_source = (
+        (profile_source / profile_source.groupby(["ba_code"]).sum())
+        .round(4)
+        .reset_index()
     )
-    profile_source = profile_source.reset_index()
+
+    method_order = {
+        "cems_reported": "0_cems_reported",
+        "eia_scaled_partial_cems_subplant": "1_eia_scaled_partial_cems_subplant",
+        "eia_shaped_partial_cems_plant": "2_eia_shaped_partial_cems_plant",
+        "eia_shaped_residual_profile": "3_eia_shaped_residual_profile",
+        "eia_shaped_shifted_residual_profile": "4_eia_shaped_shifted_residual_profile",
+        "eia_shaped_eia930_profile": "5_eia_shaped_eia930_profile",
+        "eia_shaped_cems_profile": "6_eia_shaped_cems_profile",
+        "eia_shaped_DIBA_average": "7_eia_shaped_DIBA_average",
+        "eia_shaped_national_average": "8_eia_shaped_national_average",
+        "eia_shaped_assumed_flat": "9_eia_shaped_assumed_flat",
+    }
+    profile_source["profile_method"] = profile_source["profile_method"].replace(
+        method_order
+    )
+
+    profile_source = profile_source.sort_values(by=["ba_code", "profile_method"])
+
+    profile_source["profile_method"] = profile_source["profile_method"].str[2:]
+
+    # concat the national data to the ba data
+    profile_source = pd.concat([profile_source, national_source], axis=0)
 
     return profile_source
 
@@ -546,6 +592,7 @@ def identify_percent_of_data_by_input_source(
 
     columns_to_use = [
         "net_generation_mwh",
+        "emitting_net_generation_mwh",
         "co2_mass_lb",
         "co2_mass_lb_for_electricity",
         "co2e_mass_lb",
@@ -561,18 +608,54 @@ def identify_percent_of_data_by_input_source(
     partial_cems_subplant = identify_reporting_frequency(partial_cems_subplant, year)
     partial_cems_plant = identify_reporting_frequency(partial_cems_plant, year)
 
-    # add ba codes to all of the data
+    # add ba codes and plant primary fuel to all of the data
     eia_only_data = eia_only_data.merge(
-        plant_attributes[["plant_id_eia", "ba_code"]], how="left", on="plant_id_eia"
+        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
     )
     cems = cems.merge(
-        plant_attributes[["plant_id_eia", "ba_code"]], how="left", on="plant_id_eia"
+        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
     )
     partial_cems_subplant = partial_cems_subplant.merge(
-        plant_attributes[["plant_id_eia", "ba_code"]], how="left", on="plant_id_eia"
+        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
     )
     partial_cems_plant = partial_cems_plant.merge(
-        plant_attributes[["plant_id_eia", "ba_code"]], how="left", on="plant_id_eia"
+        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+
+    # add a column for fossil-based generation
+    # this copies the net generation data if the associated fuel is not clean or geothermal, and otherwise adds a zero
+    # use the generator-specific energy source code for the eia data, otherwise use the pliant primary fuel
+    eia_only_data = eia_only_data.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.energy_source_code.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+        )
+    )
+    cems = cems.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+        )
+    )
+    partial_cems_subplant = partial_cems_subplant.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+        )
+    )
+    partial_cems_plant = partial_cems_plant.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+        )
     )
 
     # associate each dataframe with a data source label
@@ -582,8 +665,7 @@ def identify_percent_of_data_by_input_source(
         "partial_cems_plant": partial_cems_plant,
         "eia": eia_only_data,
     }
-    ## get a count of the number of observations (subplant-hours) from each source
-
+    # get a count of the number of observations (subplant-hours) from each source
     source_of_input_data = []
     for name, df in data_sources.items():
         if len(df) == 0:  # Empty df. May occur when running `small`
