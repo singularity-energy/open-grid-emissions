@@ -447,7 +447,6 @@ def main():
         path_prefix,
         "hourly",
         args.skip_outputs,
-        eia923=eia923_allocated,
     )
 
     # 16. Aggregate CEMS data to BA-fuel and write power sector results

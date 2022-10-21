@@ -134,36 +134,11 @@ def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
         )
 
 
-def _identify_mixed_method_plants(eia923_allocated):
-    """
-    Using eia923 after hourly method assignment,
-    identify plants whose hourly output will not be complete
-    (ie, some subplants are CEMS, partial_cems, or partial_cems_plant,
-    while others are EIA)
-    Helper function for output_plant_data.
-    """
-
-    def split_hourly(hourlies):
-        # if EIA is a method and there is more than one method,
-        # then the hourly plant-level data will not contain all subplants
-        return ("eia" in hourlies.to_list()) & (hourlies.nunique() > 1)
-
-    methods = (
-        eia923_allocated.groupby(["plant_id_eia", "report_date"])
-        .hourly_data_source.apply(split_hourly)
-        .reset_index()
-    )
-    methods = methods[methods.hourly_data_source]
-    return methods.plant_id_eia.unique()
-
-
-def output_plant_data(df, path_prefix, resolution, skip_outputs, eia923=np.NaN):
+def output_plant_data(df, path_prefix, resolution, skip_outputs):
     """
     Helper function for plant-level output.
     Output for each time granularity, and output separately for real and shaped plants
     `df` contains all plant-level data, both CEMS and synthetic.
-    `eia923` is used to identify plants whose hourly data comes from different sources; none
-        of its data is written or modified here (optional, only needed for hourly)
 
     Note: plant-level does not include rates, so all aggregation is summation.
     """
@@ -171,21 +146,16 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, eia923=np.NaN):
         if resolution == "hourly":
             # output hourly data
             # Separately save real and aggregate plants
-            # Separately save complete plant CEMS and subplant CEMS
-            partial_plants = _identify_mixed_method_plants(eia923)
-            for ptype in ["individual", "partial"]:
-                condition = df.plant_id_eia.isin(partial_plants)
-                condition = condition if ptype == "partial" else ~condition
-                output_to_results(
-                    df[(df.plant_id_eia < 900000) & (condition)],
-                    f"{ptype}_plant_data",
-                    "plant_data/hourly/",
-                    path_prefix,
-                    skip_outputs,
-                )
             output_to_results(
                 df[df.plant_id_eia > 900000],
                 "shaped_fleet_data",
+                "plant_data/hourly/",
+                path_prefix,
+                skip_outputs,
+            )
+            output_to_results(
+                df[df.plant_id_eia < 900000],
+                "individual_plant_data",
                 "plant_data/hourly/",
                 path_prefix,
                 skip_outputs,
@@ -323,7 +293,7 @@ def write_plant_metadata(
         # identify net generation method
         cems = cems.rename(columns={"gtn_method": "net_generation_method"})
         shaped_eia_data["net_generation_method"] = shaped_eia_data["profile_method"]
-        monthly_eia_to_shape["net_generation_method"] = "synthetic_plant"
+        monthly_eia_to_shape["net_generation_method"] = "<See shaped plant ID>"
         partial_cems_subplant["net_generation_method"] = "scaled_partial_cems_subplant"
         partial_cems_plant["net_generation_method"] = "shaped_from_partial_cems_plant"
 
@@ -334,7 +304,7 @@ def write_plant_metadata(
         shaped_eia_data = shaped_eia_data.rename(
             columns={"profile_method": "hourly_profile_source"}
         )
-        monthly_eia_to_shape["hourly_profile_source"] = "synthetic_plant"
+        monthly_eia_to_shape["hourly_profile_source"] = "<See shaped plant ID>"
 
         # only keep one metadata row per plant/subplant-month
         cems_meta = cems.copy()[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(
