@@ -3,6 +3,7 @@ import numpy as np
 
 import load_data
 import impute_hourly_profiles
+from emissions import CLEAN_FUELS
 from column_checks import get_dtypes
 from filepaths import downloads_folder, manual_folder
 from data_cleaning import CLEAN_FUELS
@@ -1390,20 +1391,19 @@ def load_egrid_plant_file(year):
     )
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
-    clean_fuels = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
     egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(clean_fuels),
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
     ] = egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(clean_fuels),
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
     ].fillna(
         0
     )
     egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
     ].fillna(
         0
     )

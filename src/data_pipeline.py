@@ -11,6 +11,7 @@ Optional arguments for development are --small, --flat, and --skip_outputs
 # import packages
 import argparse
 import os
+import shutil
 
 # import local modules
 # import local modules
@@ -74,11 +75,17 @@ def main():
     os.makedirs(downloads_folder(), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}/eia930"), exist_ok=True)
-    os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
+    # If we are outputing, wipe results dir so we can be confident there are no old result files (eg because of a file name change)
+    if not args.skip_outputs:
+        shutil.rmtree(results_folder(f"{path_prefix}"))
+        os.makedirs(results_folder(f"{path_prefix}"), exist_ok=False)
+    else:  # still make sure results dir exists, but exist is ok and we won't be writing to it
+        os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(
         results_folder(f"{path_prefix}data_quality_metrics"),
         exist_ok=True,
     )
+    # Make results subfolders
     for unit in ["us_units", "metric_units"]:
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
@@ -122,13 +129,8 @@ def main():
     # 2. Identify subplants
     ####################################################################################
     print("2. Identifying subplant IDs")
-    # GTN ratios are saved for reloading, as this is computationally intensive
-    if not os.path.exists(outputs_folder(f"{year}/subplant_crosswalk.csv")):
-        print("    Generating subplant IDs")
-        number_of_years = args.gtn_years
-        data_cleaning.identify_subplants(year, number_of_years)
-    else:
-        print("    Subplant IDs already created")
+    number_of_years = args.gtn_years
+    data_cleaning.identify_subplants(year, number_of_years)
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
@@ -170,6 +172,14 @@ def main():
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
     )
+    # Export data cleaned by above for later validation, visualization, analysis
+    output_data.output_intermediate_data(
+        eia923_allocated.drop(columns="plant_primary_fuel"),
+        "eia923_allocated",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
     # output data quality metrics about annually-reported EIA-923 data
     output_data.output_data_quality_metrics(
         validation.summarize_annually_reported_eia_data(eia923_allocated, year),
@@ -208,14 +218,7 @@ def main():
         cems,
         partial_cems_subplant,
     ) = impute_hourly_profiles.shape_partial_cems_subplants(cems, eia923_allocated)
-    # Export data cleaned by above for later validation, visualization, analysis
-    output_data.output_intermediate_data(
-        eia923_allocated.drop(columns="plant_primary_fuel"),
-        "eia923_allocated",
-        path_prefix,
-        year,
-        args.skip_outputs,
-    )
+
     validation.validate_unique_datetimes(
         df=partial_cems_subplant,
         df_name="partial_cems_subplant",
@@ -276,7 +279,6 @@ def main():
         (eia923_allocated["hourly_data_source"] == "eia")
         & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
-    del eia923_allocated
     output_data.output_data_quality_metrics(
         validation.identify_percent_of_data_by_input_source(
             cems,
@@ -297,7 +299,6 @@ def main():
         partial_cems_plant,
         monthly_eia_data_to_shape,
         "monthly",
-        True,
     )
     output_data.output_plant_data(
         monthly_plant_data, path_prefix, "monthly", args.skip_outputs
@@ -421,6 +422,8 @@ def main():
     print("15. Combining and exporting plant-level hourly results")
     # write metadata outputs
     output_data.write_plant_metadata(
+        plant_attributes,
+        eia923_allocated,
         cems,
         partial_cems_subplant,
         partial_cems_plant,
@@ -444,7 +447,10 @@ def main():
         keys=["plant_id_eia"],
     )
     output_data.output_plant_data(
-        combined_plant_data, path_prefix, "hourly", args.skip_outputs
+        combined_plant_data,
+        path_prefix,
+        "hourly",
+        args.skip_outputs,
     )
 
     # 16. Aggregate CEMS data to BA-fuel and write power sector results
