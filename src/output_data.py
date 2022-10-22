@@ -278,22 +278,22 @@ def write_plant_metadata(
 
     if not skip_outputs:
         # From monthly EIA data, we want only the EIA-only subplants -- these are the ones that got shaped
-        monthly_eia_to_shape = eia923_allocated[
+        eia_only_subplants = eia923_allocated[
             (eia923_allocated["hourly_data_source"] == "eia")
             & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
-        ]
+        ].copy()
 
         # identify the source
         cems["data_source"] = "CEMS"
         partial_cems_subplant["data_source"] = "EIA"
         partial_cems_plant["data_source"] = "EIA"
         shaped_eia_data["data_source"] = "EIA"
-        monthly_eia_to_shape["data_source"] = "EIA"
+        eia_only_subplants["data_source"] = "EIA"
 
         # identify net generation method
         cems = cems.rename(columns={"gtn_method": "net_generation_method"})
         shaped_eia_data["net_generation_method"] = shaped_eia_data["profile_method"]
-        monthly_eia_to_shape["net_generation_method"] = "<See shaped plant ID>"
+        eia_only_subplants["net_generation_method"] = "<See shaped plant ID>"
         partial_cems_subplant["net_generation_method"] = "scaled_partial_cems_subplant"
         partial_cems_plant["net_generation_method"] = "shaped_from_partial_cems_plant"
 
@@ -304,7 +304,7 @@ def write_plant_metadata(
         shaped_eia_data = shaped_eia_data.rename(
             columns={"profile_method": "hourly_profile_source"}
         )
-        monthly_eia_to_shape["hourly_profile_source"] = "<See shaped plant ID>"
+        eia_only_subplants["hourly_profile_source"] = "<See shaped plant ID>"
 
         # only keep one metadata row per plant/subplant-month
         cems_meta = cems.copy()[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(
@@ -319,7 +319,7 @@ def write_plant_metadata(
         shaped_eia_data_meta = shaped_eia_data.copy()[
             ["plant_id_eia", "report_date"] + METADATA_COLUMNS
         ].drop_duplicates(subset=["plant_id_eia", "report_date"])
-        monthly_eia_meta = monthly_eia_to_shape.copy()[
+        monthly_eia_meta = eia_only_subplants.copy()[
             ["plant_id_eia", "report_date"] + METADATA_COLUMNS
         ].drop_duplicates(subset=["plant_id_eia", "report_date"])
 
