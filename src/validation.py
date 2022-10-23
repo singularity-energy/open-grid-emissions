@@ -1638,6 +1638,12 @@ def segment_plants_by_known_issues(
         annual_plant_results_segmented["plant_primary_fuel"] == "NUC", "flag_nuclear"
     ] = 1
 
+    # landfill gas
+    annual_plant_results_segmented["flag_lfg"] = 0
+    annual_plant_results_segmented.loc[
+        annual_plant_results_segmented["plant_primary_fuel"] == "LFG", "flag_lfg"
+    ] = 1
+
     # fuel cells
     gens_eia860 = pudl_out.gens_eia860()
     PLANTS_WITH_FUEL_CELLS = list(
