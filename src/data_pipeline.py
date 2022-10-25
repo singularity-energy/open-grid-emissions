@@ -75,9 +75,10 @@ def main():
     os.makedirs(downloads_folder(), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}/eia930"), exist_ok=True)
-    # If we are outputing, wipe results dir so we can be confident there are no old result files (eg because of a file name change)
     if not args.skip_outputs:
-        shutil.rmtree(results_folder(f"{path_prefix}"))
+        # If we are outputing, wipe results dir so we can be confident there are no old result files (eg because of a file name change)
+        if os.path.exists(results_folder(f"{path_prefix}")):
+            shutil.rmtree(results_folder(f"{path_prefix}"))
         os.makedirs(results_folder(f"{path_prefix}"), exist_ok=False)
     else:  # still make sure results dir exists, but exist is ok and we won't be writing to it
         os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
@@ -286,6 +287,7 @@ def main():
             partial_cems_plant,
             monthly_eia_data_to_shape,
             year,
+            plant_attributes,
         ),
         "input_data_source",
         path_prefix,
@@ -378,7 +380,11 @@ def main():
     )
     output_data.output_data_quality_metrics(
         validation.hourly_profile_source_metric(
-            cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data
+            cems,
+            partial_cems_subplant,
+            partial_cems_plant,
+            shaped_eia_data,
+            plant_attributes,
         ),
         "hourly_profile_method",
         path_prefix,
@@ -426,8 +432,16 @@ def main():
         path_prefix,
         args.skip_outputs,
     )
+    # set validate parameter to False since validating non-overlapping data requires subplant-level data
+    # since the shaped eia data is at the fleet level, this check will not work.
+    # However, we already checked for non-overlapping data in step 11 when combining monthly data
     combined_plant_data = data_cleaning.combine_plant_data(
-        cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, "hourly"
+        cems,
+        partial_cems_subplant,
+        partial_cems_plant,
+        shaped_eia_data,
+        "hourly",
+        False,
     )
     del (
         shaped_eia_data,
