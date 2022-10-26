@@ -335,10 +335,11 @@ def calculate_gross_to_net_conversion_factors(
         columns={
             "slope": "subplant_regression_ratio",
             "intercept": "subplant_regression_shift_mw",
+            "rsquared_adj": "subplant_regression_rsq_adj",
         }
     )
     gtn_regression_subplant = gtn_regression_subplant.drop(
-        columns=["rsquared", "rsquared_adj", "observations"]
+        columns=["rsquared", "observations"]
     )
 
     gtn_regression_plant = gross_to_net_regression(combined_gen_data, "plant")
@@ -349,10 +350,11 @@ def calculate_gross_to_net_conversion_factors(
         columns={
             "slope": "plant_regression_ratio",
             "intercept": "plant_regression_shift_mw",
+            "rsquared_adj": "plant_regression_rsq_adj",
         }
     )
     gtn_regression_plant = gtn_regression_plant.drop(
-        columns=["rsquared", "rsquared_adj", "observations"]
+        columns=["rsquared", "observations"]
     )
 
     gtn_conversions = gtn_conversions.merge(
@@ -376,7 +378,7 @@ def calculate_subplant_nameplate_capacity(year):
     ]
 
     subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk.csv"),
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
     gen_capacity = gen_capacity.merge(
@@ -748,9 +750,9 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     # load the activation and retirement dates into the data
     subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk.csv"),
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
-    )
+    ).dropna(subset="unitid")
     incomplete_data = incomplete_data.merge(
         subplant_crosswalk,
         how="left",

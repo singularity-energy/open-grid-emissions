@@ -185,6 +185,7 @@ COLUMNS = {
         "data_source",
         "hourly_profile_source",
         "net_generation_method",
+        "shaped_plant_id",
     },
     "hourly_profiles": {
         "ba_code",
@@ -302,8 +303,10 @@ COLUMNS = {
         "monthly_plant_ratio",
         "subplant_regression_ratio",
         "subplant_regression_shift_mw",
+        "subplant_regression_rsq_adj",
         "plant_regression_ratio",
         "plant_regression_shift_mw",
+        "plant_regression_rsq_adj",
     },
     "shaped_aggregated_plants": {
         "plant_id_eia",
