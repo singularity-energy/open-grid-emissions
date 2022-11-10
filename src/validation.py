@@ -3,6 +3,7 @@ import numpy as np
 
 import load_data
 import impute_hourly_profiles
+from emissions import CLEAN_FUELS
 from column_checks import get_dtypes
 from filepaths import downloads_folder, manual_folder
 
@@ -465,7 +466,7 @@ def validate_unique_datetimes(df, df_name, keys):
 
 
 def hourly_profile_source_metric(
-    cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data
+    cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, plant_attributes
 ):
     """Calculates the percentage of data whose hourly profile was determined by method"""
     data_metrics = [
@@ -478,24 +479,52 @@ def hourly_profile_source_metric(
         "so2_mass_lb_for_electricity",
     ]
 
+    # add ba codes and fuel categories to all of the data
+    cems = cems.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    partial_cems_subplant = partial_cems_subplant.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    partial_cems_plant = partial_cems_plant.merge(
+        plant_attributes[["plant_id_eia", "ba_code"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+
     # determine the source of the hourly profile
-    profile_from_cems = pd.DataFrame(cems[data_metrics].sum(axis=0)).T
+    profile_from_cems = (
+        cems.groupby(["ba_code"], dropna=False)[data_metrics].sum().reset_index()
+    )
     profile_from_cems["profile_method"] = "cems_reported"
 
-    profile_from_partial_cems_subplant = pd.DataFrame(
-        partial_cems_subplant[data_metrics].sum(axis=0)
-    ).T
+    profile_from_partial_cems_subplant = (
+        partial_cems_subplant.groupby(["ba_code"], dropna=False)[data_metrics]
+        .sum()
+        .reset_index()
+    )
     profile_from_partial_cems_subplant[
         "profile_method"
     ] = "eia_scaled_partial_cems_subplant"
 
-    profile_from_partial_cems_plant = pd.DataFrame(
-        partial_cems_plant[data_metrics].sum(axis=0)
-    ).T
+    profile_from_partial_cems_plant = (
+        partial_cems_plant.groupby(["ba_code"], dropna=False)[data_metrics]
+        .sum()
+        .reset_index()
+    )
     profile_from_partial_cems_plant["profile_method"] = "eia_shaped_partial_cems_plant"
 
     profile_from_eia = (
-        shaped_eia_data.groupby("profile_method", dropna=False)[data_metrics]
+        shaped_eia_data.groupby(["ba_code", "profile_method"], dropna=False)[
+            data_metrics
+        ]
         .sum()
         .reset_index()
     )
@@ -511,36 +540,59 @@ def hourly_profile_source_metric(
             profile_from_eia,
         ]
     )
-    profile_source = profile_source.set_index("profile_method")
-    profile_source = (profile_source / profile_source.sum(axis=0)).round(4)
 
-    # re-order values from best quality to lowest quality
-    profile_source = profile_source.reindex(
-        [
-            "cems_reported",
-            "eia_scaled_partial_cems_subplant",
-            "eia_shaped_partial_cems_plant",
-            "eia_shaped_residual_profile",
-            "eia_shaped_shifted_residual_profile",
-            "eia_shaped_eia930_profile",
-            "eia_shaped_cems_profile",
-            "eia_shaped_DIBA_average",
-            "eia_shaped_national_average",
-            "eia_shaped_assumed_flat",
-        ]
+    # groupby and calculate percentages for the entire country
+    national_source = profile_source.groupby("profile_method").sum()
+    national_source = (national_source / national_source.sum(axis=0)).reset_index()
+    national_source["ba_code"] = "US Total"
+
+    profile_source = profile_source.set_index(["ba_code", "profile_method"])
+    # calculate percentages by ba
+    profile_source = (
+        (profile_source / profile_source.groupby(["ba_code"]).sum())
+        .round(4)
+        .reset_index()
     )
-    profile_source = profile_source.reset_index()
+
+    method_order = {
+        "cems_reported": "0_cems_reported",
+        "eia_scaled_partial_cems_subplant": "1_eia_scaled_partial_cems_subplant",
+        "eia_shaped_partial_cems_plant": "2_eia_shaped_partial_cems_plant",
+        "eia_shaped_residual_profile": "3_eia_shaped_residual_profile",
+        "eia_shaped_shifted_residual_profile": "4_eia_shaped_shifted_residual_profile",
+        "eia_shaped_eia930_profile": "5_eia_shaped_eia930_profile",
+        "eia_shaped_cems_profile": "6_eia_shaped_cems_profile",
+        "eia_shaped_DIBA_average": "7_eia_shaped_DIBA_average",
+        "eia_shaped_national_average": "8_eia_shaped_national_average",
+        "eia_shaped_assumed_flat": "9_eia_shaped_assumed_flat",
+    }
+    profile_source["profile_method"] = profile_source["profile_method"].replace(
+        method_order
+    )
+
+    profile_source = profile_source.sort_values(by=["ba_code", "profile_method"])
+
+    profile_source["profile_method"] = profile_source["profile_method"].str[2:]
+
+    # concat the national data to the ba data
+    profile_source = pd.concat([profile_source, national_source], axis=0)
 
     return profile_source
 
 
 def identify_percent_of_data_by_input_source(
-    cems, partial_cems_subplant, partial_cems_plant, eia_only_data, year
+    cems,
+    partial_cems_subplant,
+    partial_cems_plant,
+    eia_only_data,
+    year,
+    plant_attributes,
 ):
     """Identifies what percent of output data comes from each input source (CEMS or EIA)."""
 
     columns_to_use = [
         "net_generation_mwh",
+        "emitting_net_generation_mwh",
         "co2_mass_lb",
         "co2_mass_lb_for_electricity",
         "co2e_mass_lb",
@@ -556,6 +608,56 @@ def identify_percent_of_data_by_input_source(
     partial_cems_subplant = identify_reporting_frequency(partial_cems_subplant, year)
     partial_cems_plant = identify_reporting_frequency(partial_cems_plant, year)
 
+    # add ba codes and plant primary fuel to all of the data
+    eia_only_data = eia_only_data.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    cems = cems.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    partial_cems_subplant = partial_cems_subplant.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    partial_cems_plant = partial_cems_plant.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+
+    # add a column for fossil-based generation
+    # this copies the net generation data if the associated fuel is not clean or geothermal, and otherwise adds a zero
+    # use the generator-specific energy source code for the eia data, otherwise use the pliant primary fuel
+    eia_only_data = eia_only_data.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.energy_source_code.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+        )
+    )
+    cems = cems.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+        )
+    )
+    partial_cems_subplant = partial_cems_subplant.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+        )
+    )
+    partial_cems_plant = partial_cems_plant.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+        )
+    )
+
     # associate each dataframe with a data source label
     data_sources = {
         "cems": cems,
@@ -563,8 +665,7 @@ def identify_percent_of_data_by_input_source(
         "partial_cems_plant": partial_cems_plant,
         "eia": eia_only_data,
     }
-    ## get a count of the number of observations (subplant-hours) from each source
-
+    # get a count of the number of observations (subplant-hours) from each source
     source_of_input_data = []
     for name, df in data_sources.items():
         if len(df) == 0:  # Empty df. May occur when running `small`
@@ -572,7 +673,8 @@ def identify_percent_of_data_by_input_source(
             continue
         if name == "eia":
             subplant_data = df.groupby(
-                ["plant_id_eia", "subplant_id", "eia_data_resolution"], dropna=False
+                ["ba_code", "plant_id_eia", "subplant_id", "eia_data_resolution"],
+                dropna=False,
             ).sum()[columns_to_use]
             # because EIA data is not hourly, we have to multiply the number of subplants by the number of hours in a year
             if year % 4 == 0:
@@ -583,7 +685,7 @@ def identify_percent_of_data_by_input_source(
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby("eia_data_resolution", dropna=False)
+                .groupby(["ba_code", "eia_data_resolution"], dropna=False)
                 .sum()[["subplant_hours"] + columns_to_use]
                 .reset_index()
             )
@@ -591,20 +693,30 @@ def identify_percent_of_data_by_input_source(
                 columns={"eia_data_resolution": "source"}
             )
             subplant_data["source"] = subplant_data["source"].replace(
-                {"annual": "eia_annual", "monthly": "eia_monthly"}
+                {
+                    "annual": "eia_annual",
+                    "monthly": "eia_monthly",
+                    "multiple": "eia_multiple",
+                }
             )
             source_of_input_data.append(subplant_data)
         # for the partial cems data
         elif (name == "partial_cems_subplant") | (name == "partial_cems_plant"):
             subplant_data = df.groupby(
-                ["plant_id_eia", "subplant_id", "datetime_utc", "eia_data_resolution"],
+                [
+                    "ba_code",
+                    "plant_id_eia",
+                    "subplant_id",
+                    "datetime_utc",
+                    "eia_data_resolution",
+                ],
                 dropna=False,
             ).sum()[columns_to_use]
             subplant_data["subplant_hours"] = 1
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby("eia_data_resolution", dropna=False)
+                .groupby(["ba_code", "eia_data_resolution"], dropna=False)
                 .sum()[["subplant_hours"] + columns_to_use]
                 .reset_index()
             )
@@ -612,20 +724,24 @@ def identify_percent_of_data_by_input_source(
                 columns={"eia_data_resolution": "source"}
             )
             subplant_data["source"] = subplant_data["source"].replace(
-                {"annual": "eia_annual", "monthly": "eia_monthly"}
+                {
+                    "annual": "eia_annual",
+                    "monthly": "eia_monthly",
+                    "multiple": "eia_multiple",
+                }
             )
             source_of_input_data.append(subplant_data)
         # for the cems data
         else:
             subplant_data = df.groupby(
-                ["plant_id_eia", "subplant_id", "datetime_utc"], dropna=False
+                ["ba_code", "plant_id_eia", "subplant_id", "datetime_utc"], dropna=False
             ).sum()[columns_to_use]
             subplant_data["subplant_hours"] = 1
             subplant_data["source"] = "cems_hourly"
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby("source", dropna=False)
+                .groupby(["ba_code", "source"], dropna=False)
                 .sum()[["subplant_hours"] + columns_to_use]
                 .reset_index()
             )
@@ -634,11 +750,18 @@ def identify_percent_of_data_by_input_source(
     # concat the dataframes together
     source_of_input_data = pd.concat(source_of_input_data, axis=0)
 
-    # groupby and calculate percentages
-    source_of_input_data = source_of_input_data.groupby("source").sum()
-    source_of_input_data = source_of_input_data / source_of_input_data.sum(axis=0)
+    # groupby and calculate percentages for the entire country
+    national_source = source_of_input_data.groupby("source").sum()
+    national_source = (national_source / national_source.sum(axis=0)).reset_index()
+    national_source["ba_code"] = "US Total"
 
-    source_of_input_data = source_of_input_data.reset_index()
+    # calculate percentages by ba
+    source_of_input_data = (
+        source_of_input_data.groupby(["ba_code", "source"]).sum()
+        / source_of_input_data.groupby(["ba_code"]).sum()
+    ).reset_index()
+    # concat the national data to the ba data
+    source_of_input_data = pd.concat([source_of_input_data, national_source], axis=0)
 
     return source_of_input_data
 
@@ -651,7 +774,10 @@ def identify_reporting_frequency(eia923_allocated, year):
     pudl_out = load_data.initialize_pudl_out(year)
     plant_frequency = pudl_out.plants_eia860()[
         ["plant_id_eia", "reporting_frequency_code"]
-    ]
+    ].copy()
+    plant_frequency["reporting_frequency_code"] = plant_frequency[
+        "reporting_frequency_code"
+    ].fillna("multiple")
     # rename the column and recode the values
     plant_frequency = plant_frequency.rename(
         columns={"reporting_frequency_code": "eia_data_resolution"}
@@ -831,7 +957,7 @@ def summarize_cems_measurement_quality(cems):
     # drop NA values
     cems_quality_summary = cems_quality_summary.loc[["Measured", "Imputed"], :]
     cems_quality_summary = cems_quality_summary.reset_index()
-    
+
     return cems_quality_summary
 
 
@@ -1264,20 +1390,19 @@ def load_egrid_plant_file(year):
     )
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
-    clean_fuels = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
     egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(clean_fuels),
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
     ] = egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(clean_fuels),
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
     ].fillna(
         0
     )
     egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(clean_fuels), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
     ].fillna(
         0
     )

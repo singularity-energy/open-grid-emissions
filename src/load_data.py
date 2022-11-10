@@ -136,6 +136,59 @@ def crosswalk_epa_eia_plant_ids(cems, year):
     return cems
 
 
+def load_cems_ids(start_year, end_year):
+    """Loads CEMS ids for multiple years."""
+    cems_all = []
+
+    for year in range(start_year, end_year + 1):
+        # specify the path to the CEMS data
+        cems_path = downloads_folder(f"pudl/pudl_data/parquet/epacems/year={year}")
+
+        # load the CEMS data
+        cems = pd.read_parquet(
+            cems_path,
+            columns=[
+                "plant_id_eia",
+                "unitid",
+                "unit_id_epa",
+            ],
+        )
+
+        # drop duplicate ids to reduce size
+        cems = cems[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
+
+        # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE
+        # column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
+        # rename the heat content column to use the convention used in the EIA data
+        cems = cems.rename(
+            columns={
+                "plant_id_eia": "plant_id_epa",
+            }
+        )
+
+        # if the unitid has any leading zeros, remove them
+        cems["unitid"] = cems["unitid"].str.lstrip("0")
+
+        # crosswalk the plant IDs and add a plant_id_eia column
+        cems = crosswalk_epa_eia_plant_ids(cems, year)
+
+        cems = cems[
+            [
+                "plant_id_eia",
+                "unitid",
+                "unit_id_epa",
+            ]
+        ]
+
+        cems_all.append(cems)
+
+    cems = pd.concat(cems_all, axis=0).reset_index()
+
+    cems = cems[["plant_id_eia", "unitid", "unit_id_epa"]].drop_duplicates()
+
+    return cems
+
+
 def load_cems_gross_generation(start_year, end_year):
     """Loads hourly CEMS gross generation data for multiple years."""
     cems_all = []
@@ -520,7 +573,7 @@ def load_gross_to_net_data(
     # if loading regression data, add a count of units in each subplant to the regression results
     if conversion_type == "regression":
         subplant_crosswalk = pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk.csv"),
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
             dtype=get_dtypes(),
         )
         subplant_crosswalk = subplant_crosswalk[

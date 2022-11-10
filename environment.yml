@@ -28,6 +28,6 @@ dependencies:
 
   - pip:
       #- --editable ../pudl #NOTE: this is for Greg's use for development
-      - git+https://github.com/grgmiller/pudl.git@allocate_fuel#egg=catalystcoop.pudl
+      - git+https://github.com/grgmiller/pudl.git@oge#egg=catalystcoop.pudl
       # - --editable ../gridemissions # NOTE: for Gailin's development use
       - git+https://github.com/gailin-p/gridemissions#egg=gridemissions

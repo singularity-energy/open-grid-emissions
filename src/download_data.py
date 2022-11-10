@@ -138,7 +138,7 @@ def download_pudl(zenodo_url, pudl_version):
 
 def download_updated_pudl_database(download=True):
     """
-    Downloaded the updated `pudl.sqlite` file from datasette.
+    Downloaded the updated `pudl.sqlite` file from datasette, currently archived on our zenodo.
 
     This is temporary until a new version of the data is published on zenodo.
     """
@@ -147,10 +147,16 @@ def download_updated_pudl_database(download=True):
         # remove the existing file from zenodo
         os.remove(downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite"))
 
-        r = requests.get("https://data.catalyst.coop/pudl.db", stream=True)
-        with open(downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite"), "wb") as fd:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                fd.write(chunk)
+
+        url = "https://zenodo.org/record/7063072/files/pudl_data.zip?download=1"
+        download_filepath = downloads_folder("pudl/pudl_data/sqlite/pudl_data.zip")
+        output_filepath = downloads_folder("pudl/pudl_data/sqlite/pudl")
+        download_data.download_helper(
+            url, download_filepath, output_filepath, requires_unzip=True, should_clean=True
+        )
+        shutil.move(downloads_folder("pudl/pudl_data/sqlite/pudl/pudl.sqlite"), downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite"))
+        os.rmdir(downloads_folder("pudl/pudl_data/sqlite/pudl/"))
+
 
 
 def download_chalendar_files():

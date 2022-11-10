@@ -2,6 +2,8 @@ plant_id_epa,unitid,plant_id_eia,generator_id,notes
 389,3,389,3,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 1363,7A,1363,7A,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 1363,7B,1363,7B,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+1393,1A,1393,1,CAMD_UNIT_ID matches boiler_id and reported fuel consumption matches
+1393,2A,1393,2,CAMD_UNIT_ID matches boiler_id and reported fuel consumption matches
 1393,3,1393,3,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
 1570,11,1570,11,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 1570,9,1570,9,CAMD_UNIT_ID matches EIA_GENERATOR_ID
