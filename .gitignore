@@ -3,7 +3,7 @@ data/*
 
 example/.ipynb_checkpoints/
 test/__pycache__/
-src/open-grid-emissions/__pycache__/
+src/opengridemissions/__pycache__/
 
 CHANGELOG.md
 

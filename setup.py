@@ -3,7 +3,7 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="open-grid-emissions",
+    name="opengridemissions",
     # setuptools_scm lets us automagically get package version from GitHub tags
     setup_requires=["setuptools_scm"],
     use_scm_version=True,
