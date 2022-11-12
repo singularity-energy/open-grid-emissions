@@ -10,7 +10,7 @@ def top_folder(rel=""):
     This will work regardless of where the function is imported or called from.
     """
     return os.path.join(
-        os.path.abspath(os.path.join(os.path.realpath(__file__), "../../")), rel
+        os.path.abspath(os.path.join(os.path.realpath(__file__), "../../../")), rel
     )
 
 
