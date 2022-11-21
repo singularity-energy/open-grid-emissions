@@ -186,7 +186,7 @@ def reformat_chalendar(raw):
     return cleaned
 
 
-def load_chalendar(fname: str, year: int = 2020):
+def load_chalendar(fname: str, year: int):
     raw = pd.read_csv(fname, index_col=0, parse_dates=True)
     raw = raw[raw.index.year == year]
     return reformat_chalendar(raw)

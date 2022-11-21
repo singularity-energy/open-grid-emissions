@@ -3,7 +3,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
-Optional arguments are --year (default 2020), --gtn_years (default 5)
+Optional arguments are --year (default 2021), --gtn_years (default 5)
 Optional arguments for development are --small, --flat, and --skip_outputs
 """
 
@@ -34,7 +34,7 @@ def get_args():
     Returns dictionary of {arg_name: arg_value}
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--year", help="Year for analysis", default=2020, type=int)
+    parser.add_argument("--year", help="Year for analysis", default=2021, type=int)
     parser.add_argument(
         "--gtn_years",
         help="Number of years to use to calculate GTN ratio regressions, ending at `year`",

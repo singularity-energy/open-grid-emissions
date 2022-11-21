@@ -16,7 +16,7 @@ def validate_year(year):
     """Returns a warning if the year specified is not known to work with the pipeline."""
 
     earliest_validated_year = 2019
-    latest_validated_year = 2020
+    latest_validated_year = 2021
 
     if year < earliest_validated_year:
         year_warning = f"""

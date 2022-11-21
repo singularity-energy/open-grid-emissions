@@ -4,7 +4,7 @@ import os
 import sqlalchemy as sa
 
 import pudl.analysis.allocate_net_gen as allocate_gen_fuel
-import pudl.analysis.epa_crosswalk as epa_crosswalk
+import pudl.analysis.epacamd_eia as epacamd_eia_crosswalk
 import pudl.output.pudltabl
 
 import load_data
@@ -88,10 +88,10 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
 
     # filter the crosswalk to drop any units that don't exist in CEMS
-    filtered_crosswalk = epa_crosswalk.filter_crosswalk(crosswalk, cems_ids)[
+    filtered_crosswalk = epacamd_eia_crosswalk.filter_crosswalk(crosswalk, cems_ids)[
         [
             "plant_id_eia",
-            "unitid",
+            "emissions_unit_id_epa",
             "CAMD_PLANT_ID",
             "CAMD_UNIT_ID",
             "CAMD_GENERATOR_ID",
@@ -103,17 +103,17 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     # change the plant id to an int
     filtered_crosswalk["EIA_PLANT_ID"] = filtered_crosswalk["EIA_PLANT_ID"].astype(int)
     # use graph analysis to identify subplants
-    crosswalk_with_subplant_ids = epa_crosswalk.make_subplant_ids(filtered_crosswalk)
+    crosswalk_with_subplant_ids = epacamd_eia_crosswalk.make_subplant_ids(filtered_crosswalk)
 
     # fix the column names
     crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.drop(
-        columns=["plant_id_eia", "unitid", "CAMD_GENERATOR_ID"]
+        columns=["plant_id_eia", "emissions_unit_id_epa", "CAMD_GENERATOR_ID"]
     )
     crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.rename(
         columns={
             "CAMD_PLANT_ID": "plant_id_epa",
             "EIA_PLANT_ID": "plant_id_eia",
-            "CAMD_UNIT_ID": "unitid",
+            "CAMD_UNIT_ID": "emissions_unit_id_epa",
             "EIA_GENERATOR_ID": "generator_id",
         }
     )
@@ -124,7 +124,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
 
     # change the order of the columns
     crosswalk_with_subplant_ids = crosswalk_with_subplant_ids[
-        ["plant_id_epa", "unitid", "plant_id_eia", "generator_id", "subplant_id"]
+        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia", "generator_id", "subplant_id"]
     ]
 
     # update the subplant_crosswalk to ensure completeness
@@ -139,11 +139,11 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
         on=["plant_id_eia", "generator_id"],
         validate="m:1",
     )
-    # also add a complete list of cems unitid
+    # also add a complete list of cems emissions_unit_id_epa
     subplant_crosswalk_complete = subplant_crosswalk_complete.merge(
-        cems_ids[["plant_id_eia", "unitid"]].drop_duplicates(),
+        cems_ids[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates(),
         how="outer",
-        on=["plant_id_eia", "unitid"],
+        on=["plant_id_eia", "emissions_unit_id_epa"],
         validate="m:1",
     )
     # update the subplant ids for each plant
@@ -158,7 +158,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     subplant_crosswalk_complete = subplant_crosswalk_complete.reset_index(drop=True)[
         [
             "plant_id_epa",
-            "unitid",
+            "emissions_unit_id_epa",
             "plant_id_eia",
             "generator_id",
             "subplant_id",
@@ -169,7 +169,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     subplant_crosswalk_complete = subplant_crosswalk_complete.drop_duplicates(
         subset=[
             "plant_id_epa",
-            "unitid",
+            "emissions_unit_id_epa",
             "plant_id_eia",
             "generator_id",
             "subplant_id",
@@ -196,7 +196,7 @@ def update_subplant_ids(subplant_crosswalk):
     Ensures a complete and accurate subplant_id mapping for all generators.
 
     NOTE:
-        1. This function is a temporary placeholder until the `pudl.analysis.epa_crosswalk` code is updated.
+        1. This function is a temporary placeholder until the `pudl.analysis.epacamd_eia_crosswalk` code is updated.
         2. This function is meant to be applied using a .groupby("plant_id_eia").apply() function. This function
         will only properly work when applied to a single plant_id_eia at a time.
 
@@ -234,12 +234,12 @@ def update_subplant_ids(subplant_crosswalk):
         new subplant_id to this group of generators. If there are still generators at a plant that have both NA subplant_id
         and NA unit_id_pudl, we for now assume that each of these generators consitutes its own subplant. We thus assign a unique
         subplant_id to each generator that is unique from any existing subplant_id already at the plant.
-        In the case that there are multiple unitid at a plant that are not matched to any other identifiers (generator_id,
+        In the case that there are multiple emissions_unit_id_epa at a plant that are not matched to any other identifiers (generator_id,
         unit_id_pudl, or subplant_id), as is the case when there are units that report to CEMS but which do not exist in the EIA
         data, we assign these units to a single subplant.
 
         Args:
-            subplant_crosswalk: a dataframe containing the output of `epa_crosswalk.make_subplant_ids` with
+            subplant_crosswalk: a dataframe containing the output of `epacamd_eia_crosswalk.make_subplant_ids` with
     """
     # Step 1: Create corrected versions of subplant_id and unit_id_pudl
     # if multiple unit_id_pudl are connected by a single subplant_id, unit_id_pudl_connected groups these unit_id_pudl together
@@ -394,7 +394,7 @@ def manual_crosswalk_updates(crosswalk):
     crosswalk_manual = crosswalk_manual.rename(
         columns={
             "plant_id_epa": "CAMD_PLANT_ID",
-            "unitid": "CAMD_UNIT_ID",
+            "emissions_unit_id_epa": "CAMD_UNIT_ID",
             "plant_id_eia": "EIA_PLANT_ID",
             "generator_id": "EIA_GENERATOR_ID",
         }
@@ -881,12 +881,12 @@ def clean_cems(year: int, small: bool, primary_fuel_table):
         pd.read_csv(
             outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
             dtype=get_dtypes(),
-        )[["plant_id_eia", "unitid", "subplant_id"]]
+        )[["plant_id_eia", "emissions_unit_id_epa", "subplant_id"]]
         .drop_duplicates()
-        .dropna(subset="unitid")
+        .dropna(subset="emissions_unit_id_epa")
     )
     cems = cems.merge(
-        subplant_crosswalk, how="left", on=["plant_id_eia", "unitid"], validate="m:1"
+        subplant_crosswalk, how="left", on=["plant_id_eia", "emissions_unit_id_epa"], validate="m:1"
     )
     validation.test_for_missing_subplant_id(cems)
 
@@ -919,7 +919,7 @@ def manually_remove_steam_units(df):
     units_to_remove = pd.read_csv(
         manual_folder("steam_units_to_remove.csv"),
         dtype=get_dtypes(),
-    )[["plant_id_eia", "unitid"]]
+    )[["plant_id_eia", "emissions_unit_id_epa"]]
 
     print(
         f"    Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
@@ -928,7 +928,7 @@ def manually_remove_steam_units(df):
     df = df.merge(
         units_to_remove,
         how="outer",
-        on=["plant_id_eia", "unitid"],
+        on=["plant_id_eia", "emissions_unit_id_epa"],
         indicator="source",
         validate="m:1",
     )
@@ -941,8 +941,8 @@ def remove_incomplete_unit_months(cems):
 
     # get a count of how many hours are reported in each month for each unit
     unit_hours_in_month = (
-        cems[["plant_id_eia", "report_date", "unitid", "datetime_utc"]]
-        .groupby(["plant_id_eia", "report_date", "unitid"], dropna=False)
+        cems[["plant_id_eia", "report_date", "emissions_unit_id_epa", "datetime_utc"]]
+        .groupby(["plant_id_eia", "report_date", "emissions_unit_id_epa"], dropna=False)
         .count()
         .reset_index()
     )
@@ -960,7 +960,7 @@ def remove_incomplete_unit_months(cems):
     cems = cems.merge(
         unit_months_to_remove,
         how="outer",
-        on=["plant_id_eia", "report_date", "unitid"],
+        on=["plant_id_eia", "report_date", "emissions_unit_id_epa"],
         validate="m:1",
         indicator="to_remove",
     )
@@ -977,14 +977,14 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
 
     # merge in the reported fuel type
     cems = cems.merge(
-        fuel_types, how="left", on=["plant_id_epa", "unitid"], validate="m:1"
+        fuel_types, how="left", on=["plant_id_epa", "emissions_unit_id_epa"], validate="m:1"
     )
 
     # fill missing fuel codes for plants that only have a single fuel type
     single_fuel_plants = (
         fuel_types.drop_duplicates(subset=["plant_id_epa", "energy_source_code"])
         .drop_duplicates(subset=["plant_id_epa"], keep=False)
-        .drop(columns="unitid")
+        .drop(columns="emissions_unit_id_epa")
     )
     cems = cems.merge(
         single_fuel_plants,
@@ -1027,14 +1027,14 @@ def get_epa_unit_fuel_types(year):
     """
     # get a unique list of plant unit fuels
     fuel_types = load_data.load_epa_eia_crosswalk(year)[
-        ["plant_id_epa", "unitid", "energy_source_code_eia"]
+        ["plant_id_epa", "emissions_unit_id_epa", "energy_source_code_eia"]
     ].drop_duplicates()
 
     fuel_types = fuel_types.dropna(subset="energy_source_code_eia")
 
     # remove any entries where there are multiple fuel types listed
     fuel_types = fuel_types[
-        ~fuel_types[["plant_id_epa", "unitid"]].duplicated(keep=False)
+        ~fuel_types[["plant_id_epa", "emissions_unit_id_epa"]].duplicated(keep=False)
     ]
 
     # rename the column
@@ -1110,13 +1110,13 @@ def remove_cems_with_zero_monthly_data(cems):
     Identifies months where zero generation or heat inputare reported.
     from each unit and removes associated hours from CEMS so that these can be filled using the eia923 data
     Inputs:
-        cems: pandas dataframe of hourly cems data containing columns "plant_id_eia", "unitid" and "report_date"
+        cems: pandas dataframe of hourly cems data containing columns "plant_id_eia", "emissions_unit_id_epa" and "report_date"
     Returns:
         cems df with hourly observations for months when no emissions reported removed
     """
     # calculate the totals reported in each month
     cems_with_zero_monthly_emissions = cems.groupby(
-        ["plant_id_eia", "unitid", "report_date"], dropna=False
+        ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
     ).sum()[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
     # identify unit-months where zero emissions reported
     cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[
@@ -1128,10 +1128,10 @@ def remove_cems_with_zero_monthly_data(cems):
     # merge the missing data flag into the cems data
     cems = cems.merge(
         cems_with_zero_monthly_emissions.reset_index()[
-            ["plant_id_eia", "unitid", "report_date", "missing_data_flag"]
+            ["plant_id_eia", "emissions_unit_id_epa", "report_date", "missing_data_flag"]
         ],
         how="left",
-        on=["plant_id_eia", "unitid", "report_date"],
+        on=["plant_id_eia", "emissions_unit_id_epa", "report_date"],
         validate="m:1",
     )
     # remove any observations with the missing data flag
@@ -1303,7 +1303,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
 def identify_partial_cems_subplants(year, cems, eia923_allocated):
     """Identifies subplants for which data for only some units is reported in CEMS.
 
-    If the number of unique unitid reported in cems for a subplant is less than the
+    If the number of unique emissions_unit_id_epa reported in cems for a subplant is less than the
     number of units that make up the subplant per the subplant crosswalk, and the
     amount of fuel reported for that subplant in CEMS is less than 95% of the fuel
     reported for that subplant in EIA, then we mark the subplant-month as "partial cems"
@@ -1316,7 +1316,7 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
     # aggregate cems data to plant-unit-month
     cems_unit_month_agg = (
         cems.groupby(
-            ["plant_id_eia", "subplant_id", "unitid", "report_date"], dropna=False
+            ["plant_id_eia", "subplant_id", "emissions_unit_id_epa", "report_date"], dropna=False
         )
         .sum()[["fuel_consumed_mmbtu"]]
         .reset_index()
@@ -1374,15 +1374,15 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
 
 
 def count_total_units_in_subplant(year):
-    # load the subplant crosswalk and identify unique unitids in each subplant
+    # load the subplant crosswalk and identify unique emissions_unit_id_epas in each subplant
     units_in_subplant = (
         pd.read_csv(
             outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
             dtype=get_dtypes(),
             parse_dates=["current_planned_operating_date", "retirement_date"],
-        )[["plant_id_eia", "unitid", "subplant_id", "retirement_date"]]
+        )[["plant_id_eia", "emissions_unit_id_epa", "subplant_id", "retirement_date"]]
         .drop_duplicates()
-        .dropna(subset="unitid")
+        .dropna(subset="emissions_unit_id_epa")
     )
 
     # remove units that retired before the current year
@@ -1393,9 +1393,9 @@ def count_total_units_in_subplant(year):
     # get a count of the number of CEMS units in each subplant
     units_in_subplant = (
         units_in_subplant.groupby(["plant_id_eia", "subplant_id"], dropna=False)
-        .count()["unitid"]
+        .count()["emissions_unit_id_epa"]
         .reset_index()
-        .rename(columns={"unitid": "units_in_subplant"})
+        .rename(columns={"emissions_unit_id_epa": "units_in_subplant"})
     )
 
     return units_in_subplant
@@ -1411,9 +1411,9 @@ def count_reported_units_in_subplant(cems_monthly):
         cems_monthly.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
         )
-        .agg({"unitid": "count", "fuel_consumed_mmbtu": "sum"})
+        .agg({"emissions_unit_id_epa": "count", "fuel_consumed_mmbtu": "sum"})
         .reset_index()
-        .rename(columns={"unitid": "reported_units_in_subplant"})
+        .rename(columns={"emissions_unit_id_epa": "reported_units_in_subplant"})
     )
 
     return reported_units_in_subplant

@@ -27,6 +27,24 @@ def df_co2_ch4_no2():
     })
     return df
 
+# NOTE: Why are we testing these function specifically?
+def test_co2e_AR6_100(df_co2_ch4_no2, emissions):
+    """Compute CO2-eq using the AR6 20-year GWP factors."""
+    df = emissions.calculate_co2e_mass(
+        df_co2_ch4_no2, 2021, gwp_horizon=100, ar5_climate_carbon_feedback=False)
+
+    assert('co2e_mass_lb' in df.columns and
+           'co2e_mass_lb_adjusted' in df.columns and
+           'co2e_mass_lb_for_electricity' in df.columns)
+
+def test_co2e_AR6_20(df_co2_ch4_no2, emissions):
+    """Compute CO2-eq using the AR6 20-year GWP factors."""
+    df = emissions.calculate_co2e_mass(
+        df_co2_ch4_no2, 2021, gwp_horizon=20, ar5_climate_carbon_feedback=False)
+
+    assert('co2e_mass_lb' in df.columns and
+           'co2e_mass_lb_adjusted' in df.columns and
+           'co2e_mass_lb_for_electricity' in df.columns)
 
 def test_co2e_AR5_20(df_co2_ch4_no2, emissions):
     """Compute CO2-eq using the AR5 20-year GWP factors."""

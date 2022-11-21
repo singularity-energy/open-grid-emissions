@@ -71,5 +71,6 @@ def test_load_boiler_so2_association_eia860(load_data):
 
 def test_load_diba_data(load_data):
     """Make sure that the DIBA data from EIA-930 is loaded without errors."""
+    load_data.load_diba_data(2021)
     load_data.load_diba_data(2020)
     load_data.load_diba_data(2019)
