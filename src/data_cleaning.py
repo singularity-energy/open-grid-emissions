@@ -1230,13 +1230,23 @@ def adjust_cems_for_chp(cems, eia923_allocated):
 def identify_hourly_data_source(eia923_allocated, cems, year):
     """Identifies whether there is hourly CEMS data available for each subplant-month.
     Possible categories:
-        1. `cems`: For subplant-months for which we have hourly CEMS data for all CEMS units that make up that subplant,
-            we will use the hourly values reported in CEMS. (Add a validation check for the net generation and fuel consumption totals)
-        2. `partial_cems`: For subplant-months for which we have hourly CEMS data
+        1. `cems`: For subplant-months for which we have hourly CEMS data for all CEMS
+            units that make up that subplant, we will use the hourly values reported in
+            CEMS.
+        2. `partial_cems_subplant`: For subplant-months for which we have hourly CEMS data
             for only some of the CEMS units that make up a subplant, we will use the reported
-            EIA-923 values to scale the partial hourly CEMS data from the other units to match the total value for the entire subplant. This will also calculate a partial subplant scaling factor for each data column (e.g. net generation, fuel consumption) by comparing the total monthly CEMS data to the monthly EIA-923 data.
-        3. `eia`: for subplant-months for which no hourly data is reported in CEMS,
-            we will attempt to use EIA-930 data to assign an hourly profile to the monthly EIA-923 data
+            EIA-923 values to scale the partial hourly CEMS data from the other units to
+            match the total value for the entire subplant. We will also calculate a partial
+            subplant scaling factor for each data column (e.g. net generation, fuel
+            consumption) by comparing the total monthly CEMS data to the monthly EIA-923 data.
+        3. `partial_cems_plant`: when some subplants in a plant have CEMS data, use the shape
+            from those subplants to shape the remaining generation from that plant.
+            NOTE: This method only applies if the subplants missing CEMS data have a primary
+            fuel that would report to CEMS (ie no clean generators). This prevents a diesel
+            backup generator that reports to CEMS from being used to shape the generation of
+            a nuclear plant (for example) that does not report to CEMS.
+        4. `eia`: for subplant-months for which no hourly data is reported in CEMS, we will
+            attempt to use EIA-930 data to assign an hourly profile to the monthly EIA-923 data
     Inputs:
         eia923_allocated:
         cems:
@@ -1457,15 +1467,56 @@ def identify_partial_cems_plants(all_data):
         validate="m:1",
     )
 
-    # for plants where the data source is eia only, and it exists in partial plant, change the source to partial_cems_plant
+    # Plants with these primary fuel types shouldn't be shaped using CEMS data --
+    # any cems data is likely to be a backup generator and therefore not representative of overall generation.
+    non_cems_fuels = CLEAN_FUELS + ["GEO"]
+
+    # for plants where the data source is eia only, and it exists in partial plant,
+    # change the source to partial_cems_plant
+    # but only if the fuel type is consistent with CEMS fuel types
     all_data.loc[
         (all_data["hourly_data_source"] == "eia")
-        & (all_data["partial_plant"] == "both"),
+        & (all_data["partial_plant"] == "both")
+        & (
+            ~all_data["energy_source_code"].isin(non_cems_fuels)
+        ),  # CEMS data should only be used to shape if plant is primarilly fossil
         "hourly_data_source",
     ] = "partial_cems_plant"
 
+    # It is possible to have generators within a subplant assigned different hourly methods
+    # due to the source code check above if subplant_id is mixing fuel types.
+    # This was an issue before PR #239; this check will catch it if it reoccurs
+    mixed_method_subplants = (
+        all_data.groupby(
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "report_date",
+            ],
+            dropna=False,
+        )
+        .nunique()
+        .reset_index()
+    )
+    mixed_method_subplants = mixed_method_subplants[
+        mixed_method_subplants.hourly_data_source > 1
+    ]
+    if len(mixed_method_subplants) > 0:
+        # Check for subplants with mixed hourly data sources,
+        # likely resulting from mixed fuel types.
+        # If subplant_id assignment is working, there shouldn't be any
+        raise Exception(
+            f"    ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
+        )
+
     # remove the intermediate indicator column
-    all_data = all_data.drop(columns=["partial_plant", "eia_data", "cems_data"])
+    all_data = all_data.drop(
+        columns=[
+            "partial_plant",
+            "eia_data",
+            "cems_data",
+        ],
+    )
 
     return all_data
 
@@ -1541,7 +1592,7 @@ def combine_plant_data(
     partial_cems_plant,
     eia_data,
     resolution,
-    validate=False,
+    validate=True,
 ):
     """
     Combines final hourly subplant data from each source into a single dataframe.
