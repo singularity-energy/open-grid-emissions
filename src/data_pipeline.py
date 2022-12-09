@@ -357,7 +357,7 @@ def main():
         hourly_profiles, "hourly_profiles", path_prefix, year, args.skip_outputs
     )
 
-    # 14. Assign hourly profile to monthly data
+    # 14. Export hourly plant-level data
     ####################################################################################
 
     # TODO
@@ -382,9 +382,44 @@ def main():
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
         monthly_eia_data_to_shape, hourly_profiles
     )
+    
+    validation.validate_unique_datetimes(
+        df=shaped_eia_data,
+        df_name="shaped_eia_data",
+        keys=["plant_id_eia"],
+    )
+    # validate that the shaping did not alter data at the monthly level
+    validation.validate_shaped_totals(
+        shaped_eia_data,
+        monthly_eia_data_to_shape,
+        group_keys=["ba_code", "fuel_category"],
+    )
+
+    # 15. Shape fleet-level data
+    ####################################################################################
+    print("14. Assigning hourly profiles to monthly EIA-923 data")
+    hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
+        hourly_profiles,
+        group_keys=["ba_code", "fuel_category", "profile_method"],
+        columns_to_convert=["profile", "flat_profile"],
+    )
+    # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
+    (
+        monthly_eia_data_to_shape,
+        plant_attributes,
+    ) = impute_hourly_profiles.aggregate_eia_data_to_ba_fuel(
+        monthly_eia_data_to_shape, plant_attributes, path_prefix
+    )
+    shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_eia_data_to_shape, hourly_profiles
+    )
     output_data.output_data_quality_metrics(
         validation.hourly_profile_source_metric(
-            cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data
+            cems,
+            partial_cems_subplant,
+            partial_cems_plant,
+            shaped_eia_data,
+            plant_attributes,
         ),
         "hourly_profile_method",
         path_prefix,
