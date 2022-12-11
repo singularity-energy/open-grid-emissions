@@ -7,7 +7,9 @@ import validation
 from column_checks import get_dtypes
 from filepaths import manual_folder
 
-from pudl.analysis.allocate_net_gen import distribute_annually_reported_data_to_months_if_annual
+from pudl.analysis.allocate_net_gen import (
+    distribute_annually_reported_data_to_months_if_annual,
+)
 
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
@@ -904,6 +906,7 @@ def return_monthly_plant_fuel_heat_content(pudl_out):
             distribute_annually_reported_data_to_months_if_annual,
             key_columns=["plant_id_eia", "energy_source_code", "prime_mover_code"],
             data_column_name="fuel_mmbtu_per_unit",
+            freq="MS",
         )
     )
     plant_specific_fuel_heat_content = plant_specific_fuel_heat_content[
@@ -950,7 +953,9 @@ def return_monthly_plant_fuel_heat_content(pudl_out):
 def calculate_unit_specific_controlled_nox_rates(year):
     nox_rates = load_controlled_nox_emission_rates(year)
     nox_rates = calculate_non_ozone_season_nox_rate(nox_rates)
-    weighted_nox_rates = calculate_weighted_nox_rates(year, nox_rates, "emissions_unit_id_epa")
+    weighted_nox_rates = calculate_weighted_nox_rates(
+        year, nox_rates, "emissions_unit_id_epa"
+    )
 
     return weighted_nox_rates
 
@@ -1037,13 +1042,11 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
             validate="m:m",
         )
     elif aggregation_level == "emissions_unit_id_epa":
-        epa_eia_crosswalk = load_data.load_epa_eia_crosswalk(year)
-        boiler_to_unit_crosswalk = epa_eia_crosswalk[
-            ["plant_id_eia", "emissions_unit_id_epa", "boiler_id"]
-        ].drop_duplicates()
+        # load subplant crosswalk and map boiler-generator associations
+        unit_boiler_assn = load_data.load_unit_to_boiler_associations(year)
         # associate a emissions_unit_id_epa with each record
         nox_rates = nox_rates.merge(
-            boiler_to_unit_crosswalk,
+            unit_boiler_assn,
             how="left",
             on=["plant_id_eia", "boiler_id"],
             validate="m:m",
@@ -1628,13 +1631,16 @@ def calculate_weighted_so2_control_efficiency(
     return weighted_so2_control_efficiency
 
 
-def fill_cems_missing_co2(cems, year):
+def fill_cems_missing_co2(cems, year, subplant_emission_factors):
     """
-    Fills missing hourly CO2 data in CEMS based on a two-tiered approach.
+    Fills missing hourly CO2 data in CEMS based on a three-tiered approach.
 
     CO2 data is considered missing if reported CO2 is zero and fuel consumption is positive.
-    If a unit has a unit-specific fuel type identified by the EPA-EIA crosswalk, calculate co2 using a fuel-specific emission factor.
-    If not, fill missing data by calculating a plant-month weighted average emission factor of all fuels burned in that plant-month.
+    1. If a unit has non-missing emissions data for other hours in the same month, calculate a unit-month
+        specific EF from the CEMS-reported fuel consumption and emissions
+    2. For all remaining missing values, use the subplant and month-specific weighted average emission factor
+        from subplant_emission_factors calculated from the EIA-923 data
+    3. For any remaining missing values, calculate emissions based on the subplant primary fuel and fuel consumption
     """
 
     # add a new categorical option to the mass measurement code
@@ -1654,15 +1660,109 @@ def fill_cems_missing_co2(cems, year):
     # create a new df with all observations with missing co2 data
     missing_co2 = cems[cems["co2_mass_lb"].isnull()]
 
-    # First round of filling using fuel types in PSDC
+    # First round of filling covers small gaps using non-missing emission data from the same month
+    ##############################################################################################
+
+    unit_months_missing_co2 = missing_co2[
+        ["plant_id_eia", "emissions_unit_id_epa", "report_date"]
+    ].drop_duplicates()
+
+    # get non-missing data from cems for these unit months
+    unit_months_missing_co2 = unit_months_missing_co2.merge(
+        cems[
+            [
+                "plant_id_eia",
+                "emissions_unit_id_epa",
+                "report_date",
+                "co2_mass_lb",
+                "fuel_consumed_mmbtu",
+            ]
+        ],
+        how="left",
+        on=["plant_id_eia", "emissions_unit_id_epa", "report_date"],
+        validate="1:m",
+    )
+    # only keep observations with non-missing, non-zero co2 emissions and fuel consumption
+    unit_months_missing_co2 = unit_months_missing_co2[
+        (unit_months_missing_co2["co2_mass_lb"] > 0)
+        & (unit_months_missing_co2["fuel_consumed_mmbtu"] > 0)
+    ]
+
+    # calculate total fuel consumption and emissions by month
+    unit_month_efs = (
+        unit_months_missing_co2.groupby(
+            ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
+        )
+        .sum()
+        .reset_index()
+    )
+    unit_month_efs["co2_lb_per_mmbtu"] = (
+        unit_month_efs["co2_mass_lb"] / unit_month_efs["fuel_consumed_mmbtu"]
+    )
+
+    # merge these EFs into the missing cems data
+    missing_co2 = missing_co2.merge(
+        unit_month_efs[
+            ["plant_id_eia", "report_date", "emissions_unit_id_epa", "co2_lb_per_mmbtu"]
+        ],
+        how="left",
+        on=["plant_id_eia", "report_date", "emissions_unit_id_epa"],
+        validate="m:1",
+    )
+
+    # only keep observations where there is a non-missing ef
+    missing_co2 = missing_co2[~missing_co2["co2_lb_per_mmbtu"].isna()]
+
+    # calculate missing co2 data
+    missing_co2["co2_mass_lb"] = (
+        missing_co2["fuel_consumed_mmbtu"] * missing_co2["co2_lb_per_mmbtu"]
+    )
+
+    # update in CEMS table
+    cems.update(missing_co2[["co2_mass_lb"]])
+
+    # update the co2 mass measurement code
+    cems.loc[missing_co2.index, "co2_mass_measurement_code"] = "Imputed"
+
+    # identify all observations that are still missing co2 data
+    missing_co2 = cems[cems["co2_mass_lb"].isnull()]
+
+    # Second round of data filling using weighted average EF based on EIA-923 heat input data
+    #########################################################################################
+
+    # merge the weighted ef into the missing data
+    missing_co2 = missing_co2.merge(
+        subplant_emission_factors[
+            ["plant_id_eia", "report_date", "subplant_id", "co2_lb_per_mmbtu"]
+        ],
+        how="left",
+        on=["plant_id_eia", "report_date", "subplant_id"],
+        validate="m:1",
+    )
+
+    # only keep observations where there is a non-missing ef
+    missing_co2 = missing_co2[~missing_co2["co2_lb_per_mmbtu"].isna()]
+
+    # calculate missing co2 data
+    missing_co2["co2_mass_lb"] = (
+        missing_co2["fuel_consumed_mmbtu"] * missing_co2["co2_lb_per_mmbtu"]
+    )
+
+    # update in CEMS table
+    cems.update(missing_co2[["co2_mass_lb"]])
+
+    # update the co2 mass measurement code
+    cems.loc[missing_co2.index, "co2_mass_measurement_code"] = "Imputed"
+
+    # identify all observations that are still missing co2 data
+    missing_co2 = cems[cems["co2_mass_lb"].isnull()]
+
+    # Third round of filling using subplant fuel codes
+    ##################################################
 
     # for rows that have a successful fuel code match, move to a temporary dataframe to hold the data
     co2_to_fill = missing_co2.copy()[~missing_co2["energy_source_code"].isna()]
     fill_index = co2_to_fill.index
-
-    # remove these from the missing co2 dataframe. We'll need to apply a different method for these remaining plants
-    missing_co2 = missing_co2[missing_co2["energy_source_code"].isna()]
-    missing_index = missing_co2.index
 
     # calculate emissions based on fuel type
     co2_to_fill = calculate_ghg_emissions_from_fuel_consumption(
@@ -1678,75 +1778,6 @@ def fill_cems_missing_co2(cems, year):
 
     # update the co2 mass measurement code
     cems.loc[co2_to_fill.index, "co2_mass_measurement_code"] = "Imputed"
-
-    # Second round of data filling using weighted average EF based on EIA-923 heat input data
-
-    # get a list of plant ids in the missing data
-    missing_plants = list(missing_co2["plant_id_eia"].unique())
-
-    # load 923 data
-    generation_fuel_eia923 = load_data.load_pudl_table(
-        "generation_fuel_eia923", year=year
-    )
-
-    # get monthly fuel data for each of the missing plants
-    missing_gf = generation_fuel_eia923[
-        generation_fuel_eia923["plant_id_eia"].isin(missing_plants)
-    ]
-
-    # calculate total fuel consumed of each fuel type in each month
-    missing_gf = missing_gf.groupby(
-        ["plant_id_eia", "report_date", "energy_source_code"], dropna=False
-    ).sum()[["fuel_consumed_for_electricity_mmbtu"]]
-
-    # calculate the percent of heat input from each fuel in each month
-    missing_gf = (
-        missing_gf
-        / missing_gf.reset_index()
-        .groupby(["plant_id_eia", "report_date"], dropna=False)
-        .sum()
-    )
-
-    missing_gf = missing_gf.fillna(1)
-
-    emission_factors = load_data.load_ghg_emission_factors()[
-        ["energy_source_code", "co2_lb_per_mmbtu"]
-    ]
-
-    # merge in the emission factor
-    missing_gf = missing_gf.reset_index().merge(
-        emission_factors, how="left", on="energy_source_code", validate="m:1"
-    )
-
-    # calculate weighted emission factor
-    missing_gf["weighted_ef"] = (
-        missing_gf["fuel_consumed_for_electricity_mmbtu"]
-        * missing_gf["co2_lb_per_mmbtu"]
-    )
-    missing_gf = (
-        missing_gf.groupby(["plant_id_eia", "report_date"], dropna=False)
-        .sum()["weighted_ef"]
-        .reset_index()
-    )
-
-    # convert report date back to datetime
-    missing_gf["report_date"] = pd.to_datetime(missing_gf["report_date"])
-
-    # merge the weighted ef into the missing data
-    missing_co2 = missing_co2.merge(
-        missing_gf, how="left", on=["plant_id_eia", "report_date"], validate="m:1"
-    ).set_index(missing_index)
-
-    # calculate missing co2 data
-    missing_co2["co2_mass_lb"] = (
-        missing_co2["fuel_consumed_mmbtu"] * missing_co2["weighted_ef"]
-    )
-
-    # update in CEMS table
-    cems.update(missing_co2[["co2_mass_lb"]])
-
-    # update the co2 mass measurement code
-    cems.loc[missing_co2.index, "co2_mass_measurement_code"] = "Imputed"
 
     # check that there are no missing co2 values left
     still_missing_co2 = cems[cems["co2_mass_lb"].isna()]

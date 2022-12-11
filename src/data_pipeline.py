@@ -102,7 +102,7 @@ def main():
     print("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(
-        zenodo_url="https://zenodo.org/record/6349861/files/pudl-v0.6.0-2022-03-12.tgz"
+        zenodo_url="https://zenodo.org/record/6349861/files/pudl-v2022-11-30.tgz"
     )
     # eGRID
     # the 2019 and 2020 data appear to be hosted on different urls
@@ -121,7 +121,7 @@ def main():
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(
-        psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.2.1/epa_eia_crosswalk.csv"
+        psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.3/epa_eia_crosswalk.csv"
     )
     # download the raw EIA-923 and EIA-860 files for use in NOx/SO2 calculations until integrated into pudl
     download_data.download_raw_eia860(year)
@@ -136,19 +136,25 @@ def main():
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
     print("3. Cleaning EIA-923 data")
-    eia923_allocated, primary_fuel_table = data_cleaning.clean_eia923(year, args.small)
+    (
+        eia923_allocated,
+        primary_fuel_table,
+        subplant_emission_factors,
+    ) = data_cleaning.clean_eia923(year, args.small)
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
         primary_fuel_table,
         how="left",
-        on=["plant_id_eia", "generator_id"],
+        on=["plant_id_eia", "subplant_id", "generator_id"],
         validate="m:1",
     )
 
     # 4. Clean Hourly Data from CEMS
     ####################################################################################
     print("4. Cleaning CEMS data")
-    cems = data_cleaning.clean_cems(year, args.small, primary_fuel_table)
+    cems = data_cleaning.clean_cems(
+        year, args.small, primary_fuel_table, subplant_emission_factors
+    )
     # output data quality metrics about measured vs imputed CEMS data
     output_data.output_data_quality_metrics(
         validation.summarize_cems_measurement_quality(cems),
@@ -175,7 +181,7 @@ def main():
     )
     # Export data cleaned by above for later validation, visualization, analysis
     output_data.output_intermediate_data(
-        eia923_allocated.drop(columns="plant_primary_fuel"),
+        eia923_allocated.drop(columns=["plant_primary_fuel", "subplant_primary_fuel"]),
         "eia923_allocated",
         path_prefix,
         year,

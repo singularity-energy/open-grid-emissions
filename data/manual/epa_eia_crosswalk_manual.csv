@@ -89,3 +89,5 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,notes
 55641,CT-04,55641,CTG4,Manual fuzzy match of generator ID
 568,BHB5,568,501,Matched based on total net generation
 568,BHB5,568,502,Matched based on total net generation
+60925,CT1,60925,1A,Matched based on generator ID and prime mover code
+60925,CT2,60925,1B,Matched based on generator ID and prime mover code

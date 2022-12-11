@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 import sqlalchemy as sa
 import warnings
 from pathlib import Path
@@ -8,6 +9,17 @@ import pudl.output.pudltabl
 
 from column_checks import get_dtypes
 from filepaths import downloads_folder, manual_folder, outputs_folder
+
+
+def correct_epa_eia_plant_id_mapping(df):
+    """
+    The EPA's power sector data crosswalk incorrectly maps plant_id_epa 55248 to plant_id_eia 55248,
+    when it should be mapped to id 2847. This function is temporary until this is fixed.
+    """
+
+    df.loc[df["plant_id_eia"] == 55248, "plant_id_eia"] = 2847
+
+    return df
 
 
 def load_cems_data(year):
@@ -19,11 +31,13 @@ def load_cems_data(year):
         cems: pandas dataframe with hourly CEMS data
     """
     # specify the path to the CEMS data
-    cems_path = downloads_folder(f"pudl/pudl_data/parquet/epacems/year={year}")
+    cems_path = downloads_folder(
+        "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
+    )
 
     # specify the columns to use from the CEMS database
     cems_columns = [
-        "plant_id_epa", # try to load this column to make sure it has been converted to plant_id_eia
+        "plant_id_epa",  # try to load this column to make sure it has been converted to plant_id_eia
         "plant_id_eia",
         "emissions_unit_id_epa",
         "operating_datetime_utc",
@@ -40,10 +54,15 @@ def load_cems_data(year):
     ]
 
     # load the CEMS data
-    cems = pd.read_parquet(cems_path, columns=cems_columns)
+    cems = pd.concat(
+        pd.read_parquet((cems_path + filename), columns=cems_columns)
+        for filename in os.listdir(cems_path)
+        if str(year) in filename
+    )
 
-    # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
-    # rename the heat content column to use the convention used in the EIA data
+    # **** manual adjustments ****
+    cems = correct_epa_eia_plant_id_mapping(cems)
+
     cems = cems.rename(
         columns={
             "operating_datetime_utc": "datetime_utc",
@@ -95,57 +114,31 @@ def load_cems_data(year):
     return cems
 
 
-def crosswalk_epa_eia_plant_ids(cems, year):
-    """
-    Adds a column to the CEMS data that matches the EPA plant ID to the EIA plant ID
-    Inputs:
-        cems: pandas dataframe with hourly emissions data and columns for "plant_id_epa" and "emissions_unit_id_epa"
-    Returns:
-        cems: pandas dataframe with an additional column for "plant_id_eia"
-    """
-
-    psdc = load_epa_eia_crosswalk(year)
-
-    # create a table that matches EPA plant and unit IDs to an EIA plant ID
-    plant_id_crosswalk = psdc[
-        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"]
-    ].drop_duplicates()
-
-    # only keep plant ids where the two are different
-    plant_id_crosswalk = plant_id_crosswalk[
-        plant_id_crosswalk["plant_id_epa"] != plant_id_crosswalk["plant_id_eia"]
-    ].dropna()
-
-    # match plant_id_eia on plant_id_epa and emissions_unit_id_epa
-    cems = cems.merge(
-        plant_id_crosswalk, how="left", on=["plant_id_epa", "emissions_unit_id_epa"], validate="m:1"
-    )
-
-    # if the merge resulted in any missing plant_id associations, fill with the plant_id_epa, assuming that they are the same
-    cems["plant_id_eia"] = cems["plant_id_eia"].fillna(cems["plant_id_epa"])
-
-    # change the id column from float dtype to int
-    cems["plant_id_eia"] = cems["plant_id_eia"].astype(int)
-
-    return cems
-
-
 def load_cems_ids(start_year, end_year):
     """Loads CEMS ids for multiple years."""
     cems_all = []
 
     for year in range(start_year, end_year + 1):
         # specify the path to the CEMS data
-        cems_path = downloads_folder(f"pudl/pudl_data/parquet/epacems/year={year}")
+        cems_path = downloads_folder(
+            "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
+        )
 
         # load the CEMS data
-        cems = pd.read_parquet(
-            cems_path,
-            columns=[
-                "plant_id_eia",
-                "emissions_unit_id_epa",
-            ],
+        cems = pd.concat(
+            pd.read_parquet(
+                (cems_path + filename),
+                columns=[
+                    "plant_id_eia",
+                    "emissions_unit_id_epa",
+                ],
+            )
+            for filename in os.listdir(cems_path)
+            if str(year) in filename
         )
+
+        # **** manual adjustments ****
+        cems = correct_epa_eia_plant_id_mapping(cems)
 
         # drop duplicate ids to reduce size
         cems = cems[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates()
@@ -166,7 +159,9 @@ def load_cems_gross_generation(start_year, end_year):
     for year in range(start_year, end_year + 1):
         print(f"    loading {year} CEMS data")
         # specify the path to the CEMS data
-        cems_path = downloads_folder(f"pudl/pudl_data/parquet/epacems/year={year}")
+        cems_path = downloads_folder(
+            "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
+        )
 
         # specify the columns to use from the CEMS database
         cems_columns = [
@@ -178,7 +173,11 @@ def load_cems_gross_generation(start_year, end_year):
         ]
 
         # load the CEMS data
-        cems = pd.read_parquet(cems_path, columns=cems_columns)
+        cems = pd.concat(
+            pd.read_parquet((cems_path + filename), columns=cems_columns)
+            for filename in os.listdir(cems_path)
+            if str(year) in filename
+        )
 
         # only keep values when the plant was operating
         # this will help speed up calculations and allow us to add this data back later
@@ -377,19 +376,10 @@ def initialize_pudl_out(year=None):
     return pudl_out
 
 
-def load_epa_eia_crosswalk(year):
+def load_epa_eia_crosswalk_from_raw(year):
     """
-    Read in the manual EPA-EIA Crosswalk table.
+    Read in the manual EPA-EIA Crosswalk table downloaded from the EPA website.
     """
-    """
-    map_eia_epa_file = importlib.resources.open_binary(
-        'pudl.package_data.glue', 'eia_epa_id_crosswalk.csv')
-
-    return pd.read_csv(
-        map_eia_epa_file,
-        usecols=['plant_id_epa', 'plant_id_eia', 'emissions_unit_id_epa',
-                 'generator_id', 'boiler_id', 'energy_source_code'],
-        dtype={'plant_id_epa': 'int32', 'plant_id_eia': 'int32'})"""
 
     crosswalk = pd.read_csv(
         downloads_folder("epa/epa_eia_crosswalk.csv"),
@@ -452,9 +442,7 @@ def load_epa_eia_crosswalk(year):
     )
 
     # **** manual adjustments ****
-    # The EPA's crosswalk document incorrectly maps plant_id_epa 55248 to plant_id_eia 55248
-    # the correct plant_id_eia is 2847
-    crosswalk.loc[crosswalk["plant_id_epa"] == 55248, "plant_id_eia"] = 2847
+    crosswalk = correct_epa_eia_plant_id_mapping(crosswalk)
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
@@ -493,6 +481,43 @@ def load_epa_eia_crosswalk(year):
         crosswalk["energy_source_code_1"]
     )
     crosswalk = crosswalk.drop(columns=["energy_source_code_1"])
+
+    return crosswalk
+
+
+def load_epa_eia_crosswalk(year):
+    """
+    Read in the manual EPA-EIA Crosswalk table.
+    """
+
+    crosswalk = load_pudl_table("epacamd_eia")
+
+    # **** manual adjustments ****
+    crosswalk = correct_epa_eia_plant_id_mapping(crosswalk)
+
+    # load manually inputted data
+    crosswalk_manual = pd.read_csv(
+        manual_folder("epa_eia_crosswalk_manual.csv"),
+        dtype=get_dtypes(),
+    ).drop(columns=["notes"])
+
+    # concat this data with the main table
+    crosswalk = pd.concat(
+        [crosswalk, crosswalk_manual],
+        axis=0,
+    )
+
+    # load EIA-860 data
+    pudl_out = initialize_pudl_out(year=year)
+    gen_esc_860 = pudl_out.gens_eia860()[["plant_id_eia", "generator_id"]]
+
+    # merge in any plants that are missing from the EPA crosswalk but appear in EIA-860
+    crosswalk = crosswalk.merge(
+        gen_esc_860, how="outer", on=["plant_id_eia", "generator_id"], validate="m:1"
+    )
+    crosswalk["plant_id_epa"] = crosswalk["plant_id_epa"].fillna(
+        crosswalk["plant_id_eia"]
+    )
 
     return crosswalk
 
@@ -896,6 +921,24 @@ def load_boiler_design_parameters_eia860(year):
         )
 
     return boiler_design_parameters_eia860
+
+
+def load_unit_to_boiler_associations(year):
+    """Creates a table that associates EPA units with EIA boilers"""
+    subplant_crosswalk = pd.read_csv(
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+        dtype=get_dtypes(),
+    )
+    pudl_out = initialize_pudl_out(year=year)
+    boiler_generator_assn = pudl_out.bga_eia860()
+    unit_boiler_assn = subplant_crosswalk.merge(
+        boiler_generator_assn, how="left", on=["plant_id_eia", "generator_id"]
+    )
+    unit_boiler_assn = unit_boiler_assn[
+        ["plant_id_eia", "emissions_unit_id_epa", "boiler_id"]
+    ]
+
+    return unit_boiler_assn
 
 
 def test():

@@ -397,6 +397,7 @@ def get_dtypes():
         "ba_code": "str",
         "ba_code_physical": "str",
         "plant_primary_fuel": "str",
+        "subplant_primary_fuel": "str",
         "fuel_category_eia930": "str",
         "state": "str",
         "distribution_flag": "bool",
