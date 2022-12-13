@@ -415,7 +415,7 @@ def get_dtypes():
         "pm_control_id": "str",
         "so2_control_id": "str",
         "nox_control_id": "str",
-        "mercury_control_id": "str",
+        "hg_control_id": "str",
         "operational_status": "str",
         "hours_in_service": "float64",
         "annual_nox_emission_rate_lb_per_mmbtu": "float64",

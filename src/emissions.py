@@ -975,26 +975,28 @@ def load_controlled_nox_emission_rates(year):
     # load the emissions control data
     emissions_controls_eia923 = load_data.load_emissions_controls_eia923(year)
 
-    # create a dataframe that contains only operating NOx emission control data
-    nox_rates = emissions_controls_eia923[
-        ~emissions_controls_eia923["nox_control_id"].isna()
-    ]
+    # create a dataframe that contains only NOx emission data for operating control equipment
+    nox_rates = emissions_controls_eia923.dropna(
+        axis="index",
+        how="all",
+        subset=[
+            "annual_nox_emission_rate_lb_per_mmbtu",
+            "ozone_season_nox_emission_rate_lb_per_mmbtu",
+        ],
+    )
     nox_rates = nox_rates[nox_rates["operational_status"] == "OP"]
     nox_rates = nox_rates[
         [
             "plant_id_eia",
             "nox_control_id",
+            "pm_control_id",
+            "so2_control_id",
+            "hg_control_id",
             "hours_in_service",
             "annual_nox_emission_rate_lb_per_mmbtu",
             "ozone_season_nox_emission_rate_lb_per_mmbtu",
         ]
-    ].dropna(
-        subset=[
-            "annual_nox_emission_rate_lb_per_mmbtu",
-            "ozone_season_nox_emission_rate_lb_per_mmbtu",
-        ],
-        thresh=1,
-    )
+    ]
     nox_rates = nox_rates.rename(
         columns={
             "annual_nox_emission_rate_lb_per_mmbtu": "controlled_annual_nox_ef_lb_per_mmbtu",
@@ -1007,25 +1009,12 @@ def load_controlled_nox_emission_rates(year):
 
 def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
     """Aggregates nox rate data from nox_control_id to boiler_id, generator_id, or unitid"""
-    # load the association tables
-    boiler_nox_association_eia860 = load_data.load_boiler_nox_association_eia860(year)
 
-    # merge boiler ids associated with each nox_control_id
-    nox_rates = nox_rates.merge(
-        boiler_nox_association_eia860[
-            [
-                "plant_id_eia",
-                "nox_control_id",
-                "boiler_id",
-            ]
-        ],
-        how="left",
-        on=["plant_id_eia", "nox_control_id"],
-        validate="m:m",
+    nox_rates = associate_control_ids_with_boiler_id(
+        nox_rates,
+        year,
+        pollutant="nox",
     )
-
-    # if there are any missing boiler_ids, fill using the nox_control_id, which is likely to match a boiler
-    nox_rates["boiler_id"] = nox_rates["boiler_id"].fillna(nox_rates["nox_control_id"])
 
     if aggregation_level == "generator_id":
         boiler_generator_assn = load_data.initialize_pudl_out(year).bga_eia860()
@@ -1061,6 +1050,76 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
         weight_col="hours_in_service",
     )
     return weighted_nox_rates
+
+
+def associate_control_ids_with_boiler_id(df, year, pollutant):
+    """Associates emission control ids with boiler_id.
+
+    Because some emission control data is missing a corresponding control id for that pollutant,
+    this function attempts to use all control ids to associate each obervation with a boiler id,
+    in the order specified by `id_order`
+    """
+
+    all_pollutants = ["pm", "so2", "nox", "hg"]
+    # reorder the pollutant list to make the primary pollutant first
+    all_pollutants.remove(pollutant)
+    pollutant_order = [pollutant] + all_pollutants
+
+    counter = 1
+
+    for pol in pollutant_order:
+        # if this is the first time through the loop
+        if counter == 1:
+            # load the association table and rename the boiler id column to specify which table it came from
+            boiler_association_eia860 = (
+                load_data.load_boiler_control_id_association_eia860(year, pol)
+            )
+
+            df = df.merge(
+                boiler_association_eia860[
+                    [
+                        "plant_id_eia",
+                        f"{pol}_control_id",
+                        f"boiler_id",
+                    ]
+                ],
+                how="left",
+                on=["plant_id_eia", f"{pol}_control_id"],
+                validate="m:m",
+            )
+            counter += 1
+        else:
+            # split out the data that is still missing a boiler_id
+            missing_boiler_id = df[
+                df["boiler_id"].isna() & ~df[f"{pol}_control_id"].isna()
+            ].drop(columns=["boiler_id"])
+            # remove this data from the original dataframe
+            df = df[~(df["boiler_id"].isna() & ~df[f"{pol}_control_id"].isna())]
+
+            # load the association for the new pol
+            boiler_association_eia860 = (
+                load_data.load_boiler_control_id_association_eia860(year, pol)
+            )
+
+            missing_boiler_id = missing_boiler_id.merge(
+                boiler_association_eia860[
+                    [
+                        "plant_id_eia",
+                        f"{pol}_control_id",
+                        f"boiler_id",
+                    ]
+                ],
+                how="left",
+                on=["plant_id_eia", f"{pol}_control_id"],
+                validate="m:m",
+            )
+            # add this data back to the original dataframe
+            df = pd.concat([df, missing_boiler_id], axis=0)
+
+    # if there are any missing boiler_ids, fill using the nox_control_id, which is likely to match a boiler
+    df["boiler_id"] = df["boiler_id"].fillna(df[f"{pollutant}_control_id"])
+
+    return df
 
 
 def calculate_weighted_averages(df, groupby_columns, data_cols, weight_col):
@@ -1545,26 +1604,28 @@ def load_so2_control_efficiencies(year):
     # load the emissions control data
     emissions_controls_eia923 = load_data.load_emissions_controls_eia923(year)
 
-    # create a dataframe that contains only operating NOx emission control data
-    so2_efficiency = emissions_controls_eia923[
-        ~emissions_controls_eia923["so2_control_id"].isna()
-    ]
+    # create a dataframe that contains only so2 emission data for operating control equipment
+    so2_efficiency = emissions_controls_eia923.dropna(
+        axis="index",
+        how="all",
+        subset=[
+            "so2_removal_efficiency_annual",
+            "so2_removal_efficiency_at_full_load",
+        ],
+    )
     so2_efficiency = so2_efficiency[so2_efficiency["operational_status"] == "OP"]
     so2_efficiency = so2_efficiency[
         [
             "plant_id_eia",
             "so2_control_id",
+            "nox_control_id",
+            "pm_control_id",
+            "hg_control_id",
             "hours_in_service",
             "so2_removal_efficiency_annual",
             "so2_removal_efficiency_at_full_load",
         ]
-    ].dropna(
-        subset=[
-            "so2_removal_efficiency_annual",
-            "so2_removal_efficiency_at_full_load",
-        ],
-        thresh=1,
-    )
+    ]
 
     # validate that the efficiencies are between 0 and 1
     bad_efficiencies = so2_efficiency[
@@ -1583,26 +1644,10 @@ def calculate_weighted_so2_control_efficiency(
     year, so2_control_efficiency, aggregation_level
 ):
     """Aggregates so2 rate data from so2_control_id to generator_id"""
-    # load the association tables
-    boiler_so2_association_eia860 = load_data.load_boiler_so2_association_eia860(year)
-
-    # merge boiler ids associated with each so2_control_id
-    so2_control_efficiency = so2_control_efficiency.merge(
-        boiler_so2_association_eia860[
-            [
-                "plant_id_eia",
-                "so2_control_id",
-                "boiler_id",
-            ]
-        ],
-        how="left",
-        on=["plant_id_eia", "so2_control_id"],
-        validate="m:m",
-    )
-
-    # if there are any missing boiler_ids, fill using the so2_control_id, which is likely to match a boiler
-    so2_control_efficiency["boiler_id"] = so2_control_efficiency["boiler_id"].fillna(
-        so2_control_efficiency["so2_control_id"]
+    so2_control_efficiency = associate_control_ids_with_boiler_id(
+        so2_control_efficiency,
+        year,
+        pollutant="so2",
     )
 
     if aggregation_level == "generator_id":
