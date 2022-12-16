@@ -163,6 +163,15 @@ def main():
         args.skip_outputs,
     )
 
+    # output cleaned cems data
+    output_data.output_intermediate_data(
+        cems,
+        "cems_cleaned",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
+
     # calculate biomass-adjusted emissions while cems data is at the unit level
     cems = emissions.adjust_emissions_for_biomass(cems)
 
@@ -271,11 +280,11 @@ def main():
     validation.test_emissions_adjustments(cems)
     validation.validate_unique_datetimes(
         df=cems,
-        df_name="cems",
+        df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
     )
     output_data.output_intermediate_data(
-        cems, "cems", path_prefix, year, args.skip_outputs
+        cems, "cems_subplant", path_prefix, year, args.skip_outputs
     )
 
     # 11. Export monthly and annual plant-level results
