@@ -421,6 +421,7 @@ def load_epa_eia_crosswalk_from_raw(year):
     camd_to_eia_fuel_type = {
         "Pipeline Natural Gas": "NG",
         "Coal": "SUB",  # assume that generic coal is subbituminous to be conservative
+        "Coal Refuse": "WC",
         "Residual Oil": "RFO",
         "Other Oil": "WO",
         "Diesel Oil": "DFO",
@@ -712,7 +713,7 @@ def load_emissions_controls_eia923(year: int):
         "pm_control_id",
         "so2_control_id",
         "nox_control_id",
-        "mercury_control_id",
+        "hg_control_id",
         "operational_status",
         "hours_in_service",
         "annual_nox_emission_rate_lb_per_mmbtu",
@@ -794,29 +795,39 @@ def load_emissions_controls_eia923(year: int):
     return emissions_controls_eia923
 
 
-def load_boiler_nox_association_eia860(year):
-    boiler_nox_association_eia860_names = [
+def load_boiler_control_id_association_eia860(year, pollutant):
+    """Generic function for loading the EIA-860 tables that associate boiler_id with a pollutant-specific control id.
+
+    the `pollutant` parameter could be any of the following: ['pm','so2','nox','hg']
+    """
+    pollutant_abbreviation_to_name = {
+        "pm": "Particulate Matter",
+        "so2": "SO2",
+        "nox": "NOx",
+        "hg": "Mercury",
+    }
+    boiler_association_eia860_names = [
         "utility_id_eia",
         "utility_name_eia",
         "plant_id_eia",
         "plant_name_eia",
         "boiler_id",
-        "nox_control_id",
+        f"{pollutant}_control_id",
         "steam_plant_type",
     ]
 
     if year <= 2013:
         # This column isn't included in 2013 and earlier.
-        boiler_nox_association_eia860_names.remove("steam_plant_type")
+        boiler_association_eia860_names.remove("steam_plant_type")
 
     # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
     # The environmental association data is available pre-2013, but would require additional work to format
     if year >= 2013:
-        boiler_nox_association_eia860 = pd.read_excel(
+        boiler_control_id_association_eia860 = pd.read_excel(
             io=downloads_folder(f"eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
-            sheet_name="Boiler NOx",
+            sheet_name=f"Boiler {pollutant_abbreviation_to_name[pollutant]}",
             header=1,
-            names=boiler_nox_association_eia860_names,
+            names=boiler_association_eia860_names,
             dtype=get_dtypes(),
             na_values=".",
             skipfooter=1,
@@ -826,52 +837,12 @@ def load_boiler_nox_association_eia860(year):
         print(
             "WARNING: Environmental association data prior to 2013 have not been integrated into the data pipeline."
         )
-        print("This may result in less accurate NOx and SO2 emissions calculations.")
-        boiler_nox_association_eia860 = pd.DataFrame(
-            columns=boiler_nox_association_eia860_names
+        print("This may result in less accurate pollutant emissions calculations.")
+        boiler_control_id_association_eia860 = pd.DataFrame(
+            columns=boiler_association_eia860_names
         )
 
-    return boiler_nox_association_eia860
-
-
-def load_boiler_so2_association_eia860(year):
-    boiler_so2_association_eia860_names = [
-        "utility_id_eia",
-        "utility_name_eia",
-        "plant_id_eia",
-        "plant_name_eia",
-        "boiler_id",
-        "so2_control_id",
-        "steam_plant_type",
-    ]
-
-    if year <= 2013:
-        # This column isn't included in 2013 and earlier.
-        boiler_so2_association_eia860_names.remove("steam_plant_type")
-
-    # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
-    # The environmental association data is available pre-2013, but would require additional work to format
-    if year >= 2013:
-        boiler_so2_association_eia860 = pd.read_excel(
-            io=downloads_folder(f"eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
-            sheet_name="Boiler SO2",
-            header=1,
-            names=boiler_so2_association_eia860_names,
-            dtype=get_dtypes(),
-            na_values=".",
-            skipfooter=1,
-        )
-    # return a blank dataframe if the data is not available
-    else:
-        print(
-            "WARNING: Environmental association data prior to 2013 have not been integrated into the data pipeline."
-        )
-        print("This may result in less accurate NOx and SO2 emissions calculations.")
-        boiler_so2_association_eia860 = pd.DataFrame(
-            columns=boiler_so2_association_eia860_names
-        )
-
-    return boiler_so2_association_eia860
+    return boiler_control_id_association_eia860
 
 
 def load_boiler_design_parameters_eia860(year):
