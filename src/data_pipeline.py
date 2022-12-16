@@ -3,7 +3,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
-Optional arguments are --year (default 2020), --gtn_years (default 5)
+Optional arguments are --year (default 2021), --gtn_years (default 5)
 Optional arguments for development are --small, --flat, and --skip_outputs
 """
 
@@ -34,7 +34,7 @@ def get_args():
     Returns dictionary of {arg_name: arg_value}
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--year", help="Year for analysis", default=2020, type=int)
+    parser.add_argument("--year", help="Year for analysis", default=2021, type=int)
     parser.add_argument(
         "--gtn_years",
         help="Number of years to use to calculate GTN ratio regressions, ending at `year`",
@@ -75,9 +75,10 @@ def main():
     os.makedirs(downloads_folder(), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}/eia930"), exist_ok=True)
-    # If we are outputing, wipe results dir so we can be confident there are no old result files (eg because of a file name change)
     if not args.skip_outputs:
-        shutil.rmtree(results_folder(f"{path_prefix}"))
+        # If we are outputing, wipe results dir so we can be confident there are no old result files (eg because of a file name change)
+        if os.path.exists(results_folder(f"{path_prefix}")):
+            shutil.rmtree(results_folder(f"{path_prefix}"))
         os.makedirs(results_folder(f"{path_prefix}"), exist_ok=False)
     else:  # still make sure results dir exists, but exist is ok and we won't be writing to it
         os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
@@ -85,6 +86,7 @@ def main():
         results_folder(f"{path_prefix}data_quality_metrics"),
         exist_ok=True,
     )
+    # Make results subfolders
     for unit in ["us_units", "metric_units"]:
         for time_resolution in output_data.TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
@@ -100,7 +102,7 @@ def main():
     print("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(
-        zenodo_url="https://zenodo.org/record/6349861/files/pudl-v0.6.0-2022-03-12.tgz"
+        zenodo_url="https://zenodo.org/record/6349861/files/pudl-v2022-11-30.tgz" # this link is temporary until the actual zenodo archive is uploaded
     )
     # eGRID
     # the 2019 and 2020 data appear to be hosted on different urls
@@ -119,7 +121,7 @@ def main():
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(
-        psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.2.1/epa_eia_crosswalk.csv"
+        psdc_url="https://github.com/USEPA/camd-eia-crosswalk/releases/download/v0.3/epa_eia_crosswalk.csv"
     )
     # download the raw EIA-923 and EIA-860 files for use in NOx/SO2 calculations until integrated into pudl
     download_data.download_raw_eia860(year)
@@ -134,24 +136,39 @@ def main():
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
     print("3. Cleaning EIA-923 data")
-    eia923_allocated, primary_fuel_table = data_cleaning.clean_eia923(year, args.small)
+    (
+        eia923_allocated,
+        primary_fuel_table,
+        subplant_emission_factors,
+    ) = data_cleaning.clean_eia923(year, args.small)
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
         primary_fuel_table,
         how="left",
-        on=["plant_id_eia", "generator_id"],
+        on=["plant_id_eia", "subplant_id", "generator_id"],
         validate="m:1",
     )
 
     # 4. Clean Hourly Data from CEMS
     ####################################################################################
     print("4. Cleaning CEMS data")
-    cems = data_cleaning.clean_cems(year, args.small, primary_fuel_table)
+    cems = data_cleaning.clean_cems(
+        year, args.small, primary_fuel_table, subplant_emission_factors
+    )
     # output data quality metrics about measured vs imputed CEMS data
     output_data.output_data_quality_metrics(
         validation.summarize_cems_measurement_quality(cems),
         "cems_pollutant_measurement_quality",
         path_prefix,
+        args.skip_outputs,
+    )
+
+    # output cleaned cems data
+    output_data.output_intermediate_data(
+        cems,
+        "cems_cleaned",
+        path_prefix,
+        year,
         args.skip_outputs,
     )
 
@@ -170,6 +187,14 @@ def main():
     print("6. Identifying source for hourly data")
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
+    )
+    # Export data cleaned by above for later validation, visualization, analysis
+    output_data.output_intermediate_data(
+        eia923_allocated.drop(columns=["plant_primary_fuel", "subplant_primary_fuel"]),
+        "eia923_allocated",
+        path_prefix,
+        year,
+        args.skip_outputs,
     )
     # output data quality metrics about annually-reported EIA-923 data
     output_data.output_data_quality_metrics(
@@ -209,14 +234,7 @@ def main():
         cems,
         partial_cems_subplant,
     ) = impute_hourly_profiles.shape_partial_cems_subplants(cems, eia923_allocated)
-    # Export data cleaned by above for later validation, visualization, analysis
-    output_data.output_intermediate_data(
-        eia923_allocated.drop(columns="plant_primary_fuel"),
-        "eia923_allocated",
-        path_prefix,
-        year,
-        args.skip_outputs,
-    )
+
     validation.validate_unique_datetimes(
         df=partial_cems_subplant,
         df_name="partial_cems_subplant",
@@ -262,11 +280,11 @@ def main():
     validation.test_emissions_adjustments(cems)
     validation.validate_unique_datetimes(
         df=cems,
-        df_name="cems",
+        df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
     )
     output_data.output_intermediate_data(
-        cems, "cems", path_prefix, year, args.skip_outputs
+        cems, "cems_subplant", path_prefix, year, args.skip_outputs
     )
 
     # 11. Export monthly and annual plant-level results
@@ -277,7 +295,6 @@ def main():
         (eia923_allocated["hourly_data_source"] == "eia")
         & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
-    del eia923_allocated
     output_data.output_data_quality_metrics(
         validation.identify_percent_of_data_by_input_source(
             cems,
@@ -285,6 +302,7 @@ def main():
             partial_cems_plant,
             monthly_eia_data_to_shape,
             year,
+            plant_attributes,
         ),
         "input_data_source",
         path_prefix,
@@ -458,6 +476,8 @@ def main():
     print("15. Combining and exporting plant-level hourly results")
     # write metadata outputs
     output_data.write_plant_metadata(
+        plant_attributes,
+        eia923_allocated,
         cems,
         partial_cems_subplant,
         partial_cems_plant,
@@ -465,8 +485,16 @@ def main():
         path_prefix,
         args.skip_outputs,
     )
+    # set validate parameter to False since validating non-overlapping data requires subplant-level data
+    # since the shaped eia data is at the fleet level, this check will not work.
+    # However, we already checked for non-overlapping data in step 11 when combining monthly data
     combined_plant_data = data_cleaning.combine_plant_data(
-        cems, partial_cems_subplant, partial_cems_plant, shaped_eia_data, "hourly"
+        cems,
+        partial_cems_subplant,
+        partial_cems_plant,
+        shaped_eia_data,
+        "hourly",
+        False,
     )
     del (
         shaped_eia_data,
@@ -481,7 +509,10 @@ def main():
         keys=["plant_id_eia"],
     )
     output_data.output_plant_data(
-        combined_plant_data, path_prefix, "hourly", args.skip_outputs
+        combined_plant_data,
+        path_prefix,
+        "hourly",
+        args.skip_outputs,
     )
 
     # 16. Aggregate CEMS data to BA-fuel and write power sector results

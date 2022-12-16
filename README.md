@@ -19,13 +19,13 @@ cd open-grid-emissions
 conda env create -f environment.yml
 conda activate open_grid_emissions
 cd src
-python data_pipeline.py --year 2020
+python data_pipeline.py --year 2021
 ```
 
 A more detailed walkthough of these steps can be found below in the "Development Setup" section.
 
 ## Data Availability and Release Schedule
-The latest release includes data for year 2019-2020 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data. 
+The latest release includes data for year 2019-2021 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data. 
 
 Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2021 data should be available Autumn 2022). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGEI methodology. All previous versions of the data will be archived on Zenodo.
 
@@ -123,11 +123,11 @@ try setting your channel priority to flexible by running the following command:
 
 ## Running the complete data pipeline
 
-If you would like to run the full data pipeline to generate all intermediate outputs and results files, open anaconda prompt, navigate to `open-grid-emissions/src`, and run the following (replacing 2020 with whichever year you want to run):
+If you would like to run the full data pipeline to generate all intermediate outputs and results files, open anaconda prompt, navigate to `open-grid-emissions/src`, and run the following (replacing 2021 with whichever year you want to run):
 
 ```
 conda activate open_grid_emissions
-python data_pipeline.py --year 2020
+python data_pipeline.py --year 2021
 ```
 
 ## Keeping the code updated

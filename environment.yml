@@ -4,7 +4,8 @@ channels:
   - conda-forge
 dependencies:
   - black # development: code formatting
-  - cvxpy # used by gridemissions
+  - cvxopt
+  - cvxpy=1.2.1 # used by gridemissions, newer version not working as of 12/12/2022
   - flake8 # development: linter
   - geopandas # used for pudl
   - ipykernel
@@ -19,6 +20,7 @@ dependencies:
   - pytest
   - python>=3.10,<3.11 # require 3.10.x for compatibility with pudl
   - python-snappy # used for pudl
+  - qdldl-python=0.1.5 # used for gridemissions, newer version not working as of 12/12/2022
   - requests>=2.28.1
   - seaborn # used by gridemissions
   - setuptools # used for pudl
@@ -27,7 +29,7 @@ dependencies:
   - statsmodels
 
   - pip:
-      #- --editable ../pudl #NOTE: this is for Greg's use for development
-      - git+https://github.com/grgmiller/pudl.git@oge#egg=catalystcoop.pudl
-      # - --editable ../gridemissions # NOTE: for Gailin's development use
+      #- --editable ../pudl #NOTE: this is for development use
+      - git+https://github.com/catalyst-cooperative/pudl.git#egg=catalystcoop.pudl
+      #- --editable ../gridemissions # NOTE: this is for development use
       - git+https://github.com/gailin-p/gridemissions#egg=gridemissions

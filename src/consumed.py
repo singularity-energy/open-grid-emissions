@@ -91,9 +91,9 @@ def get_rate_column(poll: str, adjustment: str, generated: bool = True, ba: str 
     return column
 
 
-def get_average_emission_factors(prefix: str = "2020/", year: int = 2020):
+def get_average_emission_factors(prefix: str, year: int):
     """
-    Locate per-fuel, per-adjustment, per-poll emission factors.
+    Locate per-fuel, per-adjustment, per-pollutant emission factors.
     Used to fill in emissions from BAs outside of US, where we have generation by
     fuel (from gridemissions) but no open-grid-emissions data
 
@@ -206,7 +206,7 @@ class HourlyConsumed:
         self.eia930 = BaData(eia930_file)
 
         # Emission factors for non-US bas
-        self.default_factors = get_average_emission_factors()
+        self.default_factors = get_average_emission_factors(prefix, year)
 
         # Look up lists of BAs with specific requirements
         self.import_regions, self.generation_regions = self._get_special_regions()

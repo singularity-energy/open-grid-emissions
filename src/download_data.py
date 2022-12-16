@@ -147,16 +147,21 @@ def download_updated_pudl_database(download=True):
         # remove the existing file from zenodo
         os.remove(downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite"))
 
-
         url = "https://zenodo.org/record/7063072/files/pudl_data.zip?download=1"
         download_filepath = downloads_folder("pudl/pudl_data/sqlite/pudl_data.zip")
         output_filepath = downloads_folder("pudl/pudl_data/sqlite/pudl")
         download_data.download_helper(
-            url, download_filepath, output_filepath, requires_unzip=True, should_clean=True
+            url,
+            download_filepath,
+            output_filepath,
+            requires_unzip=True,
+            should_clean=True,
         )
-        shutil.move(downloads_folder("pudl/pudl_data/sqlite/pudl/pudl.sqlite"), downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite"))
+        shutil.move(
+            downloads_folder("pudl/pudl_data/sqlite/pudl/pudl.sqlite"),
+            downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite"),
+        )
         os.rmdir(downloads_folder("pudl/pudl_data/sqlite/pudl/"))
-
 
 
 def download_chalendar_files():
@@ -243,13 +248,29 @@ def download_raw_eia923(year: int):
     if year < 2008:
         raise NotImplementedError(f"EIA-923 data is unavailable for '{year}'.")
     os.makedirs(downloads_folder("eia923"), exist_ok=True)
-    url = f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
+    url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
+    archive_url = (
+        f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
+    )
     filename = url.split("/")[-1].split(".")[0]
     download_filepath = downloads_folder(f"eia923/{filename}.zip")
     output_filepath = downloads_folder(f"eia923/{filename}")
-    download_helper(
-        url, download_filepath, output_filepath, requires_unzip=True, should_clean=True
-    )
+    try:
+        download_helper(
+            url,
+            download_filepath,
+            output_filepath,
+            requires_unzip=True,
+            should_clean=True,
+        )
+    except Exception:
+        download_helper(
+            archive_url,
+            download_filepath,
+            output_filepath,
+            requires_unzip=True,
+            should_clean=True,
+        )
 
 
 def download_raw_eia_906_920(year):

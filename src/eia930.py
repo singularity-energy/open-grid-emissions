@@ -14,7 +14,8 @@ os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.
 from gridemissions.workflows import make_dataset
 
 
-def balance_to_gridemissions(year: int, small: bool = False):
+def convert_balance_file_to_gridemissions_format(year: int, small: bool = False):
+    """Converts downloaded EIA-930 Balance files to gridemissions format."""
     files = [
         downloads_folder() + "eia930/EIA930_{}_{}_Jul_Dec.csv",
         downloads_folder() + "eia930/EIA930_{}_{}_Jan_Jun.csv",
@@ -129,7 +130,7 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     data_folder = outputs_folder(f"{path_prefix}/eia930/")
 
     # Format raw file
-    df = balance_to_gridemissions(year, small=small)
+    df = convert_balance_file_to_gridemissions_format(year, small=small)
     raw_file = data_folder + "eia930_unadjusted_raw.csv"
     df.to_csv(raw_file)
 
@@ -186,7 +187,7 @@ def reformat_chalendar(raw):
     return cleaned
 
 
-def load_chalendar(fname: str, year: int = 2020):
+def load_chalendar(fname: str, year: int):
     raw = pd.read_csv(fname, index_col=0, parse_dates=True)
     raw = raw[raw.index.year == year]
     return reformat_chalendar(raw)

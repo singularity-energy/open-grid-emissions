@@ -25,7 +25,7 @@ def load_emissions_controls_helper(years, load_data, expect_empty=False):
 def load_boiler_nox_association_eia860_helper(years, load_data, expect_empty=False):
     for year in years:
         print(f'-- Loading boiler NOx information from EIA-923 for {year}')
-        df_boiler_nox = load_data.load_boiler_nox_association_eia860(year)
+        df_boiler_nox = load_data.load_boiler_control_id_association_eia860(year, "nox")
         print('Columns:\n', df_boiler_nox.columns)
         if expect_empty:
             assert(len(df_boiler_nox) == 0)
@@ -37,7 +37,7 @@ def load_boiler_nox_association_eia860_helper(years, load_data, expect_empty=Fal
 def load_boiler_so2_association_eia860_helper(years, load_data, expect_empty=False):
     for year in years:
         print(f'-- Loading boiler SO2 information from EIA-923 for {year}')
-        df_boiler_nox = load_data.load_boiler_so2_association_eia860(year)
+        df_boiler_nox = load_data.load_boiler_control_id_association_eia860(year, "so2")
         print('Columns:\n', df_boiler_nox.columns)
         if expect_empty:
             assert(len(df_boiler_nox) == 0)
@@ -71,5 +71,6 @@ def test_load_boiler_so2_association_eia860(load_data):
 
 def test_load_diba_data(load_data):
     """Make sure that the DIBA data from EIA-930 is loaded without errors."""
+    load_data.load_diba_data(2021)
     load_data.load_diba_data(2020)
     load_data.load_diba_data(2019)
