@@ -20,7 +20,7 @@ dependencies:
   - pytest
   - python>=3.10,<3.11 # require 3.10.x for compatibility with pudl
   - python-snappy # used for pudl
-  - qdldl-python=0.1.5=py310hf5e1058_2 # used for gridemissions, newer version not working as of 12/12/2022
+  - qdldl-python=0.1.5 # used for gridemissions, newer version not working as of 12/12/2022
   - requests>=2.28.1
   - seaborn # used by gridemissions
   - setuptools # used for pudl

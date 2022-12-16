@@ -143,6 +143,8 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
         ]
     ]
 
+    subplant_crosswalk_complete = manually_update_subplant_id(subplant_crosswalk_complete)
+
     subplant_crosswalk_complete = subplant_crosswalk_complete.drop_duplicates(
         subset=[
             "plant_id_epa",
@@ -166,6 +168,21 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
         outputs_folder(f"{end_year}/subplant_crosswalk_{end_year}.csv"),
         index=False,
     )
+
+
+def manually_update_subplant_id(subplant_crosswalk):
+    """
+    This function corrects subplant mappings not caught by update_subplant_id.
+
+    This is temporary until the pudl subplant crosswalk includes boiler-generator id matches.
+    """
+
+    # set all generators in plant 1391 to the same subplant
+    subplant_crosswalk.loc[
+        subplant_crosswalk["plant_id_eia"] == 1391, "subplant_id"
+    ] = 0
+
+    return subplant_crosswalk
 
 
 def update_subplant_ids(subplant_crosswalk):
