@@ -91,3 +91,7 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,notes
 568,BHB5,568,502,Matched based on total net generation
 60925,CT1,60925,1A,Matched based on generator ID and prime mover code
 60925,CT2,60925,1B,Matched based on generator ID and prime mover code
+60910,1GT,60910,NPLPS,Matched based on plant ID
+63259,DEPS1,63259,DEPS1,Matched based on generator ID
+63259,DEPC2,63259,DEPC2,Matched based on generator ID
+63259,DEPC3,63259,DEPC3,Matched based on generator ID

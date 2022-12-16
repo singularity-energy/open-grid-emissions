@@ -1119,6 +1119,22 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
         cems, column_to_fill="energy_source_code", filler_column="energy_source_code_1"
     )
 
+    # if we are still missing fuel codes, merge in from the epa-assigned fuel code
+    crosswalk = load_data.load_epa_eia_crosswalk_from_raw(year)[
+        ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
+    ].drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
+    cems = cems.merge(
+        crosswalk,
+        how="left",
+        on=["plant_id_eia", "emissions_unit_id_epa"],
+        validate="m:1",
+    )
+    cems = fillna_with_missing_strings(
+        cems,
+        column_to_fill="energy_source_code",
+        filler_column="energy_source_code_epa",
+    )
+
     # update
     cems = update_energy_source_codes(cems)
 
