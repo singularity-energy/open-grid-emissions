@@ -6,6 +6,7 @@ from column_checks import apply_dtypes
 import load_data
 from filepaths import manual_folder
 import validation
+import output_data
 
 # specify the ba numbers with leading zeros
 FUEL_NUMBERS = {
@@ -868,6 +869,182 @@ def convert_profile_to_percent(hourly_profiles, group_keys, columns_to_convert):
     return hourly_profiles
 
 
+def combine_and_export_hourly_plant_data(
+    cems,
+    partial_cems_subplant,
+    partial_cems_plant,
+    monthly_eia_data_to_shape,
+    plant_attributes,
+    hourly_profiles,
+    path_prefix,
+    skip_outputs,
+):
+    KEY_COLUMNS = [
+        "plant_id_eia",
+        "datetime_utc",
+        "report_date",
+    ]
+
+    data_columns_for_plant_export = [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "ch4_mass_lb_for_electricity",
+        "n2o_mass_lb_for_electricity",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb_for_electricity",
+        "co2_mass_lb_for_electricity_adjusted",
+    ]
+
+    ALL_COLUMNS = KEY_COLUMNS + data_columns_for_plant_export
+
+    validation.ensure_non_overlapping_data_from_all_sources(
+        cems, partial_cems_subplant, partial_cems_plant, monthly_eia_data_to_shape
+    )
+
+    # group data by plant-hour and filter columns
+    cems_agg = (
+        cems.groupby(
+            KEY_COLUMNS,
+            dropna=False,
+        )
+        .sum()
+        .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
+    )
+    # don't group if there is no data in the dataframe
+    if len(partial_cems_subplant) > 0:
+        partial_cems_subplant_agg = (
+            partial_cems_subplant.groupby(
+                KEY_COLUMNS,
+                dropna=False,
+            )
+            .sum()
+            .reset_index()[
+                [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
+            ]
+        )
+    else:
+        partial_cems_subplant_agg = partial_cems_subplant
+    if len(partial_cems_plant) > 0:
+        partial_cems_plant_agg = (
+            partial_cems_plant.groupby(
+                KEY_COLUMNS,
+                dropna=False,
+            )
+            .sum()
+            .reset_index()[
+                [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
+            ]
+        )
+    else:
+        partial_cems_plant_agg = partial_cems_plant
+    monthly_eia_data_to_shape_agg = (
+        monthly_eia_data_to_shape.groupby(
+            ["plant_id_eia", "report_date"],
+            dropna=False,
+        )
+        .sum()
+        .reset_index()[
+            [col for col in monthly_eia_data_to_shape.columns if col in ALL_COLUMNS]
+        ]
+    )
+
+    # add ba_codes and fuel categories to the input data
+    cems_agg = cems_agg.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    monthly_eia_data_to_shape_agg = monthly_eia_data_to_shape_agg.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    partial_cems_plant_agg = partial_cems_plant_agg.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    partial_cems_subplant_agg = partial_cems_subplant_agg.merge(
+        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+
+    for ba in list(plant_attributes.ba_code.unique()):
+
+        # filter each of the data sources
+        eia_ba = monthly_eia_data_to_shape_agg[
+            monthly_eia_data_to_shape_agg["ba_code"] == ba
+        ].copy()
+        cems_ba = cems_agg[cems_agg["ba_code"] == ba].copy()
+        partial_cems_plant_ba = partial_cems_plant_agg[
+            partial_cems_plant_agg["ba_code"] == ba
+        ].copy()
+        partial_cems_subplant_ba = partial_cems_subplant_agg[
+            partial_cems_subplant_agg["ba_code"] == ba
+        ].copy()
+
+        # shape the eia data
+        shaped_eia_ba_data = shape_monthly_eia_data_as_hourly(eia_ba, hourly_profiles)
+
+        validation.validate_unique_datetimes(
+            df=shaped_eia_ba_data,
+            df_name="shaped_eia_data",
+            keys=["plant_id_eia"],
+        )
+        # validate that the shaping did not alter data at the monthly level
+        validation.validate_shaped_totals(
+            shaped_eia_ba_data,
+            eia_ba,
+            group_keys=["ba_code", "fuel_category"],
+        )
+
+        # concat together
+        combined_plant_data = pd.concat(
+            [
+                cems_ba,
+                partial_cems_subplant_ba,
+                partial_cems_plant_ba,
+                shaped_eia_ba_data,
+            ],
+            axis=0,
+            ignore_index=True,
+            copy=False,
+        )
+
+        # groupby plant
+        combined_plant_data = (
+            combined_plant_data.groupby(["plant_id_eia", "datetime_utc"], dropna=False)
+            .sum()
+            .reset_index()
+        )
+
+        combined_plant_data[data_columns_for_plant_export] = combined_plant_data[
+            data_columns_for_plant_export
+        ].round(2)
+
+        # write data
+        output_data.output_to_results(
+            combined_plant_data,
+            ba,
+            "plant_data/hourly/",
+            path_prefix,
+            skip_outputs,
+            include_metric=False,
+        )
+
+
 def get_shaped_plant_id_from_ba_fuel(df):
     """
     Return artificial plant code. Max real plant is 64663
@@ -988,9 +1165,12 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
 
     # shape the data
     for column in DATA_COLUMNS:
-        shaped_monthly_data[column] = (
-            shaped_monthly_data[column] * shaped_monthly_data["profile"]
-        )
+        if column in shaped_monthly_data.columns:
+            shaped_monthly_data[column] = (
+                shaped_monthly_data[column] * shaped_monthly_data["profile"]
+            )
+        else:
+            pass
 
     # re order the columns
     column_order = [
@@ -1003,7 +1183,9 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
     ] + DATA_COLUMNS
 
     # re-order and drop intermediate columns
-    shaped_monthly_data = shaped_monthly_data[column_order]
+    shaped_monthly_data = shaped_monthly_data[
+        [col for col in column_order if col in shaped_monthly_data.columns]
+    ]
 
     return shaped_monthly_data
 
