@@ -878,13 +878,26 @@ def combine_and_export_hourly_plant_data(
     hourly_profiles,
     path_prefix,
     skip_outputs,
+    region_to_group,
 ):
-    KEY_COLUMNS = [
+    """
+    Exports files with hourly data for each individual plant, split up by region.
+
+    Creating hourly records for all plants in the US at once will cause memory errors
+    on most computers, so we need to only shape data for one subset of plants at a time.
+    This function shapes the EIA monthly data for one region at a time, combines it with
+    the hourly CEMS data for that region, and exports the data as a csv file.
+
+    All of the inputs are dataframes containing data from the data pipeline except for `region_to_group`
+    `region_to_group` identifying whether "ba_code" or "state" should be used to group the data. "ba_code" is the default.
+    """
+
+    # specify the names of the columns that we want to use to group the data
+    key_columns = [
         "plant_id_eia",
         "datetime_utc",
-        "report_date",
     ]
-
+    # specify the data columns that should be included in the output files
     data_columns_for_plant_export = [
         "net_generation_mwh",
         "fuel_consumed_mmbtu",
@@ -901,32 +914,32 @@ def combine_and_export_hourly_plant_data(
         "so2_mass_lb_for_electricity",
         "co2_mass_lb_for_electricity_adjusted",
     ]
-
-    ALL_COLUMNS = KEY_COLUMNS + data_columns_for_plant_export
+    all_columns = key_columns + data_columns_for_plant_export
 
     validation.ensure_non_overlapping_data_from_all_sources(
         cems, partial_cems_subplant, partial_cems_plant, monthly_eia_data_to_shape
     )
 
-    # group data by plant-hour and filter columns
+    # for each of our four input dataframes, create versions that are
+    # aggregated by plant-hour, and only keep the columns that we will export
     cems_agg = (
         cems.groupby(
-            KEY_COLUMNS,
+            key_columns,
             dropna=False,
         )
         .sum()
-        .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
+        .reset_index()[[col for col in cems.columns if col in all_columns]]
     )
     # don't group if there is no data in the dataframe
     if len(partial_cems_subplant) > 0:
         partial_cems_subplant_agg = (
             partial_cems_subplant.groupby(
-                KEY_COLUMNS,
+                key_columns,
                 dropna=False,
             )
             .sum()
             .reset_index()[
-                [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
+                [col for col in partial_cems_subplant.columns if col in all_columns]
             ]
         )
     else:
@@ -934,12 +947,12 @@ def combine_and_export_hourly_plant_data(
     if len(partial_cems_plant) > 0:
         partial_cems_plant_agg = (
             partial_cems_plant.groupby(
-                KEY_COLUMNS,
+                key_columns,
                 dropna=False,
             )
             .sum()
             .reset_index()[
-                [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
+                [col for col in partial_cems_plant.columns if col in all_columns]
             ]
         )
     else:
@@ -951,93 +964,106 @@ def combine_and_export_hourly_plant_data(
         )
         .sum()
         .reset_index()[
-            [col for col in monthly_eia_data_to_shape.columns if col in ALL_COLUMNS]
+            [col for col in monthly_eia_data_to_shape.columns if col in all_columns]
         ]
     )
 
-    # add ba_codes and fuel categories to the input data
-    cems_agg = cems_agg.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+    # add ba_codes and fuel categories to the input data to help with filtering and merging
+    monthly_eia_data_to_shape_agg = monthly_eia_data_to_shape_agg.merge(
+        plant_attributes[["plant_id_eia", region_to_group, "fuel_category"]],
         how="left",
         on="plant_id_eia",
         validate="m:1",
     )
-    monthly_eia_data_to_shape_agg = monthly_eia_data_to_shape_agg.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+    cems_agg = cems_agg.merge(
+        plant_attributes[["plant_id_eia", region_to_group]],
         how="left",
         on="plant_id_eia",
         validate="m:1",
     )
     partial_cems_plant_agg = partial_cems_plant_agg.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+        plant_attributes[["plant_id_eia", region_to_group]],
         how="left",
         on="plant_id_eia",
         validate="m:1",
     )
     partial_cems_subplant_agg = partial_cems_subplant_agg.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
+        plant_attributes[["plant_id_eia", region_to_group]],
         how="left",
         on="plant_id_eia",
         validate="m:1",
     )
 
-    for ba in list(plant_attributes.ba_code.unique()):
+    # for each region, shape the EIA-only data, combine with CEMS data, and export
+    for region in list(plant_attributes[region_to_group].unique()):
 
-        # filter each of the data sources
-        eia_ba = monthly_eia_data_to_shape_agg[
-            monthly_eia_data_to_shape_agg["ba_code"] == ba
+        # filter each of the data sources to the region
+        eia_region = monthly_eia_data_to_shape_agg[
+            monthly_eia_data_to_shape_agg[region_to_group] == region
         ].copy()
-        cems_ba = cems_agg[cems_agg["ba_code"] == ba].copy()
-        partial_cems_plant_ba = partial_cems_plant_agg[
-            partial_cems_plant_agg["ba_code"] == ba
+        cems_region = cems_agg[cems_agg[region_to_group] == region].copy()
+        partial_cems_plant_region = partial_cems_plant_agg[
+            partial_cems_plant_agg[region_to_group] == region
         ].copy()
-        partial_cems_subplant_ba = partial_cems_subplant_agg[
-            partial_cems_subplant_agg["ba_code"] == ba
+        partial_cems_subplant_region = partial_cems_subplant_agg[
+            partial_cems_subplant_agg[region_to_group] == region
         ].copy()
 
         # shape the eia data
-        shaped_eia_ba_data = shape_monthly_eia_data_as_hourly(eia_ba, hourly_profiles)
+        shaped_eia_region_data = shape_monthly_eia_data_as_hourly(
+            eia_region, hourly_profiles
+        )
 
+        # validate that the shaped data contains no duplicate datetimes
         validation.validate_unique_datetimes(
-            df=shaped_eia_ba_data,
+            df=shaped_eia_region_data,
             df_name="shaped_eia_data",
             keys=["plant_id_eia"],
         )
         # validate that the shaping did not alter data at the monthly level
         validation.validate_shaped_totals(
-            shaped_eia_ba_data,
-            eia_ba,
-            group_keys=["ba_code", "fuel_category"],
+            shaped_eia_region_data,
+            eia_region,
+            group_keys=[region_to_group, "fuel_category"],
         )
 
-        # concat together
+        # concat all of the data together
         combined_plant_data = pd.concat(
             [
-                cems_ba,
-                partial_cems_subplant_ba,
-                partial_cems_plant_ba,
-                shaped_eia_ba_data,
+                cems_region,
+                partial_cems_subplant_region,
+                partial_cems_plant_region,
+                shaped_eia_region_data,
             ],
             axis=0,
             ignore_index=True,
             copy=False,
         )
 
-        # groupby plant
-        combined_plant_data = (
-            combined_plant_data.groupby(["plant_id_eia", "datetime_utc"], dropna=False)
-            .sum()
-            .reset_index()
+        del (
+            cems_region,
+            partial_cems_subplant_region,
+            partial_cems_plant_region,
+            shaped_eia_region_data,
         )
 
+        # groupby plant in case some plant data was split between multiple dfs
+        combined_plant_data = (
+            combined_plant_data.groupby(key_columns, dropna=False).sum().reset_index()
+        )
+
+        # round the data columns to two decimal places
         combined_plant_data[data_columns_for_plant_export] = combined_plant_data[
             data_columns_for_plant_export
         ].round(2)
 
+        # re-order columns
+        combined_plant_data = combined_plant_data[all_columns]
+
         # write data
         output_data.output_to_results(
             combined_plant_data,
-            ba,
+            region,
             "plant_data/hourly/",
             path_prefix,
             skip_outputs,

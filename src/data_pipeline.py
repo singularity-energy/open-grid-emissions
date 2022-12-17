@@ -393,6 +393,7 @@ def main():
             hourly_profiles,
             path_prefix,
             args.skip_outputs,
+            region_to_group="ba_code"
         )
     else:
         print(
