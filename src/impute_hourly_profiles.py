@@ -964,7 +964,11 @@ def combine_and_export_hourly_plant_data(
         )
         .sum()
         .reset_index()[
-            [col for col in monthly_eia_data_to_shape.columns if col in all_columns]
+            [
+                col
+                for col in monthly_eia_data_to_shape.columns
+                if col in (all_columns + ["report_date"])
+            ]
         ]
     )
 
