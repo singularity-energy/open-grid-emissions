@@ -46,7 +46,7 @@ DATA_COLUMNS = [
 ]
 
 
-def identify_subplants(year, number_of_years):
+def identify_subplants(year, number_of_years=5):
     """This is the coordinating function for loading and calculating subplant IDs, GTN regressions, and GTN ratios."""
     start_year = year - (number_of_years - 1)
     end_year = year
@@ -143,7 +143,9 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
         ]
     ]
 
-    subplant_crosswalk_complete = manually_update_subplant_id(subplant_crosswalk_complete)
+    subplant_crosswalk_complete = manually_update_subplant_id(
+        subplant_crosswalk_complete
+    )
 
     subplant_crosswalk_complete = subplant_crosswalk_complete.drop_duplicates(
         subset=[
