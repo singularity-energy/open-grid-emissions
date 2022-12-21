@@ -383,7 +383,7 @@ def main():
     # 14. Export hourly plant-level data
     ####################################################################################
     print("14. Exporting Hourly Plant-level data for each BA")
-    if args.shape_individual_plants:
+    if args.shape_individual_plants and not args.small:
         impute_hourly_profiles.combine_and_export_hourly_plant_data(
             cems,
             partial_cems_subplant,
