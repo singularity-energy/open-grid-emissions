@@ -1347,12 +1347,16 @@ def load_egrid_plant_file(year):
             "UNNOX",
             "UNSO2",
             "UNCO2",
+            "UNCH4",
+            "UNN2O",
             "UNHTIT",
             "UNHTIOZT",
             "UNHTISRC",
             "UNHOZSRC",
             "PLCO2AN",
+            "PLCO2EQA",
             "CHPFLAG",
+            "ELCALLOC",
         ],
     )
     # calculate total net generation from reported renewable and nonrenewable generation
@@ -1371,10 +1375,14 @@ def load_egrid_plant_file(year):
             "UNHTIT": "fuel_consumed_mmbtu",
             "PLHTIANT": "fuel_consumed_for_electricity_mmbtu",
             "UNCO2": "co2_mass_lb",  # this is actually in tons, but we are converting in the next step
+            "UNCH4": "ch4_mass_lb",
+            "UNN2O": "n2o_mass_lb",
             "UNNOX": "nox_mass_lb",  # this is actually in tons, but we are converting in the next step
             "UNSO2": "so2_mass_lb",  # this is actually in tons, but we are converting in the next step
             "PLCO2AN": "co2_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
+            "PLCO2EQA": "co2e_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
             "CHPFLAG": "chp_flag",
+            "ELCALLOC": "chp_electric_allocation_factor",
             "UNHTIOZT": "fuel_consumed_mmbtu_ozone_season",
             "UNHTISRC": "fuel_data_source_annual",
             "UNHOZSRC": "fuel_data_source_ozone",
@@ -1387,6 +1395,9 @@ def load_egrid_plant_file(year):
     egrid_plant["so2_mass_lb"] = egrid_plant["so2_mass_lb"] * 2000
     egrid_plant["co2_mass_lb_for_electricity_adjusted"] = (
         egrid_plant["co2_mass_lb_for_electricity_adjusted"] * 2000
+    )
+    egrid_plant["co2e_mass_lb_for_electricity_adjusted"] = (
+        egrid_plant["co2e_mass_lb_for_electricity_adjusted"] * 2000
     )
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
@@ -1416,11 +1427,15 @@ def load_egrid_plant_file(year):
             "plant_name_eia",
             "plant_primary_fuel",
             "chp_flag",
+            "chp_electric_allocation_factor",
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
             "co2_mass_lb",
             "co2_mass_lb_for_electricity_adjusted",
+            "ch4_mass_lb",
+            "n2o_mass_lb",
+            "co2e_mass_lb_for_electricity_adjusted",
             "nox_mass_lb",
             "so2_mass_lb",
             "fuel_consumed_mmbtu_ozone_season",
