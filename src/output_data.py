@@ -100,15 +100,16 @@ def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
 def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
     # Always check columns that should not be negative.
     small = "small" in path_prefix
+    print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
+
+    metric = convert_results(df)
+    metric = round_table(metric)
+    df = round_table(df)
+
+    # Check for negatives after rounding
+    validation.test_for_negative_values(df, small)
+
     if not skip_outputs:
-        print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
-
-        metric = convert_results(df)
-        metric = round_table(metric)
-        df = round_table(df)
-
-        # Check for negatives after rounding
-        validation.test_for_negative_values(df, small)
 
         df.to_csv(
             results_folder(f"{path_prefix}{subfolder}us_units/{file_name}.csv"),
