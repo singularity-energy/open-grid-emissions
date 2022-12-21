@@ -174,7 +174,7 @@ def reformat_chalendar(raw):
     print("Filtering")
     cleaned = (
         raw.loc[:, target_cols]
-        .melt(ignore_index=False, value_name="generation")
+        .melt(ignore_index=False, value_name="generation", var_name="variable")
         .reset_index()
     )
     print("Expanding cols")
@@ -390,6 +390,7 @@ def manual_930_adjust(raw: pd.DataFrame):
             - TEPC: + 1 hour
             - SC: -4 hours during daylight savings hours; -5 hours during
                 standard hours (this happens to = the Eastern <-> UTC offset)
+                Fixed in BALANCE files starting Jan 1, 2021
         - Interchange
             - PJM: + 4 hours
             - TEPC: + 7 hours
@@ -402,6 +403,7 @@ def manual_930_adjust(raw: pd.DataFrame):
             - PJM-OVEC, all time. Based on OVEC demand - generation, OVEC
                 should be a net exporter to PJM
                 - Note: OVEC's data repeats daily starting in 2018...
+                - Note: I think OVEC data is actually being added by `gridemissions` -- there's no EIA-930 data starting in 2018
         - Interchange mysterious
             - AZPS - SRP flips gradually in Nov 2019, then abruptly back in June 2020.
                 throughout, SRP - AZPS remains constant around 3000 lb imported to AZPS from SRP
@@ -414,6 +416,8 @@ def manual_930_adjust(raw: pd.DataFrame):
     sc_offsets = (
         raw.index.tz_convert("US/Eastern").to_series().apply(lambda s: s.utcoffset())
     )
+    # After Dec 31, 2020, the offset is 0
+    sc_offsets["2020-12-31T00:00":] = 0
     # make new data so we don't mess up other data indexing
     sc_dat = raw[get_columns("SC", raw.columns)].copy()
     sc_idx = pd.DatetimeIndex(sc_dat.index + sc_offsets)  # make shifted dates
