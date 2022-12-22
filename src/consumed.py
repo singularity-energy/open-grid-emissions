@@ -21,7 +21,12 @@ Instead, we use 930 demand as net_consumed. Note: there may be issues with the 9
 demand! But it is better than combining inconsistent generation and interchange, 
 which results in unreasonable profiles with many negative hours.
 """
-BA_930_INCONSISTENCY = ["SPA", "CPLW", "GCPD", "AZPS", "EEI"]
+# original values ["SPA", "CPLW", "GCPD", "AZPS", "EEI"]
+BA_930_INCONSISTENCY = {
+    2019: ["EEI"],
+    2020: ["EEI", "SEC"],
+    2021: [],
+}
 
 # Defined in output_data, written to each BA file
 EMISSION_COLS = [
@@ -277,7 +282,7 @@ class HourlyConsumed:
         for ba in self.regions:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
-            if ba in BA_930_INCONSISTENCY:
+            if ba in BA_930_INCONSISTENCY[self.year]:
                 self.results[ba]["net_consumed_mwh"] = self.eia930.df[
                     KEYS["E"]["D"] % ba
                 ][self.generation.index]

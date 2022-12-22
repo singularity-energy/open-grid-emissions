@@ -102,7 +102,7 @@ def main():
     print("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(
-        zenodo_url="https://zenodo.org/record/6349861/files/pudl-v2022-11-30.tgz"  # this link is temporary until the actual zenodo archive is uploaded
+        zenodo_url="https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
     )
     # eGRID
     # the 2019 and 2020 data appear to be hosted on different urls
@@ -114,7 +114,8 @@ def main():
     download_data.download_egrid_files(egrid_files_to_download)
     # EIA-930
     # for `small` run, we'll only clean 1 week, so need chalander file for making profiles
-    download_data.download_chalendar_files()
+    if args.small or args.flat:
+        download_data.download_chalendar_files()
     # We use balance files for imputing missing hourly profiles. TODO use cleaned instead?
     # need last year for rolling data cleaning
     download_data.download_eia930_data(years_to_download=[year, year - 1])

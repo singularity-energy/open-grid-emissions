@@ -174,7 +174,7 @@ def reformat_chalendar(raw):
     print("Filtering")
     cleaned = (
         raw.loc[:, target_cols]
-        .melt(ignore_index=False, value_name="generation")
+        .melt(ignore_index=False, value_name="generation", var_name="variable")
         .reset_index()
     )
     print("Expanding cols")
@@ -390,6 +390,7 @@ def manual_930_adjust(raw: pd.DataFrame):
             - TEPC: + 1 hour
             - SC: -4 hours during daylight savings hours; -5 hours during
                 standard hours (this happens to = the Eastern <-> UTC offset)
+                Fixed in BALANCE files starting Jan 1, 2021
         - Interchange
             - PJM: + 4 hours
             - TEPC: + 7 hours
@@ -399,9 +400,6 @@ def manual_930_adjust(raw: pd.DataFrame):
                     Oct 31, 2019, 4:00 UTC
                 - this is all interchange partners except OVEC, and excluding
                     total interchange
-            - PJM-OVEC, all time. Based on OVEC demand - generation, OVEC
-                should be a net exporter to PJM
-                - Note: OVEC's data repeats daily starting in 2018...
         - Interchange mysterious
             - AZPS - SRP flips gradually in Nov 2019, then abruptly back in June 2020.
                 throughout, SRP - AZPS remains constant around 3000 lb imported to AZPS from SRP
@@ -414,6 +412,8 @@ def manual_930_adjust(raw: pd.DataFrame):
     sc_offsets = (
         raw.index.tz_convert("US/Eastern").to_series().apply(lambda s: s.utcoffset())
     )
+    # After Dec 31, 2020, the offset is 0
+    sc_offsets["2020-12-31T00:00":] = timedelta(0)
     # make new data so we don't mess up other data indexing
     sc_dat = raw[get_columns("SC", raw.columns)].copy()
     sc_idx = pd.DatetimeIndex(sc_dat.index + sc_offsets)  # make shifted dates
@@ -438,9 +438,6 @@ def manual_930_adjust(raw: pd.DataFrame):
     raw.loc[raw.index < "2019-10-31T04", cols] = (
         raw.loc[raw.index < "2019-10-31T04", cols] * -1
     )
-    # OVEC sign still appears to be wrong
-    ovec_col = get_int_columns("PJM", raw.columns, ["OVEC"])
-    raw.loc[:, ovec_col] = raw.loc[:, ovec_col] * -1
 
     # Interchange AZPS - SRP is wonky before 6/1/2020 7:00 UTC. Use SRP - AZPS (inverted)
     azps_srp = get_int_columns("AZPS", raw.columns, ["SRP"])
@@ -459,12 +456,6 @@ def manual_930_adjust(raw: pd.DataFrame):
     # Interchange TEPC is uniformly lagged
     cols = get_int_columns("TEPC", raw.columns)
     new = raw[cols].shift(-7, freq="H")
-    raw = raw.drop(columns=cols)
-    raw = pd.concat([raw, new], axis="columns")
-
-    # Interchange PJM->OVEC is uniformly lagged
-    cols = get_int_columns("PJM", raw.columns, ["OVEC"])
-    new = raw[cols].shift(-2, freq="H")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
