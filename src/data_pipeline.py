@@ -102,7 +102,7 @@ def main():
     print("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(
-        zenodo_url="https://zenodo.org/record/6349861/files/pudl-v2022-11-30.tgz"  # this link is temporary until the actual zenodo archive is uploaded
+        zenodo_url="https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
     )
     # eGRID
     # the 2019 and 2020 data appear to be hosted on different urls
