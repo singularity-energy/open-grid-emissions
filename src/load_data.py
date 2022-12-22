@@ -32,7 +32,7 @@ def load_cems_data(year):
     """
     # specify the path to the CEMS data
     cems_path = downloads_folder(
-        "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
+        "pudl/pudl_data/parquet/epacems/"
     )
 
     # specify the columns to use from the CEMS database
@@ -121,7 +121,7 @@ def load_cems_ids(start_year, end_year):
     for year in range(start_year, end_year + 1):
         # specify the path to the CEMS data
         cems_path = downloads_folder(
-            "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
+            "pudl/pudl_data/parquet/epacems/"
         )
 
         # load the CEMS data
