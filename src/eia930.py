@@ -417,7 +417,7 @@ def manual_930_adjust(raw: pd.DataFrame):
         raw.index.tz_convert("US/Eastern").to_series().apply(lambda s: s.utcoffset())
     )
     # After Dec 31, 2020, the offset is 0
-    sc_offsets["2021-01-01T00:00":] = timedelta(0)
+    sc_offsets["2020-12-31T00:00":] = timedelta(0)
     # make new data so we don't mess up other data indexing
     sc_dat = raw[get_columns("SC", raw.columns)].copy()
     sc_idx = pd.DatetimeIndex(sc_dat.index + sc_offsets)  # make shifted dates
