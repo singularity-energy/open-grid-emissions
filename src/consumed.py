@@ -454,14 +454,18 @@ class HourlyConsumed:
             else:
                 G[i] = self.generation.loc[date, r]
 
+        E = np.nan_to_num(E)
+        G = np.nan_to_num(G)
+        ID = np.nan_to_num(ID)
+
         # In some cases, we have zero generation but non-zero transmission
         # usually due to imputed zeros during physics-based cleaning being set to 1.0
-        # but sometimes due to ok values being set to 1.0ß
+        # but sometimes due to ok values being set to 1.0
         to_fix = (ID.sum(axis=1) > 0) & (G == 0)
         ID[:, to_fix] = 0
         ID[to_fix, :] = 0
 
-        return np.nan_to_num(E), np.nan_to_num(G), np.nan_to_num(ID)
+        return E, G, ID
 
     def run(self):
         for pol in POLLUTANTS:
