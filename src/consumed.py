@@ -210,6 +210,11 @@ class HourlyConsumed:
         # 930 data
         self.eia930 = BaData(eia930_file)
 
+        # Round 930 data to zero to clear out imputed values.
+        # to mimic behavior of eia930.remove_imputed_ones,
+        # round all values with abs(x) < 1.5 to 0
+        self.eia930.df[self.eia930.df.abs() < 1.5] = 0
+
         # Emission factors for non-US bas
         self.default_factors = get_average_emission_factors(prefix, year)
 
@@ -470,6 +475,7 @@ class HourlyConsumed:
     def run(self):
         for pol in POLLUTANTS:
             for adj in ADJUSTMENTS:
+                total_failed = 0
                 col = get_rate_column(pol, adjustment=adj, generated=False)
                 print(f"{pol}, {adj}", end="...")
                 # Calculate emissions
@@ -494,9 +500,13 @@ class HourlyConsumed:
                         except np.linalg.LinAlgError:
                             # These issues happen at boundary hours (beginning and end of year)
                             # where we don't have full data for all BAs
-                            # print(f"WARNING: singular matrix on {date}")
+                            total_failed += 1
                             consumed_emissions = np.full(len(self.regions), np.nan)
 
                     # Export
                     for (i, r) in enumerate(self.regions):
                         self.results[r].loc[date, col] = consumed_emissions[i]
+                if total_failed > 0:
+                    print(
+                        f"Warning: {total_failed} times failed to solve for consumed emissions, {pol} {adj}"
+                    )
