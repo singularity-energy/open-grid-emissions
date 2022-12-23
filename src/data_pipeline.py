@@ -3,7 +3,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
-Optional arguments are --year (default 2021), --gtn_years (default 5)
+Optional arguments are --year (default 2021), --shape_individual_plants (default True)
 Optional arguments for development are --small, --flat, and --skip_outputs
 """
 
@@ -36,10 +36,10 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", help="Year for analysis", default=2021, type=int)
     parser.add_argument(
-        "--gtn_years",
-        help="Number of years to use to calculate GTN ratio regressions, ending at `year`",
-        default=5,
-        type=int,
+        "--shape_individual_plants",
+        help="Assign an hourly profile to each individual plant with EIA-only data, instead of aggregating to the fleet level before shaping.",
+        type=bool,
+        default=True,
     )
     parser.add_argument(
         "--small",
@@ -102,7 +102,7 @@ def main():
     print("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(
-        zenodo_url="https://zenodo.org/record/6349861/files/pudl-v2022-11-30.tgz" # this link is temporary until the actual zenodo archive is uploaded
+        zenodo_url="https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
     )
     # eGRID
     # the 2019 and 2020 data appear to be hosted on different urls
@@ -114,7 +114,8 @@ def main():
     download_data.download_egrid_files(egrid_files_to_download)
     # EIA-930
     # for `small` run, we'll only clean 1 week, so need chalander file for making profiles
-    download_data.download_chalendar_files()
+    if args.small or args.flat:
+        download_data.download_chalendar_files()
     # We use balance files for imputing missing hourly profiles. TODO use cleaned instead?
     # need last year for rolling data cleaning
     download_data.download_eia930_data(years_to_download=[year, year - 1])
@@ -130,8 +131,7 @@ def main():
     # 2. Identify subplants
     ####################################################################################
     print("2. Identifying subplant IDs")
-    number_of_years = args.gtn_years
-    data_cleaning.identify_subplants(year, number_of_years)
+    data_cleaning.identify_subplants(year)
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
@@ -375,9 +375,38 @@ def main():
         hourly_profiles, "hourly_profiles", path_prefix, year, args.skip_outputs
     )
 
-    # 14. Assign hourly profile to monthly data
+    hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
+        hourly_profiles,
+        group_keys=["ba_code", "fuel_category", "profile_method"],
+        columns_to_convert=["profile", "flat_profile"],
+    )
+
+    # 14. Export hourly plant-level data
     ####################################################################################
-    print("14. Assigning hourly profiles to monthly EIA-923 data")
+    print("14. Exporting Hourly Plant-level data for each BA")
+    if args.shape_individual_plants and not args.small:
+        impute_hourly_profiles.combine_and_export_hourly_plant_data(
+            cems,
+            partial_cems_subplant,
+            partial_cems_plant,
+            monthly_eia_data_to_shape,
+            plant_attributes,
+            hourly_profiles,
+            path_prefix,
+            args.skip_outputs,
+            region_to_group="ba_code"
+        )
+    else:
+        print(
+            "    Not shaping and exporting individual plant data since `shape_individual_plants` is False."
+        )
+        print(
+            "    Plants that only report to EIA will be aggregated to the fleet level before shaping."
+        )
+
+    # 15. Shape fleet-level data
+    ####################################################################################
+    print("15. Assigning hourly profiles to monthly EIA-923 data")
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
         hourly_profiles,
         group_keys=["ba_code", "fuel_category", "profile_method"],
@@ -433,9 +462,9 @@ def main():
         group_keys=["ba_code", "fuel_category"],
     )
 
-    # 15. Combine plant-level data from all sources
+    # 16. Combine plant-level data from all sources
     ####################################################################################
-    print("15. Combining and exporting plant-level hourly results")
+    print("16. Combining plant-level hourly data")
     # write metadata outputs
     output_data.write_plant_metadata(
         plant_attributes,
@@ -470,16 +499,17 @@ def main():
         df_name="combined_plant_data",
         keys=["plant_id_eia"],
     )
-    output_data.output_plant_data(
-        combined_plant_data,
-        path_prefix,
-        "hourly",
-        args.skip_outputs,
-    )
+    if not args.shape_individual_plants:
+        output_data.output_plant_data(
+            combined_plant_data,
+            path_prefix,
+            "hourly",
+            args.skip_outputs,
+        )
 
-    # 16. Aggregate CEMS data to BA-fuel and write power sector results
+    # 17. Aggregate CEMS data to BA-fuel and write power sector results
     ####################################################################################
-    print("16. Creating and exporting BA-level power sector results")
+    print("17. Creating and exporting BA-level power sector results")
     ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
         combined_plant_data, plant_attributes
     )
@@ -491,9 +521,9 @@ def main():
     # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix, args.skip_outputs)
 
-    # 17. Calculate consumption-based emissions and write carbon accounting results
+    # 18. Calculate consumption-based emissions and write carbon accounting results
     ####################################################################################
-    print("17. Calculating and exporting consumption-based results")
+    print("18. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyConsumed(
         clean_930_file,
         path_prefix,
