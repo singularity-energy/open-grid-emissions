@@ -1330,35 +1330,48 @@ def test_gtn_results(df):
 
 
 def load_egrid_plant_file(year):
+    egrid_columns = [
+        "BACODE",
+        "PSTATABB",
+        "PLPRMFL",
+        "ORISPL",
+        "PNAME",
+        "PLGENATN",
+        "PLGENATR",
+        "PLHTIANT",
+        "UNNOX",
+        "UNSO2",
+        "UNCO2",
+        "UNCH4",
+        "UNN2O",
+        "UNHTIT",
+        "UNHTIOZT",
+        "UNHTISRC",
+        "UNHOZSRC",
+        "PLCO2AN",
+        "PLCO2EQA",
+        "PLNOXAN",
+        "PLSO2AN",
+        "CHPFLAG",
+        "ELCALLOC",
+    ]
+
     # load plant level data from egrid
-    egrid_plant = pd.read_excel(
-        downloads_folder(f"egrid/egrid{year}_data.xlsx"),
-        sheet_name=f"PLNT{str(year)[-2:]}",
-        header=1,
-        usecols=[
-            "BACODE",
-            "PSTATABB",
-            "PLPRMFL",
-            "ORISPL",
-            "PNAME",
-            "PLGENATN",
-            "PLGENATR",
-            "PLHTIANT",
-            "UNNOX",
-            "UNSO2",
-            "UNCO2",
-            "UNCH4",
-            "UNN2O",
-            "UNHTIT",
-            "UNHTIOZT",
-            "UNHTISRC",
-            "UNHOZSRC",
-            "PLCO2AN",
-            "PLCO2EQA",
-            "CHPFLAG",
-            "ELCALLOC",
-        ],
-    )
+    try:
+        egrid_plant = pd.read_excel(
+            downloads_folder(f"egrid/egrid{year}_data.xlsx"),
+            sheet_name=f"PLNT{str(year)[-2:]}",
+            header=1,
+            usecols=egrid_columns,
+        )
+    # for some years there is a v2 file
+    except FileNotFoundError:
+        egrid_plant = pd.read_excel(
+            downloads_folder(f"egrid/egrid{year}_data_v2.xlsx"),
+            sheet_name=f"PLNT{str(year)[-2:]}",
+            header=1,
+            usecols=egrid_columns,
+        )
     # calculate total net generation from reported renewable and nonrenewable generation
     egrid_plant["net_generation_mwh"] = (
         egrid_plant["PLGENATN"] + egrid_plant["PLGENATR"]
@@ -1381,6 +1394,8 @@ def load_egrid_plant_file(year):
             "UNSO2": "so2_mass_lb",  # this is actually in tons, but we are converting in the next step
             "PLCO2AN": "co2_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
             "PLCO2EQA": "co2e_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
+            "PLNOXAN": "nox_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
+            "PLSO2AN": "so2_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
             "CHPFLAG": "chp_flag",
             "ELCALLOC": "chp_electric_allocation_factor",
             "UNHTIOZT": "fuel_consumed_mmbtu_ozone_season",
@@ -1389,7 +1404,7 @@ def load_egrid_plant_file(year):
         }
     )
 
-    # convert co2 mass tons to lb
+    # convert mass tons to lb
     egrid_plant["co2_mass_lb"] = egrid_plant["co2_mass_lb"] * 2000
     egrid_plant["nox_mass_lb"] = egrid_plant["nox_mass_lb"] * 2000
     egrid_plant["so2_mass_lb"] = egrid_plant["so2_mass_lb"] * 2000
@@ -1398,6 +1413,12 @@ def load_egrid_plant_file(year):
     )
     egrid_plant["co2e_mass_lb_for_electricity_adjusted"] = (
         egrid_plant["co2e_mass_lb_for_electricity_adjusted"] * 2000
+    )
+    egrid_plant["nox_mass_lb_for_electricity_adjusted"] = (
+        egrid_plant["nox_mass_lb_for_electricity_adjusted"] * 2000
+    )
+    egrid_plant["so2_mass_lb_for_electricity_adjusted"] = (
+        egrid_plant["so2_mass_lb_for_electricity_adjusted"] * 2000
     )
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
@@ -1437,7 +1458,9 @@ def load_egrid_plant_file(year):
             "n2o_mass_lb",
             "co2e_mass_lb_for_electricity_adjusted",
             "nox_mass_lb",
+            "nox_mass_lb_for_electricity_adjusted",
             "so2_mass_lb",
+            "so2_mass_lb_for_electricity_adjusted",
             "fuel_consumed_mmbtu_ozone_season",
             "fuel_data_source_annual",
             "fuel_data_source_ozone",
