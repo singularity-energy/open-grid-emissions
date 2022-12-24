@@ -25,7 +25,7 @@ which results in unreasonable profiles with many negative hours.
 BA_930_INCONSISTENCY = {
     2019: ["EEI"],
     2020: ["EEI", "SEC"],
-    2021: [],
+    2021: ["CPLW", "GCPD"],
 }
 
 # Defined in output_data, written to each BA file
