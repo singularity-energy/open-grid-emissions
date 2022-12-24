@@ -283,7 +283,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
 
 def remove_imputed_ones(eia930_data):
 
-    filter = [eia930_data["net_generation_mwh_930"].abs() < 1.5]
+    filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
 
     # replace all 1.0 values with zero
     print(f"  replacing {sum(filter)} imputed 1 values with 0")
