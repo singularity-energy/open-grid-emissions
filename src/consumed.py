@@ -508,5 +508,5 @@ class HourlyConsumed:
                         self.results[r].loc[date, col] = consumed_emissions[i]
                 if total_failed > 0:
                     print(
-                        f"Warning: {total_failed} times failed to solve for consumed emissions, {pol} {adj}"
+                        f"Warning: {total_failed} hours failed to solve for consumed emissions, {pol} {adj}"
                     )
