@@ -319,6 +319,12 @@ class HourlyConsumed:
                     time_dat.datetime_local.dt.year == self.year
                 ]  # keep year of local data
 
+                # if there are small gaps in the consumed data,
+                # linearly interpolate the missing values, up to a maximum of 2 consecutive missing hours
+                time_dat = time_dat.interpolate(
+                    method="linear", axis=0, limit=2, limit_area="inside"
+                )
+
                 if time_resolution == "hourly":
                     # No resampling needed; keep timestamp cols in output
                     time_cols = ["datetime_utc", "datetime_local"]
