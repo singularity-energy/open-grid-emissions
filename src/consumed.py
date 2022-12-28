@@ -319,15 +319,12 @@ class HourlyConsumed:
                     time_dat.datetime_local.dt.year == self.year
                 ]  # keep year of local data
 
-                # if there are small gaps in the consumed data,
-                # linearly interpolate the missing values, up to a maximum of 2 consecutive missing hours
-                time_dat.loc[:, CONSUMED_EMISSION_RATE_COLS] = time_dat.loc[
-                    :, CONSUMED_EMISSION_RATE_COLS
-                ].interpolate(method="linear", axis=0, limit=2, limit_area="inside")
-
                 if time_resolution == "hourly":
                     # No resampling needed; keep timestamp cols in output
                     time_cols = ["datetime_utc", "datetime_local"]
+                    missing_hours = time_dat[time_dat.isna().any(axis=1)]
+                    if len(missing_hours) > 0:
+                        print(f"WARNING: {len(missing_hours)} hours are missing in {ba} consumed data")
                 elif time_resolution == "monthly":
                     time_dat["month"] = time_dat.datetime_local.dt.month
                     # Aggregate to appropriate resolution
@@ -514,5 +511,5 @@ class HourlyConsumed:
                         self.results[r].loc[date, col] = consumed_emissions[i]
                 if total_failed > 0:
                     print(
-                        f"Warning: {total_failed} hours failed to solve for consumed emissions, {pol} {adj}"
+                        f"Warning: {total_failed} hours failed to solve for consumed {pol} {adj} emissions."
                     )
