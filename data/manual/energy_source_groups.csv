@@ -1,42 +1,42 @@
-energy_source_code,energy_source_description,fuel_category_eia,fuel_category_eia930,fuel_category_egrid,fuel_category,fuel_category_isne,fuel_category_pjm
-AB,Agricultural Byproducts,other_biomass,other,biomass,biomass,other,renewables
-ANT,Anthracite Coal,coal,coal,coal,coal,coal,coal
-BFG,Blast Furnace Gas,natural_gas,natural_gas,other_fossil,natural_gas,natural_gas,natural_gas
-BIT,Bituminous Coal,coal,coal,coal,coal,coal,coal
-BLQ,Black Liquor,wood,other,biomass,biomass,wood,wood
-DFO,Distillate Fuel Oil/Diesel,petroleum_products,petroleum,oil,petroleum,oil,petroleum
-GEO,Geothermal,other_renewable,other,geothermal,geothermal,other,renewables
-JF,Jet Fuel,petroleum_products,petroleum,oil,petroleum,oil,petroleum
-KER,Kerosene,petroleum_products,petroleum,oil,petroleum,oil,petroleum
-LFG,Landfill Gas,other_biomass,other,biomass,biomass,landfill_gas,renewables
-LIG,Lignite Coal,coal,coal,coal,coal,coal,coal
-MSB,Municipal Solid Waste (biogenic),other_biomass,other,biomass,waste,refuse,other
-MSN,Municipal Solid Waste (nonbiogenic),other_biomass,other,other_fossil,waste,refuse,other
-MSW,Municipal Solid Waste,other_biomass,other,biomass,waste,refuse,other
-MWH,Energy Storage,other,other,other,other,other,storage
-NG,Natural Gas,natural_gas,natural_gas,gas,natural_gas,natural_gas,natural_gas
-NUC,Nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear
-OBG,Other Biomass Gas,other_biomass,other,biomass,biomass,other,renewables
-OBL,Other Biomass Liquids,other_biomass,other,biomass,biomass,other,renewables
-OBS,Other Biomass Solids,other_biomass,other,biomass,biomass,other,renewables
-OG,Other Gas,natural_gas,natural_gas,other_fossil,natural_gas,natural_gas,natural_gas
-OTH,Other,other,other,other,other,other,other
-PC,Petroleum Coke,petroleum_products,petroleum,oil,petroleum,oil,petroleum
-PG,Propane Gas,petroleum_products,petroleum,gas,petroleum,oil,petroleum
-PRG,Process Gas,natural_gas,natural_gas,other,natural_gas,natural_gas,natural_gas
-PUR,Purchased Steam,other,other,other,other,other,other
-RC,Refined Coal,coal,coal,coal,coal,coal,coal
-RFO,Residual Fuel Oil,petroleum_products,petroleum,oil,petroleum,oil,petroleum
-SGC,Coal-derived Syngas,coal,coal,coal,coal,coal,coal
-SGP,Petroleum Coke-derived Syngas,petroleum_products,petroleum,oil,petroleum,oil,petroleum
-SLW,Sludge Waste,other_biomass,other,biomass,biomass,other,renewables
-SUB,Subbituminous Coal,coal,coal,coal,coal,coal,coal
-SUN,Solar,other_renewable,solar,solar,solar,solar,solar
-TDF,Tire-derived Fuels,other,other,other_fossil,waste,refuse,other
-WAT,Hydroelectric / Pumped Storage,hydro,hydro,hydro,hydro,hydro,hydro
-WC,Waste/Other Coal,coal,coal,coal,coal,coal,coal
-WDL,Wood Waste Liquids,wood,other,biomass,biomass,wood,wood
-WDS,Wood/Wood Waste Solids,wood,other,biomass,biomass,wood,wood
-WH,Waste Heat,other,other,other,other,other,other
-WND,Wind,other_renewable,wind,wind,wind,wind,wind
-WO,Waste/Other Oil,petroleum_products,petroleum,oil,petroleum,oil,petroleum
+energy_source_code,energy_source_description,fuel_category_eia,fuel_category_eia930,fuel_category_egrid,fuel_category,fuel_category_BPAT,fuel_category_CISO,fuel_category_ERCO,fuel_category_ERCO-H,fuel_category_ISNE,fuel_category_MISO,fuel_category_NYIS,fuel_category_PJM,fuel_category_SWPP
+AB,Agricultural Byproducts,other_biomass,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,other,other,renewables,renewables,other
+ANT,Anthracite Coal,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
+BFG,Blast Furnace Gas,natural_gas,natural_gas,other_fossil,natural_gas,fossil_and_biomass,natural_gas,natural_gas,gas,natural_gas,natural_gas,natural_gas,natural_gas,natural_gas
+BIT,Bituminous Coal,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
+BLQ,Black Liquor,wood,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,wood,wood,renewables,wood,other
+DFO,Distillate Fuel Oil/Diesel,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
+GEO,Geothermal,other_renewable,other,geothermal,geothermal,other,geothermal,other,other,other,other,renewables,renewables,other
+JF,Jet Fuel,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
+KER,Kerosene,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
+LFG,Landfill Gas,other_biomass,other,biomass,biomass,fossil_and_biomass,biogas,biomass,biomass,landfill_gas,other,renewables,renewables,other
+LIG,Lignite Coal,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
+MSB,Municipal Solid Waste (biogenic),other_biomass,other,biomass,waste,fossil_and_biomass,other,biomass,biomass,refuse,other,renewables,other,waste
+MSN,Municipal Solid Waste (nonbiogenic),other_biomass,other,other_fossil,waste,other,other,other,other,refuse,other,renewables,other,waste
+MSW,Municipal Solid Waste,other_biomass,other,biomass,waste,other,other,biomass,biomass,refuse,other,renewables,other,waste
+MWH,Energy Storage,other,other,other,other,other,batteries,power_storage,power_storage,other,other,renewables,storage,other
+NG,Natural Gas,natural_gas,natural_gas,gas,natural_gas,fossil_and_biomass,natural_gas,natural_gas,gas,natural_gas,natural_gas,natural_gas,natural_gas,natural_gas
+NUC,Nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear,nuclear
+OBG,Other Biomass Gas,other_biomass,other,biomass,biomass,fossil_and_biomass,biogas,biomass,biomass,other,other,renewables,renewables,other
+OBL,Other Biomass Liquids,other_biomass,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,other,other,renewables,renewables,other
+OBS,Other Biomass Solids,other_biomass,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,other,other,renewables,renewables,other
+OG,Other Gas,natural_gas,natural_gas,other_fossil,natural_gas,fossil_and_biomass,natural_gas,natural_gas,gas,natural_gas,natural_gas,natural_gas,natural_gas,natural_gas
+OTH,Other,other,other,other,other,other,other,other,other,other,other,other,other,other
+PC,Petroleum Coke,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
+PG,Propane Gas,petroleum_products,petroleum,gas,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
+PRG,Process Gas,natural_gas,natural_gas,other,natural_gas,fossil_and_biomass,natural_gas,natural_gas,gas,natural_gas,natural_gas,natural_gas,natural_gas,natural_gas
+PUR,Purchased Steam,other,other,other,other,other,other,other,other,other,other,other,other,other
+RC,Refined Coal,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
+RFO,Residual Fuel Oil,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
+SGC,Coal-derived Syngas,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
+SGP,Petroleum Coke-derived Syngas,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
+SLW,Sludge Waste,other_biomass,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,other,other,renewables,renewables,other
+SUB,Subbituminous Coal,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
+SUN,Solar,other_renewable,solar,solar,solar,variable_renewables,solar,solar,solar,solar,solar,renewables,solar,solar
+TDF,Tire-derived Fuels,other,other,other_fossil,waste,other,other,other,other,refuse,other,renewables,other,waste
+WAT,Hydroelectric / Pumped Storage,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro
+WC,Waste/Other Coal,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
+WDL,Wood Waste Liquids,wood,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,wood,wood,renewables,wood,other
+WDS,Wood/Wood Waste Solids,wood,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,wood,wood,renewables,wood,other
+WH,Waste Heat,other,other,other,other,other,other,other,other,other,other,other,other,other
+WND,Wind,other_renewable,wind,wind,wind,variable_renewables,wind,wind,wind,wind,wind,wind,wind,wind
+WO,Waste/Other Oil,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
