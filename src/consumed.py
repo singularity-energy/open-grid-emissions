@@ -324,7 +324,9 @@ class HourlyConsumed:
                     time_cols = ["datetime_utc", "datetime_local"]
                     missing_hours = time_dat[time_dat.isna().any(axis=1)]
                     if len(missing_hours) > 0:
-                        print(f"WARNING: {len(missing_hours)} hours are missing in {ba} consumed data")
+                        print(
+                            f"WARNING: {len(missing_hours)} hours are missing in {ba} consumed data"
+                        )
                 elif time_resolution == "monthly":
                     time_dat["month"] = time_dat.datetime_local.dt.month
                     # Aggregate to appropriate resolution
