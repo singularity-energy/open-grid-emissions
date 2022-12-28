@@ -283,17 +283,11 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
 
 def remove_imputed_ones(eia930_data):
 
-    # round all the values to the nearest whole MWh
-    eia930_data["net_generation_mwh_930"] = eia930_data["net_generation_mwh_930"].round(
-        0
-    )
+    filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
+
     # replace all 1.0 values with zero
-    print(
-        f"  replacing {len(eia930_data[eia930_data['net_generation_mwh_930'] == 1])} imputed 1 values with 0"
-    )
-    eia930_data["net_generation_mwh_930"] = eia930_data[
-        "net_generation_mwh_930"
-    ].replace(1, 0)
+    print(f"  replacing {sum(filter)} imputed 1 values with 0")
+    eia930_data.loc[filter, "net_generation_mwh_930"] = 0
 
     return eia930_data
 
