@@ -29,7 +29,8 @@ BA_930_INCONSISTENCY = {
 }
 
 # Defined in output_data, written to each BA file
-EMISSION_COLS = [
+EMISSION_COLS = ["co2_mass_lb_for_electricity"]
+"""[
     "co2_mass_lb_for_electricity",
     "ch4_mass_lb_for_electricity",
     "n2o_mass_lb_for_electricity",
@@ -42,7 +43,7 @@ EMISSION_COLS = [
     "co2e_mass_lb_for_electricity_adjusted",
     "nox_mass_lb_for_electricity_adjusted",
     "so2_mass_lb_for_electricity_adjusted",
-]
+]"""
 
 FUEL_TYPE_MAP = {
     "COL": "coal",
@@ -57,10 +58,10 @@ FUEL_TYPE_MAP = {
     "GEO": "total",
     "BIO": "biomass",
 }
+# TODO: Change this back, only for testng
+POLLUTANTS = ["CO2"] #["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 
-POLLUTANTS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
-
-ADJUSTMENTS = ["for_electricity", "for_electricity_adjusted"]
+ADJUSTMENTS = ["for_electricity"] #["for_electricity", "for_electricity_adjusted"]
 
 
 def get_column(poll: str, adjustment: str, ba: str = ""):
@@ -321,13 +322,15 @@ class HourlyConsumed:
 
                 # if there are small gaps in the consumed data,
                 # linearly interpolate the missing values, up to a maximum of 2 consecutive missing hours
-                time_dat.loc[:, CONSUMED_EMISSION_RATE_COLS] = time_dat.loc[
-                    :, CONSUMED_EMISSION_RATE_COLS
-                ].interpolate(method="linear", axis=0, limit=2, limit_area="inside")
+                
 
                 if time_resolution == "hourly":
                     # No resampling needed; keep timestamp cols in output
                     time_cols = ["datetime_utc", "datetime_local"]
+
+                    missing_hours = time_dat[time_dat.isna().any(axis=1)]
+                    if len(missing_hours) > 0:
+                        print(f"INFO: {len(missing_hours)} hours are missing data in {ba}")
                 elif time_resolution == "monthly":
                     time_dat["month"] = time_dat.datetime_local.dt.month
                     # Aggregate to appropriate resolution
@@ -358,7 +361,7 @@ class HourlyConsumed:
 
                 # Output
                 output_to_results(
-                    time_dat[time_cols + CONSUMED_EMISSION_RATE_COLS],
+                    time_dat[time_cols + ["consumed_co2_rate_lb_per_mwh_for_electricity"]], #CONSUMED_EMISSION_RATE_COLS], # TODO: change this back
                     ba,
                     f"/carbon_accounting/{time_resolution}/",
                     self.prefix,
@@ -514,5 +517,5 @@ class HourlyConsumed:
                         self.results[r].loc[date, col] = consumed_emissions[i]
                 if total_failed > 0:
                     print(
-                        f"Warning: {total_failed} hours failed to solve for consumed emissions, {pol} {adj}"
+                        f"Warning: {total_failed} hours failed to solve for consumed {pol} {adj} emissions."
                     )
