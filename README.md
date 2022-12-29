@@ -7,6 +7,8 @@ The Open Grid Emissions Initiative seeks to fill a critical need for high-qualit
 
 Please check out [our documentation](https://docs.singularity.energy/docs/open-grid-emissions-docs) for more details about the Open Grid Emissions methodology.
 
+The Open Grid Emissions Dataset can be [downloaded here](https://singularity.energy/open-grid-emissions). An archive of previous versions of the dataset and intermediate data outputs (for research and validation purposes) can be found on [Zenodo](https://zenodo.org/communities/singularity-energy?page=1&size=20).
+
 ## Installing and running the data pipeline
 
 To install and run the pipeline on your computer, open anaconda prompt, navigate to the folder where you want to save the repository, and run the following commands:
@@ -27,7 +29,7 @@ A more detailed walkthough of these steps can be found below in the "Development
 ## Data Availability and Release Schedule
 The latest release includes data for year 2019-2021 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data. 
 
-Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2021 data should be available Autumn 2022). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGEI methodology. All previous versions of the data will be archived on Zenodo.
+Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2022 data should be available Autumn 2023). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGEI methodology. All previous versions of the data will be archived on Zenodo.
 
 Updated datasets will also be published whenever a new version of the open-grid-emissions repository is released.
 

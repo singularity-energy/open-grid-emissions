@@ -23,8 +23,8 @@ which results in unreasonable profiles with many negative hours.
 """
 # original values ["SPA", "CPLW", "GCPD", "AZPS", "EEI"]
 BA_930_INCONSISTENCY = {
-    2019: ["EEI"],
-    2020: ["EEI", "SEC"],
+    2019: ["CPLW", "EEI"],
+    2020: ["CPLW", "EEI", "SEC"],
     2021: ["CPLW", "GCPD"],
 }
 
@@ -288,6 +288,7 @@ class HourlyConsumed:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
             if ba in BA_930_INCONSISTENCY[self.year]:
+                print(f"Using D instead of (G-TI) for consumed calc in {ba}")
                 self.results[ba]["net_consumed_mwh"] = self.eia930.df[
                     KEYS["E"]["D"] % ba
                 ][self.generation.index]

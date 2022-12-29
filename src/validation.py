@@ -104,9 +104,8 @@ def test_for_negative_values(df, small: bool = False):
         if not negative_test.empty:
             print(" ")
             print(
-                f"WARNING: There are {len(negative_test)} records where {column} is negative. Check `negative_test` for complete list"
+                f"WARNING: There are {len(negative_test)} records where {column} is negative."
             )
-            print(" ")
             negative_warnings += 1
     if negative_warnings > 0:
         if small:
@@ -159,18 +158,6 @@ def test_for_missing_values(df, small: bool = False):
         "co2e_mass_lb_for_electricity_adjusted",
         "nox_mass_lb_for_electricity_adjusted",
         "so2_mass_lb_for_electricity_adjusted",
-        "generated_co2_rate_lb_per_mwh_for_electricity",
-        "generated_ch4_rate_lb_per_mwh_for_electricity",
-        "generated_n2o_rate_lb_per_mwh_for_electricity",
-        "generated_co2e_rate_lb_per_mwh_for_electricity",
-        "generated_nox_rate_lb_per_mwh_for_electricity",
-        "generated_so2_rate_lb_per_mwh_for_electricity",
-        "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_co2e_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
         "consumed_co2_rate_lb_per_mwh_for_electricity",
         "consumed_ch4_rate_lb_per_mwh_for_electricity",
         "consumed_n2o_rate_lb_per_mwh_for_electricity",
@@ -193,9 +180,8 @@ def test_for_missing_values(df, small: bool = False):
         if not missing_test.empty:
             print(" ")
             print(
-                f"WARNING: There are {len(missing_test)} records where {column} is missing. Check `missing_test` for complete list"
+                f"WARNING: There are {len(missing_test)} records where {column} is missing."
             )
-            print(" ")
             missing_warnings += 1
     if missing_warnings > 0:
         if small:
