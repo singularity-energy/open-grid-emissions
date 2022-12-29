@@ -111,6 +111,8 @@ def output_to_results(
 
     # Check for negatives after rounding
     validation.test_for_negative_values(df, small)
+    # check that there are no missing values
+    validation.test_for_missing_values(df, small)
 
     if not skip_outputs:
 
