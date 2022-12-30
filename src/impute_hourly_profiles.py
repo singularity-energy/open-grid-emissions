@@ -623,12 +623,13 @@ def impute_missing_hourly_profiles(
             df_temporary["imputation_method"] = "assumed_flat"
 
         # For now assume hydro is dispatched with a flat profile
-        # TODO improve this assumption
+        # TODO improve this assumption see: https://github.com/singularity-energy/open-grid-emissions/issues/37
         elif fuel in ["hydro"]:
             df_temporary = create_flat_profile(report_date, ba, fuel)
             df_temporary["imputation_method"] = "assumed_flat"
         # for any other fossil resources, use a flat profile
-        # NOTE: we need to improve this method
+        # TODO: we need to improve this method
+        # see: https://github.com/singularity-energy/open-grid-emissions/issues/96
         elif fuel in ["natural_gas", "coal", "petroleum"]:
             df_temporary = create_flat_profile(report_date, ba, fuel)
             df_temporary["imputation_method"] = "assumed_flat"

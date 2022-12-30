@@ -493,7 +493,6 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 ba_table_hourly["datetime_local"] = ba_table_hourly[
                     "datetime_utc"
                 ].dt.tz_convert(local_tz)
-            # TODO: figure out what to do for missing ba
             except ValueError:
                 ba_table_hourly["datetime_local"] = pd.NaT
 

@@ -637,7 +637,7 @@ def calculate_aggregated_primary_fuel(
         pudl_out, agg_keys, year
     )
 
-    # NOTE(milo): In some rare cases, a plant will have no fuel specified by
+    # NOTE: In some rare cases, a plant will have no fuel specified by
     # energy_source_code_1, and will have zero fuel consumption and net generation for
     # all fuel types. When that happens, we simply assign a plant to have the same fuel
     # type as the majority of its generators.
@@ -943,6 +943,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     cems = remove_incomplete_unit_months(cems)
 
     # TODO: identify and remove any hourly values that appear to be outliers
+    # See: https://github.com/singularity-energy/open-grid-emissions/issues/50
 
     # add subplant id
     subplant_crosswalk = (
@@ -969,6 +970,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     cems = emissions.fill_cems_missing_co2(cems, year, subplant_emission_factors)
 
     # TODO: Add functions for filling missing NOx and SOx
+    # See: https://github.com/singularity-energy/open-grid-emissions/issues/153
 
     # calculate ch4 and n2o emissions
     cems = emissions.calculate_ghg_emissions_from_fuel_consumption(
@@ -977,7 +979,6 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
 
     # remove any observations from cems where zero operation is reported for an entire month
     # although this data could be considered to be accurately reported, let's remove it so that we can double check against the eia data
-    # TODO: check if any of these observations are from geothermal generators
     cems = remove_cems_with_zero_monthly_data(cems)
 
     validation.test_for_negative_values(cems)
@@ -1095,7 +1096,7 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
         filler_column="energy_source_code_plant",
     )
 
-    # TODO: fill fuel codes for plants that only have a single fossil type identified in EIA
+    # Fill fuel codes for plants that only have a single fossil type identified in EIA
     cems = fill_missing_fuel_for_single_fuel_plant_months(cems, year)
 
     # fill any remaining missing fuel codes with the plant primary fuel identified from EIA-923
@@ -1743,9 +1744,6 @@ def combine_plant_data(
     Inputs:
         Pandas dataframes of shaped or original hourly data
         resolution: string, either 'monthly' or 'hourly'
-
-    Note: returns dask dataframe (not used before this point in pipeline) because of data size
-
     """
 
     if resolution == "hourly":

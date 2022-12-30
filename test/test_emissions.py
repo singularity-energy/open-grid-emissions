@@ -31,7 +31,6 @@ def df_co2_ch4_no2():
     return df
 
 
-# NOTE: Why are we testing these function specifically?
 def test_co2e_AR6_100(df_co2_ch4_no2, emissions):
     """Compute CO2-eq using the AR6 20-year GWP factors."""
     df = emissions.calculate_co2e_mass(
