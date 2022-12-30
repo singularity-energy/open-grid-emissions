@@ -21,10 +21,10 @@ Instead, we use 930 demand as net_consumed. Note: there may be issues with the 9
 demand! But it is better than combining inconsistent generation and interchange, 
 which results in unreasonable profiles with many negative hours.
 """
-# original values ["SPA", "CPLW", "GCPD", "AZPS", "EEI"]
+# Identify the BAs for which we need to use demand data for the consumed calculation
 BA_930_INCONSISTENCY = {
     2019: ["CPLW", "EEI"],
-    2020: ["CPLW", "EEI", "SEC"],
+    2020: ["CPLW", "EEI"],
     2021: ["CPLW", "GCPD"],
 }
 
