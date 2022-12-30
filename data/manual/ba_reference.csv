@@ -14,7 +14,7 @@ ALTW,"Alliant Energy Corporate Services, LLC- West",,,,Yes,1/1/2004,,,,,FERC,12
 ALWX,"Alliant Energy Corporate Services, LLC",,,,Yes,1/1/2004,7/1/2006,,,,FERC,13
 AMIL,Ameren Transmission-Illinois,,,,Yes,1/1/2007,,,,,FERC,14
 AMMO,Ameren Transmission-Missouri,,,,Yes,1/1/2007,,,,,FERC,15
-AMPL,Anchorage Municipal Light and Power,,US/Alaska,US/Alaska,Yes,,,,,,EIA,16
+AMPL,Anchorage Municipal Light and Power,,US/Alaska,US/Alaska,Yes,,10/30/2020,,,,EIA,16
 AMRN,Ameren Transmission,,,,Yes,1/1/2004,,,,,FERC,17
 AVA,Avista Corporation,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,18
 AVRN,"Avangrid Renewables, LLC",generation_only,US/Pacific,US/Pacific,Yes,7/31/2018,,,7/1/2017,,EIA & FERC,19
@@ -70,7 +70,7 @@ DSK1,BridgeCo,,,,Yes,1/1/2004,7/1/2006,,,,FERC,68
 DUK,Duke Energy Carolinas,,US/Eastern,US/Eastern,Yes,1/1/2004,,Duke Energy Corporation,,,EIA & FERC,69
 EAI,"Entergy Arkansas, Inc.",,,,Yes,7/1/2013,,,,,FERC,70
 EDE,"Empire District Electric Co., The",,,,Yes,1/1/2004,4/1/2015,,,,FERC,71
-EEI,"Electric Energy, Inc.",,US/Central,US/Central,Yes,1/1/2004,2/29/2020,,,,EIA & FERC,72
+EEI,"Electric Energy, Inc.",generation_only,US/Central,US/Central,Yes,1/1/2004,2/29/2020,,,,EIA & FERC,72
 EES,Entergy,,,,Yes,1/1/2004,,,,,FERC,73
 EKPC,"East Kentucky Power Cooperative, Inc.",,,,Yes,1/1/2004,4/1/2015,,,,FERC,74
 EMBA,"Entergy Mississippi, Inc.",,,,Yes,4/1/2015,,,,,FERC,75

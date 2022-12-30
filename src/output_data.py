@@ -97,27 +97,34 @@ def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
         df.to_csv(outputs_folder(f"{path_prefix}{file_name}_{year}.csv"), index=False)
 
 
-def output_to_results(df, file_name, subfolder, path_prefix, skip_outputs):
+def output_to_results(
+    df, file_name, subfolder, path_prefix, skip_outputs, include_metric=True
+):
     # Always check columns that should not be negative.
     small = "small" in path_prefix
-    if not skip_outputs:
-        print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
+    print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
+    if include_metric:
         metric = convert_results(df)
         metric = round_table(metric)
-        df = round_table(df)
+    df = round_table(df)
 
-        # Check for negatives after rounding
-        validation.test_for_negative_values(df, small)
+    # Check for negatives after rounding
+    validation.test_for_negative_values(df, small)
+    # check that there are no missing values
+    validation.test_for_missing_values(df, small)
+
+    if not skip_outputs:
 
         df.to_csv(
             results_folder(f"{path_prefix}{subfolder}us_units/{file_name}.csv"),
             index=False,
         )
-        metric.to_csv(
-            results_folder(f"{path_prefix}{subfolder}metric_units/{file_name}.csv"),
-            index=False,
-        )
+        if include_metric:
+            metric.to_csv(
+                results_folder(f"{path_prefix}{subfolder}metric_units/{file_name}.csv"),
+                index=False,
+            )
 
 
 def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):

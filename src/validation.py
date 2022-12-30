@@ -16,7 +16,7 @@ def validate_year(year):
     """Returns a warning if the year specified is not known to work with the pipeline."""
 
     earliest_validated_year = 2019
-    latest_validated_year = 2020
+    latest_validated_year = 2021
 
     if year < earliest_validated_year:
         year_warning = f"""
@@ -104,9 +104,8 @@ def test_for_negative_values(df, small: bool = False):
         if not negative_test.empty:
             print(" ")
             print(
-                f"WARNING: There are {len(negative_test)} records where {column} is negative. Check `negative_test` for complete list"
+                f"WARNING: There are {len(negative_test)} records where {column} is negative."
             )
-            print(" ")
             negative_warnings += 1
     if negative_warnings > 0:
         if small:
@@ -114,10 +113,88 @@ def test_for_negative_values(df, small: bool = False):
                 " Found negative values during small run, these may be fixed with full data"
             )
         else:
-            raise UserWarning("The above negative values are errors and must be fixed")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("WARNING: The above negative values are errors and must be fixed")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            # raise UserWarning("The above negative values are errors and must be fixed")
     else:
         print("OK")
     return negative_test
+
+
+def test_for_missing_values(df, small: bool = False):
+    """Checks that there are no unexpected missing values in the output data."""
+    print("    Checking that no values are missing...  ", end="")
+    columns_that_should_be_complete = [
+        "plant_id_eia",
+        "fuel_category",
+        "datetime_local",
+        "datetime_utc",
+        "month",
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "co2e_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "ch4_mass_lb_for_electricity",
+        "n2o_mass_lb_for_electricity",
+        "co2e_mass_lb_for_electricity",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb_for_electricity",
+        "co2_mass_lb_adjusted",
+        "ch4_mass_lb_adjusted",
+        "n2o_mass_lb_adjusted",
+        "co2e_mass_lb_adjusted",
+        "nox_mass_lb_adjusted",
+        "so2_mass_lb_adjusted",
+        "co2_mass_lb_for_electricity_adjusted",
+        "ch4_mass_lb_for_electricity_adjusted",
+        "n2o_mass_lb_for_electricity_adjusted",
+        "co2e_mass_lb_for_electricity_adjusted",
+        "nox_mass_lb_for_electricity_adjusted",
+        "so2_mass_lb_for_electricity_adjusted",
+        "consumed_co2_rate_lb_per_mwh_for_electricity",
+        "consumed_ch4_rate_lb_per_mwh_for_electricity",
+        "consumed_n2o_rate_lb_per_mwh_for_electricity",
+        "consumed_co2e_rate_lb_per_mwh_for_electricity",
+        "consumed_nox_rate_lb_per_mwh_for_electricity",
+        "consumed_so2_rate_lb_per_mwh_for_electricity",
+        "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
+        "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
+    ]
+    columns_to_test = [
+        col for col in columns_that_should_be_complete if col in df.columns
+    ]
+    missing_warnings = 0
+    for column in columns_to_test:
+        missing_test = df[df[column].isna()]
+        if not missing_test.empty:
+            print(" ")
+            print(
+                f"WARNING: There are {len(missing_test)} records where {column} is missing."
+            )
+            missing_warnings += 1
+    if missing_warnings > 0:
+        if small:
+            print(
+                " Found missing values during small run, these may be fixed with full data"
+            )
+        else:
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("WARNING: The above missing values are errors and must be fixed")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    else:
+        print("OK")
+    return missing_test
 
 
 def test_chp_allocation(df):
