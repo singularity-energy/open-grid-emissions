@@ -1,11 +1,13 @@
 # Open Grid Emissions Initiative
 [![Project Status: Active – The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7062460.svg)](https://doi.org/10.5281/zenodo.7062460)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7062459.svg)](https://doi.org/10.5281/zenodo.7062459)
 
 The Open Grid Emissions Initiative seeks to fill a critical need for high-quality, publicly-accessible, hourly grid emissions data that can be used for GHG accounting, policymaking, academic research, and energy attribute certificate markets. The initiative includes this repository of open-source grid emissions data processing tools that use peer-reviewed, well-documented, and validated methodologies to create the accompanying public dataset of hourly, monthly, and annual U.S. electric grid generation, GHG, and air pollution data.
 
 Please check out [our documentation](https://docs.singularity.energy/docs/open-grid-emissions-docs) for more details about the Open Grid Emissions methodology.
+
+The Open Grid Emissions Dataset can be [downloaded here](https://singularity.energy/open-grid-emissions). An archive of previous versions of the dataset and intermediate data outputs (for research and validation purposes) can be found on [Zenodo](https://zenodo.org/communities/singularity-energy?page=1&size=20).
 
 ## Installing and running the data pipeline
 
@@ -27,7 +29,7 @@ A more detailed walkthough of these steps can be found below in the "Development
 ## Data Availability and Release Schedule
 The latest release includes data for year 2019-2021 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data. 
 
-Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2021 data should be available Autumn 2022). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGEI methodology. All previous versions of the data will be archived on Zenodo.
+Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2022 data should be available Autumn 2023). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGEI methodology. All previous versions of the data will be archived on Zenodo.
 
 Updated datasets will also be published whenever a new version of the open-grid-emissions repository is released.
 

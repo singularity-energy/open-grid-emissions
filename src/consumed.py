@@ -21,11 +21,11 @@ Instead, we use 930 demand as net_consumed. Note: there may be issues with the 9
 demand! But it is better than combining inconsistent generation and interchange, 
 which results in unreasonable profiles with many negative hours.
 """
-# original values ["SPA", "CPLW", "GCPD", "AZPS", "EEI"]
+# Identify the BAs for which we need to use demand data for the consumed calculation
 BA_930_INCONSISTENCY = {
-    2019: ["EEI"],
-    2020: ["EEI", "SEC"],
-    2021: [],
+    2019: ["CPLW", "EEI"],
+    2020: ["CPLW", "EEI"],
+    2021: ["CPLW", "GCPD"],
 }
 
 # Defined in output_data, written to each BA file
@@ -288,6 +288,7 @@ class HourlyConsumed:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
             if ba in BA_930_INCONSISTENCY[self.year]:
+                print(f"Using D instead of (G-TI) for consumed calc in {ba}")
                 self.results[ba]["net_consumed_mwh"] = self.eia930.df[
                     KEYS["E"]["D"] % ba
                 ][self.generation.index]
@@ -322,6 +323,11 @@ class HourlyConsumed:
                 if time_resolution == "hourly":
                     # No resampling needed; keep timestamp cols in output
                     time_cols = ["datetime_utc", "datetime_local"]
+                    missing_hours = time_dat[time_dat.isna().any(axis=1)]
+                    if len(missing_hours) > 0:
+                        print(
+                            f"WARNING: {len(missing_hours)} hours are missing in {ba} consumed data"
+                        )
                 elif time_resolution == "monthly":
                     time_dat["month"] = time_dat.datetime_local.dt.month
                     # Aggregate to appropriate resolution
@@ -508,5 +514,5 @@ class HourlyConsumed:
                         self.results[r].loc[date, col] = consumed_emissions[i]
                 if total_failed > 0:
                     print(
-                        f"Warning: {total_failed} times failed to solve for consumed emissions, {pol} {adj}"
+                        f"Warning: {total_failed} hours failed to solve for consumed {pol} {adj} emissions."
                     )

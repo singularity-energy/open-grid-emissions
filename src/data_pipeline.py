@@ -116,7 +116,7 @@ def main():
     # for `small` run, we'll only clean 1 week, so need chalander file for making profiles
     if args.small or args.flat:
         download_data.download_chalendar_files()
-    # We use balance files for imputing missing hourly profiles. TODO use cleaned instead?
+    # We use balance files for imputing missing hourly profiles.
     # need last year for rolling data cleaning
     download_data.download_eia930_data(years_to_download=[year, year - 1])
     # Power Sector Data Crosswalk
@@ -394,7 +394,7 @@ def main():
             hourly_profiles,
             path_prefix,
             args.skip_outputs,
-            region_to_group="ba_code"
+            region_to_group="ba_code",
         )
     else:
         print(

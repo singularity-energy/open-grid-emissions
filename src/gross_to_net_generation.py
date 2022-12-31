@@ -654,8 +654,6 @@ def calculate_multiyear_gtn_factors(year, number_of_years):
     start_year = year - (number_of_years - 1)
     end_year = year
 
-    # TODO: move the following code to a separate function so that it does not hold these dataframes in memory after calculation
-
     # load 5 years of monthly data from CEMS and EIA-923
     cems_monthly, gen_fuel_allocated = load_monthly_gross_and_net_generation(
         start_year, end_year
