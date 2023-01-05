@@ -31,12 +31,12 @@ SGC,Coal-derived Syngas,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lig
 SGP,Petroleum Coke-derived Syngas,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
 SLW,Sludge Waste,other_biomass,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,other,other,renewables,renewables,other
 SUB,Subbituminous Coal,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
-SUN,Solar,other_renewable,solar,solar,solar,variable_renewables,solar,solar,solar,solar,solar,renewables,solar,solar
+SUN,Solar,other_renewable,solar,solar,solar,solar,solar,solar,solar,solar,solar,renewables,solar,solar
 TDF,Tire-derived Fuels,other,other,other_fossil,waste,other,other,other,other,refuse,other,renewables,other,waste
 WAT,Hydroelectric / Pumped Storage,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro,hydro
 WC,Waste/Other Coal,coal,coal,coal,coal,fossil_and_biomass,coal,coal_and_lignite,coal,coal,coal,other_fossil,coal,coal
 WDL,Wood Waste Liquids,wood,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,wood,wood,renewables,wood,other
 WDS,Wood/Wood Waste Solids,wood,other,biomass,biomass,fossil_and_biomass,biomass,biomass,biomass,wood,wood,renewables,wood,other
 WH,Waste Heat,other,other,other,other,other,other,other,other,other,other,other,other,other
-WND,Wind,other_renewable,wind,wind,wind,variable_renewables,wind,wind,wind,wind,wind,wind,wind,wind
+WND,Wind,other_renewable,wind,wind,wind,wind,wind,wind,wind,wind,wind,wind,wind,wind
 WO,Waste/Other Oil,petroleum_products,petroleum,oil,petroleum,fossil_and_biomass,petroleum,other,other,oil,oil,other_fossil,petroleum,oil
