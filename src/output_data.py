@@ -63,16 +63,32 @@ def zip_results_for_s3(year):
     for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
         for aggregation in ["hourly", "monthly", "annual"]:
             for unit in ["metric_units", "us_units"]:
-                print(f"zipping {year}_{data_type}_{aggregation}_{unit} for s3")
-                folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
-                shutil.make_archive(
-                    f"{data_folder()}/s3_upload/{year}/{data_type}/{year}_{data_type}_{aggregation}_{unit}",
-                    "zip",
-                    root_dir=folder,
-                    # base_dir="",
-                )
+                if (
+                    (data_type == "plant_data")
+                    & (aggregation == "hourly")
+                    & (unit == "metric_units")
+                ):
+                    # skip the metric hourly plant data since we do not create those outputs
+                    pass
+                else:
+                    print(f"zipping {year}_{data_type}_{aggregation}_{unit} for s3")
+                    folder = (
+                        f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
+                    )
+                    shutil.make_archive(
+                        f"{data_folder()}/s3_upload/{year}_{data_type}_{aggregation}_{unit}",
+                        "zip",
+                        root_dir=folder,
+                        # base_dir="",
+                    )
+    # move and rename the plant attributes files
+    shutil.copy(
+        f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
+        f"{data_folder()}/s3_upload/plant_static_attributes_{year}.csv",
+    )
+    # archive the data quality metrics
     shutil.make_archive(
-        f"{data_folder()}/s3_upload/{year}/data_quality_metrics/{year}_data_quality_metrics",
+        f"{data_folder()}/s3_upload/{year}_data_quality_metrics",
         "zip",
         root_dir=f"{results_folder()}/{year}/data_quality_metrics",
         # base_dir="",
