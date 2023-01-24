@@ -49,43 +49,63 @@ def prepare_files_for_upload(years):
 
     This should only be run when releasing a new minor or major version of the repo.
     """
-    zip_data_for_zenodo()
+
     for year in years:
         zip_results_for_s3(year)
+        zip_data_for_zenodo(year)
 
 
 def zip_results_for_s3(year):
     """
     Zips results directories that contain more than a single file for hosting on an Amazon S3 bucket.
     """
+    os.makedirs(data_folder("s3_upload"), exist_ok=True)
     for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
         for aggregation in ["hourly", "monthly", "annual"]:
             for unit in ["metric_units", "us_units"]:
-                folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
-                shutil.make_archive(
-                    f"{results_folder()}/{year}/{data_type}/{year}_{data_type}_{aggregation}_{unit}",
-                    "zip",
-                    root_dir=folder,
-                    # base_dir="",
-                )
+                if (
+                    (data_type == "plant_data")
+                    & (aggregation == "hourly")
+                    & (unit == "metric_units")
+                ):
+                    # skip the metric hourly plant data since we do not create those outputs
+                    pass
+                else:
+                    print(f"zipping {year}_{data_type}_{aggregation}_{unit} for s3")
+                    folder = (
+                        f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
+                    )
+                    shutil.make_archive(
+                        f"{data_folder()}/s3_upload/{year}_{data_type}_{aggregation}_{unit}",
+                        "zip",
+                        root_dir=folder,
+                        # base_dir="",
+                    )
+    # move and rename the plant attributes files
+    shutil.copy(
+        f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
+        f"{data_folder()}/s3_upload/plant_static_attributes_{year}.csv",
+    )
+    # archive the data quality metrics
     shutil.make_archive(
-        f"{results_folder()}/{year}/data_quality_metrics/{year}_data_quality_metrics",
+        f"{data_folder()}/s3_upload/{year}_data_quality_metrics",
         "zip",
         root_dir=f"{results_folder()}/{year}/data_quality_metrics",
         # base_dir="",
     )
 
 
-def zip_data_for_zenodo():
+def zip_data_for_zenodo(year):
     """
     Zips each of the four data directories for archiving on Zenodo.
     """
     os.makedirs(data_folder("zenodo"), exist_ok=True)
-    for directory in ["downloads", "manual", "outputs", "results"]:
+    for directory in ["outputs", "results"]:
+        print(f"zipping {directory}_{year} for zenodo")
         shutil.make_archive(
-            data_folder(f"zenodo/{directory}"),
+            data_folder(f"zenodo/{directory}_{year}"),
             "zip",
-            root_dir=data_folder(directory),
+            root_dir=data_folder(f"{directory}/{year}"),
             # base_dir="",
         )
 
