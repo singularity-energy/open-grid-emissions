@@ -436,8 +436,11 @@ def filter_gtn_conversion_factors(gtn_conversions):
         "annual_plant_ratio",
         "annual_fuel_ratio",
     ]:
+        # remove any factors that would scale net generation to less than 50% of gross generation
         # remove any ratios that are negative to avoid flipping the shape of the profile
-        factors_to_use.loc[factors_to_use[scaling_factor] < 0, scaling_factor] = np.NaN
+        factors_to_use.loc[
+            factors_to_use[scaling_factor] < 0.5, scaling_factor
+        ] = np.NaN
         # remove any factors that would cause the generation in any hour to exceed 150% of nameplate capacity
         factors_to_use.loc[
             (

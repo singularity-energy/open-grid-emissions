@@ -40,6 +40,35 @@ def validate_year(year):
         raise UserWarning(year_warning)
 
 
+def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
+    """Checks that the allocated generation and fuel from EIA-923 matches the input totals."""
+    gf = pudl_out.gf_eia923()
+    plant_total_gf = gf.groupby("plant_id_eia")[
+        [
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+        ]
+    ].sum()
+    plant_total_alloc = gen_fuel_allocated.groupby("plant_id_eia")[
+        [
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+        ]
+    ].sum()
+    # calculate the difference between the values
+    plant_total_diff = plant_total_gf - plant_total_alloc
+    # flag values where the absolute difference is greater than 10 mwh or mmbtu
+    mismatched_allocation = plant_total_diff[
+        (abs(plant_total_diff["fuel_consumed_mmbtu"]) > 10)
+        | (abs(plant_total_diff["net_generation_mwh"]) > 10)
+    ]
+    if len(mismatched_allocation) > 0:
+        print("WARNING: Allocated EIA-923 doesn't match input data for plants:")
+        print(mismatched_allocation)
+
+
 def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
     print("    Checking that fuel and emissions values are positive...  ", end="")

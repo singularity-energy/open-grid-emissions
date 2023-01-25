@@ -33,6 +33,6 @@ dependencies:
 
   - pip:
       #- --editable ../pudl #NOTE: this is for development use
-      - git+https://github.com/catalyst-cooperative/pudl.git#egg=catalystcoop.pudl
+      - git+https://github.com/grgmiller/pudl.git@oge_release#egg=catalystcoop.pudl
       #- --editable ../gridemissions # NOTE: this is for development use
       - git+https://github.com/gailin-p/gridemissions#egg=gridemissions
