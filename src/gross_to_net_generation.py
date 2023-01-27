@@ -367,6 +367,8 @@ def calculate_gross_to_net_conversion_factors(
         gtn_regression_plant, how="left", on=["plant_id_eia"], validate="m:1"
     )
 
+    # TODO: add default GTN ratios from EIA
+
     return gtn_conversions
 
 
@@ -436,10 +438,11 @@ def filter_gtn_conversion_factors(gtn_conversions):
         "annual_plant_ratio",
         "annual_fuel_ratio",
     ]:
-        # remove any factors that would scale net generation to less than 50% of gross generation
+        # remove any factors that would scale net generation to less than 75% of gross generation
+        # In general, the IQR of GTN ratios is between 0.75 and 1, with an upper bound around 1.25
         # remove any ratios that are negative to avoid flipping the shape of the profile
         factors_to_use.loc[
-            factors_to_use[scaling_factor] < 0.5, scaling_factor
+            factors_to_use[scaling_factor] < 0.75, scaling_factor
         ] = np.NaN
         # remove any factors that would cause the generation in any hour to exceed 150% of nameplate capacity
         factors_to_use.loc[
@@ -447,7 +450,7 @@ def filter_gtn_conversion_factors(gtn_conversions):
                 factors_to_use[scaling_factor]
                 * factors_to_use["maximum_gross_generation_mwh"]
             )
-            > (factors_to_use["capacity_mw"] * 1.50),
+            > (factors_to_use["capacity_mw"] * 1.25),
             scaling_factor,
         ] = np.NaN
 

@@ -1270,6 +1270,60 @@ def validate_national_imputation_method(hourly_profiles):
     return compare_method
 
 
+def check_for_anomalous_co2_factors(
+    df, plant_attributes, min_threshold=10, max_threshold=15000
+):
+    """This function checks that all co2 factors fall within a specified range.
+
+    This is a sanity check to make sure that there are not any obviously
+    nonsensical values. On the upper end, we check for co2 factors greater than
+    15,000 lb/MWh, which could indicate abnormally high fuel consumption or abnormally
+    low net generation. On the lower end, any plant that does not have a co2
+    factor equal to zero (carbon-free plants) should have an emission factor that is no
+    less than 10.
+    """
+
+    pollutant = "co2"
+    factor = f"{pollutant}_rate"
+
+    factor_anomaly = df.copy()
+
+    factor_anomaly[factor] = (
+        factor_anomaly[f"{pollutant}_mass_lb_for_electricity"]
+        / factor_anomaly["net_generation_mwh"]
+    )
+
+    # identify if any plants meet these thresholds
+    factor_anomaly = factor_anomaly[
+        ((factor_anomaly[factor] > 0) & (factor_anomaly[factor] < min_threshold))
+        | (factor_anomaly[factor] > max_threshold)
+    ]
+    # remove any infinity values
+    factor_anomaly = factor_anomaly[factor_anomaly[factor] != np.inf]
+
+    if len(factor_anomaly) > 0:
+        # merge in plant primary fuel data
+        factor_anomaly = factor_anomaly.merge(
+            plant_attributes[["plant_id_eia", "plant_primary_fuel"]],
+            how="left",
+            on="plant_id_eia",
+            validate="m:1",
+        )
+        print("Potentially anomalous co2 factors detected for the following plants:")
+        display(
+            factor_anomaly[
+                [
+                    "plant_id_eia",
+                    "plant_primary_fuel",
+                    "net_generation_mwh",
+                    "fuel_consumed_for_electricity_mmbtu",
+                    f"{pollutant}_mass_lb_for_electricity",
+                    factor,
+                ]
+            ].sort_values(by=factor)
+        )
+
+
 # VALIDATION NOTEBOOK FUNCTIONS
 ########################################################################################
 

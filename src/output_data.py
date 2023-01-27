@@ -161,7 +161,7 @@ def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
         )
 
 
-def output_plant_data(df, path_prefix, resolution, skip_outputs):
+def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attributes):
     """
     Helper function for plant-level output.
     Output for each time granularity, and output separately for real and shaped plants
@@ -200,6 +200,10 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs):
         elif resolution == "annual":
             # output annual data
             df = df.groupby(["plant_id_eia"], dropna=False).sum().reset_index()
+            # check for anomalous looking co2 rates
+            validation.check_for_anomalous_co2_factors(
+                df, plant_attributes, min_threshold=10, max_threshold=15000
+            )
             # Separately save real and aggregate plants
             output_to_results(
                 df,

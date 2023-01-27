@@ -659,13 +659,13 @@ def calculate_aggregated_primary_fuel(
     #  for each plant
     agg_totals_by_fuel = (
         gen_fuel_allocated.groupby(agg_keys + ["energy_source_code"], dropna=False)
-        .sum()[["fuel_consumed_mmbtu", "net_generation_mwh"]]
+        .sum()[["fuel_consumed_for_electricity_mmbtu", "net_generation_mwh"]]
         .reset_index()
     )
 
     # we will calculate primary fuel based on the fuel with the most consumption,
     # generation, and capacity
-    for source in ["fuel_consumed_mmbtu", "net_generation_mwh"]:
+    for source in ["fuel_consumed_for_electricity_mmbtu", "net_generation_mwh"]:
 
         # only keep values greater than zero so that these can be filled by other
         # methods if non-zero
@@ -707,7 +707,7 @@ def calculate_aggregated_primary_fuel(
     else:
         level = "plant"
     agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        "primary_fuel_from_fuel_consumed_mmbtu"
+        "primary_fuel_from_fuel_consumed_for_electricity_mmbtu"
     ]
     agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
         f"{level}_primary_fuel"
@@ -718,6 +718,15 @@ def calculate_aggregated_primary_fuel(
     agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
         f"{level}_primary_fuel"
     ].fillna(agg_primary_fuel["primary_fuel_from_mode"])
+
+    # sometimes nuclear generators report 0 fuel consumption in EIA-923.
+    # To ensure that a nuclear plant does not get assigned a fuel code of
+    # a backup generator, we use the nameplate capacity to assign the
+    # primary fuel for any plants that contain a nuclear generator
+    agg_primary_fuel.loc[
+        agg_primary_fuel["primary_fuel_from_capacity_mw"] == "NUC",
+        f"{level}_primary_fuel",
+    ] = "NUC"
 
     # check that there are no missing primary fuels
     if len(agg_primary_fuel[agg_primary_fuel[f"{level}_primary_fuel"].isna()]) > 0:

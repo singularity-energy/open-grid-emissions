@@ -317,10 +317,10 @@ def main():
         "monthly",
     )
     output_data.output_plant_data(
-        monthly_plant_data, path_prefix, "monthly", args.skip_outputs
+        monthly_plant_data, path_prefix, "monthly", args.skip_outputs, plant_attributes
     )
     output_data.output_plant_data(
-        monthly_plant_data, path_prefix, "annual", args.skip_outputs
+        monthly_plant_data, path_prefix, "annual", args.skip_outputs, plant_attributes
     )
     del monthly_plant_data
 
@@ -505,6 +505,7 @@ def main():
             path_prefix,
             "hourly",
             args.skip_outputs,
+            plant_attributes,
         )
 
     # 17. Aggregate CEMS data to BA-fuel and write power sector results
