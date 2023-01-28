@@ -45,12 +45,15 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
                 "annual_subplant_ratio",
                 "annual_plant_ratio",
                 "annual_fuel_ratio",
+                "default_gtn_ratio",
             ]
         ],
         how="left",
         on=["plant_id_eia", "subplant_id", "report_date"],
         validate="m:1",
     )
+    # if there is a missing default gtn ratio, fill with 0.97
+    cems["default_gtn_ratio"] = cems["default_gtn_ratio"].fillna(0.97)
 
     cems["gtn_method"] = "1_annual_subplant_ratio"
     cems["net_generation_mwh"] = (
@@ -81,9 +84,9 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         cems["gross_generation_mwh"] * cems["annual_fuel_ratio"]
     )
 
-    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "6_gross_equals_net"
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "6_default_eia_ratio"
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
-        cems["gross_generation_mwh"]
+        cems["gross_generation_mwh"] * cems["default_gtn_ratio"]
     )
 
     # drop intermediate columns
@@ -95,6 +98,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
             "annual_subplant_ratio",
             "annual_plant_ratio",
             "annual_fuel_ratio",
+            "default_gtn_ratio",
         ]
     )
 
@@ -367,18 +371,30 @@ def calculate_gross_to_net_conversion_factors(
         gtn_regression_plant, how="left", on=["plant_id_eia"], validate="m:1"
     )
 
-    # TODO: add default GTN ratios from EIA
+    # add default GTN ratios from EIA
+    gtn_conversions = gtn_conversions.merge(
+        load_data.load_default_gtn_ratios(),
+        how="left",
+        on="prime_mover_code",
+        validate="m:1",
+    )
+    # for any misisng default gtn ratios, use a ratio of 0.97
+    gtn_conversions["default_gtn_ratio"] = gtn_conversions["default_gtn_ratio"].fillna(
+        0.97
+    )
 
     return gtn_conversions
 
 
 def calculate_subplant_nameplate_capacity(year):
-    """Calculates the total nameplate capacity for each CEMS subplant."""
+    """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
+    # load generator data
     pudl_out = load_data.initialize_pudl_out(year)
     gen_capacity = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "capacity_mw"]
+        ["plant_id_eia", "generator_id", "prime_mover_code", "capacity_mw"]
     ]
 
+    # add subplant ids to the generator data
     subplant_crosswalk = pd.read_csv(
         outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
@@ -394,6 +410,25 @@ def calculate_subplant_nameplate_capacity(year):
         .sum()["capacity_mw"]
         .reset_index()
     )
+
+    # identify the primary prime mover for each subplant based on capacity
+    subplant_prime_mover = gen_capacity[
+        gen_capacity.groupby(["plant_id_eia", "subplant_id"], dropna=False)[
+            "capacity_mw"
+        ].transform(max)
+        == gen_capacity["capacity_mw"]
+    ][["plant_id_eia", "subplant_id", "prime_mover_code"]].drop_duplicates(
+        subset=["plant_id_eia", "subplant_id"], keep="first"
+    )
+
+    # add the prime mover information
+    subplant_capacity = subplant_capacity.merge(
+        subplant_prime_mover,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="1:1",
+    )
+
     return subplant_capacity
 
 
@@ -414,6 +449,7 @@ def filter_gtn_conversion_factors(gtn_conversions):
             "annual_subplant_ratio",
             "annual_plant_ratio",
             "annual_fuel_ratio",
+            "default_gtn_ratio",
         ]
     ]
 
