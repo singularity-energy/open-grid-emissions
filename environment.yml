@@ -25,7 +25,7 @@ dependencies:
   - requests>=2.28.1
   - seaborn # used by gridemissions
   - setuptools # used for pudl
-  - shapely>1.8.0,!=1.8.3,<2.1 # used for pudl
+  - shapely>=2.0,<2.1 # used for pudl
   - sqlalchemy
   - sqlite # used for pudl
   - statsmodels
