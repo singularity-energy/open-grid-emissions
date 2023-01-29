@@ -383,6 +383,9 @@ def calculate_gross_to_net_conversion_factors(
         0.97
     )
 
+    # drop the prime mover code column
+    gtn_conversions = gtn_conversions.drop(columns=["prime_mover_code"])
+
     return gtn_conversions
 
 

@@ -1310,7 +1310,7 @@ def check_for_anomalous_co2_factors(
             validate="m:1",
         )
         print("Potentially anomalous co2 factors detected for the following plants:")
-        display(
+        print(
             factor_anomaly[
                 [
                     "plant_id_eia",

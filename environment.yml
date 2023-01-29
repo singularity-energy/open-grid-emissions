@@ -18,7 +18,6 @@ dependencies:
   - pip
   - plotly
   - pyarrow
-  - pygeos>=0.10,<0.14 # used for pudl
   - pytest
   - python>=3.10,<3.11 # require 3.10.x for compatibility with pudl
   - python-snappy # used for pudl
@@ -32,7 +31,7 @@ dependencies:
   - statsmodels
 
   - pip:
-      #- --editable ../pudl #NOTE: this is for development use
+      # --editable ../pudl #NOTE: this is for development use
       - git+https://github.com/grgmiller/pudl.git@oge_release#egg=catalystcoop.pudl
       #- --editable ../gridemissions # NOTE: this is for development use
       - git+https://github.com/gailin-p/gridemissions#egg=gridemissions
