@@ -199,7 +199,11 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
             )
         elif resolution == "annual":
             # output annual data
-            df = df.groupby(["plant_id_eia"], dropna=False).sum().reset_index()
+            df = (
+                df.groupby(["plant_id_eia"], dropna=False)
+                .sum(numeric_only=True)
+                .reset_index()
+            )
             # check for anomalous looking co2 rates
             validation.check_for_anomalous_co2_factors(
                 df, plant_attributes, min_threshold=10, max_threshold=15000
@@ -245,7 +249,7 @@ def convert_results(df):
 def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
     if not skip_outputs:
         avg_fuel_type_production = (
-            ba_fuel_data.groupby(["fuel_category"]).sum().reset_index()
+            ba_fuel_data.groupby(["fuel_category"]).sum(numeric_only=True).reset_index()
         )
         # Add row for total before taking rates
         total = avg_fuel_type_production.mean(numeric_only=True).to_frame().T
@@ -472,8 +476,10 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             # the report date column is necessary for monthly aggregation, but we will have to
             # remove it and group values by datetime_utc for the hourly calculations
             ba_total = (
-                ba_table.groupby(["datetime_utc", "report_date"], dropna=False)
-                .sum()[data_columns]
+                ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
+                    data_columns
+                ]
+                .sum()
                 .reset_index()
             )
             ba_total["fuel_category"] = "total"
@@ -545,7 +551,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             # aggregate data to monthly
             ba_table_monthly = (
                 ba_table.groupby(["fuel_category", "report_date"], dropna=False)
-                .sum()
+                .sum(numeric_only=True)
                 .reset_index()
             )
             ba_table_monthly = add_generated_emission_rate_columns(ba_table_monthly)
@@ -565,7 +571,9 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
 
             # aggregate data to annual
             ba_table_annual = (
-                ba_table.groupby(["fuel_category"], dropna=False).sum().reset_index()
+                ba_table.groupby(["fuel_category"], dropna=False)
+                .sum(numeric_only=True)
+                .reset_index()
             )
             ba_table_annual = add_generated_emission_rate_columns(ba_table_annual)
             # re-order columns

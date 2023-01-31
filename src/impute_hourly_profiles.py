@@ -164,8 +164,10 @@ def select_best_available_profile(hourly_profiles):
 
     # create a filtered version of the residual profile, removing months where the residual contains negative values
     residual_filter = (
-        hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])
-        .min()["residual_profile"]
+        hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])[
+            "residual_profile"
+        ]
+        .min()
         .reset_index()
     )
     residual_filter = residual_filter[residual_filter["residual_profile"] < 0]
@@ -186,7 +188,7 @@ def select_best_available_profile(hourly_profiles):
     # implement a filter on the shifted residual profile so that we don't use it if greater than the eia930 data
     shifted_filter = (
         hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])
-        .sum()
+        .sum(numeric_only=True)
         .reset_index()
     )
     shifted_filter = shifted_filter.loc[
@@ -713,8 +715,8 @@ def average_diba_wind_solar_profiles(
             df_temporary.groupby(
                 ["fuel_category", "datetime_utc", "datetime_local", "report_date"],
                 dropna=False,
-            )
-            .mean()["eia930_profile"]
+            )["eia930_profile"]
+            .mean()
             .reset_index()
         )
         df_temporary["ba_code"] = ba
@@ -737,8 +739,8 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
         df_temporary.groupby(
             ["fuel_category", "datetime_local", "report_date"],
             dropna=False,
-        )
-        .mean()["eia930_profile"]
+        )["eia930_profile"]
+        .mean()
         .reset_index()
     )
     df_temporary["ba_code"] = ba
@@ -784,8 +786,8 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
     cems_ba_fuel = (
         cems_ba_fuel.groupby(
             ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
-        )
-        .sum()["net_generation_mwh"]
+        )["net_generation_mwh"]
+        .sum()
         .reset_index()
     )
 
@@ -801,8 +803,10 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
 
     # remove months where there is zero generation reported
     months_with_zero_data = (
-        cems_ba_fuel.groupby(["ba_code", "fuel_category", "report_date"], dropna=False)
-        .sum()["net_generation_mwh"]
+        cems_ba_fuel.groupby(["ba_code", "fuel_category", "report_date"], dropna=False)[
+            "net_generation_mwh"
+        ]
+        .sum()
         .reset_index()
     )
     months_with_zero_data = months_with_zero_data.loc[
@@ -821,8 +825,10 @@ def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
 
     # remove duplicate datetime values
     cems_ba_fuel = (
-        cems_ba_fuel.groupby(["ba_code", "fuel_category", "datetime_utc"], dropna=False)
-        .sum()["net_generation_mwh"]
+        cems_ba_fuel.groupby(
+            ["ba_code", "fuel_category", "datetime_utc"], dropna=False
+        )["net_generation_mwh"]
+        .sum()
         .reset_index()
     )
 
@@ -848,8 +854,8 @@ def convert_profile_to_percent(hourly_profiles, group_keys, columns_to_convert):
     monthly_group_columns = group_keys + ["report_date"]
 
     monthly_total = (
-        hourly_profiles.groupby(monthly_group_columns, dropna=False)
-        .sum()[columns_to_convert]
+        hourly_profiles.groupby(monthly_group_columns, dropna=False)[columns_to_convert]
+        .sum()
         .reset_index()
     )
 
@@ -928,7 +934,7 @@ def combine_and_export_hourly_plant_data(
             key_columns,
             dropna=False,
         )
-        .sum()
+        .sum(numeric_only=True)
         .reset_index()[[col for col in cems.columns if col in all_columns]]
     )
     # don't group if there is no data in the dataframe
@@ -938,7 +944,7 @@ def combine_and_export_hourly_plant_data(
                 key_columns,
                 dropna=False,
             )
-            .sum()
+            .sum(numeric_only=True)
             .reset_index()[
                 [col for col in partial_cems_subplant.columns if col in all_columns]
             ]
@@ -951,7 +957,7 @@ def combine_and_export_hourly_plant_data(
                 key_columns,
                 dropna=False,
             )
-            .sum()
+            .sum(numeric_only=True)
             .reset_index()[
                 [col for col in partial_cems_plant.columns if col in all_columns]
             ]
@@ -963,7 +969,7 @@ def combine_and_export_hourly_plant_data(
             ["plant_id_eia", "report_date"],
             dropna=False,
         )
-        .sum()
+        .sum(numeric_only=True)
         .reset_index()[
             [
                 col
@@ -1054,7 +1060,9 @@ def combine_and_export_hourly_plant_data(
 
         # groupby plant in case some plant data was split between multiple dfs
         combined_plant_data = (
-            combined_plant_data.groupby(key_columns, dropna=False).sum().reset_index()
+            combined_plant_data.groupby(key_columns, dropna=False)
+            .sum(numeric_only=True)
+            .reset_index()
         )
 
         # round the data columns to two decimal places
@@ -1142,7 +1150,7 @@ def aggregate_eia_data_to_ba_fuel(
             ["shaped_plant_id", "ba_code", "report_date", "fuel_category"],
             dropna=False,
         )
-        .sum()
+        .sum(numeric_only=True)
         .reset_index()
         .drop(columns=["plant_id_eia", "subplant_id"])
         .rename(columns={"shaped_plant_id": "plant_id_eia"})
@@ -1236,8 +1244,8 @@ def shape_partial_cems_plants(cems, eia923_allocated):
 
         # group the eia data by subplant
         eia_data_to_shape = (
-            eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)
-            .sum()[DATA_COLUMNS]
+            eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)[DATA_COLUMNS]
+            .sum()
             .reset_index()
         )
 
@@ -1247,8 +1255,10 @@ def shape_partial_cems_plants(cems, eia923_allocated):
         # get the hourly cems data for the partial plants and aggregate by plant-hour to use for shaping
         partial_cems_profiles = (
             cems[cems["plant_id_eia"].isin(partial_cems_plant_ids)]
-            .groupby(["plant_id_eia", "report_date", "datetime_utc"], dropna=False)
-            .sum()[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
+            .groupby(["plant_id_eia", "report_date", "datetime_utc"], dropna=False)[
+                ["gross_generation_mwh", "fuel_consumed_mmbtu"]
+            ]
+            .sum()
             .reset_index()
         )
         # add a column for flat profiles
@@ -1378,8 +1388,8 @@ def shape_partial_cems_subplants(cems, eia923_allocated):
     # if there is no data in the partial cems dataframe, skip.
     if len(eia_data_to_shape) > 0:
         eia_data_to_shape = (
-            eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)
-            .sum()[DATA_COLUMNS]
+            eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)[DATA_COLUMNS]
+            .sum()
             .reset_index()
         )
 
@@ -1403,8 +1413,10 @@ def shape_partial_cems_subplants(cems, eia923_allocated):
         # merge cems gross generation and fuel consumption totals into the EIA totals
         # these will be used to scale the EIA data
         partial_cems_totals = (
-            partial_cems_data.groupby(SUBPLANT_KEYS, dropna=False)
-            .sum()[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
+            partial_cems_data.groupby(SUBPLANT_KEYS, dropna=False)[
+                ["gross_generation_mwh", "fuel_consumed_mmbtu"]
+            ]
+            .sum()
             .reset_index()
         )
         eia_data_to_shape = eia_data_to_shape.merge(

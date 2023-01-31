@@ -658,8 +658,10 @@ def calculate_aggregated_primary_fuel(
     # calculate the total annual fuel consumption, generation, and capacity by fuel type
     #  for each plant
     agg_totals_by_fuel = (
-        gen_fuel_allocated.groupby(agg_keys + ["energy_source_code"], dropna=False)
-        .sum()[["fuel_consumed_for_electricity_mmbtu", "net_generation_mwh"]]
+        gen_fuel_allocated.groupby(agg_keys + ["energy_source_code"], dropna=False)[
+            ["fuel_consumed_for_electricity_mmbtu", "net_generation_mwh"]
+        ]
+        .sum()
         .reset_index()
     )
 
@@ -763,8 +765,10 @@ def calculate_capacity_based_primary_fuel(pudl_out, agg_keys, year):
         )
 
     gen_capacity = (
-        gen_capacity.groupby(agg_keys + ["energy_source_code_1"], dropna=False)
-        .sum()["capacity_mw"]
+        gen_capacity.groupby(agg_keys + ["energy_source_code_1"], dropna=False)[
+            "capacity_mw"
+        ]
+        .sum()
         .reset_index()
     )
 
@@ -1268,7 +1272,7 @@ def remove_cems_with_zero_monthly_data(cems):
     # calculate the totals reported in each month
     cems_with_zero_monthly_emissions = cems.groupby(
         ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
-    ).sum()[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
+    )[["gross_generation_mwh", "fuel_consumed_mmbtu"]].sum()
     # identify unit-months where zero emissions reported
     cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[
         cems_with_zero_monthly_emissions.sum(axis=1) == 0
@@ -1318,8 +1322,8 @@ def adjust_cems_for_chp(cems, eia923_allocated):
     subplant_fuel_ratio = (
         eia923_allocated.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
-        )
-        .sum()[["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]]
+        )[["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]]
+        .sum()
         .reset_index()
     )
     subplant_fuel_ratio["subplant_fuel_ratio"] = (
@@ -1333,8 +1337,10 @@ def adjust_cems_for_chp(cems, eia923_allocated):
     ] = 1
     # calculate a plant fuel ratio to fill missing values where there is not a matching subplant in CEMS
     plant_fuel_ratio = (
-        eia923_allocated.groupby(["plant_id_eia", "report_date"], dropna=False)
-        .sum()[["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]]
+        eia923_allocated.groupby(["plant_id_eia", "report_date"], dropna=False)[
+            ["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]
+        ]
+        .sum()
         .reset_index()
     )
     plant_fuel_ratio["plant_fuel_ratio"] = (
@@ -1474,8 +1480,8 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
         cems.groupby(
             ["plant_id_eia", "subplant_id", "emissions_unit_id_epa", "report_date"],
             dropna=False,
-        )
-        .sum()[["fuel_consumed_mmbtu"]]
+        )[["fuel_consumed_mmbtu"]]
+        .sum()
         .reset_index()
     )
 
@@ -1496,8 +1502,8 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
     eia_subplant_month_agg = (
         eia923_allocated.groupby(
             ["report_date", "plant_id_eia", "subplant_id"], dropna=False
-        )
-        .sum(min_count=1)["fuel_consumed_mmbtu"]
+        )[["fuel_consumed_mmbtu"]]
+        .sum(min_count=1)
         .reset_index()
     )
     cems_units_reported = cems_units_reported.merge(
@@ -1787,7 +1793,7 @@ def combine_plant_data(
             KEY_COLUMNS,
             dropna=False,
         )
-        .sum()
+        .sum(numeric_only=True)
         .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
     )
     # don't group if there is no data in the dataframe
@@ -1797,7 +1803,7 @@ def combine_plant_data(
                 KEY_COLUMNS,
                 dropna=False,
             )
-            .sum()
+            .sum(numeric_only=True)
             .reset_index()[
                 [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
             ]
@@ -1808,7 +1814,7 @@ def combine_plant_data(
                 KEY_COLUMNS,
                 dropna=False,
             )
-            .sum()
+            .sum(numeric_only=True)
             .reset_index()[
                 [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
             ]
@@ -1818,7 +1824,7 @@ def combine_plant_data(
             KEY_COLUMNS,
             dropna=False,
         )
-        .sum()
+        .sum(numeric_only=True)
         .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
     )
 
@@ -2144,8 +2150,8 @@ def aggregate_cems_to_subplant(cems):
     ]
 
     cems = (
-        cems.groupby(GROUPBY_COLUMNS, dropna=False)
-        .sum()[cems_columns_to_aggregate]
+        cems.groupby(GROUPBY_COLUMNS, dropna=False)[cems_columns_to_aggregate]
+        .sum()
         .reset_index()
     )
 

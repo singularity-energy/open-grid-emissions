@@ -153,8 +153,10 @@ def calculate_gross_to_net_conversion_factors(
     )
     net_gen_data = (
         eia923_allocated.dropna(subset=["net_generation_mwh"])
-        .groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)
-        .sum()["net_generation_mwh"]
+        .groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)[
+            "net_generation_mwh"
+        ]
+        .sum()
         .reset_index()
     )
 
@@ -198,20 +200,26 @@ def calculate_gross_to_net_conversion_factors(
     # calculate other groupings at the plant and annual levels
     annual_subplant_ratio = (
         combined_gen_data.dropna(subset=["gross_generation_mwh", "net_generation_mwh"])
-        .groupby(["plant_id_eia", "subplant_id"], dropna=False)
-        .sum()[["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]]
+        .groupby(["plant_id_eia", "subplant_id"], dropna=False)[
+            ["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]
+        ]
+        .sum()
         .reset_index()
     )
     monthly_plant_ratio = (
         combined_gen_data.dropna(subset=["gross_generation_mwh", "net_generation_mwh"])
-        .groupby(["plant_id_eia", "report_date"], dropna=False)
-        .sum()[["gross_generation_mwh", "net_generation_mwh"]]
+        .groupby(["plant_id_eia", "report_date"], dropna=False)[
+            ["gross_generation_mwh", "net_generation_mwh"]
+        ]
+        .sum()
         .reset_index()
     )
     annual_plant_ratio = (
         combined_gen_data.dropna(subset=["gross_generation_mwh", "net_generation_mwh"])
-        .groupby(["plant_id_eia"], dropna=False)
-        .sum()[["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]]
+        .groupby(["plant_id_eia"], dropna=False)[
+            ["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]
+        ]
+        .sum()
         .reset_index()
     )
 
@@ -313,8 +321,8 @@ def calculate_gross_to_net_conversion_factors(
             on="plant_id_eia",
             validate="m:1",
         )
-        .groupby("plant_primary_fuel")
-        .mean()["annual_plant_ratio"]
+        .groupby("plant_primary_fuel")["annual_plant_ratio"]
+        .mean()
         .reset_index()
         .rename(columns={"annual_plant_ratio": "annual_fuel_ratio"})
     )
@@ -409,8 +417,8 @@ def calculate_subplant_nameplate_capacity(year):
         validate="1:1",
     )
     subplant_capacity = (
-        gen_capacity.groupby(["plant_id_eia", "subplant_id"])
-        .sum()["capacity_mw"]
+        gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
+        .sum()
         .reset_index()
     )
 
@@ -598,8 +606,10 @@ def aggregate_combined_gen_data_for_regression(combined_gen_data, agg_level):
     )
 
     gen_data_for_regression = (
-        gen_data_for_regression.groupby(groupby_columns, dropna=False)
-        .sum()[["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]]
+        gen_data_for_regression.groupby(groupby_columns, dropna=False)[
+            ["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]
+        ]
+        .sum()
         .reset_index()
     )
 
