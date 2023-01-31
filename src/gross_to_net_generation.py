@@ -52,8 +52,6 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         on=["plant_id_eia", "subplant_id", "report_date"],
         validate="m:1",
     )
-    # if there is a missing default gtn ratio, fill with 0.97
-    cems["default_gtn_ratio"] = cems["default_gtn_ratio"].fillna(0.97)
 
     cems["gtn_method"] = "1_annual_subplant_ratio"
     cems["net_generation_mwh"] = (
@@ -85,6 +83,18 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
     )
 
     cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "6_default_eia_ratio"
+    # warn if there are any missing default gtn ratios for plants that would use them.
+    missing_defaults = cems.loc[
+        (cems["gtn_method"] == "6_default_eia_ratio")
+        & (cems["default_gtn_ratio"].isna())
+    ]
+    if len(missing_defaults) > 0:
+        print(
+            "WARNING: The following subplants are missing default GTN ratios. Using a default value of 0.97"
+        )
+        print(missing_defaults[["plant_id_eia", "subplant_id"]].drop_duplicates())
+    # if there is a missing default gtn ratio, fill with 0.97
+    cems["default_gtn_ratio"] = cems["default_gtn_ratio"].fillna(0.97)
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] * cems["default_gtn_ratio"]
     )
@@ -385,10 +395,6 @@ def calculate_gross_to_net_conversion_factors(
         how="left",
         on="prime_mover_code",
         validate="m:1",
-    )
-    # for any misisng default gtn ratios, use a ratio of 0.97
-    gtn_conversions["default_gtn_ratio"] = gtn_conversions["default_gtn_ratio"].fillna(
-        0.97
     )
 
     # drop the prime mover code column
