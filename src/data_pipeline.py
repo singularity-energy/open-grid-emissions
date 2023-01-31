@@ -110,6 +110,7 @@ def main():
         "https://www.epa.gov/sites/default/files/2020-03/egrid2018_data_v2.xlsx",
         "https://www.epa.gov/sites/default/files/2021-02/egrid2019_data.xlsx",
         "https://www.epa.gov/system/files/documents/2022-01/egrid2020_data.xlsx",
+        "https://www.epa.gov/system/files/documents/2023-01/eGRID2021_data.xlsx",
     ]
     download_data.download_egrid_files(egrid_files_to_download)
     # EIA-930
