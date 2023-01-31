@@ -296,7 +296,7 @@ def remove_months_with_zero_data(eia930_data):
     # remove data where the entire month is zero
     zero_data = (
         eia930_data.groupby(["ba_code", "fuel_category_eia930", "report_date"])
-        .sum()
+        .sum(numeric_only=True)
         .reset_index()
     )
 
@@ -407,7 +407,7 @@ def manual_930_adjust(raw: pd.DataFrame):
         raw.index.tz_convert("US/Eastern").to_series().apply(lambda s: s.utcoffset())
     )
     # After Dec 31, 2020, the offset is 0
-    sc_offsets["2020-12-31T00:00":] = timedelta(0)
+    sc_offsets["2020-12-31 00:00:00+00":] = timedelta(0)
     # make new data so we don't mess up other data indexing
     sc_dat = raw[get_columns("SC", raw.columns)].copy()
     sc_idx = pd.DatetimeIndex(sc_dat.index + sc_offsets)  # make shifted dates
@@ -429,8 +429,8 @@ def manual_930_adjust(raw: pd.DataFrame):
     cols = get_int_columns(
         "PJM", raw.columns, ["CPLE", "CPLW", "DUK", "LGEE", "MISO", "NYIS", "TVA"]
     )
-    raw.loc[raw.index < "2019-10-31T04", cols] = (
-        raw.loc[raw.index < "2019-10-31T04", cols] * -1
+    raw.loc[raw.index < "2019-10-31 04:00:00+00", cols] = (
+        raw.loc[raw.index < "2019-10-31 04:00:00+00", cols] * -1
     )
 
     # Interchange AZPS - SRP is wonky before 6/1/2020 7:00 UTC. Use SRP - AZPS (inverted)
@@ -439,12 +439,14 @@ def manual_930_adjust(raw: pd.DataFrame):
     replacement = (raw.loc[:, srp_azps] * (-1)).rename(
         columns={srp_azps[0]: azps_srp[0]}  # rename so Pandas will do the right thing
     )
-    raw.loc[:"2020-06-01T07:00+00", azps_srp] = replacement[:"2020-06-01T07:00+00"]
+    raw.loc[:"2020-06-01 07:00:00+00", azps_srp] = replacement[
+        :"2020-06-01 07:00:00+00"
+    ]
     # Update total interchange
     all_cols = [c for c in get_int_columns("AZPS", raw.columns) if "ALL" not in c]
     total_col = "EBA.AZPS-ALL.TI.H"
-    raw.loc[:"2020-06-01T07:00+00", total_col] = raw.loc[
-        :"2020-06-01T07:00+00", all_cols
+    raw.loc[:"2020-06-01 07:00:00+00", total_col] = raw.loc[
+        :"2020-06-01 07:00:00+00", all_cols
     ].sum(axis=1)
 
     # Interchange TEPC is uniformly lagged

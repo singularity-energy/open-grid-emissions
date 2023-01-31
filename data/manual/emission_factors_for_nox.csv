@@ -8,6 +8,9 @@ ST,BFG,N/A,N/A,0.0154,lb,mcf
 ST,BFG,N/A,TANGENTIAL,0.0154,lb,mcf
 ST,BFG,DRY,WALL,0.0154,lb,mcf
 ST,BFG,N/A,WALL,0.0154,lb,mcf
+CA,BIT,DRY,DUCTBURNER,12,lb,ton
+CA,BIT,N/A,DUCTBURNER,12,lb,ton
+CA,BIT,WET,DUCTBURNER,31,lb,ton
 ST,BIT,DRY,CELLBURNER,12,lb,ton
 ST,BIT,DRY,CYCLONE,33,lb,ton
 ST,BIT,N/A,CYCLONE,33,lb,ton
@@ -16,6 +19,8 @@ ST,BIT,DRY,FLUIDIZED,5,lb,ton
 ST,BIT,N/A,FLUIDIZED,5,lb,ton
 ST,BIT,WET,FLUIDIZED,5,lb,ton
 ST,BIT,N/A,N/A,31,lb,ton
+ST,BIT,DRY,N/A,12,lb,ton
+ST,BIT,WET,N/A,31,lb,ton
 ST,BIT,DRY,OTHER,12,lb,ton
 ST,BIT,N/A,OTHER,12,lb,ton
 ST,BIT,WET,OTHER,31,lb,ton
@@ -37,6 +42,8 @@ ST,BLQ,DRY,FLUIDIZED,1.5,lb,ton
 ST,BLQ,N/A,FLUIDIZED,1.5,lb,ton
 ST,BLQ,WET,FLUIDIZED,1.5,lb,ton
 ST,BLQ,N/A,N/A,1.5,lb,ton
+ST,BLQ,DRY,N/A,1.5,lb,ton
+ST,BLQ,WET,N/A,1.5,lb,ton
 ST,BLQ,DRY,OTHER,1.5,lb,ton
 ST,BLQ,N/A,OTHER,1.5,lb,ton
 ST,BLQ,DRY,STOKER,1.5,lb,ton
@@ -100,6 +107,7 @@ GT,JF,N/A,CT,4.9896,lb,barrels
 GT,JF,N/A,N/A,4.9896,lb,barrels
 IC,JF,N/A,N/A,18.144,lb,barrels
 ST,JF,N/A,N/A,1.008,lb,barrels
+CA,KER,N/A,N/A,4.9896,lb,barrels
 CA,KER,N/A,DUCTBURNER,4.9896,lb,barrels
 CA,KER,N/A,OTHER,4.9896,lb,barrels
 CT,KER,N/A,DUCTBURNER,4.9896,lb,barrels
@@ -208,6 +216,8 @@ CA,OBL,N/A,N/A,4.7166,lb,barrels
 CT,OBL,N/A,N/A,4.7166,lb,barrels
 GT,OBL,N/A,N/A,4.7166,lb,barrels
 IC,OBL,N/A,N/A,17.1486,lb,barrels
+ST,OBL,N/A,OTHER,0.798,lb,barrels
+ST,OBL,DRY,TANGENTIAL,0.798,lb,barrels
 ST,OBL,N/A,DUCTBURNER,0.798,lb,barrels
 ST,OBL,N/A,N/A,0.798,lb,barrels
 ST,OBL,DRY,WALL,0.798,lb,barrels
@@ -349,6 +359,7 @@ ST,SLW,WET,FLUIDIZED,5,lb,ton
 ST,SLW,N/A,N/A,5,lb,ton
 ST,SLW,N/A,OTHER,5,lb,ton
 ST,SLW,DRY,STOKER,5,lb,ton
+ST,SLW,WET,STOKER,5,lb,ton
 ST,SLW,DRY,TANGENTIAL,5,lb,ton
 ST,SLW,DRY,WALL,5,lb,ton
 ST,SLW,N/A,WALL,5,lb,ton

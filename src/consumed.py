@@ -332,8 +332,8 @@ class HourlyConsumed:
                     time_dat["month"] = time_dat.datetime_local.dt.month
                     # Aggregate to appropriate resolution
                     time_dat = (
-                        time_dat.groupby("month")
-                        .sum()[EMISSION_COLS + ["net_consumed_mwh"]]
+                        time_dat.groupby("month")[EMISSION_COLS + ["net_consumed_mwh"]]
+                        .sum()
                         .reset_index()  # move "month" to column
                     )
                     time_cols = ["month"]
@@ -341,8 +341,8 @@ class HourlyConsumed:
                     time_dat["year"] = time_dat.datetime_local.dt.year
                     # Aggregate to appropriate resolution
                     time_dat = (
-                        time_dat.groupby("year")
-                        .sum()[EMISSION_COLS + ["net_consumed_mwh"]]
+                        time_dat.groupby("year")[EMISSION_COLS + ["net_consumed_mwh"]]
+                        .sum()
                         .reset_index()  # move "year" to column
                     )
                     time_cols = ["year"]

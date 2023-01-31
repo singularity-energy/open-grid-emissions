@@ -40,6 +40,35 @@ def validate_year(year):
         raise UserWarning(year_warning)
 
 
+def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
+    """Checks that the allocated generation and fuel from EIA-923 matches the input totals."""
+    gf = pudl_out.gf_eia923()
+    plant_total_gf = gf.groupby("plant_id_eia")[
+        [
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+        ]
+    ].sum()
+    plant_total_alloc = gen_fuel_allocated.groupby("plant_id_eia")[
+        [
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+        ]
+    ].sum()
+    # calculate the difference between the values
+    plant_total_diff = plant_total_gf - plant_total_alloc
+    # flag values where the absolute difference is greater than 10 mwh or mmbtu
+    mismatched_allocation = plant_total_diff[
+        (abs(plant_total_diff["fuel_consumed_mmbtu"]) > 10)
+        | (abs(plant_total_diff["net_generation_mwh"]) > 10)
+    ]
+    if len(mismatched_allocation) > 0:
+        print("WARNING: Allocated EIA-923 doesn't match input data for plants:")
+        print(mismatched_allocation)
+
+
 def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
     print("    Checking that fuel and emissions values are positive...  ", end="")
@@ -260,14 +289,16 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
     eia_netgen = (
         eia923_allocated.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
-        )
-        .sum(min_count=1)["net_generation_mwh"]
+        )[["net_generation_mwh"]]
+        .sum(min_count=1)
         .reset_index()
         .dropna(subset="net_generation_mwh")
     )
     calculated_netgen = (
-        cems.groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)
-        .sum()["net_generation_mwh"]
+        cems.groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)[
+            "net_generation_mwh"
+        ]
+        .sum()
         .reset_index()
     )
     validated_ng = eia_netgen.merge(
@@ -278,9 +309,9 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
         validate="1:1",
     )
 
-    validated_ng = validated_ng.groupby("plant_id_eia").sum()[
+    validated_ng = validated_ng.groupby("plant_id_eia")[
         ["net_generation_mwh_eia", "net_generation_mwh_calc"]
-    ]
+    ].sum()
 
     validated_ng = validated_ng.round(3)
     validated_ng = validated_ng[
@@ -493,12 +524,12 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_key
     monthly_group_keys = group_keys + ["report_date"]
 
     # aggregate data to ba fuel month
-    shaped_data_agg = shaped_eia_data.groupby(monthly_group_keys, dropna=False).sum()[
+    shaped_data_agg = shaped_eia_data.groupby(monthly_group_keys, dropna=False)[
         ["net_generation_mwh", "fuel_consumed_mmbtu"]
-    ]
-    eia_data_agg = monthly_eia_data_to_shape.groupby(
-        monthly_group_keys, dropna=False
-    ).sum()[["net_generation_mwh", "fuel_consumed_mmbtu"]]
+    ].sum()
+    eia_data_agg = monthly_eia_data_to_shape.groupby(monthly_group_keys, dropna=False)[
+        ["net_generation_mwh", "fuel_consumed_mmbtu"]
+    ].sum()
 
     # calculate the difference between the two datasets
     compare = (shaped_data_agg - eia_data_agg).round(0)
@@ -619,7 +650,7 @@ def hourly_profile_source_metric(
     )
 
     # groupby and calculate percentages for the entire country
-    national_source = profile_source.groupby("profile_method").sum()
+    national_source = profile_source.groupby("profile_method").sum(numeric_only=True)
     national_source = (national_source / national_source.sum(axis=0)).reset_index()
     national_source["ba_code"] = "US Total"
 
@@ -752,7 +783,7 @@ def identify_percent_of_data_by_input_source(
             subplant_data = df.groupby(
                 ["ba_code", "plant_id_eia", "subplant_id", "eia_data_resolution"],
                 dropna=False,
-            ).sum()[columns_to_use]
+            )[columns_to_use].sum()
             # because EIA data is not hourly, we have to multiply the number of subplants by the number of hours in a year
             if year % 4 == 0:
                 hours_in_year = 8784
@@ -762,8 +793,10 @@ def identify_percent_of_data_by_input_source(
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby(["ba_code", "eia_data_resolution"], dropna=False)
-                .sum()[["subplant_hours"] + columns_to_use]
+                .groupby(["ba_code", "eia_data_resolution"], dropna=False)[
+                    ["subplant_hours"] + columns_to_use
+                ]
+                .sum()
                 .reset_index()
             )
             subplant_data = subplant_data.rename(
@@ -788,13 +821,15 @@ def identify_percent_of_data_by_input_source(
                     "eia_data_resolution",
                 ],
                 dropna=False,
-            ).sum()[columns_to_use]
+            )[columns_to_use].sum()
             subplant_data["subplant_hours"] = 1
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby(["ba_code", "eia_data_resolution"], dropna=False)
-                .sum()[["subplant_hours"] + columns_to_use]
+                .groupby(["ba_code", "eia_data_resolution"], dropna=False)[
+                    ["subplant_hours"] + columns_to_use
+                ]
+                .sum()
                 .reset_index()
             )
             subplant_data = subplant_data.rename(
@@ -812,14 +847,16 @@ def identify_percent_of_data_by_input_source(
         else:
             subplant_data = df.groupby(
                 ["ba_code", "plant_id_eia", "subplant_id", "datetime_utc"], dropna=False
-            ).sum()[columns_to_use]
+            )[columns_to_use].sum()
             subplant_data["subplant_hours"] = 1
             subplant_data["source"] = "cems_hourly"
             # group the data by resolution
             subplant_data = (
                 subplant_data.reset_index()
-                .groupby(["ba_code", "source"], dropna=False)
-                .sum()[["subplant_hours"] + columns_to_use]
+                .groupby(["ba_code", "source"], dropna=False)[
+                    ["subplant_hours"] + columns_to_use
+                ]
+                .sum()
                 .reset_index()
             )
             source_of_input_data.append(subplant_data)
@@ -828,14 +865,14 @@ def identify_percent_of_data_by_input_source(
     source_of_input_data = pd.concat(source_of_input_data, axis=0)
 
     # groupby and calculate percentages for the entire country
-    national_source = source_of_input_data.groupby("source").sum()
+    national_source = source_of_input_data.groupby("source").sum(numeric_only=True)
     national_source = (national_source / national_source.sum(axis=0)).reset_index()
     national_source["ba_code"] = "US Total"
 
     # calculate percentages by ba
     source_of_input_data = (
-        source_of_input_data.groupby(["ba_code", "source"]).sum()
-        / source_of_input_data.groupby(["ba_code"]).sum()
+        source_of_input_data.groupby(["ba_code", "source"]).sum(numeric_only=True)
+        / source_of_input_data.groupby(["ba_code"]).sum(numeric_only=True)
     ).reset_index()
     # concat the national data to the ba data
     source_of_input_data = pd.concat([source_of_input_data, national_source], axis=0)
@@ -1024,9 +1061,9 @@ def summarize_cems_measurement_quality(cems):
     # calculate the percent of mass for each pollutant that is measured or imputed
     for pollutant in ["co2", "nox", "so2"]:
         percent = (
-            cems_quality.groupby(
-                [f"{pollutant}_mass_measurement_code"], dropna=False
-            ).sum()[f"{pollutant}_mass_lb"]
+            cems_quality.groupby([f"{pollutant}_mass_measurement_code"], dropna=False)[
+                f"{pollutant}_mass_lb"
+            ].sum()
             / cems_quality[f"{pollutant}_mass_lb"].sum()
         )
         cems_quality_summary.append(percent)
@@ -1039,9 +1076,9 @@ def summarize_cems_measurement_quality(cems):
 
 
 def identify_cems_gtn_method(cems):
-    method_summary = cems.groupby("gtn_method", dropna=False).sum()[
+    method_summary = cems.groupby("gtn_method", dropna=False)[
         "gross_generation_mwh"
-    ]
+    ].sum()
     method_summary = method_summary / method_summary.sum(axis=0)
     method_summary = method_summary.reset_index()
     method_summary["gtn_method"] = method_summary["gtn_method"].astype(str)
@@ -1148,15 +1185,15 @@ def validate_diba_imputation_method(hourly_profiles, year):
     # calculate the correlation coefficient for each fleet-month
     compare_method = (
         compare_method.groupby(["fuel_category", "report_date", "ba_code"])
-        .corr()
+        .corr(numeric_only=True)
         .reset_index()
     )
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
 
     # calculate the annual average correlation coefficent for each month
     compare_method = (
-        compare_method.groupby(["fuel_category", "ba_code"])
-        .mean()["imputed_profile"]
+        compare_method.groupby(["fuel_category", "ba_code"])["imputed_profile"]
+        .mean()
         .reset_index()
     )
 
@@ -1222,15 +1259,15 @@ def validate_national_imputation_method(hourly_profiles):
     # calculate the correlation coefficient for each fleet-month
     compare_method = (
         compare_method.groupby(["fuel_category", "report_date", "ba_code"])
-        .corr()
+        .corr(numeric_only=True)
         .reset_index()
     )
     compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
 
     # calculate the annual average correlation coefficent for each month
     compare_method = (
-        compare_method.groupby(["fuel_category", "ba_code"])
-        .mean()["imputed_profile"]
+        compare_method.groupby(["fuel_category", "ba_code"])["imputed_profile"]
+        .mean()
         .reset_index()
     )
 
@@ -1239,6 +1276,60 @@ def validate_national_imputation_method(hourly_profiles):
     )
 
     return compare_method
+
+
+def check_for_anomalous_co2_factors(
+    df, plant_attributes, min_threshold=10, max_threshold=15000
+):
+    """This function checks that all co2 factors fall within a specified range.
+
+    This is a sanity check to make sure that there are not any obviously
+    nonsensical values. On the upper end, we check for co2 factors greater than
+    15,000 lb/MWh, which could indicate abnormally high fuel consumption or abnormally
+    low net generation. On the lower end, any plant that does not have a co2
+    factor equal to zero (carbon-free plants) should have an emission factor that is no
+    less than 10.
+    """
+
+    pollutant = "co2"
+    factor = f"{pollutant}_rate"
+
+    factor_anomaly = df.copy()
+
+    factor_anomaly[factor] = (
+        factor_anomaly[f"{pollutant}_mass_lb_for_electricity"]
+        / factor_anomaly["net_generation_mwh"]
+    )
+
+    # identify if any plants meet these thresholds
+    factor_anomaly = factor_anomaly[
+        ((factor_anomaly[factor] > 0) & (factor_anomaly[factor] < min_threshold))
+        | (factor_anomaly[factor] > max_threshold)
+    ]
+    # remove any infinity values
+    factor_anomaly = factor_anomaly[factor_anomaly[factor] != np.inf]
+
+    if len(factor_anomaly) > 0:
+        # merge in plant primary fuel data
+        factor_anomaly = factor_anomaly.merge(
+            plant_attributes[["plant_id_eia", "plant_primary_fuel"]],
+            how="left",
+            on="plant_id_eia",
+            validate="m:1",
+        )
+        print("Potentially anomalous co2 factors detected for the following plants:")
+        print(
+            factor_anomaly[
+                [
+                    "plant_id_eia",
+                    "plant_primary_fuel",
+                    "net_generation_mwh",
+                    "fuel_consumed_for_electricity_mmbtu",
+                    f"{pollutant}_mass_lb_for_electricity",
+                    factor,
+                ]
+            ].sort_values(by=factor)
+        )
 
 
 # VALIDATION NOTEBOOK FUNCTIONS
@@ -2069,8 +2160,8 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
         cems_total["plant_id_egrid"].map(eia_to_egrid_id)
     )
     cems_total = (
-        cems_total.groupby("plant_id_egrid")
-        .sum()[metric]
+        cems_total.groupby("plant_id_egrid")[metric]
+        .sum()
         .reset_index()
         .rename(columns={metric: f"{metric}_cems"})
     )
