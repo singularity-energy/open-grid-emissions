@@ -7,7 +7,7 @@ import validation
 from filepaths import outputs_folder, manual_folder, results_folder
 from column_checks import get_dtypes
 
-oge_version_number = "0.2.0"
+oge_version_number = "0.2.1"
 
 zero_carbon_fuels = [
     "solar",
