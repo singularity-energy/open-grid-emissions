@@ -909,7 +909,7 @@ def load_default_gtn_ratios():
     default_gtn = pd.read_csv(
         manual_folder("default_gross_to_net_ratios.csv"),
         dtype=get_dtypes(),
-    )
+    )[["prime_mover_code", "default_gtn_ratio"]]
 
     return default_gtn
 
