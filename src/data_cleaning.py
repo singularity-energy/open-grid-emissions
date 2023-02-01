@@ -1996,6 +1996,15 @@ def create_plant_ba_table(year):
         "balancing_authority_code_eia"
     ].fillna(value=np.NaN)
 
+    # load the ba name reference
+    ba_name_to_ba_code = pd.read_csv(manual_folder("ba_reference.csv"))
+    ba_name_to_ba_code = dict(
+        zip(
+            ba_name_to_ba_code["ba_name"],
+            ba_name_to_ba_code["ba_code"],
+        )
+    )
+
     # specify a ba code for certain utilities
     utility_as_ba_code = pd.read_csv(manual_folder("utility_name_ba_code_map.csv"))
     utility_as_ba_code = dict(
@@ -2006,6 +2015,9 @@ def create_plant_ba_table(year):
     )
 
     # fill missing BA codes first based on the BA name, then utility name, then on the transmisison owner name
+    plant_ba["balancing_authority_code_eia"] = plant_ba[
+        "balancing_authority_code_eia"
+    ].fillna(plant_ba["balancing_authority_name_eia"].map(ba_name_to_ba_code))
     plant_ba["balancing_authority_code_eia"] = plant_ba[
         "balancing_authority_code_eia"
     ].fillna(plant_ba["balancing_authority_name_eia"].map(utility_as_ba_code))
