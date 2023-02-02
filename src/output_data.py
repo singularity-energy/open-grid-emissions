@@ -49,43 +49,63 @@ def prepare_files_for_upload(years):
 
     This should only be run when releasing a new minor or major version of the repo.
     """
-    zip_data_for_zenodo()
+
     for year in years:
         zip_results_for_s3(year)
+        zip_data_for_zenodo(year)
 
 
 def zip_results_for_s3(year):
     """
     Zips results directories that contain more than a single file for hosting on an Amazon S3 bucket.
     """
+    os.makedirs(data_folder("s3_upload"), exist_ok=True)
     for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
         for aggregation in ["hourly", "monthly", "annual"]:
             for unit in ["metric_units", "us_units"]:
-                folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
-                shutil.make_archive(
-                    f"{results_folder()}/{year}/{data_type}/{year}_{data_type}_{aggregation}_{unit}",
-                    "zip",
-                    root_dir=folder,
-                    # base_dir="",
-                )
+                if (
+                    (data_type == "plant_data")
+                    & (aggregation == "hourly")
+                    & (unit == "metric_units")
+                ):
+                    # skip the metric hourly plant data since we do not create those outputs
+                    pass
+                else:
+                    print(f"zipping {year}_{data_type}_{aggregation}_{unit} for s3")
+                    folder = (
+                        f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
+                    )
+                    shutil.make_archive(
+                        f"{data_folder()}/s3_upload/{year}_{data_type}_{aggregation}_{unit}",
+                        "zip",
+                        root_dir=folder,
+                        # base_dir="",
+                    )
+    # move and rename the plant attributes files
+    shutil.copy(
+        f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
+        f"{data_folder()}/s3_upload/plant_static_attributes_{year}.csv",
+    )
+    # archive the data quality metrics
     shutil.make_archive(
-        f"{results_folder()}/{year}/data_quality_metrics/{year}_data_quality_metrics",
+        f"{data_folder()}/s3_upload/{year}_data_quality_metrics",
         "zip",
         root_dir=f"{results_folder()}/{year}/data_quality_metrics",
         # base_dir="",
     )
 
 
-def zip_data_for_zenodo():
+def zip_data_for_zenodo(year):
     """
     Zips each of the four data directories for archiving on Zenodo.
     """
     os.makedirs(data_folder("zenodo"), exist_ok=True)
-    for directory in ["downloads", "manual", "outputs", "results"]:
+    for directory in ["outputs", "results"]:
+        print(f"zipping {directory}_{year} for zenodo")
         shutil.make_archive(
-            data_folder(f"zenodo/{directory}"),
+            data_folder(f"zenodo/{directory}_{year}"),
             "zip",
-            root_dir=data_folder(directory),
+            root_dir=data_folder(f"{directory}/{year}"),
             # base_dir="",
         )
 
@@ -141,7 +161,7 @@ def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
         )
 
 
-def output_plant_data(df, path_prefix, resolution, skip_outputs):
+def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attributes):
     """
     Helper function for plant-level output.
     Output for each time granularity, and output separately for real and shaped plants
@@ -179,7 +199,15 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs):
             )
         elif resolution == "annual":
             # output annual data
-            df = df.groupby(["plant_id_eia"], dropna=False).sum().reset_index()
+            df = (
+                df.groupby(["plant_id_eia"], dropna=False)
+                .sum(numeric_only=True)
+                .reset_index()
+            )
+            # check for anomalous looking co2 rates
+            validation.check_for_anomalous_co2_factors(
+                df, plant_attributes, min_threshold=10, max_threshold=15000
+            )
             # Separately save real and aggregate plants
             output_to_results(
                 df,
@@ -221,7 +249,7 @@ def convert_results(df):
 def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
     if not skip_outputs:
         avg_fuel_type_production = (
-            ba_fuel_data.groupby(["fuel_category"]).sum().reset_index()
+            ba_fuel_data.groupby(["fuel_category"]).sum(numeric_only=True).reset_index()
         )
         # Add row for total before taking rates
         total = avg_fuel_type_production.mean(numeric_only=True).to_frame().T
@@ -448,8 +476,10 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             # the report date column is necessary for monthly aggregation, but we will have to
             # remove it and group values by datetime_utc for the hourly calculations
             ba_total = (
-                ba_table.groupby(["datetime_utc", "report_date"], dropna=False)
-                .sum()[data_columns]
+                ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
+                    data_columns
+                ]
+                .sum()
                 .reset_index()
             )
             ba_total["fuel_category"] = "total"
@@ -521,7 +551,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             # aggregate data to monthly
             ba_table_monthly = (
                 ba_table.groupby(["fuel_category", "report_date"], dropna=False)
-                .sum()
+                .sum(numeric_only=True)
                 .reset_index()
             )
             ba_table_monthly = add_generated_emission_rate_columns(ba_table_monthly)
@@ -541,7 +571,9 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
 
             # aggregate data to annual
             ba_table_annual = (
-                ba_table.groupby(["fuel_category"], dropna=False).sum().reset_index()
+                ba_table.groupby(["fuel_category"], dropna=False)
+                .sum(numeric_only=True)
+                .reset_index()
             )
             ba_table_annual = add_generated_emission_rate_columns(ba_table_annual)
             # re-order columns

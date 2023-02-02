@@ -925,13 +925,13 @@ def return_monthly_plant_fuel_heat_content(pudl_out):
     national_avg_fuel_heat_content = (
         plant_specific_fuel_heat_content.drop(columns=["plant_id_eia"])
         .groupby(["energy_source_code", "report_date"], dropna=False)
-        .mean()
+        .mean(numeric_only=True)
         .reset_index()
     )
 
     annual_avg_fuel_heat_content = (
         national_avg_fuel_heat_content.groupby(["energy_source_code"], dropna=False)
-        .mean()
+        .mean(numeric_only=True)
         .reset_index()
     )
 
@@ -1488,13 +1488,13 @@ def return_monthly_plant_fuel_sulfur_content(pudl_out):
     national_avg_fuel_sulfur_content = (
         plant_specific_fuel_sulfur_content.drop(columns=["plant_id_eia"])
         .groupby(["energy_source_code", "report_date"], dropna=False)
-        .mean()
+        .mean(numeric_only=True)
         .reset_index()
     )
 
     annual_avg_fuel_sulfur_content = (
         national_avg_fuel_sulfur_content.groupby(["energy_source_code"], dropna=False)
-        .mean()
+        .mean(numeric_only=True)
         .reset_index()
     )
 

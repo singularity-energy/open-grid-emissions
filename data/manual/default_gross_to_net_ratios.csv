@@ -1,0 +1,24 @@
+prime_mover_code,default_gtn_ratio,data_source
+CA,0.97,EIA Electric Power Monthly Technical Notes (Appendix C)
+CS,0.97,EIA Electric Power Monthly Technical Notes (Appendix C)
+CT,0.97,EIA Electric Power Monthly Technical Notes (Appendix C)
+CE,0.97,EIA Electric Power Monthly Technical Notes (Appendix C)
+FC,0.99,EIA Electric Power Monthly Technical Notes (Appendix C)
+GT,0.98,EIA Electric Power Monthly Technical Notes (Appendix C)
+HY,0.99,EIA Electric Power Monthly Technical Notes (Appendix C)
+PS,0.99,EIA Electric Power Monthly Technical Notes (Appendix C)
+IC,0.98,EIA Electric Power Monthly Technical Notes (Appendix C)
+OT,0.97,EIA Electric Power Monthly Technical Notes (Appendix C)
+PV,0.99,EIA Electric Power Monthly Technical Notes (Appendix C)
+ST,0.97,EIA Electric Power Monthly Technical Notes (Appendix C)
+WT,0.99,EIA Electric Power Monthly Technical Notes (Appendix C)
+BA,0.97,"None, using assumed value. This assumption needs to be updated."
+CP,0.97,"None, using assumed value. This assumption needs to be updated."
+FW,0.97,"None, using assumed value. This assumption needs to be updated."
+ES,0.97,"None, using assumed value. This assumption needs to be updated."
+CC,0.97,"None, using assumed value. This assumption needs to be updated."
+HA,0.97,"None, using assumed value. This assumption needs to be updated."
+HB,0.97,"None, using assumed value. This assumption needs to be updated."
+HK,0.97,"None, using assumed value. This assumption needs to be updated."
+BT,0.97,"None, using assumed value. This assumption needs to be updated."
+WS,0.97,"None, using assumed value. This assumption needs to be updated."
