@@ -1657,13 +1657,25 @@ def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table)
         raise UserWarning(
             "The plant attributes table is missing ba code or fuel_category data for some plants. This will result in incomplete power sector results."
         )
-    ba_fuel_data = (
-        ba_fuel_data.groupby(
-            ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
-        )[DATA_COLUMNS]
-        .sum()
-        .reset_index()
-    )
+    # try to group assuming the data is hourly resolution
+    try:
+        ba_fuel_data = (
+            ba_fuel_data.groupby(
+                ["ba_code", "fuel_category", "datetime_utc", "report_date"],
+                dropna=False,
+            )[DATA_COLUMNS]
+            .sum()
+            .reset_index()
+        )
+    # if datetime_utc is missing, groupby month
+    except KeyError:
+        ba_fuel_data = (
+            ba_fuel_data.groupby(
+                ["ba_code", "fuel_category", "report_date"], dropna=False
+            )[DATA_COLUMNS]
+            .sum()
+            .reset_index()
+        )
     return ba_fuel_data
 
 

@@ -262,13 +262,18 @@ def download_eia930_data(years_to_download: list[int]):
     os.makedirs(downloads_folder("eia930"), exist_ok=True)
 
     for year in years_to_download:
-        for description in ["BALANCE", "INTERCHANGE"]:
-            for months in ["Jan_Jun", "Jul_Dec"]:
-                download_url = f"https://www.eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_{description}_{year}_{months}.csv"
-                download_filepath = downloads_folder(
-                    f"eia930/EIA930_{description}_{year}_{months}.csv"
-                )
-                download_helper(download_url, download_filepath, chunk_size=1024 * 1024)
+        if year >= 2018:
+            for description in ["BALANCE", "INTERCHANGE"]:
+                for months in ["Jan_Jun", "Jul_Dec"]:
+                    download_url = f"https://www.eia.gov/electricity/gridmonitor/sixMonthFiles/EIA930_{description}_{year}_{months}.csv"
+                    download_filepath = downloads_folder(
+                        f"eia930/EIA930_{description}_{year}_{months}.csv"
+                    )
+                    download_helper(
+                        download_url, download_filepath, chunk_size=1024 * 1024
+                    )
+        else:
+            pass
 
 
 def download_epa_psdc(psdc_url: str):
