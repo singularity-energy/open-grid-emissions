@@ -345,7 +345,7 @@ def test_emissions_adjustments(df):
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
 
-    bad_adjustments = 0
+    bad_adjustment_count = 0
 
     for pollutant in pollutants:
         # test that mass_lb >= mass_lb_for_electricity
@@ -356,7 +356,7 @@ def test_emissions_adjustments(df):
             print(
                 f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity > {pollutant}_mass_lb"
             )
-            bad_adjustment += 1
+            bad_adjustment_count += 1
 
         # test that mass_lb >= mass_lb_adjusted
         bad_adjustment = df[
@@ -366,7 +366,7 @@ def test_emissions_adjustments(df):
             print(
                 f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_adjusted > {pollutant}_mass_lb"
             )
-            bad_adjustment += 1
+            bad_adjustment_count += 1
 
         # test that mass_lb_for_electricity >= mass_lb_for_electricity_adjusted
         bad_adjustment = df[
@@ -380,10 +380,10 @@ def test_emissions_adjustments(df):
             print(
                 f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
             )
-            bad_adjustment += 1
+            bad_adjustment_count += 1
 
     # if there were any bad adjustments, raise a userwarning.
-    if bad_adjustments > 0:
+    if bad_adjustment_count > 0:
         raise UserWarning("The above issues with emissions adjustments must be fixed.")
     else:
         print("OK")
