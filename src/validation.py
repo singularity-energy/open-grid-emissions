@@ -265,14 +265,12 @@ def test_for_missing_energy_source_code(df):
     return missing_esc_test
 
 
-def check_non_missing_cems_co2_values_unchanged(cems, year):
+def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
     """Checks that no non-missing CO2 values were modified during the process of filling."""
     print(
         "    Checking that original CO2 data in CEMS was not modified by filling missing values...",
         end="",
     )
-    # re-load the raw cems data
-    cems_original = load_data.load_cems_data(year)
     # only keep non-zero and non-missing co2 values, since these should have not been modified
     cems_original = cems_original.loc[
         cems_original["co2_mass_lb"] > 0,
@@ -297,12 +295,10 @@ def check_non_missing_cems_co2_values_unchanged(cems, year):
     else:
         print("OK")
 
-    del cems_original
-
 
 def check_removed_data_is_empty(cems):
     """Checks that the rows removed by `data_cleaning.remove_cems_with_zero_monthly_data()` don't actually contain non-zero data"""
-    check_that_data_is_zero = cems[
+    check_that_data_is_zero = cems.loc[
         cems["missing_data_flag"] == "remove",
         [
             "gross_generation_mwh",
