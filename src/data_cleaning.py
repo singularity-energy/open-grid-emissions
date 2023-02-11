@@ -1298,6 +1298,20 @@ def remove_cems_with_zero_monthly_data(cems):
     print(
         f"    Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
+    check_that_data_is_zero = cems[
+        cems["missing_data_flag"] == "remove",
+        [
+            "gross_generation_mwh",
+            "steam_load_1000_lb",
+            "fuel_consumed_mmbtu",
+            "co2_mass_lb",
+            "nox_mass_lb",
+            "so2_mass_lb",
+        ],
+    ].sum(numeric_only=True)
+    if check_that_data_is_zero.sum() > 0:
+        print("WARNING: Some data being removed has non-zero data associated with it:")
+        print(check_that_data_is_zero)
     cems = cems[cems["missing_data_flag"] != "remove"]
     # drop the missing data flag column
     cems = cems.drop(columns="missing_data_flag")

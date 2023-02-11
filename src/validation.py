@@ -265,6 +265,38 @@ def test_for_missing_energy_source_code(df):
     return missing_esc_test
 
 
+def check_non_missing_cems_co2_values_unchanged(cems, year):
+    """Checks that no non-missing CO2 values were modified during the process of filling."""
+    print("    Checking that original CO2 data in CEMS was not modified by filling missing values...", end="")
+    # re-load the raw cems data
+    cems_original = load_data.load_cems_data(year)
+    # only keep non-zero and non-missing co2 values, since these should have not been modified
+    cems_original = cems_original.loc[
+        cems_original["co2_mass_lb"] > 0,
+        ["plant_id_eia", "emissions_unit_id_epa", "datetime_utc", "co2_mass_lb"],
+    ]
+    test_fill = cems_original.merge(
+        cems[["plant_id_eia", "emissions_unit_id_epa", "datetime_utc", "co2_mass_lb"]],
+        how="left",
+        on=["plant_id_eia", "emissions_unit_id_epa", "datetime_utc"],
+        validate="1:1",
+        suffixes=("_original", "_postfill"),
+    )
+    test_fill["diff"] = (
+        test_fill["co2_mass_lb_postfill"] - test_fill["co2_mass_lb_original"]
+    )
+    if len(test_fill[test_fill["diff"] != 0]) > 0:
+        print(" ")
+        print(
+            f"WARNING: There are {len(test_fill[test_fill["diff"] != 0])} non-missing CO2 CEMS records that were modified by `fill_cems_missing_co2` in error"
+        )
+    else:
+        print("OK")
+
+    del cems_original
+
+
+
 def test_for_missing_subplant_id(df):
     """Checks if any records are missing a `subplant_id`."""
     print("    Checking that all data has an associated `subplant_id`...  ", end="")
@@ -1831,6 +1863,56 @@ def compare_plant_level_results_to_egrid(
         [comparison_count, pd.DataFrame(comparison_count.sum().rename("Total")).T],
         axis=0,
     )
+
+    compared = compared_merged.merge(
+        compared[
+            [
+                "plant_name_eia",
+                "ba_code",
+                "state",
+                "net_generation_mwh_status",
+                "fuel_consumed_mmbtu_status",
+                "fuel_consumed_for_electricity_mmbtu_status",
+                "co2_mass_lb_for_electricity_adjusted_status",
+                "co2_mass_lb_status",
+                "so2_mass_lb_status",
+                "nox_mass_lb_status",
+            ]
+        ],
+        how="left",
+        left_index=True,
+        right_index=True,
+    )
+
+    compared = compared[
+        [
+            "plant_name_eia",
+            "ba_code",
+            "state",
+            "net_generation_mwh_status",
+            "net_generation_mwh_calc",
+            "net_generation_mwh_egrid",
+            "fuel_consumed_mmbtu_status",
+            "fuel_consumed_mmbtu_calc",
+            "fuel_consumed_mmbtu_egrid",
+            "fuel_consumed_for_electricity_mmbtu_status",
+            "fuel_consumed_for_electricity_mmbtu_calc",
+            "fuel_consumed_for_electricity_mmbtu_egrid",
+            "co2_mass_lb_status",
+            "co2_mass_lb_calc",
+            "co2_mass_lb_egrid",
+            "nox_mass_lb_status",
+            "nox_mass_lb_calc",
+            "nox_mass_lb_egrid",
+            "so2_mass_lb_status",
+            "so2_mass_lb_calc",
+            "so2_mass_lb_egrid",
+            "co2_mass_lb_for_electricity_adjusted_status",
+            "co2_mass_lb_for_electricity_adjusted_calc",
+            "co2_mass_lb_for_electricity_adjusted_egrid",
+        ]
+    ]
+
     return comparison_count, compared
 
 
