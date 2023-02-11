@@ -267,7 +267,10 @@ def test_for_missing_energy_source_code(df):
 
 def check_non_missing_cems_co2_values_unchanged(cems, year):
     """Checks that no non-missing CO2 values were modified during the process of filling."""
-    print("    Checking that original CO2 data in CEMS was not modified by filling missing values...", end="")
+    print(
+        "    Checking that original CO2 data in CEMS was not modified by filling missing values...",
+        end="",
+    )
     # re-load the raw cems data
     cems_original = load_data.load_cems_data(year)
     # only keep non-zero and non-missing co2 values, since these should have not been modified
@@ -285,15 +288,17 @@ def check_non_missing_cems_co2_values_unchanged(cems, year):
     test_fill["diff"] = (
         test_fill["co2_mass_lb_postfill"] - test_fill["co2_mass_lb_original"]
     )
-    if len(test_fill[test_fill["diff"] != 0]) > 0:
+    num_nonzero_rows = len(test_fill[test_fill["diff"] != 0])
+    if num_nonzero_rows > 0:
         print(" ")
         print(
-            f"WARNING: There are {len(test_fill[test_fill["diff"] != 0])} non-missing CO2 CEMS records that were modified by `fill_cems_missing_co2` in error"
+            f"WARNING: There are {num_nonzero_rows} non-missing CO2 CEMS records that were modified by `fill_cems_missing_co2` in error"
         )
     else:
         print("OK")
 
     del cems_original
+
 
 def check_removed_data_is_empty(cems):
     """Checks that the rows removed by `data_cleaning.remove_cems_with_zero_monthly_data()` don't actually contain non-zero data"""
@@ -311,6 +316,7 @@ def check_removed_data_is_empty(cems):
     if check_that_data_is_zero.sum() > 0:
         print("WARNING: Some data being removed has non-zero data associated with it:")
         print(check_that_data_is_zero)
+
 
 def test_for_missing_subplant_id(df):
     """Checks if any records are missing a `subplant_id`."""
