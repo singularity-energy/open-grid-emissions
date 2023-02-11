@@ -71,7 +71,7 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
         )
         print("Percentage Difference:")
         print(mismatched_allocation)
-        print("Input Totals:")
+        print("EIA-923 Input Totals:")
         print(plant_total_gf.loc[mismatched_allocation.index, :])
         print("Allocated Totals:")
         print(plant_total_alloc.loc[mismatched_allocation.index, :])
