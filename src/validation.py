@@ -40,8 +40,19 @@ def validate_year(year):
         raise UserWarning(year_warning)
 
 
-def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
-    """Checks that the allocated generation and fuel from EIA-923 matches the input totals."""
+def check_allocated_gf_matches_input_gf(
+    pudl_out, gen_fuel_allocated, threshold_percent=0.001
+):
+    """
+    Checks that the allocated generation and fuel from EIA-923 matches the input totals.
+
+    Because there might be small rounding errors in the allocation that make the
+    allocated total slightly off from the input data, we allow the user to specify a
+    threshold percentage above which mismatched data is flagged. The default value is
+    0.1%, so that if either the allocated total fuel consumption or allocated total net
+    generation is more than +/-0.1% different from the total input generation or fuel,
+    the record is flagged.
+    """
     gf = pudl_out.gf_eia923()
     plant_total_gf = gf.groupby("plant_id_eia")[
         [
@@ -60,7 +71,6 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
     # calculate the percentage difference between the values
     plant_total_diff = (plant_total_alloc - plant_total_gf) / plant_total_gf
     # flag rows where the absolute percentage difference is greater than our threshold
-    threshold_percent = 0.05
     mismatched_allocation = plant_total_diff[
         (abs(plant_total_diff["fuel_consumed_mmbtu"]) > threshold_percent)
         | (abs(plant_total_diff["net_generation_mwh"]) > threshold_percent)
