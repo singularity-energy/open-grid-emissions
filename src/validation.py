@@ -295,7 +295,22 @@ def check_non_missing_cems_co2_values_unchanged(cems, year):
 
     del cems_original
 
-
+def check_removed_data_is_empty(cems):
+    """Checks that the rows removed by `data_cleaning.remove_cems_with_zero_monthly_data()` don't actually contain non-zero data"""
+    check_that_data_is_zero = cems[
+        cems["missing_data_flag"] == "remove",
+        [
+            "gross_generation_mwh",
+            "steam_load_1000_lb",
+            "fuel_consumed_mmbtu",
+            "co2_mass_lb",
+            "nox_mass_lb",
+            "so2_mass_lb",
+        ],
+    ].sum(numeric_only=True)
+    if check_that_data_is_zero.sum() > 0:
+        print("WARNING: Some data being removed has non-zero data associated with it:")
+        print(check_that_data_is_zero)
 
 def test_for_missing_subplant_id(df):
     """Checks if any records are missing a `subplant_id`."""
