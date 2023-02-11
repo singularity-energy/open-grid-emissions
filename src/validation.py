@@ -57,16 +57,24 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
             "fuel_consumed_for_electricity_mmbtu",
         ]
     ].sum()
-    # calculate the difference between the values
-    plant_total_diff = plant_total_gf - plant_total_alloc
-    # flag values where the absolute difference is greater than 10 mwh or mmbtu
+    # calculate the percentage difference between the values
+    plant_total_diff = (plant_total_alloc - plant_total_gf) / plant_total_gf
+    # flag rows where the absolute percentage difference is greater than our threshold
+    threshold_percent = 0.05
     mismatched_allocation = plant_total_diff[
-        (abs(plant_total_diff["fuel_consumed_mmbtu"]) > 10)
-        | (abs(plant_total_diff["net_generation_mwh"]) > 10)
+        (abs(plant_total_diff["fuel_consumed_mmbtu"]) > threshold_percent)
+        | (abs(plant_total_diff["net_generation_mwh"]) > threshold_percent)
     ]
     if len(mismatched_allocation) > 0:
-        print("WARNING: Allocated EIA-923 doesn't match input data for plants:")
+        print(
+            "WARNING: Allocated EIA-923 data doesn't match input data for the following plants:"
+        )
+        print("Percentage Difference:")
         print(mismatched_allocation)
+        print("Input Totals:")
+        print(plant_total_gf.loc[mismatched_allocation.index, :])
+        print("Allocated Totals:")
+        print(plant_total_alloc.loc[mismatched_allocation.index, :])
 
 
 def test_for_negative_values(df, small: bool = False):
