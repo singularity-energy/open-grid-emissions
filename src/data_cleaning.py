@@ -401,9 +401,7 @@ def clean_eia923(
     )
 
     # test to make sure allocated totals match input totals
-    validation.check_allocated_gf_matches_input_gf(
-        pudl_out, gen_fuel_allocated, threshold_percent=0.001
-    )
+    validation.check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated)
 
     # manually update energy source code when OTH
     gen_fuel_allocated = update_energy_source_codes(gen_fuel_allocated)
