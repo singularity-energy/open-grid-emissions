@@ -160,19 +160,23 @@ def download_chalendar_files():
         )
 
 
-def download_egrid_files(urls_to_download: list[str]):
+def download_egrid_file(year):
     """
     Downloads the egrid excel files.
-
-    Inputs:
-        `urls_to_download`: a list of urls for the excel files that you want to download
     """
     os.makedirs(downloads_folder("egrid"), exist_ok=True)
 
-    for url in urls_to_download:
-        filename = url.split("/")[-1]
-        filepath = downloads_folder(f"egrid/{filename}")
-        download_helper(url, filepath)
+    egrid_urls = {
+        2018: "https://www.epa.gov/sites/default/files/2020-03/egrid2018_data_v2.xlsx",
+        2019: "https://www.epa.gov/sites/default/files/2021-02/egrid2019_data.xlsx",
+        2020: "https://www.epa.gov/system/files/documents/2022-01/egrid2020_data.xlsx",
+        2021: "https://www.epa.gov/system/files/documents/2023-01/eGRID2021_data.xlsx",
+    }
+
+    url = egrid_urls[year]
+    filename = url.split("/")[-1]
+    filepath = downloads_folder(f"egrid/{filename}")
+    download_helper(url, filepath)
 
 
 def download_eia930_data(years_to_download: list[int]):

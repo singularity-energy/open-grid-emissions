@@ -105,14 +105,7 @@ def main():
         zenodo_url="https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
     )
     # eGRID
-    # the 2019 and 2020 data appear to be hosted on different urls
-    egrid_files_to_download = [
-        "https://www.epa.gov/sites/default/files/2020-03/egrid2018_data_v2.xlsx",
-        "https://www.epa.gov/sites/default/files/2021-02/egrid2019_data.xlsx",
-        "https://www.epa.gov/system/files/documents/2022-01/egrid2020_data.xlsx",
-        "https://www.epa.gov/system/files/documents/2023-01/eGRID2021_data.xlsx",
-    ]
-    download_data.download_egrid_files(egrid_files_to_download)
+    download_data.download_egrid_file(year)
     # EIA-930
     # for `small` run, we'll only clean 1 week, so need chalander file for making profiles
     if args.small or args.flat:
