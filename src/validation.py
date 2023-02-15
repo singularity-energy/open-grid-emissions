@@ -41,7 +41,12 @@ def validate_year(year):
 
 
 def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
-    """Checks that the allocated generation and fuel from EIA-923 matches the input totals."""
+    """
+    Checks that the allocated generation and fuel from EIA-923 matches the input totals.
+
+    We use np.isclose() to identify any values that are off by more than 1e-9% different
+    from the total input generation or fuel.
+    """
     gf = pudl_out.gf_eia923()
     plant_total_gf = gf.groupby("plant_id_eia")[
         [
@@ -57,16 +62,25 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
             "fuel_consumed_for_electricity_mmbtu",
         ]
     ].sum()
-    # calculate the difference between the values
-    plant_total_diff = plant_total_gf - plant_total_alloc
-    # flag values where the absolute difference is greater than 10 mwh or mmbtu
+    # calculate the percentage difference between the values
+    plant_total_diff = ((plant_total_alloc - plant_total_gf) / plant_total_gf).dropna(
+        how="any", axis=0
+    )
+    # flag rows where the absolute percentage difference is greater than our threshold
     mismatched_allocation = plant_total_diff[
-        (abs(plant_total_diff["fuel_consumed_mmbtu"]) > 10)
-        | (abs(plant_total_diff["net_generation_mwh"]) > 10)
+        (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0))
+        | (~np.isclose(plant_total_diff["net_generation_mwh"], 0))
     ]
     if len(mismatched_allocation) > 0:
-        print("WARNING: Allocated EIA-923 doesn't match input data for plants:")
+        print(
+            "WARNING: Allocated EIA-923 data doesn't match input data for the following plants:"
+        )
+        print("Percentage Difference:")
         print(mismatched_allocation)
+        print("EIA-923 Input Totals:")
+        print(plant_total_gf.loc[mismatched_allocation.index, :])
+        print("Allocated Totals:")
+        print(plant_total_alloc.loc[mismatched_allocation.index, :])
 
 
 def test_for_negative_values(df, small: bool = False):
