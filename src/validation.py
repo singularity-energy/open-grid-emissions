@@ -279,6 +279,55 @@ def test_for_missing_energy_source_code(df):
     return missing_esc_test
 
 
+def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
+    """Checks that no non-missing CO2 values were modified during the process of filling."""
+    print(
+        "    Checking that original CO2 data in CEMS was not modified by filling missing values...",
+        end="",
+    )
+    # only keep non-zero and non-missing co2 values, since these should have not been modified
+    cems_original = cems_original.loc[
+        cems_original["co2_mass_lb"] > 0,
+        ["plant_id_eia", "emissions_unit_id_epa", "datetime_utc", "co2_mass_lb"],
+    ]
+    test_fill = cems_original.merge(
+        cems[["plant_id_eia", "emissions_unit_id_epa", "datetime_utc", "co2_mass_lb"]],
+        how="left",
+        on=["plant_id_eia", "emissions_unit_id_epa", "datetime_utc"],
+        validate="1:1",
+        suffixes=("_original", "_postfill"),
+    )
+    test_fill["diff"] = (
+        test_fill["co2_mass_lb_postfill"] - test_fill["co2_mass_lb_original"]
+    )
+    num_nonzero_rows = len(test_fill[test_fill["diff"] != 0])
+    if num_nonzero_rows > 0:
+        print(" ")
+        print(
+            f"WARNING: There are {num_nonzero_rows} non-missing CO2 CEMS records that were modified by `fill_cems_missing_co2` in error"
+        )
+    else:
+        print("OK")
+
+
+def check_removed_data_is_empty(cems):
+    """Checks that the rows removed by `data_cleaning.remove_cems_with_zero_monthly_data()` don't actually contain non-zero data"""
+    check_that_data_is_zero = cems.loc[
+        cems["missing_data_flag"] == "remove",
+        [
+            "gross_generation_mwh",
+            "steam_load_1000_lb",
+            "fuel_consumed_mmbtu",
+            "co2_mass_lb",
+            "nox_mass_lb",
+            "so2_mass_lb",
+        ],
+    ].sum(numeric_only=True)
+    if check_that_data_is_zero.sum() > 0:
+        print("WARNING: Some data being removed has non-zero data associated with it:")
+        print(check_that_data_is_zero)
+
+
 def test_for_missing_subplant_id(df):
     """Checks if any records are missing a `subplant_id`."""
     print("    Checking that all data has an associated `subplant_id`...  ", end="")
@@ -1845,6 +1894,56 @@ def compare_plant_level_results_to_egrid(
         [comparison_count, pd.DataFrame(comparison_count.sum().rename("Total")).T],
         axis=0,
     )
+
+    compared = compared_merged.merge(
+        compared[
+            [
+                "plant_name_eia",
+                "ba_code",
+                "state",
+                "net_generation_mwh_status",
+                "fuel_consumed_mmbtu_status",
+                "fuel_consumed_for_electricity_mmbtu_status",
+                "co2_mass_lb_for_electricity_adjusted_status",
+                "co2_mass_lb_status",
+                "so2_mass_lb_status",
+                "nox_mass_lb_status",
+            ]
+        ],
+        how="left",
+        left_index=True,
+        right_index=True,
+    )
+
+    compared = compared[
+        [
+            "plant_name_eia",
+            "ba_code",
+            "state",
+            "net_generation_mwh_status",
+            "net_generation_mwh_calc",
+            "net_generation_mwh_egrid",
+            "fuel_consumed_mmbtu_status",
+            "fuel_consumed_mmbtu_calc",
+            "fuel_consumed_mmbtu_egrid",
+            "fuel_consumed_for_electricity_mmbtu_status",
+            "fuel_consumed_for_electricity_mmbtu_calc",
+            "fuel_consumed_for_electricity_mmbtu_egrid",
+            "co2_mass_lb_status",
+            "co2_mass_lb_calc",
+            "co2_mass_lb_egrid",
+            "nox_mass_lb_status",
+            "nox_mass_lb_calc",
+            "nox_mass_lb_egrid",
+            "so2_mass_lb_status",
+            "so2_mass_lb_calc",
+            "so2_mass_lb_egrid",
+            "co2_mass_lb_for_electricity_adjusted_status",
+            "co2_mass_lb_for_electricity_adjusted_calc",
+            "co2_mass_lb_for_electricity_adjusted_egrid",
+        ]
+    ]
+
     return comparison_count, compared
 
 
