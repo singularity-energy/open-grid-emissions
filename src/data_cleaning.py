@@ -1298,6 +1298,7 @@ def remove_cems_with_zero_monthly_data(cems):
     print(
         f"    Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
+    validation.check_removed_data_is_empty(cems)
     cems = cems[cems["missing_data_flag"] != "remove"]
     # drop the missing data flag column
     cems = cems.drop(columns="missing_data_flag")
