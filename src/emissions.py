@@ -11,8 +11,6 @@ from pudl.analysis.allocate_net_gen import (
     distribute_annually_reported_data_to_months_if_annual,
 )
 
-CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
-
 
 def calculate_ghg_emissions_from_fuel_consumption(
     df, year, include_co2=True, include_ch4=True, include_n2o=True

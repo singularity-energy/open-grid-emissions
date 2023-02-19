@@ -6,6 +6,7 @@ import os
 import load_data
 import column_checks
 import validation
+from constants import TIME_RESOLUTIONS, UNIT_CONVERSIONS
 from filepaths import outputs_folder, results_folder, data_folder
 
 GENERATED_EMISSION_RATE_COLS = [
@@ -37,10 +38,6 @@ CONSUMED_EMISSION_RATE_COLS = [
     "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
     "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
 ]
-
-UNIT_CONVERSIONS = {"lb": ("kg", 0.453592), "mmbtu": ("GJ", 1.055056)}
-
-TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
 
 
 def prepare_files_for_upload(years):

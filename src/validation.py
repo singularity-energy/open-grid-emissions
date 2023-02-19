@@ -3,9 +3,7 @@ import numpy as np
 
 import load_data
 import impute_hourly_profiles
-from emissions import CLEAN_FUELS
-from column_checks import get_dtypes
-from filepaths import downloads_folder, manual_folder
+from constants import CLEAN_FUELS
 
 
 # DATA PIPELINE VALIDATION FUNCTIONS

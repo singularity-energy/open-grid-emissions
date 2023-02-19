@@ -10,7 +10,7 @@ import pudl.output.pudltabl
 import load_data
 import validation
 import emissions
-from emissions import CLEAN_FUELS
+from constants import CLEAN_FUELS
 from column_checks import get_dtypes, apply_dtypes
 from filepaths import manual_folder, outputs_folder, downloads_folder
 
