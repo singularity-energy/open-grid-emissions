@@ -2,6 +2,7 @@ name: open_grid_emissions
 channels:
   - defaults
   - conda-forge
+  - bioconda
 dependencies:
   - black # development: code formatting
   - blas=*=openblas # prevent mkl implementation of blas
@@ -27,6 +28,7 @@ dependencies:
   - sqlalchemy
   - sqlite # used for pudl
   - statsmodels
+  - snakemake-minimal # minimal version of snakemake is PC-compatible
 
   - pip:
       # --editable ../pudl #NOTE: this is for development use

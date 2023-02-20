@@ -523,19 +523,6 @@ def main():
     # Output final data: per-ba hourly generation and rate
     output_data.write_power_sector_results(ba_fuel_data, path_prefix, args.skip_outputs)
 
-    # 18. Calculate consumption-based emissions and write carbon accounting results
-    ####################################################################################
-    print("18. Calculating and exporting consumption-based results")
-    hourly_consumed_calc = consumed.HourlyConsumed(
-        clean_930_file,
-        path_prefix,
-        year,
-        small=args.small,
-        skip_outputs=args.skip_outputs,
-    )
-    hourly_consumed_calc.run()
-    hourly_consumed_calc.output_results()
-
 
 if __name__ == "__main__":
     main()
