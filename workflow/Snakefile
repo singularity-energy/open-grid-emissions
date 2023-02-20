@@ -1,0 +1,25 @@
+
+configfile: "workflow/config/config.yaml"
+
+wildcard_constraints:
+    year="[0-9]+",
+    run_type="[a-z]+" # "small", "base", or "flat"
+
+def calculate_consumed_inputs(wildcards):
+    if wildcards.run_type=="small":
+        return {"clean_930_file":"data/downloads/eia930/chalendar/EBA_elec.csv"}
+    elif wildcards.run_type=="base":
+        return {"clean_930_file":"data/outputs/{run_type}/{year}/eia930/eia930_elec.csv"}
+    else:
+        raise Exception("unknown run type")
+
+rule calculate_consumed:
+    input:
+        unpack(calculate_consumed_inputs),
+        "data/results/{run_type}/{year}/power_sector_data/hourly/us_units/",
+        "data/outputs/{run_type}/{year}/annual_generation_averages_by_fuel_{year}.csv",
+        "data/manual/ba_reference.csv",
+    output:
+        directory("data/results/{run_type}/{year}/carbon_accounting/"),
+    script:
+        "scripts/calculate_consumed.py"
