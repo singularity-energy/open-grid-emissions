@@ -74,7 +74,7 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
 
 def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
-    logger.info("    Checking that fuel and emissions values are positive...  ")
+    logger.info("Checking that fuel and emissions values are positive...  ")
     columns_that_should_be_positive = [
         "fuel_consumed_mmbtu",
         "fuel_consumed_for_electricity_mmbtu",
@@ -156,7 +156,7 @@ def test_for_negative_values(df, small: bool = False):
 
 def test_for_missing_values(df, small: bool = False):
     """Checks that there are no unexpected missing values in the output data."""
-    logger.info("    Checking that no values are missing...  ")
+    logger.info("Checking that no values are missing...  ")
     columns_that_should_be_complete = [
         "plant_id_eia",
         "fuel_category",
@@ -231,7 +231,7 @@ def test_for_missing_values(df, small: bool = False):
 
 def test_chp_allocation(df):
     """Checks that the CHP allocation didn't create any anomalous values."""
-    logger.info("    Checking that total fuel consumed >= fuel consumed for electricity...  ")
+    logger.info("Checking that total fuel consumed >= fuel consumed for electricity...  ")
     chp_allocation_test = df[
         df["fuel_consumed_for_electricity_mmbtu"] > df["fuel_consumed_mmbtu"]
     ]
@@ -248,7 +248,7 @@ def test_chp_allocation(df):
 def test_for_missing_energy_source_code(df):
     """Checks that there are no missing energy source codes associated with non-zero fuel consumption."""
     logger.info(
-        "    Checking that there are no missing energy source codes associated with non-zero fuel consumption...  ")
+        "Checking that there are no missing energy source codes associated with non-zero fuel consumption...  ")
     missing_esc_test = df[
         (df["energy_source_code"].isna()) & (df["fuel_consumed_mmbtu"] > 0)
     ]
@@ -265,7 +265,7 @@ def test_for_missing_energy_source_code(df):
 
 def test_for_missing_subplant_id(df):
     """Checks if any records are missing a `subplant_id`."""
-    logger.info("    Checking that all data has an associated `subplant_id`...  ")
+    logger.info("Checking that all data has an associated `subplant_id`...  ")
     missing_subplant_test = df[df["subplant_id"].isna()]
     if not missing_subplant_test.empty:
         logger.warning(" ")
@@ -279,7 +279,7 @@ def test_for_missing_subplant_id(df):
 
 def validate_gross_to_net_conversion(cems, eia923_allocated):
     """checks whether the calculated net generation matches the reported net generation from EIA-923 at the annual plant level."""
-    logger.info("    Checking that calculated net generation matches reported net generation in EIA-923...  ")
+    logger.info("Checking that calculated net generation matches reported net generation in EIA-923...  ")
     # merge together monthly subplant totals from EIA and calculated from CEMS
     eia_netgen = (
         eia923_allocated.groupby(
@@ -333,7 +333,7 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
 def test_emissions_adjustments(df):
     """For each emission, tests that mass_lb >= mass_lb_for_electricity >= mass_lb_for_electricity_adjusted."""
 
-    logger.info("    Checking that adjusted emission values are less than total emissions...  ")
+    logger.info("Checking that adjusted emission values are less than total emissions...  ")
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
 
@@ -386,7 +386,7 @@ def ensure_non_overlapping_data_from_all_sources(
 ):
     """Ensures that there is no duplicated subplant-months from each of the four sources of cleaned data."""
 
-    logger.info("    Checking that all data to be combined is unique...  ")
+    logger.info("Checking that all data to be combined is unique...  ")
 
     if "hourly_data_source" in eia_data.columns:
         eia_only_data = eia_data.loc[
@@ -511,7 +511,7 @@ def ensure_non_overlapping_data_from_all_sources(
 def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_keys):
     """Checks that any shaped monthly data still adds up to the monthly total after shaping."""
 
-    logger.info("    Checking that shaped hourly data matches monthly totals...  ")
+    logger.info("Checking that shaped hourly data matches monthly totals...  ")
 
     monthly_group_keys = group_keys + ["report_date"]
 
@@ -1438,7 +1438,7 @@ def test_for_outlier_heat_rates(df):
             ]
             if not heat_rate_test.empty:
                 logger.warning(
-                    f"    {len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
+                    f"{len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
                 )
                 logger.warning(
                     f'             median = {heat_rate_stats["50%"].round(2)}, max = {heat_rate_stats["max"].round(2)}, min = {heat_rate_stats["min"].round(2)}'
