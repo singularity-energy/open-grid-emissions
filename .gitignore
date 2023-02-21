@@ -3,13 +3,14 @@ data/*
 
 example/.ipynb_checkpoints/
 test/__pycache__/
+test/*.txt
 src/__pycache__/
 
 CHANGELOG.md
 
 notebooks/visualization/outputs/*
 
-# Python 
+# Python
 notebooks/.ipynb_checkpoints
 notebooks/*/.ipynb_checkpoints
 .hypothesis/
