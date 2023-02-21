@@ -15,6 +15,9 @@ import data_cleaning
 import validation
 from column_checks import get_dtypes
 from filepaths import outputs_folder
+from logging_util import get_logger
+
+logger = get_logger(__name__)
 
 
 def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, year):
@@ -89,10 +92,10 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         & (cems["default_gtn_ratio"].isna())
     ]
     if len(missing_defaults) > 0:
-        print(
-            "WARNING: The following subplants are missing default GTN ratios. Using a default value of 0.97"
+        logger.warning(
+            "The following subplants are missing default GTN ratios. Using a default value of 0.97"
         )
-        print(missing_defaults[["plant_id_eia", "subplant_id"]].drop_duplicates())
+        logger.warning(missing_defaults[["plant_id_eia", "subplant_id"]].drop_duplicates())
     # if there is a missing default gtn ratio, fill with 0.97
     cems["default_gtn_ratio"] = cems["default_gtn_ratio"].fillna(0.97)
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
@@ -721,12 +724,12 @@ def calculate_multiyear_gtn_factors(year, number_of_years):
     )
 
     # add subplant ids to the data
-    print("Creating subplant IDs")
+    logger.info("Creating subplant IDs")
     cems_monthly, gen_fuel_allocated = data_cleaning.generate_subplant_ids(
         start_year, end_year, cems_monthly, gen_fuel_allocated
     )
 
-    print("Calculating Gross to Net regressions and ratios")
+    logger.info("Calculating Gross to Net regressions and ratios")
     # perform regression at subplant level
     gross_to_net_regression(
         gross_gen_data=cems_monthly,
@@ -772,7 +775,7 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
     )
 
     # allocate net generation and heat input to each generator-fuel grouping
-    print("    Allocating EIA-923 generation data")
+    logger.info("    Allocating EIA-923 generation data")
     gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
         pudl_out, drop_interim_cols=True
     )

@@ -1,4 +1,4 @@
-"""Configure logging for the OGE package."""
+"""Configure logging for the OGE codebase."""
 import logging
 import coloredlogs
 

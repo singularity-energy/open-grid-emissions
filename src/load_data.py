@@ -9,6 +9,9 @@ import pudl.output.pudltabl
 
 from column_checks import get_dtypes
 from filepaths import downloads_folder, manual_folder, outputs_folder
+from logging_util import get_logger
+
+logger = get_logger(__name__)
 
 
 def correct_epa_eia_plant_id_mapping(df):
@@ -153,7 +156,7 @@ def load_cems_gross_generation(start_year, end_year):
     cems_all = []
 
     for year in range(start_year, end_year + 1):
-        print(f"    loading {year} CEMS data")
+        logger.info(f"    loading {year} CEMS data")
         # specify the path to the CEMS data
         cems_path = downloads_folder(
             "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
@@ -774,10 +777,10 @@ def load_emissions_controls_eia923(year: int):
             parse_dates=["report_date", "pm_test_date", "so2_test_date"],
         )
     else:
-        print(
-            "WARNING: Emissions control data prior to 2014 has not been integrated into the data pipeline."
+        logger.warning(
+            "Emissions control data prior to 2014 has not been integrated into the data pipeline."
         )
-        print(
+        logger.warning(
             "This may overestimate SO2 and NOx emissions calculated from EIA-923 data."
         )
         emissions_controls_eia923 = pd.DataFrame(
@@ -826,10 +829,10 @@ def load_boiler_control_id_association_eia860(year, pollutant):
         )
     # return a blank dataframe if the data is not available
     else:
-        print(
-            "WARNING: Environmental association data prior to 2013 have not been integrated into the data pipeline."
+        logger.warning(
+            "Environmental association data prior to 2013 have not been integrated into the data pipeline."
         )
-        print("This may result in less accurate pollutant emissions calculations.")
+        logger.warning("This may result in less accurate pollutant emissions calculations.")
         boiler_control_id_association_eia860 = pd.DataFrame(
             columns=boiler_association_eia860_names
         )
@@ -875,10 +878,10 @@ def load_boiler_design_parameters_eia860(year):
         )
     # return a blank dataframe if the data is not available
     else:
-        print(
-            "WARNING: Boiler Design data prior to 2013 have not been integrated into the data pipeline."
+        logger.warning(
+            "Boiler Design data prior to 2013 have not been integrated into the data pipeline."
         )
-        print("This may result in less accurate NOx and SO2 emissions calculations.")
+        logger.warning("This may result in less accurate NOx and SO2 emissions calculations.")
         boiler_design_parameters_eia860 = pd.DataFrame(
             columns=list(boiler_design_parameters_eia860_names.values())
         )

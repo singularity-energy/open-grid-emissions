@@ -7,6 +7,10 @@ import load_data
 import column_checks
 import validation
 from filepaths import outputs_folder, results_folder, data_folder
+from logging_util import get_logger
+
+logger = get_logger(__name__)
+
 
 GENERATED_EMISSION_RATE_COLS = [
     "generated_co2_rate_lb_per_mwh_for_electricity",
@@ -71,7 +75,7 @@ def zip_results_for_s3(year):
                     # skip the metric hourly plant data since we do not create those outputs
                     pass
                 else:
-                    print(f"zipping {year}_{data_type}_{aggregation}_{unit} for s3")
+                    logger.info(f"zipping {year}_{data_type}_{aggregation}_{unit} for s3")
                     folder = (
                         f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
                     )
@@ -101,7 +105,7 @@ def zip_data_for_zenodo(year):
     """
     os.makedirs(data_folder("zenodo"), exist_ok=True)
     for directory in ["outputs", "results"]:
-        print(f"zipping {directory}_{year} for zenodo")
+        logger.info(f"zipping {directory}_{year} for zenodo")
         shutil.make_archive(
             data_folder(f"zenodo/{directory}_{year}"),
             "zip",
@@ -113,7 +117,7 @@ def zip_data_for_zenodo(year):
 def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
     column_checks.check_columns(df, file_name)
     if not skip_outputs:
-        print(f"    Exporting {file_name} to data/outputs")
+        logger.info(f"    Exporting {file_name} to data/outputs")
         df.to_csv(outputs_folder(f"{path_prefix}{file_name}_{year}.csv"), index=False)
 
 
@@ -122,7 +126,7 @@ def output_to_results(
 ):
     # Always check columns that should not be negative.
     small = "small" in path_prefix
-    print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
+    logger.info(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
     if include_metric:
         metric = convert_results(df)
@@ -149,7 +153,7 @@ def output_to_results(
 
 def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
     if not skip_outputs:
-        print(
+        logger.info(
             f"    Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
         )
 
@@ -412,7 +416,7 @@ def round_table(table):
                 decimals[c] = abs(math.floor(math.log10(val))) + 2
             # Always 3 sigfigs (for median)
             except ValueError:
-                print(val)
+                logger.error(val)
                 raise Exception
     return table.round(decimals)
 
@@ -455,8 +459,8 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
     if not skip_outputs:
         for ba in list(ba_fuel_data.ba_code.unique()):
             if type(ba) is not str:
-                print(
-                    f"WARNING: not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
+                logger.warning(
+                    f"not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
                 )
                 continue
 

@@ -1,6 +1,5 @@
+"""Convenience functions for paths."""
 import os
-
-# Convenience functions for paths.
 
 
 def top_folder(rel=""):
