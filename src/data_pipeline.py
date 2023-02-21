@@ -6,16 +6,11 @@ Run from `src` as `python data_pipeline.py` after installing conda environment
 Optional arguments are --year (default 2021), --shape_individual_plants (default True)
 Optional arguments for development are --small, --flat, and --skip_outputs
 """
-
-
-# import packages
 import argparse
 import os
 import shutil
 
 # import local modules
-# import local modules
-# # # Tell python where to look for modules.
 import download_data
 import data_cleaning
 import emissions
@@ -26,11 +21,17 @@ import validation
 import output_data
 import consumed
 from filepaths import downloads_folder, outputs_folder, results_folder
+from logging_util import get_logger, configure_root_logger
 
 
-def get_args():
-    """
-    Specify arguments here.
+# Log the print statements to a file for debugging.
+configure_root_logger(logfile=outputs_folder("data_pipeline.log"))
+logger = get_logger("data_pipeline")
+
+
+def get_args() -> argparse.Namespace:
+    """Specify arguments here.
+
     Returns dictionary of {arg_name: arg_value}
     """
     parser = argparse.ArgumentParser()
@@ -63,8 +64,10 @@ def get_args():
 
 
 def main():
+    """Runs the OGE data pipeline."""
     args = get_args()
     year = args.year
+    logger.info(f'Running data pipeline for year {year}')
 
     validation.validate_year(year)
 
@@ -99,7 +102,7 @@ def main():
 
     # 1. Download data
     ####################################################################################
-    print("1. Downloading data")
+    logger.info("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(
         zenodo_url="https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
@@ -131,12 +134,12 @@ def main():
 
     # 2. Identify subplants
     ####################################################################################
-    print("2. Identifying subplant IDs")
+    logger.info("2. Identifying subplant IDs")
     data_cleaning.identify_subplants(year)
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
-    print("3. Cleaning EIA-923 data")
+    logger.info("3. Cleaning EIA-923 data")
     (
         eia923_allocated,
         primary_fuel_table,
@@ -152,7 +155,7 @@ def main():
 
     # 4. Clean Hourly Data from CEMS
     ####################################################################################
-    print("4. Cleaning CEMS data")
+    logger.info("4. Cleaning CEMS data")
     cems = data_cleaning.clean_cems(
         year, args.small, primary_fuel_table, subplant_emission_factors
     )
@@ -178,14 +181,14 @@ def main():
 
     # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
     ####################################################################################
-    print("5. Loading plant static attributes")
+    logger.info("5. Loading plant static attributes")
     plant_attributes = data_cleaning.create_plant_attributes_table(
         cems, eia923_allocated, year, primary_fuel_table
     )
 
     # 6. Crosswalk CEMS and EIA data
     ####################################################################################
-    print("6. Identifying source for hourly data")
+    logger.info("6. Identifying source for hourly data")
     eia923_allocated = data_cleaning.identify_hourly_data_source(
         eia923_allocated, cems, year
     )
@@ -207,13 +210,13 @@ def main():
 
     # 7. Aggregating CEMS data to subplant
     ####################################################################################
-    print("7. Aggregating CEMS data from unit to subplant")
+    logger.info("7. Aggregating CEMS data from unit to subplant")
     # aggregate cems data to subplant level
     cems = data_cleaning.aggregate_cems_to_subplant(cems)
 
     # 8. Calculate hourly data for partial_cems plants
     ####################################################################################
-    print("8. Shaping partial CEMS data")
+    logger.info("8. Shaping partial CEMS data")
     # shape partial CEMS plant data
     partial_cems_plant = impute_hourly_profiles.shape_partial_cems_plants(
         cems, eia923_allocated
@@ -251,7 +254,7 @@ def main():
 
     # 9. Convert CEMS Hourly Gross Generation to Hourly Net Generation
     ####################################################################################
-    print("9. Converting CEMS gross generation to net generation")
+    logger.info("9. Converting CEMS gross generation to net generation")
     cems, gtn_conversions = gross_to_net_generation.convert_gross_to_net_generation(
         cems, eia923_allocated, plant_attributes, year
     )
@@ -273,7 +276,7 @@ def main():
 
     # 10. Adjust CEMS emission data for CHP
     ####################################################################################
-    print("10. Adjusting CEMS emissions for CHP")
+    logger.info("10. Adjusting CEMS emissions for CHP")
     cems = data_cleaning.adjust_cems_for_chp(cems, eia923_allocated)
     cems = emissions.calculate_co2e_mass(
         cems, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
@@ -290,7 +293,7 @@ def main():
 
     # 11. Export monthly and annual plant-level results
     ####################################################################################
-    print("11. Exporting monthly and annual plant-level results")
+    logger.info("11. Exporting monthly and annual plant-level results")
     # create a separate dataframe containing only the EIA data that is missing from cems
     monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
@@ -327,14 +330,14 @@ def main():
 
     # 12. Clean and Reconcile EIA-930 data
     ####################################################################################
-    print("12. Cleaning EIA-930 data")
+    logger.info("12. Cleaning EIA-930 data")
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
     if args.flat:
-        print("    Not running 930 cleaning because we'll be using a flat profile.")
+        logger.info("    Not running 930 cleaning because we'll be using a flat profile.")
     elif not (os.path.exists(outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv"))):
         eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
     else:
-        print(
+        logger.info(
             f"    Not re-running 930 cleaning. If you'd like to re-run, please delete data/outputs/{path_prefix}/eia930/"
         )
 
@@ -351,7 +354,7 @@ def main():
 
     # 13. Calculate hourly profiles for monthly EIA data
     ####################################################################################
-    print("13. Estimating hourly profiles for EIA data")
+    logger.info("13. Estimating hourly profiles for EIA data")
     hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
         cems,
         partial_cems_subplant,
@@ -384,7 +387,7 @@ def main():
 
     # 14. Export hourly plant-level data
     ####################################################################################
-    print("14. Exporting Hourly Plant-level data for each BA")
+    logger.info("14. Exporting Hourly Plant-level data for each BA")
     if args.shape_individual_plants and not args.small:
         impute_hourly_profiles.combine_and_export_hourly_plant_data(
             cems,
@@ -398,16 +401,16 @@ def main():
             region_to_group="ba_code",
         )
     else:
-        print(
+        logger.info(
             "    Not shaping and exporting individual plant data since `shape_individual_plants` is False."
         )
-        print(
+        logger.info(
             "    Plants that only report to EIA will be aggregated to the fleet level before shaping."
         )
 
     # 15. Shape fleet-level data
     ####################################################################################
-    print("15. Assigning hourly profiles to monthly EIA-923 data")
+    logger.info("15. Assigning hourly profiles to monthly EIA-923 data")
     hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
         hourly_profiles,
         group_keys=["ba_code", "fuel_category", "profile_method"],
@@ -465,7 +468,7 @@ def main():
 
     # 16. Combine plant-level data from all sources
     ####################################################################################
-    print("16. Combining plant-level hourly data")
+    logger.info("16. Combining plant-level hourly data")
     # write metadata outputs
     output_data.write_plant_metadata(
         plant_attributes,
@@ -511,7 +514,7 @@ def main():
 
     # 17. Aggregate CEMS data to BA-fuel and write power sector results
     ####################################################################################
-    print("17. Creating and exporting BA-level power sector results")
+    logger.info("17. Creating and exporting BA-level power sector results")
     ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
         combined_plant_data, plant_attributes
     )
@@ -525,7 +528,7 @@ def main():
 
     # 18. Calculate consumption-based emissions and write carbon accounting results
     ####################################################################################
-    print("18. Calculating and exporting consumption-based results")
+    logger.info("18. Calculating and exporting consumption-based results")
     hourly_consumed_calc = consumed.HourlyConsumed(
         clean_930_file,
         path_prefix,

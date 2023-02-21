@@ -11,7 +11,7 @@ def get_logger(name: str) -> logging.Logger:
   return logging.getLogger(f"oge.{name}")
 
 
-def configure_logger(logfile: str | None = None, level: str = "INFO"):
+def configure_root_logger(logfile: str | None = None, level: str = "INFO"):
   """Configure the OGE logger to print to the console, and optionally to a file.
 
   This function is safe to call multiple times, since it will check if logging
@@ -19,7 +19,7 @@ def configure_logger(logfile: str | None = None, level: str = "INFO"):
 
   Logging is printed with the same format as PUDL:
   ```
-  2023-02-21 16:10:44 [    INFO] oge.test:21 This is an example
+  2023-02-21 16:10:44 [INFO] oge.test:21 This is an example
   ```
   """
   root_logger = logging.getLogger()
@@ -31,7 +31,7 @@ def configure_logger(logfile: str | None = None, level: str = "INFO"):
     root_logger.removeHandler(handler)
 
   oge_logger = logging.getLogger("oge")
-  log_format = "%(asctime)s [%(levelname)8s] %(name)s:%(lineno)s %(message)s"
+  log_format = "%(asctime)s [%(levelname)4s] %(name)s:%(lineno)s %(message)s"
 
   # Direct the output of the OGE logger to the terminal (and color it). Make
   # sure this hasn't been done already to avoid adding duplicate handlers.

@@ -7,14 +7,14 @@ sys.path.append('..')
 import src.eia930 as eia930
 from src.filepaths import top_folder
 
-from src.logging_util import get_logger, configure_logger
+from src.logging_util import get_logger, configure_root_logger
 
 pudl_logger = logging.getLogger(name="catalystcoop.pudl")
 
-configure_logger(logfile=top_folder('test/test_logfile.txt'), level=logging.INFO)
+configure_root_logger(logfile=top_folder('test/test_logfile.txt'), level=logging.INFO)
 # If you call this again, nothing bad should happen. Logging statements should
 # still only show up once.
-configure_logger(logfile=top_folder('test/test_logfile.txt'), level=logging.INFO)
+configure_root_logger(logfile=top_folder('test/test_logfile.txt'), level=logging.INFO)
 logger = get_logger('test')
 
 
