@@ -69,7 +69,7 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
     ]
     if len(mismatched_allocation) > 0:
         logger.warning("Allocated EIA-923 doesn't match input data for plants:")
-        logger.warning(mismatched_allocation)
+        logger.warning("\n" + mismatched_allocation.to_string())
 
 
 def test_for_negative_values(df, small: bool = False):
@@ -325,7 +325,7 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
         logger.warning(
             f"There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
         )
-        logger.warning(cems_net_not_equal_to_eia)
+        logger.warning("\n" + cems_net_not_equal_to_eia.to_string())
     else:
         logger.info("OK")
 
@@ -528,11 +528,11 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_key
 
     if compare.sum().sum() > 0:
         logger.warning(" ")
-        logger.warning(
+        logger.warning("\n" +
             compare[
                 (compare["net_generation_mwh"] != 0)
                 | (compare["fuel_consumed_mmbtu"] != 0)
-            ]
+            ].to_string()
         )
         raise UserWarning(
             "The data shaping process is changing the monthly total values compared to reported EIA values. This process should only shape the data, not alter it."
@@ -555,7 +555,7 @@ def validate_unique_datetimes(df, df_name, keys):
                 df.duplicated(subset=(keys + [datetime_column]), keep=False)
             ]
             if len(duplicate_dt) > 0:
-                logger.warning(duplicate_dt)
+                logger.warning("\n" + duplicate_dt.to_string())
                 raise UserWarning(
                     f"The dataframe {df_name} contains duplicate {datetime_column} values within each group of {keys}. See above output"
                 )
@@ -1310,7 +1310,7 @@ def check_for_anomalous_co2_factors(
             validate="m:1",
         )
         logger.warning("Potentially anomalous co2 factors detected for the following plants:")
-        logger.warning(
+        logger.warning("\n" +
             factor_anomaly[
                 [
                     "plant_id_eia",
@@ -1320,7 +1320,7 @@ def check_for_anomalous_co2_factors(
                     f"{pollutant}_mass_lb_for_electricity",
                     factor,
                 ]
-            ].sort_values(by=factor)
+            ].sort_values(by=factor).to_string()
         )
 
 

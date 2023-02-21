@@ -1,6 +1,8 @@
 import sys
 import logging
 
+import pandas as pd
+
 sys.path.append('../src')
 sys.path.append('..')
 
@@ -22,6 +24,9 @@ def main():
   """These statements should each be printed once in a nice format."""
   logger.info('This is the OGE logger')
   pudl_logger.info('This is the PUDL logger')
+
+  df = pd.DataFrame({"a": [1,2,3], "b": [4,5,6]})
+  logger.info("\n" + df.to_string())
 
 
 if __name__ == '__main__':

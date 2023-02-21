@@ -95,7 +95,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         logger.warning(
             "The following subplants are missing default GTN ratios. Using a default value of 0.97"
         )
-        logger.warning(missing_defaults[["plant_id_eia", "subplant_id"]].drop_duplicates())
+        logger.warning("\n" + missing_defaults[["plant_id_eia", "subplant_id"]].drop_duplicates().to_string())
     # if there is a missing default gtn ratio, fill with 0.97
     cems["default_gtn_ratio"] = cems["default_gtn_ratio"].fillna(0.97)
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(

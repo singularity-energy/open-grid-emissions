@@ -481,7 +481,7 @@ def calculate_nox_from_fuel_consumption(
     if len(missing_ef) > 0:
         logger.warning("NOx emission factors are missing for the following records")
         logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning(
+        logger.warning("\n" +
             missing_ef[
                 [
                     "report_date",
@@ -490,7 +490,7 @@ def calculate_nox_from_fuel_consumption(
                     "prime_mover_code",
                     "generator_id",
                 ]
-            ].drop_duplicates()
+            ].drop_duplicates().to_string()
         )
     gen_fuel_allocated["nox_mass_lb"] = (
         gen_fuel_allocated["fuel_consumed_mmbtu"]
@@ -661,7 +661,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
             "NOx emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning(missing_nox_efs)
+        logger.warning("\n" + missing_nox_efs.to_string())
         logger.warning(" ")
     gen_nox_factors = fill_missing_factors_based_on_pm_fuel(
         nox_emission_factors, gen_nox_factors
@@ -694,7 +694,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
             "After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types. An emission factor of zero will be used for these boilers."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning(missing_nox_efs)
+        logger.warning("\n" + missing_nox_efs)
         logger.warning(" ")
     gen_nox_factors["emission_factor"] = gen_nox_factors["emission_factor"].fillna(0)
 
@@ -1216,7 +1216,7 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
     if len(missing_ef) > 0:
         logger.warning("SO2 emission factors are missing for the above records")
         logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning(
+        logger.warning("\n" +
             missing_ef[
                 [
                     "report_date",
@@ -1225,7 +1225,7 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
                     "prime_mover_code",
                     "generator_id",
                 ]
-            ].drop_duplicates()
+            ].drop_duplicates().to_string()
         )
     gen_fuel_allocated["so2_mass_lb"] = (
         gen_fuel_allocated["fuel_consumed_mmbtu"]
@@ -1382,7 +1382,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
             "SO2 emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning(missing_so2_efs)
+        logger.warning("\n" + missing_so2_efs.to_string())
         logger.warning(" ")
     gen_so2_factors = fill_missing_factors_based_on_pm_fuel(
         so2_emission_factors, gen_so2_factors
@@ -1413,7 +1413,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
             "SO2 emission factors are missing for the following boiler types. An emission factor of zero will be used for these boilers."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning(missing_so2_efs)
+        logger.warning("\n" + missing_so2_efs.to_string())
         logger.warning(" ")
     gen_so2_factors["emission_factor"] = gen_so2_factors["emission_factor"].fillna(0)
     gen_so2_factors["multiply_by_sulfur_content"] = gen_so2_factors[
@@ -1567,7 +1567,7 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, pudl_out):
     ]
     if len(missing_sulfur_content) > 0:
         logger.warning("Sulfur content data is missing in EIA-923 for the above units.")
-        logger.warning(
+        logger.warning("\n" +
             missing_sulfur_content[
                 [
                     "plant_id_eia",
@@ -1575,7 +1575,7 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, pudl_out):
                     "prime_mover_code",
                     "energy_source_code",
                 ]
-            ].drop_duplicates()
+            ].drop_duplicates().to_string()
         )
     uncontrolled_so2_factors.loc[
         uncontrolled_so2_factors["sulfur_content_pct"].isna()

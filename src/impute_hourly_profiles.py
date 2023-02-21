@@ -148,7 +148,7 @@ def calculate_hourly_profiles(
         :,
         profile_methods,
     ]
-    logger.info(summary_table)
+    logger.info("\n" + summary_table.to_string())
 
     return hourly_profiles
 
@@ -297,7 +297,7 @@ def aggregate_for_residual(
         logger.warning(
             "The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
         )
-        logger.warning(missing_fuel_category[["plant_id_eia", "subplant_id"]].drop_duplicates())
+        logger.warning("\n" + missing_fuel_category[["plant_id_eia", "subplant_id"]].drop_duplicates().to_string())
         raise UserWarning(
             "The missing fuel categories must be fixed before proceeding."
         )
