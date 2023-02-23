@@ -7,6 +7,10 @@ import load_data
 from filepaths import manual_folder
 import validation
 import output_data
+from logging_util import get_logger
+
+logger = get_logger(__name__)
+
 
 # specify the ba numbers with leading zeros
 FUEL_NUMBERS = {
@@ -112,7 +116,7 @@ def calculate_hourly_profiles(
         hourly_profiles["profile"] = hourly_profiles["flat_profile"]
         hourly_profiles["profile_method"] = "flat_profile"
 
-    print(
+    logger.info(
         "Summary of methods used to estimate missing hourly profiles (count of ba-months):"
     )
     summary_table = (
@@ -144,7 +148,7 @@ def calculate_hourly_profiles(
         :,
         profile_methods,
     ]
-    print(summary_table)
+    logger.info("\n" + summary_table.to_string())
 
     return hourly_profiles
 
@@ -290,10 +294,10 @@ def aggregate_for_residual(
         (cems["fuel_category_eia930"].isna()) & (cems["net_generation_mwh"] != 0)
     ]
     if len(missing_fuel_category) > 0:
-        print(
-            "WARNING: The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
+        logger.warning(
+            "The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
         )
-        print(missing_fuel_category[["plant_id_eia", "subplant_id"]].drop_duplicates())
+        logger.warning("\n" + missing_fuel_category[["plant_id_eia", "subplant_id"]].drop_duplicates().to_string())
         raise UserWarning(
             "The missing fuel categories must be fixed before proceeding."
         )
@@ -706,7 +710,7 @@ def average_diba_wind_solar_profiles(
     ]
     if len(df_temporary) == 0 and not validation_run:
         # if this error is raised, we might have to implement an approach that uses average values for the wider region
-        print(f"    There is no {fuel} data in the DIBAs for {ba}: {ba_dibas}")
+        logger.warning(f"    There is no {fuel} data in the DIBAs for {ba}: {ba_dibas}")
         df_temporary = average_national_wind_solar_profiles(
             residual_profiles, ba, fuel, report_date
         )
@@ -1318,8 +1322,8 @@ def shape_partial_cems_plants(cems, eia923_allocated):
             | shaped_partial_plants["fuel_profile"].isna()
         ]
         if len(missing_profiles) > 0:
-            print(
-                "WARNING: Certain partial CEMS plants are missing hourly profile data. This will result in inaccurate results"
+            logger.warning(
+                "Certain partial CEMS plants are missing hourly profile data. This will result in inaccurate results"
             )
         # check that all profiles add to 1 for each month
         incorrect_profiles = (
@@ -1334,8 +1338,8 @@ def shape_partial_cems_plants(cems, eia923_allocated):
             | (~np.isclose(incorrect_profiles["fuel_profile"], 1))
         ]
         if len(incorrect_profiles) > 0:
-            print(
-                "WARNING: Certain partial CEMS profiles do not add to 100%. This will result in inaccurate results"
+            logger.warning(
+                "Certain partial CEMS profiles do not add to 100%. This will result in inaccurate results"
             )
 
         # shape the profiles

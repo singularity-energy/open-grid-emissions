@@ -7,6 +7,9 @@ import tarfile
 import zipfile
 
 from filepaths import downloads_folder, data_folder
+from logging_util import get_logger
+
+logger = get_logger(__name__)
 
 
 def download_helper(
@@ -38,11 +41,11 @@ def download_helper(
     # If the file already exists, do not re-download it.
     final_destination = output_path if output_path is not None else download_path
     if os.path.exists(final_destination):
-        print(f"    {final_destination.split('/')[-1]} already downloaded, skipping.")
+        logger.info(f"    {final_destination.split('/')[-1]} already downloaded, skipping.")
         return False
 
     # Otherwise, download to the file in chunks.
-    print(f"    Downloading {final_destination.split('/')[-1]}")
+    logger.info(f"    Downloading {final_destination.split('/')[-1]}")
     r = requests.get(input_url, stream=True)
     with open(download_path, "wb") as fd:
         for chunk in r.iter_content(chunk_size=chunk_size):
@@ -94,10 +97,10 @@ def download_pudl_data(zenodo_url: str):
         with open(pudl_version_file, "r") as f:
             existing_version = f.readlines()[0].replace("\n", "")
         if pudl_version == existing_version:
-            print("    PUDL version already downloaded")
+            logger.info("    PUDL version already downloaded")
             return
         else:
-            print("    Downloading new version of pudl")
+            logger.info("    Downloading new version of pudl")
             shutil.rmtree(downloads_folder("pudl"))
 
     download_pudl(zenodo_url, pudl_version)
@@ -117,10 +120,10 @@ def download_pudl(zenodo_url, pudl_version):
             )
             fd.write(chunk)
             downloaded += block_size
-    print("    Downloading PUDL. Progress: 100.0%")
+    logger.info("    Downloading PUDL. Progress: 100.0%")
 
     # extract the tgz file
-    print("    Extracting PUDL data...")
+    logger.info("    Extracting PUDL data...")
     with tarfile.open(downloads_folder("pudl.tgz")) as tar:
         tar.extractall(data_folder())
 
@@ -268,7 +271,7 @@ def download_raw_eia860(year):
     Downloads raw EIA-860 data (zip files), and unzips them to the downloads folder.
     """
     if year < 2005:
-        raise NotImplementedError(f"WARNING: We haven't tested EIA-860 for '{year}'.")
+        raise NotImplementedError(f"We haven't tested EIA-860 for '{year}'.")
     os.makedirs(downloads_folder("eia860"), exist_ok=True)
     url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
     archive_url = (
