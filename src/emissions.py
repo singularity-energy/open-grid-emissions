@@ -1684,6 +1684,8 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
     3. For any remaining missing values, calculate emissions based on the subplant primary fuel and fuel consumption
     """
 
+    # make a copy of the cems data so that we can validate the outputs
+    cems_original = cems.copy()
     # add a new categorical option to the mass measurement code
     cems["co2_mass_measurement_code"] = cems[
         "co2_mass_measurement_code"
@@ -1749,7 +1751,7 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
         how="left",
         on=["plant_id_eia", "report_date", "emissions_unit_id_epa"],
         validate="m:1",
-    )
+    ).set_index(missing_co2.index)
 
     # only keep observations where there is a non-missing ef
     missing_co2 = missing_co2[~missing_co2["co2_lb_per_mmbtu"].isna()]
@@ -1779,7 +1781,7 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
         how="left",
         on=["plant_id_eia", "report_date", "subplant_id"],
         validate="m:1",
-    )
+    ).set_index(missing_co2.index)
 
     # only keep observations where there is a non-missing ef
     missing_co2 = missing_co2[~missing_co2["co2_lb_per_mmbtu"].isna()]
@@ -1826,5 +1828,9 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
         raise UserWarning(
             "There are still misssing CO2 values remaining after filling missing CO2 values in CEMS"
         )
+
+    # check that no non-missing co2 values were modified during filling
+    validation.check_non_missing_cems_co2_values_unchanged(cems_original, cems)
+    del cems_original
 
     return cems
