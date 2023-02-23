@@ -656,13 +656,11 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         )
     )
     if len(missing_nox_efs) > 0:
-        logger.warning(" ")
         logger.warning(
             "NOx emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
         logger.warning("\n" + missing_nox_efs.to_string())
-        logger.warning(" ")
     gen_nox_factors = fill_missing_factors_based_on_pm_fuel(
         nox_emission_factors, gen_nox_factors
     )
@@ -1377,13 +1375,11 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
         )
     )
     if len(missing_so2_efs) > 0:
-        logger.warning(" ")
         logger.warning(
             "SO2 emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
         logger.warning("\n" + missing_so2_efs.to_string())
-        logger.warning(" ")
     gen_so2_factors = fill_missing_factors_based_on_pm_fuel(
         so2_emission_factors, gen_so2_factors
     )
@@ -1408,13 +1404,11 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
         )
     )
     if len(missing_so2_efs) > 0:
-        logger.warning(" ")
         logger.warning(
             "SO2 emission factors are missing for the following boiler types. An emission factor of zero will be used for these boilers."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
         logger.warning("\n" + missing_so2_efs.to_string())
-        logger.warning(" ")
     gen_so2_factors["emission_factor"] = gen_so2_factors["emission_factor"].fillna(0)
     gen_so2_factors["multiply_by_sulfur_content"] = gen_so2_factors[
         "multiply_by_sulfur_content"

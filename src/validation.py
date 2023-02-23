@@ -134,7 +134,6 @@ def test_for_negative_values(df, small: bool = False):
     for column in columns_to_test:
         negative_test = df[df[column] < 0]
         if not negative_test.empty:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(negative_test)} records where {column} is negative."
             )
@@ -208,7 +207,6 @@ def test_for_missing_values(df, small: bool = False):
     for column in columns_to_test:
         missing_test = df[df[column].isna()]
         if not missing_test.empty:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(missing_test)} records where {column} is missing."
             )
@@ -251,7 +249,6 @@ def test_for_missing_energy_source_code(df):
         (df["energy_source_code"].isna()) & (df["fuel_consumed_mmbtu"] > 0)
     ]
     if not missing_esc_test.empty:
-        logger.warning(" ")
         logger.warning(
             f"There are {len(missing_esc_test)} records where there is a missing energy source code associated with non-zero fuel consumption. Check `missing_esc_test` for complete list"
         )
@@ -266,7 +263,6 @@ def test_for_missing_subplant_id(df):
     logger.info("Checking that all data has an associated `subplant_id`...  ")
     missing_subplant_test = df[df["subplant_id"].isna()]
     if not missing_subplant_test.empty:
-        logger.warning(" ")
         logger.warning(
             f"There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID. See `missing_subplant_test` for details"
         )
@@ -319,7 +315,6 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
     cems_net_not_equal_to_eia = validated_ng[validated_ng["pct_error"] != 0]
 
     if len(cems_net_not_equal_to_eia) > 0:
-        logger.warning(" ")
         logger.warning(
             f"There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
         )
@@ -366,7 +361,6 @@ def test_emissions_adjustments(df):
             )
         ]
         if len(bad_adjustment) > 0:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
             )
@@ -447,7 +441,6 @@ def ensure_non_overlapping_data_from_all_sources(
             (data_overlap["in_eia"] == 1) & (data_overlap["in_cems"] == 1)
         ]
         if len(eia_cems_overlap) > 0:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(eia_cems_overlap)} subplant-months that exist in both shaped EIA data and CEMS"
             )
@@ -456,7 +449,6 @@ def ensure_non_overlapping_data_from_all_sources(
             & (data_overlap["in_partial_cems_subplant"] == 1)
         ]
         if len(eia_pcs_overlap) > 0:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(eia_pcs_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
             )
@@ -465,7 +457,6 @@ def ensure_non_overlapping_data_from_all_sources(
             & (data_overlap["in_partial_cems_subplant"] == 1)
         ]
         if len(cems_pcs_overlap) > 0:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(cems_pcs_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
             )
@@ -473,7 +464,6 @@ def ensure_non_overlapping_data_from_all_sources(
             (data_overlap["in_eia"] == 1) & (data_overlap["in_partial_cems_plant"] == 1)
         ]
         if len(eia_pcp_overlap) > 0:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(eia_pcp_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
             )
@@ -482,7 +472,6 @@ def ensure_non_overlapping_data_from_all_sources(
             & (data_overlap["in_partial_cems_plant"] == 1)
         ]
         if len(cems_pcp_overlap) > 0:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(cems_pcp_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
             )
@@ -491,13 +480,11 @@ def ensure_non_overlapping_data_from_all_sources(
             & (data_overlap["in_partial_cems_plant"] == 1)
         ]
         if len(pcs_pcp_overlap) > 0:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(pcs_pcp_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
             )
         all_overlap = data_overlap[data_overlap["number_of_locations"] == 4]
         if len(all_overlap) > 0:
-            logger.warning(" ")
             logger.warning(
                 f"There are {len(all_overlap)} subplant-months that exist in shaped EIA data, CEMS data, and partial CEMS data."
             )
@@ -525,7 +512,6 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_key
     compare = (shaped_data_agg - eia_data_agg).round(0)
 
     if compare.sum().sum() > 0:
-        logger.warning(" ")
         logger.warning("\n" +
             compare[
                 (compare["net_generation_mwh"] != 0)
