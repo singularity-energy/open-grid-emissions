@@ -689,13 +689,13 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         )
     )
     if len(missing_nox_efs) > 0:
-        logger.warning(" ")
-        logger.warning(
-            "After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types. An emission factor of zero will be used for these boilers."
+        logger.warning("""
+            After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types.
+            An emission factor of zero will be used for these boilers.
+            Missing factors for FC prime movers are currently expected."""
         )
-        logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning("\n" + missing_nox_efs)
-        logger.warning(" ")
+        logger.warning("\n" + missing_nox_efs.to_string())
+
     gen_nox_factors["emission_factor"] = gen_nox_factors["emission_factor"].fillna(0)
 
     # average the emission factors for all boilers associated with each generator

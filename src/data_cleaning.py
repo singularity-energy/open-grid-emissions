@@ -545,14 +545,12 @@ def update_energy_source_codes(df):
         (df["energy_source_code"] == "OTH") & (df["fuel_consumed_mmbtu"] > 0)
     ]
     if len(plants_with_other_fuel) > 0:
-        logger.warning(
-            "After cleaning energy source codes, some fuel consumption is still associated with an 'OTH' fuel type."
+        logger.warning(f"""
+            After cleaning energy source codes, some fuel consumption is still associated with an 'OTH' fuel type.
+            This will lead to incorrect emissions calculations.
+            Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}
+            Assign a fuel type in `data_cleaning.update_energy_source_codes`"""
         )
-        logger.warning("This will lead to incorrect emissions calculations.")
-        logger.warning(
-            f"Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}"
-        )
-        logger.warning("Assign a fuel type in `data_cleaning.update_energy_source_codes`")
 
     return df
 

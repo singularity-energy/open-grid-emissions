@@ -517,5 +517,5 @@ class HourlyConsumed:
                         self.results[r].loc[date, col] = consumed_emissions[i]
                 if total_failed > 0:
                     logger.warning(
-                        f"Warning: {total_failed} hours failed to solve for consumed {pol} {adj} emissions."
+                        f"{total_failed} hours failed to solve for consumed {pol} {adj} emissions."
                     )

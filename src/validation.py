@@ -145,9 +145,7 @@ def test_for_negative_values(df, small: bool = False):
                 " Found negative values during small run, these may be fixed with full data"
             )
         else:
-            logger.warning("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            logger.warning("The above negative values are errors and must be fixed")
-            logger.warning("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logger.warning("The above negative values are errors and must be fixed!")
             # raise UserWarning("The above negative values are errors and must be fixed")
     else:
         logger.info("OK")
