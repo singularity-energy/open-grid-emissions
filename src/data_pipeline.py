@@ -68,14 +68,15 @@ def get_args() -> argparse.Namespace:
 
 def print_args(args: argparse.Namespace):
     """Print out the command line arguments."""
-    s = "\n".join([f"  * {argname} = {argvalue}" for argname, argvalue in vars(args).items()])
-    logger.info(f"\n\nRunning with the following options:\n{s}\n")
+    argstring = "\n".join([f"  * {k} = {v}" for k, v in vars(args).items()])
+    logger.info(f"\n\nRunning with the following options:\n{argstring}\n")
 
 
 def main():
     """Runs the OGE data pipeline."""
     args = get_args()
     print_args(args)
+
     year = args.year
     logger.info(f'Running data pipeline for year {year}')
 
