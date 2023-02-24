@@ -183,9 +183,9 @@ def consumption_emissions(F, P, ID):
 
     for j in perturbed:
         if X[j] != 0.0:
-            print(b[j])
-            print(np.abs(A[j, :]).sum())
-            print(np.abs(A[:, j]).sum())
+            logger.warning("\n" + b[j].to_string())
+            logger.warning("\n" + np.abs(A[j, :]).sum())
+            logger.warning("\n" + np.abs(A[:, j]).sum())
             raise ValueError("X[%d] is %.2f instead of 0" % (j, X[j]))
 
     return X, len(perturbed)
@@ -486,7 +486,7 @@ class HourlyConsumed:
             for adj in ADJUSTMENTS:
                 total_failed = 0
                 col = get_rate_column(pol, adjustment=adj, generated=False)
-                print(f"{pol}, {adj}", end="...")
+                logger.info(f"Solving consumed {pol} {adj} emissions...")
                 # Calculate emissions
                 for date in self.generation.index:
                     if self.small and (
