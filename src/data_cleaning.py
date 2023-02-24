@@ -545,7 +545,8 @@ def update_energy_source_codes(df):
         (df["energy_source_code"] == "OTH") & (df["fuel_consumed_mmbtu"] > 0)
     ]
     if len(plants_with_other_fuel) > 0:
-        logger.warning(f"""
+        logger.warning(
+            f"""
             After cleaning energy source codes, some fuel consumption is still associated with an 'OTH' fuel type.
             This will lead to incorrect emissions calculations.
             Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}
@@ -574,6 +575,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
+        validation.test_for_missing_subplant_id(gen_fuel_allocated)
 
         # get a table of primary energy source codes
         gen_primary_fuel = gen_fuel_allocated[
@@ -763,6 +765,7 @@ def calculate_capacity_based_primary_fuel(pudl_out, agg_keys, year):
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
+        validation.test_for_missing_subplant_id(gen_capacity)
 
     gen_capacity = (
         gen_capacity.groupby(agg_keys + ["energy_source_code_1"], dropna=False)[
@@ -811,6 +814,7 @@ def calculate_subplant_efs(gen_fuel_allocated, year):
         on=["plant_id_eia", "generator_id"],
         validate="m:1",
     )
+    validation.test_for_missing_subplant_id(subplant_efs)
 
     # calculate the total emissions and fuel consumption by subplant-month
     subplant_efs = subplant_efs.groupby(
@@ -998,6 +1002,9 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     cems = remove_cems_with_zero_monthly_data(cems)
 
     validation.test_for_negative_values(cems)
+    validation.validate_unique_datetimes(
+        cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
+    )
 
     cems = apply_dtypes(cems)
 

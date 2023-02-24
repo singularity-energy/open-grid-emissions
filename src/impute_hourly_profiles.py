@@ -282,6 +282,9 @@ def aggregate_for_residual(
 
     # add the partial cems data
     cems = pd.concat([cems, partial_cems_subplant, partial_cems_plant], axis=0)
+    validation.validate_unique_datetimes(
+        cems, "cems_for_residual", ["plant_id_eia", "subplant_id"]
+    )
 
     # merge in plant attributes
     cems = cems.merge(plant_attributes, how="left", on="plant_id_eia", validate="m:1")
@@ -297,7 +300,12 @@ def aggregate_for_residual(
         logger.warning(
             "The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
         )
-        logger.warning("\n" + missing_fuel_category[["plant_id_eia", "subplant_id"]].drop_duplicates().to_string())
+        logger.warning(
+            "\n"
+            + missing_fuel_category[["plant_id_eia", "subplant_id"]]
+            .drop_duplicates()
+            .to_string()
+        )
         raise UserWarning(
             "The missing fuel categories must be fixed before proceeding."
         )
@@ -656,6 +664,9 @@ def impute_missing_hourly_profiles(
 
     hourly_profiles["datetime_utc"] = pd.to_datetime(
         hourly_profiles["datetime_utc"], utc=True
+    )
+    validation.validate_unique_datetimes(
+        hourly_profiles, "hourly_profiles", ["ba_code", "fuel_category"]
     )
 
     return hourly_profiles
@@ -1035,12 +1046,6 @@ def combine_and_export_hourly_plant_data(
             df_name="shaped_eia_data",
             keys=["plant_id_eia"],
         )
-        # validate that the shaping did not alter data at the monthly level
-        validation.validate_shaped_totals(
-            shaped_eia_region_data,
-            eia_region,
-            group_keys=[region_to_group, "fuel_category"],
-        )
 
         # concat all of the data together
         combined_plant_data = pd.concat(
@@ -1229,6 +1234,13 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
     shaped_monthly_data = shaped_monthly_data[
         [col for col in column_order if col in shaped_monthly_data.columns]
     ]
+
+    # validate that the shaping did not alter data at the monthly level
+    validation.validate_shaped_totals(
+        shaped_monthly_data,
+        monthly_eia_data_to_shape,
+        group_keys=["ba_code", "fuel_category"],
+    )
 
     return shaped_monthly_data
 

@@ -9,6 +9,7 @@ import pudl.output.pudltabl
 
 from column_checks import get_dtypes
 from filepaths import downloads_folder, manual_folder, outputs_folder
+from validation import validate_unique_datetimes
 from logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -111,6 +112,8 @@ def load_cems_data(year):
             "so2_mass_measurement_code": "category",
         }
     )
+
+    validate_unique_datetimes(cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"])
 
     return cems
 
@@ -832,7 +835,9 @@ def load_boiler_control_id_association_eia860(year, pollutant):
         logger.warning(
             "Environmental association data prior to 2013 have not been integrated into the data pipeline."
         )
-        logger.warning("This may result in less accurate pollutant emissions calculations.")
+        logger.warning(
+            "This may result in less accurate pollutant emissions calculations."
+        )
         boiler_control_id_association_eia860 = pd.DataFrame(
             columns=boiler_association_eia860_names
         )
@@ -881,7 +886,9 @@ def load_boiler_design_parameters_eia860(year):
         logger.warning(
             "Boiler Design data prior to 2013 have not been integrated into the data pipeline."
         )
-        logger.warning("This may result in less accurate NOx and SO2 emissions calculations.")
+        logger.warning(
+            "This may result in less accurate NOx and SO2 emissions calculations."
+        )
         boiler_design_parameters_eia860 = pd.DataFrame(
             columns=list(boiler_design_parameters_eia860_names.values())
         )

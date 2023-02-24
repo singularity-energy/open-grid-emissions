@@ -75,7 +75,9 @@ def zip_results_for_s3(year):
                     # skip the metric hourly plant data since we do not create those outputs
                     pass
                 else:
-                    logger.info(f"zipping {year}_{data_type}_{aggregation}_{unit} for s3")
+                    logger.info(
+                        f"zipping {year}_{data_type}_{aggregation}_{unit} for s3"
+                    )
                     folder = (
                         f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
                     )
@@ -176,6 +178,9 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
     if not skip_outputs:
         if resolution == "hourly":
             # output hourly data
+            validation.validate_unique_datetimes(
+                df, "individual_plant_data", ["plant_id_eia"]
+            )
             # Separately save real and aggregate plants
             output_to_results(
                 df[df.plant_id_eia > 900000],
