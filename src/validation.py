@@ -227,12 +227,10 @@ def test_for_missing_values(df, small: bool = False):
     if missing_warnings > 0:
         if small:
             logger.warning(
-                " Found missing values during small run, these may be fixed with full data"
+                "Found missing values during small run, these may be fixed with full data"
             )
         else:
-            logger.warning("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             logger.warning("The above missing values are errors and must be fixed")
-            logger.warning("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     else:
         logger.info("OK")
     return missing_test

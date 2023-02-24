@@ -184,8 +184,8 @@ def consumption_emissions(F, P, ID):
     for j in perturbed:
         if X[j] != 0.0:
             logger.warning("\n" + b[j].to_string())
-            logger.warning("\n" + np.abs(A[j, :]).sum())
-            logger.warning("\n" + np.abs(A[:, j]).sum())
+            logger.warning("\n" + np.abs(A[j, :]).sum().to_string())
+            logger.warning("\n" + np.abs(A[:, j]).sum().to_string())
             raise ValueError("X[%d] is %.2f instead of 0" % (j, X[j]))
 
     return X, len(perturbed)
