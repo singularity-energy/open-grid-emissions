@@ -41,7 +41,9 @@ def download_helper(
     # If the file already exists, do not re-download it.
     final_destination = output_path if output_path is not None else download_path
     if os.path.exists(final_destination):
-        logger.info(f"    {final_destination.split('/')[-1]} already downloaded, skipping.")
+        logger.info(
+            f"    {final_destination.split('/')[-1]} already downloaded, skipping."
+        )
         return False
 
     # Otherwise, download to the file in chunks.
@@ -109,11 +111,19 @@ def download_pudl_data(zenodo_url: str):
 def download_pudl(zenodo_url, pudl_version):
     r = requests.get(zenodo_url, params={"download": "1"}, stream=True)
     # specify parameters for progress bar
+    total_size_in_bytes = int(r.headers.get("content-length", 0))
     block_size = 1024 * 1024 * 10  # 10 MB
+    downloaded = 0
     logger.info("    Downloading PUDL data...")
     with open(downloads_folder("pudl.tgz"), "wb") as fd:
         for chunk in r.iter_content(chunk_size=block_size):
+            print(
+                f"    Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
+                end="",
+            )
             fd.write(chunk)
+            downloaded += block_size
+        print("    Progress: 100.0%")
 
     # extract the tgz file
     logger.info("    Extracting PUDL data...")
