@@ -39,33 +39,43 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--shape_individual_plants",
         help="Assign an hourly profile to each individual plant with EIA-only data, instead of aggregating to the fleet level before shaping.",
-        type=bool,
         default=True,
+        action=argparse.BooleanOptionalAction
     )
     parser.add_argument(
         "--small",
         help="Run on subset of data for quicker testing, outputs to outputs/small and results to results/small.",
-        type=bool,
         default=False,
+        action=argparse.BooleanOptionalAction
     )
     parser.add_argument(
         "--flat",
         help="Use flat hourly profiles?",
+        default=False,
+        action=argparse.BooleanOptionalAction
     )
     parser.add_argument(
         "--skip_outputs",
         help="Skip outputting data to csv files for quicker testing.",
-        type=bool,
         default=False,
+        action=argparse.BooleanOptionalAction
     )
 
     args = parser.parse_args()
+
     return args
+
+
+def print_args(args: argparse.Namespace):
+    """Print out the command line arguments."""
+    s = "\n".join([f"  * {argname} = {argvalue}" for argname, argvalue in vars(args).items()])
+    logger.info(f"\n\nRunning with the following options:\n{s}\n")
 
 
 def main():
     """Runs the OGE data pipeline."""
     args = get_args()
+    print_args(args)
     year = args.year
     logger.info(f'Running data pipeline for year {year}')
 
