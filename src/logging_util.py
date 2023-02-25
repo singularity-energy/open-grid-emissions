@@ -2,6 +2,8 @@
 import logging
 import coloredlogs
 
+from filepaths import make_containing_folder
+
 
 def get_logger(name: str) -> logging.Logger:
   """Helper function to append `oge` to the logger name and return a logger.
@@ -41,6 +43,7 @@ def configure_root_logger(logfile: str | None = None, level: str = "INFO"):
 
   # Send everything to the log file by adding a file handler to the root logger.
   if logfile is not None:
+    make_containing_folder(logfile)
     file_logger = logging.FileHandler(logfile, mode='w')
     file_logger.setFormatter(logging.Formatter(log_format))
 
