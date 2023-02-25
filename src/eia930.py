@@ -145,14 +145,14 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
         df = df.loc[start:end]  # Don't worry about processing everything
 
     # Adjust
-    logger.info("    Adjusting EIA-930 time stamps")
+    logger.info("Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
     df.to_csv(
         join(data_folder, "eia930_raw.csv")
     )  # Will be read by gridemissions workflow
 
     # Run cleaning
-    logger.info("    Running physics-based data cleaning")
+    logger.info("Running physics-based data cleaning")
     make_dataset(
         start,
         end,
@@ -289,7 +289,7 @@ def remove_imputed_ones(eia930_data):
     filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
 
     # replace all 1.0 values with zero
-    logger.info(f"  replacing {sum(filter)} imputed 1 values with 0")
+    logger.info(f"Replacing {sum(filter)} imputed 1 values with 0")
     eia930_data.loc[filter, "net_generation_mwh_930"] = 0
 
     return eia930_data

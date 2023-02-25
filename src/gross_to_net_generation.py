@@ -775,7 +775,7 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
     )
 
     # allocate net generation and heat input to each generator-fuel grouping
-    logger.info("    Allocating EIA-923 generation data")
+    logger.info("Allocating EIA-923 generation data")
     gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
         pudl_out, drop_interim_cols=True
     )

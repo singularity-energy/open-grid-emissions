@@ -40,25 +40,25 @@ def get_args() -> argparse.Namespace:
         "--shape_individual_plants",
         help="Assign an hourly profile to each individual plant with EIA-only data, instead of aggregating to the fleet level before shaping.",
         default=True,
-        action=argparse.BooleanOptionalAction
+        action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
         "--small",
         help="Run on subset of data for quicker testing, outputs to outputs/small and results to results/small.",
         default=False,
-        action=argparse.BooleanOptionalAction
+        action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
         "--flat",
         help="Use flat hourly profiles?",
         default=False,
-        action=argparse.BooleanOptionalAction
+        action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
         "--skip_outputs",
         help="Skip outputting data to csv files for quicker testing.",
         default=False,
-        action=argparse.BooleanOptionalAction
+        action=argparse.BooleanOptionalAction,
     )
 
     args = parser.parse_args()
@@ -78,7 +78,7 @@ def main():
     print_args(args)
 
     year = args.year
-    logger.info(f'Running data pipeline for year {year}')
+    logger.info(f"Running data pipeline for year {year}")
 
     validation.validate_year(year)
 
@@ -344,12 +344,12 @@ def main():
     logger.info("12. Cleaning EIA-930 data")
     # Scrapes and cleans data in data/downloads, outputs cleaned file at EBA_elec.csv
     if args.flat:
-        logger.info("    Not running 930 cleaning because we'll be using a flat profile.")
+        logger.info("Not running 930 cleaning because we'll be using a flat profile.")
     elif not (os.path.exists(outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv"))):
         eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
     else:
         logger.info(
-            f"    Not re-running 930 cleaning. If you'd like to re-run, please delete data/outputs/{path_prefix}/eia930/"
+            f"Not re-running 930 cleaning. If you'd like to re-run, please delete data/outputs/{path_prefix}/eia930/"
         )
 
     # If running small, we didn't clean the whole year, so need to use the Chalender file to build residual profiles.
@@ -413,10 +413,10 @@ def main():
         )
     else:
         logger.info(
-            "    Not shaping and exporting individual plant data since `shape_individual_plants` is False."
+            "Not shaping and exporting individual plant data since `shape_individual_plants` is False."
         )
         logger.info(
-            "    Plants that only report to EIA will be aggregated to the fleet level before shaping."
+            "Plants that only report to EIA will be aggregated to the fleet level before shaping."
         )
 
     # 15. Shape fleet-level data
@@ -549,6 +549,11 @@ def main():
     )
     hourly_consumed_calc.run()
     hourly_consumed_calc.output_results()
+
+    # move the log file into the specific year output folder
+    shutil.move(
+        outputs_folder("data_pipeline.log"), outputs_folder(f"{year}/data_pipeline.log")
+    )
 
 
 if __name__ == "__main__":

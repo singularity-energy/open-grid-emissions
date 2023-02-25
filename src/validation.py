@@ -272,7 +272,7 @@ def test_for_missing_energy_source_code(df):
 def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
     """Checks that no non-missing CO2 values were modified during the process of filling."""
     logger.info(
-        "    Checking that original CO2 data in CEMS was not modified by filling missing values...",
+        "Checking that original CO2 data in CEMS was not modified by filling missing values...",
     )
     # only keep non-zero and non-missing co2 values, since these should have not been modified
     cems_original = cems_original.loc[

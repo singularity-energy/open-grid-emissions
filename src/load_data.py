@@ -156,7 +156,7 @@ def load_cems_gross_generation(start_year, end_year):
     cems_all = []
 
     for year in range(start_year, end_year + 1):
-        logger.info(f"    loading {year} CEMS data")
+        logger.info(f"loading {year} CEMS data")
         # specify the path to the CEMS data
         cems_path = downloads_folder(
             "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
