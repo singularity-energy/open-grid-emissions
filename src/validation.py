@@ -134,7 +134,7 @@ def test_for_missing_values(df, small: bool = False):
     if missing_warnings > 0:
         if small:
             logger.warning(
-                " Found missing values during small run, these may be fixed with full data"
+                "Found missing values during small run, these may be fixed with full data"
             )
         else:
             logger.warning("The above missing values are errors and must be fixed")
@@ -181,9 +181,8 @@ def test_for_missing_energy_source_code(df):
 
 def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
     """Checks that no non-missing CO2 values were modified during the process of filling."""
-    print(
+    logger.info(
         "    Checking that original CO2 data in CEMS was not modified by filling missing values...",
-        end="",
     )
     # only keep non-zero and non-missing co2 values, since these should have not been modified
     cems_original = cems_original.loc[
@@ -202,12 +201,11 @@ def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
     )
     num_nonzero_rows = len(test_fill[test_fill["diff"] != 0])
     if num_nonzero_rows > 0:
-        print(" ")
-        print(
-            f"WARNING: There are {num_nonzero_rows} non-missing CO2 CEMS records that were modified by `fill_cems_missing_co2` in error"
+        logger.warning(
+            f"There are {num_nonzero_rows} non-missing CO2 CEMS records that were modified by `fill_cems_missing_co2` in error"
         )
     else:
-        print("OK")
+        logger.info("OK")
 
 
 def check_removed_data_is_empty(cems):
@@ -224,8 +222,8 @@ def check_removed_data_is_empty(cems):
         ],
     ].sum(numeric_only=True)
     if check_that_data_is_zero.sum() > 0:
-        print("WARNING: Some data being removed has non-zero data associated with it:")
-        print(check_that_data_is_zero)
+        logger.warning("Some data being removed has non-zero data associated with it:")
+        logger.warning("\n" + check_that_data_is_zero.to_string())
 
 
 def test_for_missing_subplant_id(df):
