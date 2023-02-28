@@ -42,12 +42,12 @@ def download_helper(
     final_destination = output_path if output_path is not None else download_path
     if os.path.exists(final_destination):
         logger.info(
-            f"    {final_destination.split('/')[-1]} already downloaded, skipping."
+            f"{final_destination.split('/')[-1]} already downloaded, skipping."
         )
         return False
 
     # Otherwise, download to the file in chunks.
-    logger.info(f"    Downloading {final_destination.split('/')[-1]}")
+    logger.info(f"Downloading {final_destination.split('/')[-1]}")
     r = requests.get(input_url, stream=True)
     with open(download_path, "wb") as fd:
         for chunk in r.iter_content(chunk_size=chunk_size):
@@ -99,10 +99,10 @@ def download_pudl_data(zenodo_url: str):
         with open(pudl_version_file, "r") as f:
             existing_version = f.readlines()[0].replace("\n", "")
         if pudl_version == existing_version:
-            logger.info("    PUDL version already downloaded")
+            logger.info("PUDL version already downloaded")
             return
         else:
-            logger.info("    Downloading new version of pudl")
+            logger.info("Downloading new version of pudl")
             shutil.rmtree(downloads_folder("pudl"))
 
     download_pudl(zenodo_url, pudl_version)
@@ -114,19 +114,19 @@ def download_pudl(zenodo_url, pudl_version):
     total_size_in_bytes = int(r.headers.get("content-length", 0))
     block_size = 1024 * 1024 * 10  # 10 MB
     downloaded = 0
-    logger.info("    Downloading PUDL data...")
+    logger.info("Downloading PUDL data...")
     with open(downloads_folder("pudl.tgz"), "wb") as fd:
         for chunk in r.iter_content(chunk_size=block_size):
             print(
-                f"    Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
+                f"Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
                 end="",
             )
             fd.write(chunk)
             downloaded += block_size
-        print("    Progress: 100.0%")
+        print("Progress: 100.0%")
 
     # extract the tgz file
-    logger.info("    Extracting PUDL data...")
+    logger.info("Extracting PUDL data...")
     with tarfile.open(downloads_folder("pudl.tgz")) as tar:
         tar.extractall(data_folder())
 
