@@ -54,11 +54,11 @@ def identify_subplants(year, number_of_years=5):
     end_year = year
 
     # load 5 years of monthly data from CEMS
-    logger.info("    loading CEMS ids")
+    logger.info("loading CEMS ids")
     cems_ids = load_data.load_cems_ids(start_year, end_year)
 
     # add subplant ids to the data
-    logger.info("    identifying unique subplants")
+    logger.info("identifying unique subplants")
     generate_subplant_ids(start_year, end_year, cems_ids)
 
 
@@ -887,7 +887,7 @@ def remove_plants(
             ].plant_id_eia.unique()
         )
         logger.info(
-            f"    Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
+            f"Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
         )
         df = df[~df["plant_id_eia"].isin(plants_in_states_to_remove)]
     if steam_only_plants:
@@ -922,7 +922,7 @@ def remove_non_grid_connected_plants(df):
             "plant_id_eia"
         ].unique()
     )
-    logger.info(f"    Removing {num_plants} plants that are not grid-connected")
+    logger.info(f"Removing {num_plants} plants that are not grid-connected")
 
     df = df[~df["plant_id_eia"].isin(ngc_plants)]
 
@@ -1012,7 +1012,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
 
 
 def smallerize_test_data(df, random_seed=None):
-    logger.info("    Randomly selecting 5% of plants for faster test run.")
+    logger.info("Randomly selecting 5% of plants for faster test run.")
     # Select 5% of plants
     selected_plants = df.plant_id_eia.unique()
     if random_seed is not None:
@@ -1038,7 +1038,7 @@ def manually_remove_steam_units(df):
     )[["plant_id_eia", "emissions_unit_id_epa"]]
 
     logger.info(
-        f"    Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
+        f"Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
     )
 
     df = df.merge(
@@ -1070,7 +1070,7 @@ def remove_incomplete_unit_months(cems):
     ].drop(columns="datetime_utc")
 
     logger.info(
-        f"    Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
+        f"Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
     )
 
     cems = cems.merge(
@@ -1303,7 +1303,7 @@ def remove_cems_with_zero_monthly_data(cems):
     )
     # remove any observations with the missing data flag
     logger.info(
-        f"    Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+        f"Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
     validation.check_removed_data_is_empty(cems)
     cems = cems[cems["missing_data_flag"] != "remove"]
@@ -1677,7 +1677,7 @@ def identify_partial_cems_plants(all_data):
         # likely resulting from mixed fuel types.
         # If subplant_id assignment is working, there shouldn't be any
         raise Exception(
-            f"    ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
+            f"ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
         )
 
     # remove the intermediate indicator column
@@ -1967,7 +1967,7 @@ def assign_ba_code_to_plant(df, year):
     df = df.merge(plant_ba, how="left", on="plant_id_eia", validate="m:1")
 
     if len(df[df["ba_code"].isna()]) > 0:
-        logger.warning("    the following plants are missing ba_code:")
+        logger.warning("the following plants are missing ba_code:")
         logger.warning("\n" + df[df["ba_code"].isna()].tostring())
 
     # replace missing ba codes with NA

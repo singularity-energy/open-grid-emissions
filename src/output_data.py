@@ -119,7 +119,7 @@ def zip_data_for_zenodo(year):
 def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
     column_checks.check_columns(df, file_name)
     if not skip_outputs:
-        logger.info(f"    Exporting {file_name} to data/outputs")
+        logger.info(f"Exporting {file_name} to data/outputs")
         df.to_csv(outputs_folder(f"{path_prefix}{file_name}_{year}.csv"), index=False)
 
 
@@ -128,7 +128,7 @@ def output_to_results(
 ):
     # Always check columns that should not be negative.
     small = "small" in path_prefix
-    logger.info(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
+    logger.info(f"Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
     if include_metric:
         metric = convert_results(df)
@@ -156,7 +156,7 @@ def output_to_results(
 def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
     if not skip_outputs:
         logger.info(
-            f"    Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
+            f"Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
         )
 
         # TODO: Add column checks
