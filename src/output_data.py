@@ -275,12 +275,9 @@ def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
                         avg_fuel_type_production[f"{emission}_mass_lb{emission_type}"]
                         / avg_fuel_type_production["net_generation_mwh"]
                     )
-                    .fillna(0)
                     .replace(np.inf, np.NaN)
                     .replace(-np.inf, np.NaN)
-                    .replace(
-                        np.NaN, 0
-                    )  # TODO: temporary placeholder while solar is broken. Eventually there should be no NaNs.
+                    .fillna(0)  # TODO: temporary placeholder while solar is broken. Eventually there should be no NaNs.
                 )
         output_intermediate_data(
             avg_fuel_type_production,
@@ -515,9 +512,9 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                                 df[f"{emission}_mass_lb{emission_type}"]
                                 / df["net_generation_mwh"]
                             )
-                            .fillna(0)
                             .replace(np.inf, np.NaN)
                             .replace(-np.inf, np.NaN)
+                            .fillna(0)
                         )
                         # Set negative rates to zero, following eGRID methodology
                         df.loc[df[col_name] < 0, col_name] = 0
