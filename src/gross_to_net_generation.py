@@ -95,7 +95,12 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         logger.warning(
             "The following subplants are missing default GTN ratios. Using a default value of 0.97"
         )
-        logger.warning("\n" + missing_defaults[["plant_id_eia", "subplant_id"]].drop_duplicates().to_string())
+        logger.warning(
+            "\n"
+            + missing_defaults[["plant_id_eia", "subplant_id"]]
+            .drop_duplicates()
+            .to_string()
+        )
     # if there is a missing default gtn ratio, fill with 0.97
     cems["default_gtn_ratio"] = cems["default_gtn_ratio"].fillna(0.97)
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
@@ -425,6 +430,7 @@ def calculate_subplant_nameplate_capacity(year):
         on=["plant_id_eia", "generator_id"],
         validate="1:1",
     )
+    validation.test_for_missing_subplant_id(gen_capacity)
     subplant_capacity = (
         gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
         .sum()

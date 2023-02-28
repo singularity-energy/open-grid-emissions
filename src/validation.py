@@ -79,78 +79,35 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
         logger.warning("Percentage Difference:")
         logger.warning("\n" + mismatched_allocation.to_string())
         logger.warning("EIA-923 Input Totals:")
-        logger.warning("\n" + plant_total_gf.loc[mismatched_allocation.index, :].to_string())
+        logger.warning(
+            "\n" + plant_total_gf.loc[mismatched_allocation.index, :].to_string()
+        )
         logger.warning("Allocated Totals:")
-        logger.warning("\n" + plant_total_alloc.loc[mismatched_allocation.index, :].to_string())
-
+        logger.warning(
+            "\n" + plant_total_alloc.loc[mismatched_allocation.index, :].to_string()
+        )
 
 
 def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
     logger.info("Checking that fuel and emissions values are positive...  ")
-    columns_that_should_be_positive = [
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-        "generated_co2_rate_lb_per_mwh_for_electricity",
-        "generated_ch4_rate_lb_per_mwh_for_electricity",
-        "generated_n2o_rate_lb_per_mwh_for_electricity",
-        "generated_co2e_rate_lb_per_mwh_for_electricity",
-        "generated_nox_rate_lb_per_mwh_for_electricity",
-        "generated_so2_rate_lb_per_mwh_for_electricity",
-        "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_co2e_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_co2_rate_lb_per_mwh_for_electricity",
-        "consumed_ch4_rate_lb_per_mwh_for_electricity",
-        "consumed_n2o_rate_lb_per_mwh_for_electricity",
-        "consumed_co2e_rate_lb_per_mwh_for_electricity",
-        "consumed_nox_rate_lb_per_mwh_for_electricity",
-        "consumed_so2_rate_lb_per_mwh_for_electricity",
-        "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
-    ]
-    columns_to_test = [
-        col for col in columns_that_should_be_positive if col in df.columns
-    ]
+    columns_that_can_be_negative = ["net_generation_mwh"]
     negative_warnings = 0
-    for column in columns_to_test:
-        negative_test = df[df[column] < 0]
-        if not negative_test.empty:
-            logger.warning(
-                f"There are {len(negative_test)} records where {column} is negative."
-            )
-            negative_warnings += 1
+    for column in df.columns:
+        # if the column is allowed to be negative, skip the test
+        if column in columns_that_can_be_negative:
+            pass
+        else:
+            # if the column is not numeric, skip the test
+            if pd.api.types.is_numeric_dtype(df[column].dtype):
+                negative_test = df[df[column] < 0]
+                if not negative_test.empty:
+                    logger.warning(
+                        f"There are {len(negative_test)} records where {column} is negative."
+                    )
+                    negative_warnings += 1
+            else:
+                pass
     if negative_warnings > 0:
         if small:
             logger.warning(
@@ -158,7 +115,6 @@ def test_for_negative_values(df, small: bool = False):
             )
         else:
             logger.warning("The above negative values are errors and must be fixed!")
-            # raise UserWarning("The above negative values are errors and must be fixed")
     else:
         logger.info("OK")
     return negative_test
@@ -167,57 +123,8 @@ def test_for_negative_values(df, small: bool = False):
 def test_for_missing_values(df, small: bool = False):
     """Checks that there are no unexpected missing values in the output data."""
     logger.info("Checking that no values are missing...  ")
-    columns_that_should_be_complete = [
-        "plant_id_eia",
-        "fuel_category",
-        "datetime_local",
-        "datetime_utc",
-        "month",
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-        "consumed_co2_rate_lb_per_mwh_for_electricity",
-        "consumed_ch4_rate_lb_per_mwh_for_electricity",
-        "consumed_n2o_rate_lb_per_mwh_for_electricity",
-        "consumed_co2e_rate_lb_per_mwh_for_electricity",
-        "consumed_nox_rate_lb_per_mwh_for_electricity",
-        "consumed_so2_rate_lb_per_mwh_for_electricity",
-        "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
-    ]
-    columns_to_test = [
-        col for col in columns_that_should_be_complete if col in df.columns
-    ]
     missing_warnings = 0
-    for column in columns_to_test:
+    for column in df.columns:
         missing_test = df[df[column].isna()]
         if not missing_test.empty:
             logger.warning(
@@ -238,7 +145,9 @@ def test_for_missing_values(df, small: bool = False):
 
 def test_chp_allocation(df):
     """Checks that the CHP allocation didn't create any anomalous values."""
-    logger.info("Checking that total fuel consumed >= fuel consumed for electricity...  ")
+    logger.info(
+        "Checking that total fuel consumed >= fuel consumed for electricity...  "
+    )
     chp_allocation_test = df[
         df["fuel_consumed_for_electricity_mmbtu"] > df["fuel_consumed_mmbtu"]
     ]
@@ -255,7 +164,8 @@ def test_chp_allocation(df):
 def test_for_missing_energy_source_code(df):
     """Checks that there are no missing energy source codes associated with non-zero fuel consumption."""
     logger.info(
-        "Checking that there are no missing energy source codes associated with non-zero fuel consumption...  ")
+        "Checking that there are no missing energy source codes associated with non-zero fuel consumption...  "
+    )
     missing_esc_test = df[
         (df["energy_source_code"].isna()) & (df["fuel_consumed_mmbtu"] > 0)
     ]
@@ -331,7 +241,9 @@ def test_for_missing_subplant_id(df):
 
 def validate_gross_to_net_conversion(cems, eia923_allocated):
     """checks whether the calculated net generation matches the reported net generation from EIA-923 at the annual plant level."""
-    logger.info("Checking that calculated net generation matches reported net generation in EIA-923...  ")
+    logger.info(
+        "Checking that calculated net generation matches reported net generation in EIA-923...  "
+    )
     # merge together monthly subplant totals from EIA and calculated from CEMS
     eia_netgen = (
         eia923_allocated.groupby(
@@ -384,7 +296,9 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
 def test_emissions_adjustments(df):
     """For each emission, tests that mass_lb >= mass_lb_for_electricity >= mass_lb_for_electricity_adjusted."""
 
-    logger.info("Checking that adjusted emission values are less than total emissions...  ")
+    logger.info(
+        "Checking that adjusted emission values are less than total emissions...  "
+    )
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
 
@@ -570,8 +484,9 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_key
     compare = (shaped_data_agg - eia_data_agg).round(0)
 
     if compare.sum().sum() > 0:
-        logger.warning("\n" +
-            compare[
+        logger.warning(
+            "\n"
+            + compare[
                 (compare["net_generation_mwh"] != 0)
                 | (compare["fuel_consumed_mmbtu"] != 0)
             ].to_string()
@@ -1351,9 +1266,12 @@ def check_for_anomalous_co2_factors(
             on="plant_id_eia",
             validate="m:1",
         )
-        logger.warning("Potentially anomalous co2 factors detected for the following plants:")
-        logger.warning("\n" +
-            factor_anomaly[
+        logger.warning(
+            "Potentially anomalous co2 factors detected for the following plants:"
+        )
+        logger.warning(
+            "\n"
+            + factor_anomaly[
                 [
                     "plant_id_eia",
                     "plant_primary_fuel",
@@ -1362,7 +1280,9 @@ def check_for_anomalous_co2_factors(
                     f"{pollutant}_mass_lb_for_electricity",
                     factor,
                 ]
-            ].sort_values(by=factor).to_string()
+            ]
+            .sort_values(by=factor)
+            .to_string()
         )
 
 
