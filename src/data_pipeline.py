@@ -24,11 +24,6 @@ from filepaths import downloads_folder, outputs_folder, results_folder
 from logging_util import get_logger, configure_root_logger
 
 
-# Log the print statements to a file for debugging.
-configure_root_logger(logfile=outputs_folder("data_pipeline.log"))
-logger = get_logger("data_pipeline")
-
-
 def get_args() -> argparse.Namespace:
     """Specify arguments here.
 
@@ -66,7 +61,7 @@ def get_args() -> argparse.Namespace:
     return args
 
 
-def print_args(args: argparse.Namespace):
+def print_args(args: argparse.Namespace, logger):
     """Print out the command line arguments."""
     argstring = "\n".join([f"  * {k} = {v}" for k, v in vars(args).items()])
     logger.info(f"\n\nRunning with the following options:\n{argstring}\n")
@@ -75,9 +70,14 @@ def print_args(args: argparse.Namespace):
 def main():
     """Runs the OGE data pipeline."""
     args = get_args()
-    print_args(args)
-
     year = args.year
+
+    # Log the print statements to a file for debugging.
+    configure_root_logger(logfile=outputs_folder(f"{year}/data_pipeline.log"))
+    logger = get_logger("data_pipeline")
+
+    print_args(args, logger)
+
     logger.info(f"Running data pipeline for year {year}")
 
     validation.validate_year(year)
@@ -549,11 +549,6 @@ def main():
     )
     hourly_consumed_calc.run()
     hourly_consumed_calc.output_results()
-
-    # move the log file into the specific year output folder
-    shutil.move(
-        outputs_folder("data_pipeline.log"), outputs_folder(f"{year}/data_pipeline.log")
-    )
 
 
 if __name__ == "__main__":
