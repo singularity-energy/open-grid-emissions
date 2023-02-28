@@ -277,7 +277,7 @@ def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
                     )
                     .replace(np.inf, np.NaN)
                     .replace(-np.inf, np.NaN)
-                    .fillna(0)  # TODO: temporary placeholder while solar is broken. Eventually there should be no NaNs.
+                    .fillna(0)
                 )
         output_intermediate_data(
             avg_fuel_type_production,
@@ -514,8 +514,15 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                             )
                             .replace(np.inf, np.NaN)
                             .replace(-np.inf, np.NaN)
-                            .fillna(0)
                         )
+                        # where the rate is missing because of a divide by zero (i.e.
+                        # net_generation_mwh is zero), replace the emission rate with
+                        # zero. We want to keep all other NAs so that they get flagged
+                        # by our validation checks since this indicates an unexpected
+                        # issue
+                        df.loc[df["net_generation_mwh"] == 0, col_name] = df.loc[
+                            df["net_generation_mwh"] == 0, col_name
+                        ].fillna(0)
                         # Set negative rates to zero, following eGRID methodology
                         df.loc[df[col_name] < 0, col_name] = 0
                 return df
