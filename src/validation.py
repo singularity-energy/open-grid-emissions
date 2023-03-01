@@ -239,6 +239,36 @@ def test_for_missing_subplant_id(df):
     return missing_subplant_test
 
 
+def check_nonzero_gross_gen_when_positive_net_gen(combined_gen_data):
+    """checks that gross generation is positive when net generation is positive.
+
+    This could indicate an issue with missing data or incorrect subplant matching.
+    """
+
+    zero_gross = combined_gen_data[
+        (combined_gen_data["net_generation_mwh"] > 0)
+        & (~combined_gen_data["gross_generation_mwh"] > 0)
+    ]
+
+    if len(zero_gross) > 0:
+        unique_subplants = len(zero_gross[["plant_id_eia", "suplant_id"]].unique())
+        logger.warning(
+            f"There are {unique_subplants} subplants for which there is positive net generation associated with zero or missing gross generation."
+        )
+        logger.warning(
+            "\n"
+            + zero_gross[
+                [
+                    "plant_id_eia",
+                    "suplant_id",
+                    "report_date",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                ]
+            ].to_string()
+        )
+
+
 def validate_gross_to_net_conversion(cems, eia923_allocated):
     """checks whether the calculated net generation matches the reported net generation from EIA-923 at the annual plant level."""
     logger.info(

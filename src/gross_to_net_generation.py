@@ -210,10 +210,12 @@ def calculate_gross_to_net_conversion_factors(
         {"left_only": "cems_only", "right_only": "eia_only"}
     )
 
-    # drop data that only exists in EIA, but not in CEMS, since there is no gross generation data to calculate NG for
-    combined_gen_data = combined_gen_data[
-        ~(combined_gen_data["data_source"] == "eia_only")
-    ]
+    # validate the data
+    validation.check_nonzero_gross_gen_when_positive_net_gen(combined_gen_data)
+    # check for zero net gen when positive gross gen
+    # check when gross gen is less than net gen
+    # do this at the plant level too to see if allocation error
+
 
     # calculate other groupings at the plant and annual levels
     annual_subplant_ratio = (
