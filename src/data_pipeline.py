@@ -72,14 +72,15 @@ def main():
     args = get_args()
     year = args.year
 
+    # configure the logger
     # Log the print statements to a file for debugging.
-    configure_root_logger(logfile=outputs_folder(f"{year}/data_pipeline.log"))
+    configure_root_logger(
+        logfile=results_folder(f"{year}/data_quality_metrics/data_pipeline.log")
+    )
     logger = get_logger("data_pipeline")
-
     print_args(args, logger)
 
     logger.info(f"Running data pipeline for year {year}")
-
     validation.validate_year(year)
 
     # 0. Set up directory structure
