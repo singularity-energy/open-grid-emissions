@@ -71,7 +71,6 @@ def main():
     """Runs the OGE data pipeline."""
     args = get_args()
     year = args.year
-    validation.validate_year(year)
 
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
@@ -108,9 +107,9 @@ def main():
         logfile=results_folder(f"{year}/data_quality_metrics/data_pipeline.log")
     )
     logger = get_logger("data_pipeline")
-
     print_args(args, logger)
 
+    validation.validate_year(year)
     logger.info(f"Running data pipeline for year {year}")
 
     # 1. Download data
