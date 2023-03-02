@@ -6,6 +6,7 @@ import sys
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
 from filepaths import outputs_folder, manual_folder, results_folder
+from logging_util import get_logger
 
 from output_data import (
     GENERATED_EMISSION_RATE_COLS,
@@ -14,11 +15,13 @@ from output_data import (
     TIME_RESOLUTIONS,
 )
 
-""" For these BAs, there are significant and systematic differences 
-between our net_generation_mwh and EIA-930 net generation and interchange, 
-so we cannot combine our net generation and 930 interchange to get net_consumed. 
-Instead, we use 930 demand as net_consumed. Note: there may be issues with the 930 
-demand! But it is better than combining inconsistent generation and interchange, 
+logger = get_logger(__name__)
+
+""" For these BAs, there are significant and systematic differences
+between our net_generation_mwh and EIA-930 net generation and interchange,
+so we cannot combine our net generation and 930 interchange to get net_consumed.
+Instead, we use 930 demand as net_consumed. Note: there may be issues with the 930
+demand! But it is better than combining inconsistent generation and interchange,
 which results in unreasonable profiles with many negative hours.
 """
 # Identify the BAs for which we need to use demand data for the consumed calculation
@@ -118,8 +121,8 @@ def get_average_emission_factors(prefix: str, year: int):
             for fuel in SRC:
                 column = get_rate_column(pol, adjustment, generated=True)
                 if FUEL_TYPE_MAP[fuel] not in genavg.index:
-                    print(
-                        f"WARNING: fuel {FUEL_TYPE_MAP[fuel]} not found in file annual_generation_averages_by_fuel_{year}.csv, using average"
+                    logger.warning(
+                        f"fuel {FUEL_TYPE_MAP[fuel]} not found in file annual_generation_averages_by_fuel_{year}.csv, using average"
                     )
                     efs[pol][adjustment][fuel] = genavg.loc["total", column]
                 else:
@@ -180,9 +183,9 @@ def consumption_emissions(F, P, ID):
 
     for j in perturbed:
         if X[j] != 0.0:
-            print(b[j])
-            print(np.abs(A[j, :]).sum())
-            print(np.abs(A[:, j]).sum())
+            logger.warning("\n" + b[j].to_string())
+            logger.warning("\n" + np.abs(A[j, :]).sum().to_string())
+            logger.warning("\n" + np.abs(A[:, j]).sum().to_string())
             raise ValueError("X[%d] is %.2f instead of 0" % (j, X[j]))
 
     return X, len(perturbed)
@@ -288,7 +291,7 @@ class HourlyConsumed:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
             if ba in BA_930_INCONSISTENCY[self.year]:
-                print(f"Using D instead of (G-TI) for consumed calc in {ba}")
+                logger.warning(f"Using D instead of (G-TI) for consumed calc in {ba}")
                 self.results[ba]["net_consumed_mwh"] = self.eia930.df[
                     KEYS["E"]["D"] % ba
                 ][self.generation.index]
@@ -325,8 +328,8 @@ class HourlyConsumed:
                     time_cols = ["datetime_utc", "datetime_local"]
                     missing_hours = time_dat[time_dat.isna().any(axis=1)]
                     if len(missing_hours) > 0:
-                        print(
-                            f"WARNING: {len(missing_hours)} hours are missing in {ba} consumed data"
+                        logger.warning(
+                            f"{len(missing_hours)} hours are missing in {ba} consumed data"
                         )
                 elif time_resolution == "monthly":
                     time_dat["month"] = time_dat.datetime_local.dt.month
@@ -483,7 +486,7 @@ class HourlyConsumed:
             for adj in ADJUSTMENTS:
                 total_failed = 0
                 col = get_rate_column(pol, adjustment=adj, generated=False)
-                print(f"{pol}, {adj}", end="...")
+                logger.info(f"Solving consumed {pol} {adj} emissions...")
                 # Calculate emissions
                 for date in self.generation.index:
                     if self.small and (
@@ -513,6 +516,6 @@ class HourlyConsumed:
                     for (i, r) in enumerate(self.regions):
                         self.results[r].loc[date, col] = consumed_emissions[i]
                 if total_failed > 0:
-                    print(
-                        f"Warning: {total_failed} hours failed to solve for consumed {pol} {adj} emissions."
+                    logger.warning(
+                        f"{total_failed} hours failed to solve for consumed {pol} {adj} emissions."
                     )

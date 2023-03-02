@@ -7,6 +7,10 @@ import load_data
 import column_checks
 import validation
 from filepaths import outputs_folder, results_folder, data_folder
+from logging_util import get_logger
+
+logger = get_logger(__name__)
+
 
 GENERATED_EMISSION_RATE_COLS = [
     "generated_co2_rate_lb_per_mwh_for_electricity",
@@ -71,7 +75,9 @@ def zip_results_for_s3(year):
                     # skip the metric hourly plant data since we do not create those outputs
                     pass
                 else:
-                    print(f"zipping {year}_{data_type}_{aggregation}_{unit} for s3")
+                    logger.info(
+                        f"zipping {year}_{data_type}_{aggregation}_{unit} for s3"
+                    )
                     folder = (
                         f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
                     )
@@ -101,7 +107,7 @@ def zip_data_for_zenodo(year):
     """
     os.makedirs(data_folder("zenodo"), exist_ok=True)
     for directory in ["outputs", "results"]:
-        print(f"zipping {directory}_{year} for zenodo")
+        logger.info(f"zipping {directory}_{year} for zenodo")
         shutil.make_archive(
             data_folder(f"zenodo/{directory}_{year}"),
             "zip",
@@ -113,7 +119,7 @@ def zip_data_for_zenodo(year):
 def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
     column_checks.check_columns(df, file_name)
     if not skip_outputs:
-        print(f"    Exporting {file_name} to data/outputs")
+        logger.info(f"Exporting {file_name} to data/outputs")
         df.to_csv(outputs_folder(f"{path_prefix}{file_name}_{year}.csv"), index=False)
 
 
@@ -122,7 +128,7 @@ def output_to_results(
 ):
     # Always check columns that should not be negative.
     small = "small" in path_prefix
-    print(f"    Exporting {file_name} to data/results/{path_prefix}{subfolder}")
+    logger.info(f"Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
     if include_metric:
         metric = convert_results(df)
@@ -149,8 +155,8 @@ def output_to_results(
 
 def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
     if not skip_outputs:
-        print(
-            f"    Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
+        logger.info(
+            f"Exporting {file_name} to data/results/{path_prefix}data_quality_metrics"
         )
 
         # TODO: Add column checks
@@ -172,6 +178,9 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
     if not skip_outputs:
         if resolution == "hourly":
             # output hourly data
+            validation.validate_unique_datetimes(
+                df, "individual_plant_data", ["plant_id_eia"]
+            )
             # Separately save real and aggregate plants
             output_to_results(
                 df[df.plant_id_eia > 900000],
@@ -266,12 +275,9 @@ def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
                         avg_fuel_type_production[f"{emission}_mass_lb{emission_type}"]
                         / avg_fuel_type_production["net_generation_mwh"]
                     )
-                    .fillna(0)
                     .replace(np.inf, np.NaN)
                     .replace(-np.inf, np.NaN)
-                    .replace(
-                        np.NaN, 0
-                    )  # TODO: temporary placeholder while solar is broken. Eventually there should be no NaNs.
+                    .fillna(0)
                 )
         output_intermediate_data(
             avg_fuel_type_production,
@@ -412,7 +418,7 @@ def round_table(table):
                 decimals[c] = abs(math.floor(math.log10(val))) + 2
             # Always 3 sigfigs (for median)
             except ValueError:
-                print(val)
+                logger.error(val)
                 raise Exception
     return table.round(decimals)
 
@@ -455,8 +461,8 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
     if not skip_outputs:
         for ba in list(ba_fuel_data.ba_code.unique()):
             if type(ba) is not str:
-                print(
-                    f"WARNING: not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
+                logger.warning(
+                    f"not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
                 )
                 continue
 
@@ -506,10 +512,17 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                                 df[f"{emission}_mass_lb{emission_type}"]
                                 / df["net_generation_mwh"]
                             )
-                            .fillna(0)
                             .replace(np.inf, np.NaN)
                             .replace(-np.inf, np.NaN)
                         )
+                        # where the rate is missing because of a divide by zero (i.e.
+                        # net_generation_mwh is zero), replace the emission rate with
+                        # zero. We want to keep all other NAs so that they get flagged
+                        # by our validation checks since this indicates an unexpected
+                        # issue
+                        df.loc[df["net_generation_mwh"] == 0, col_name] = df.loc[
+                            df["net_generation_mwh"] == 0, col_name
+                        ].fillna(0)
                         # Set negative rates to zero, following eGRID methodology
                         df.loc[df[col_name] < 0, col_name] = 0
                 return df
