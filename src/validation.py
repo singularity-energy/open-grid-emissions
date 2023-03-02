@@ -239,33 +239,120 @@ def test_for_missing_subplant_id(df):
     return missing_subplant_test
 
 
-def check_nonzero_gross_gen_when_positive_net_gen(combined_gen_data):
+def check_missing_or_zero_generation_matches(combined_gen_data):
     """checks that gross generation is positive when net generation is positive.
 
     This could indicate an issue with missing data or incorrect subplant matching.
     """
 
-    zero_gross = combined_gen_data[
+    # identify when there is zero or NA gross generation associated with positive net generation
+    missing_gross_gen = combined_gen_data[
         (combined_gen_data["net_generation_mwh"] > 0)
-        & (~combined_gen_data["gross_generation_mwh"] > 0)
+        & ((combined_gen_data["gross_generation_mwh"] == 0))
     ]
 
-    if len(zero_gross) > 0:
-        unique_subplants = len(zero_gross[["plant_id_eia", "suplant_id"]].unique())
+    # identify when there is zero or NA net generation associated with nonzero gross generation
+    missing_net_gen = combined_gen_data[
+        (combined_gen_data["gross_generation_mwh"] > 0)
+        & (combined_gen_data["net_generation_mwh"] == 0)
+    ]
+
+    if len(missing_gross_gen) > 0:
+        unique_plants = len(missing_gross_gen[["plant_id_eia"]].drop_duplicates())
+        unique_subplants = len(
+            missing_gross_gen[["plant_id_eia", "subplant_id"]].drop_duplicates()
+        )
         logger.warning(
-            f"There are {unique_subplants} subplants for which there is positive net generation associated with zero or missing gross generation."
+            f"There are {unique_subplants} subplants at {unique_plants} plants for which there is zero gross generation associated with positive net generation."
         )
         logger.warning(
             "\n"
-            + zero_gross[
+            + missing_gross_gen[
                 [
                     "plant_id_eia",
-                    "suplant_id",
+                    "subplant_id",
                     "report_date",
                     "gross_generation_mwh",
                     "net_generation_mwh",
+                    "data_source",
                 ]
-            ].to_string()
+            ]
+            .head(10)
+            .to_string()
+            + "\n...\n"
+            + missing_gross_gen[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "data_source",
+                ]
+            ]
+            .tail(10)
+            .to_string()
+        )
+
+    if len(missing_net_gen) > 0:
+        unique_plants = len(missing_net_gen[["plant_id_eia"]].drop_duplicates())
+        unique_subplants = len(
+            missing_net_gen[["plant_id_eia", "subplant_id"]].drop_duplicates()
+        )
+        logger.warning(
+            f"There are {unique_subplants} subplants at {unique_plants} plants for which there is zero net generation associated with positive gross generation."
+        )
+        logger.warning(
+            "\n"
+            + missing_net_gen[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "data_source",
+                ]
+            ]
+            .head(10)
+            .to_string()
+            + "\n...\n"
+            + missing_net_gen[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "data_source",
+                ]
+            ]
+            .tail(10)
+            .to_string()
+        )
+
+
+def identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio):
+    """Identifies when net generation for a plant is substantially higher than gross generation."""
+
+    anomalous_gtn = annual_plant_ratio[annual_plant_ratio["annual_plant_ratio"] > 1.25]
+
+    if len(anomalous_gtn) > 0:
+        logger.warning(
+            "The following plants have annual net generation that is >125% of annual gross generation:"
+        )
+        logger.warning(
+            "\n"
+            + anomalous_gtn[
+                [
+                    "plant_id_eia",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "annual_plant_ratio",
+                ]
+            ]
+            .sort_values(by="annual_plant_ratio", ascending=False)
+            .to_string()
         )
 
 
