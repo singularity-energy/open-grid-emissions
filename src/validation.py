@@ -4,6 +4,11 @@ import numpy as np
 import load_data
 import impute_hourly_profiles
 from constants import CLEAN_FUELS
+from column_checks import get_dtypes
+from filepaths import downloads_folder, manual_folder
+from logging_util import get_logger
+
+logger = get_logger(__name__)
 
 
 # DATA PIPELINE VALIDATION FUNCTIONS
@@ -19,17 +24,17 @@ def validate_year(year):
     if year < earliest_validated_year:
         year_warning = f"""
         ################################################################################
-        WARNING: The data pipeline has only been validated to work for years {earliest_validated_year}-{latest_validated_year}.
+        The data pipeline has only been validated to work for years {earliest_validated_year}-{latest_validated_year}.
         Running the pipeline for {year} may cause it to fail or may lead to poor-quality
         or anomalous results. To check on the progress of validating additional years of
         data, see: https://github.com/singularity-energy/open-grid-emissions/issues/117
         ################################################################################
         """
-        print(year_warning)
+        logger.warning(year_warning)
     elif year > latest_validated_year:
         year_warning = f"""
         ################################################################################
-        WARNING: The most recent available year of input data is currently {latest_validated_year}.
+        The most recent available year of input data is currently {latest_validated_year}.
         Input data for {year} should be available from the EIA in Fall {year+1} and we will
         work to validate that the pipeline works with {year} data as soon as possible
         after the data is released.
@@ -70,218 +75,114 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
         | (~np.isclose(plant_total_diff["net_generation_mwh"], 0))
     ]
     if len(mismatched_allocation) > 0:
-        print(
-            "WARNING: Allocated EIA-923 data doesn't match input data for the following plants:"
+        logger.warning("Allocated EIA-923 doesn't match input data for plants:")
+        logger.warning("Percentage Difference:")
+        logger.warning("\n" + mismatched_allocation.to_string())
+        logger.warning("EIA-923 Input Totals:")
+        logger.warning(
+            "\n" + plant_total_gf.loc[mismatched_allocation.index, :].to_string()
         )
-        print("Percentage Difference:")
-        print(mismatched_allocation)
-        print("EIA-923 Input Totals:")
-        print(plant_total_gf.loc[mismatched_allocation.index, :])
-        print("Allocated Totals:")
-        print(plant_total_alloc.loc[mismatched_allocation.index, :])
+        logger.warning("Allocated Totals:")
+        logger.warning(
+            "\n" + plant_total_alloc.loc[mismatched_allocation.index, :].to_string()
+        )
 
 
 def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
-    print("    Checking that fuel and emissions values are positive...  ", end="")
-    columns_that_should_be_positive = [
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-        "generated_co2_rate_lb_per_mwh_for_electricity",
-        "generated_ch4_rate_lb_per_mwh_for_electricity",
-        "generated_n2o_rate_lb_per_mwh_for_electricity",
-        "generated_co2e_rate_lb_per_mwh_for_electricity",
-        "generated_nox_rate_lb_per_mwh_for_electricity",
-        "generated_so2_rate_lb_per_mwh_for_electricity",
-        "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_co2e_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
-        "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_co2_rate_lb_per_mwh_for_electricity",
-        "consumed_ch4_rate_lb_per_mwh_for_electricity",
-        "consumed_n2o_rate_lb_per_mwh_for_electricity",
-        "consumed_co2e_rate_lb_per_mwh_for_electricity",
-        "consumed_nox_rate_lb_per_mwh_for_electricity",
-        "consumed_so2_rate_lb_per_mwh_for_electricity",
-        "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
-    ]
-    columns_to_test = [
-        col for col in columns_that_should_be_positive if col in df.columns
-    ]
+    logger.info("Checking that fuel and emissions values are positive...  ")
+    columns_that_can_be_negative = ["net_generation_mwh"]
     negative_warnings = 0
-    for column in columns_to_test:
-        negative_test = df[df[column] < 0]
-        if not negative_test.empty:
-            print(" ")
-            print(
-                f"WARNING: There are {len(negative_test)} records where {column} is negative."
-            )
-            negative_warnings += 1
+    for column in df.columns:
+        # if the column is allowed to be negative, skip the test
+        if column in columns_that_can_be_negative:
+            pass
+        else:
+            # if the column is not numeric, skip the test
+            if pd.api.types.is_numeric_dtype(df[column].dtype):
+                negative_test = df[df[column] < 0]
+                if not negative_test.empty:
+                    logger.warning(
+                        f"There are {len(negative_test)} records where {column} is negative."
+                    )
+                    negative_warnings += 1
+            else:
+                pass
     if negative_warnings > 0:
         if small:
-            print(
+            logger.warning(
                 " Found negative values during small run, these may be fixed with full data"
             )
         else:
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            print("WARNING: The above negative values are errors and must be fixed")
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            # raise UserWarning("The above negative values are errors and must be fixed")
+            logger.warning("The above negative values are errors and must be fixed!")
     else:
-        print("OK")
+        logger.info("OK")
     return negative_test
 
 
 def test_for_missing_values(df, small: bool = False):
     """Checks that there are no unexpected missing values in the output data."""
-    print("    Checking that no values are missing...  ", end="")
-    columns_that_should_be_complete = [
-        "plant_id_eia",
-        "fuel_category",
-        "datetime_local",
-        "datetime_utc",
-        "month",
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-        "consumed_co2_rate_lb_per_mwh_for_electricity",
-        "consumed_ch4_rate_lb_per_mwh_for_electricity",
-        "consumed_n2o_rate_lb_per_mwh_for_electricity",
-        "consumed_co2e_rate_lb_per_mwh_for_electricity",
-        "consumed_nox_rate_lb_per_mwh_for_electricity",
-        "consumed_so2_rate_lb_per_mwh_for_electricity",
-        "consumed_co2_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_co2e_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_nox_rate_lb_per_mwh_for_electricity_adjusted",
-        "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
-    ]
-    columns_to_test = [
-        col for col in columns_that_should_be_complete if col in df.columns
-    ]
+    logger.info("Checking that no values are missing...  ")
     missing_warnings = 0
-    for column in columns_to_test:
+    for column in df.columns:
         missing_test = df[df[column].isna()]
         if not missing_test.empty:
-            print(" ")
-            print(
-                f"WARNING: There are {len(missing_test)} records where {column} is missing."
+            logger.warning(
+                f"There are {len(missing_test)} records where {column} is missing."
             )
             missing_warnings += 1
     if missing_warnings > 0:
         if small:
-            print(
-                " Found missing values during small run, these may be fixed with full data"
+            logger.warning(
+                "Found missing values during small run, these may be fixed with full data"
             )
         else:
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            print("WARNING: The above missing values are errors and must be fixed")
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            logger.warning("The above missing values are errors and must be fixed")
     else:
-        print("OK")
+        logger.info("OK")
     return missing_test
 
 
 def test_chp_allocation(df):
     """Checks that the CHP allocation didn't create any anomalous values."""
-    print(
-        "    Checking that total fuel consumed >= fuel consumed for electricity...  ",
-        end="",
+    logger.info(
+        "Checking that total fuel consumed >= fuel consumed for electricity...  "
     )
     chp_allocation_test = df[
         df["fuel_consumed_for_electricity_mmbtu"] > df["fuel_consumed_mmbtu"]
     ]
     if not chp_allocation_test.empty:
         raise UserWarning(
-            f"WARNING: There are {len(chp_allocation_test)} records where fuel consumed for electricity is greater than total fuel consumption. Check `chp_allocation_test` for complete list"
+            f"There are {len(chp_allocation_test)} records where fuel consumed for electricity is greater than total fuel consumption. Check `chp_allocation_test` for complete list"
         )
     else:
-        print("OK")
+        logger.info("OK")
 
     return chp_allocation_test
 
 
 def test_for_missing_energy_source_code(df):
     """Checks that there are no missing energy source codes associated with non-zero fuel consumption."""
-    print(
-        "    Checking that there are no missing energy source codes associated with non-zero fuel consumption...  ",
-        end="",
+    logger.info(
+        "Checking that there are no missing energy source codes associated with non-zero fuel consumption...  "
     )
     missing_esc_test = df[
         (df["energy_source_code"].isna()) & (df["fuel_consumed_mmbtu"] > 0)
     ]
     if not missing_esc_test.empty:
-        print(" ")
-        print(
-            f"WARNING: There are {len(missing_esc_test)} records where there is a missing energy source code associated with non-zero fuel consumption. Check `missing_esc_test` for complete list"
+        logger.warning(
+            f"There are {len(missing_esc_test)} records where there is a missing energy source code associated with non-zero fuel consumption. Check `missing_esc_test` for complete list"
         )
     else:
-        print("OK")
+        logger.info("OK")
 
     return missing_esc_test
 
 
 def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
     """Checks that no non-missing CO2 values were modified during the process of filling."""
-    print(
-        "    Checking that original CO2 data in CEMS was not modified by filling missing values...",
-        end="",
+    logger.info(
+        "Checking that original CO2 data in CEMS was not modified by filling missing values...",
     )
     # only keep non-zero and non-missing co2 values, since these should have not been modified
     cems_original = cems_original.loc[
@@ -300,12 +201,11 @@ def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
     )
     num_nonzero_rows = len(test_fill[test_fill["diff"] != 0])
     if num_nonzero_rows > 0:
-        print(" ")
-        print(
-            f"WARNING: There are {num_nonzero_rows} non-missing CO2 CEMS records that were modified by `fill_cems_missing_co2` in error"
+        logger.warning(
+            f"There are {num_nonzero_rows} non-missing CO2 CEMS records that were modified by `fill_cems_missing_co2` in error"
         )
     else:
-        print("OK")
+        logger.info("OK")
 
 
 def check_removed_data_is_empty(cems):
@@ -322,29 +222,27 @@ def check_removed_data_is_empty(cems):
         ],
     ].sum(numeric_only=True)
     if check_that_data_is_zero.sum() > 0:
-        print("WARNING: Some data being removed has non-zero data associated with it:")
-        print(check_that_data_is_zero)
+        logger.warning("Some data being removed has non-zero data associated with it:")
+        logger.warning("\n" + check_that_data_is_zero.to_string())
 
 
 def test_for_missing_subplant_id(df):
     """Checks if any records are missing a `subplant_id`."""
-    print("    Checking that all data has an associated `subplant_id`...  ", end="")
+    logger.info("Checking that all data has an associated `subplant_id`...  ")
     missing_subplant_test = df[df["subplant_id"].isna()]
     if not missing_subplant_test.empty:
-        print(" ")
-        print(
-            f"WARNING: There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID. See `missing_subplant_test` for details"
+        logger.warning(
+            f"There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID. See `missing_subplant_test` for details"
         )
     else:
-        print("OK")
+        logger.info("OK")
     return missing_subplant_test
 
 
 def validate_gross_to_net_conversion(cems, eia923_allocated):
     """checks whether the calculated net generation matches the reported net generation from EIA-923 at the annual plant level."""
-    print(
-        "    Checking that calculated net generation matches reported net generation in EIA-923...  ",
-        end="",
+    logger.info(
+        "Checking that calculated net generation matches reported net generation in EIA-923...  "
     )
     # merge together monthly subplant totals from EIA and calculated from CEMS
     eia_netgen = (
@@ -387,21 +285,19 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
     cems_net_not_equal_to_eia = validated_ng[validated_ng["pct_error"] != 0]
 
     if len(cems_net_not_equal_to_eia) > 0:
-        print(" ")
-        print(
-            f"WARNING: There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
+        logger.warning(
+            f"There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
         )
-        print(cems_net_not_equal_to_eia)
+        logger.warning("\n" + cems_net_not_equal_to_eia.to_string())
     else:
-        print("OK")
+        logger.info("OK")
 
 
 def test_emissions_adjustments(df):
     """For each emission, tests that mass_lb >= mass_lb_for_electricity >= mass_lb_for_electricity_adjusted."""
 
-    print(
-        "    Checking that adjusted emission values are less than total emissions...  ",
-        end="",
+    logger.info(
+        "Checking that adjusted emission values are less than total emissions...  "
     )
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
@@ -414,8 +310,8 @@ def test_emissions_adjustments(df):
             (df[f"{pollutant}_mass_lb"] < df[f"{pollutant}_mass_lb_for_electricity"])
         ]
         if len(bad_adjustment) > 0:
-            print(
-                f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity > {pollutant}_mass_lb"
+            logger.warning(
+                f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity > {pollutant}_mass_lb"
             )
             bad_adjustment += 1
 
@@ -424,8 +320,8 @@ def test_emissions_adjustments(df):
             (df[f"{pollutant}_mass_lb"] < df[f"{pollutant}_mass_lb_adjusted"])
         ]
         if len(bad_adjustment) > 0:
-            print(
-                f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_adjusted > {pollutant}_mass_lb"
+            logger.warning(
+                f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_adjusted > {pollutant}_mass_lb"
             )
             bad_adjustment += 1
 
@@ -437,9 +333,8 @@ def test_emissions_adjustments(df):
             )
         ]
         if len(bad_adjustment) > 0:
-            print(" ")
-            print(
-                f"WARNING: There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
+            logger.warning(
+                f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
             )
             bad_adjustment += 1
 
@@ -447,7 +342,7 @@ def test_emissions_adjustments(df):
     if bad_adjustments > 0:
         raise UserWarning("The above issues with emissions adjustments must be fixed.")
     else:
-        print("OK")
+        logger.info("OK")
 
 
 def ensure_non_overlapping_data_from_all_sources(
@@ -455,7 +350,7 @@ def ensure_non_overlapping_data_from_all_sources(
 ):
     """Ensures that there is no duplicated subplant-months from each of the four sources of cleaned data."""
 
-    print("    Checking that all data to be combined is unique...  ", end="")
+    logger.info("Checking that all data to be combined is unique...  ")
 
     if "hourly_data_source" in eia_data.columns:
         eia_only_data = eia_data.loc[
@@ -518,69 +413,62 @@ def ensure_non_overlapping_data_from_all_sources(
             (data_overlap["in_eia"] == 1) & (data_overlap["in_cems"] == 1)
         ]
         if len(eia_cems_overlap) > 0:
-            print(" ")
-            print(
-                f"WARNING: There are {len(eia_cems_overlap)} subplant-months that exist in both shaped EIA data and CEMS"
+            logger.warning(
+                f"There are {len(eia_cems_overlap)} subplant-months that exist in both shaped EIA data and CEMS"
             )
         eia_pcs_overlap = data_overlap[
             (data_overlap["in_eia"] == 1)
             & (data_overlap["in_partial_cems_subplant"] == 1)
         ]
         if len(eia_pcs_overlap) > 0:
-            print(" ")
-            print(
-                f"WARNING: There are {len(eia_pcs_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
+            logger.warning(
+                f"There are {len(eia_pcs_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
             )
         cems_pcs_overlap = data_overlap[
             (data_overlap["in_cems"] == 1)
             & (data_overlap["in_partial_cems_subplant"] == 1)
         ]
         if len(cems_pcs_overlap) > 0:
-            print(" ")
-            print(
-                f"WARNING: There are {len(cems_pcs_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
+            logger.warning(
+                f"There are {len(cems_pcs_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
             )
         eia_pcp_overlap = data_overlap[
             (data_overlap["in_eia"] == 1) & (data_overlap["in_partial_cems_plant"] == 1)
         ]
         if len(eia_pcp_overlap) > 0:
-            print(" ")
-            print(
-                f"WARNING: There are {len(eia_pcp_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
+            logger.warning(
+                f"There are {len(eia_pcp_overlap)} subplant-months that exist in both shaped EIA data and partial CEMS data"
             )
         cems_pcp_overlap = data_overlap[
             (data_overlap["in_cems"] == 1)
             & (data_overlap["in_partial_cems_plant"] == 1)
         ]
         if len(cems_pcp_overlap) > 0:
-            print(" ")
-            print(
-                f"WARNING: There are {len(cems_pcp_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
+            logger.warning(
+                f"There are {len(cems_pcp_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
             )
         pcs_pcp_overlap = data_overlap[
             (data_overlap["in_partial_cems_subplant"] == 1)
             & (data_overlap["in_partial_cems_plant"] == 1)
         ]
         if len(pcs_pcp_overlap) > 0:
-            print(" ")
-            print(
-                f"WARNING: There are {len(pcs_pcp_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
+            logger.warning(
+                f"There are {len(pcs_pcp_overlap)} subplant-months that exist in both CEMS data and partial CEMS data"
             )
         all_overlap = data_overlap[data_overlap["number_of_locations"] == 4]
         if len(all_overlap) > 0:
-            print(" ")
-            print(
-                f"WARNING: There are {len(all_overlap)} subplant-months that exist in shaped EIA data, CEMS data, and partial CEMS data."
+            logger.warning(
+                f"There are {len(all_overlap)} subplant-months that exist in shaped EIA data, CEMS data, and partial CEMS data."
             )
         raise UserWarning("The above overlaps must be fixed before proceeding.")
     else:
-        print("OK")
+        logger.info("OK")
 
 
 def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_keys):
     """Checks that any shaped monthly data still adds up to the monthly total after shaping."""
 
-    print("    Checking that shaped hourly data matches monthly totals...  ", end="")
+    logger.info("Checking that shaped hourly data matches monthly totals...  ")
 
     monthly_group_keys = group_keys + ["report_date"]
 
@@ -596,18 +484,18 @@ def validate_shaped_totals(shaped_eia_data, monthly_eia_data_to_shape, group_key
     compare = (shaped_data_agg - eia_data_agg).round(0)
 
     if compare.sum().sum() > 0:
-        print(" ")
-        print(
-            compare[
+        logger.warning(
+            "\n"
+            + compare[
                 (compare["net_generation_mwh"] != 0)
                 | (compare["fuel_consumed_mmbtu"] != 0)
-            ]
+            ].to_string()
         )
         raise UserWarning(
             "The data shaping process is changing the monthly total values compared to reported EIA values. This process should only shape the data, not alter it."
         )
     else:
-        print("OK")
+        logger.info("OK")
 
 
 def validate_unique_datetimes(df, df_name, keys):
@@ -624,7 +512,7 @@ def validate_unique_datetimes(df, df_name, keys):
                 df.duplicated(subset=(keys + [datetime_column]), keep=False)
             ]
             if len(duplicate_dt) > 0:
-                print(duplicate_dt)
+                logger.warning("\n" + duplicate_dt.to_string())
                 raise UserWarning(
                     f"The dataframe {df_name} contains duplicate {datetime_column} values within each group of {keys}. See above output"
                 )
@@ -838,7 +726,7 @@ def identify_percent_of_data_by_input_source(
     source_of_input_data = []
     for name, df in data_sources.items():
         if len(df) == 0:  # Empty df. May occur when running `small`
-            print(f"WARNING: data source {name} has zero entries")
+            logger.warning(f"data source {name} has zero entries")
             continue
         if name == "eia":
             subplant_data = df.groupby(
@@ -1378,9 +1266,12 @@ def check_for_anomalous_co2_factors(
             on="plant_id_eia",
             validate="m:1",
         )
-        print("Potentially anomalous co2 factors detected for the following plants:")
-        print(
-            factor_anomaly[
+        logger.warning(
+            "Potentially anomalous co2 factors detected for the following plants:"
+        )
+        logger.warning(
+            "\n"
+            + factor_anomaly[
                 [
                     "plant_id_eia",
                     "plant_primary_fuel",
@@ -1389,7 +1280,9 @@ def check_for_anomalous_co2_factors(
                     f"{pollutant}_mass_lb_for_electricity",
                     factor,
                 ]
-            ].sort_values(by=factor)
+            ]
+            .sort_values(by=factor)
+            .to_string()
         )
 
 
@@ -1406,8 +1299,8 @@ def test_for_missing_fuel(df, generation_column):
         )
     ]
     if not missing_fuel_test.empty:
-        print(
-            f"WARNING: There are {len(missing_fuel_test)} records where {generation_column} is positive but no fuel consumption is reported. Check `missing_fuel_test` for complete list"
+        logger.warning(
+            f"There are {len(missing_fuel_test)} records where {generation_column} is positive but no fuel consumption is reported. Check `missing_fuel_test` for complete list"
         )
 
     return missing_fuel_test
@@ -1416,8 +1309,8 @@ def test_for_missing_fuel(df, generation_column):
 def test_for_missing_co2(df):
     missing_co2_test = df[df["co2_mass_lb"].isna() & ~df["fuel_consumed_mmbtu"].isna()]
     if not missing_co2_test.empty:
-        print(
-            f"WARNING: There are {len(missing_co2_test)} records where co2 data is missing. Check `missing_co2_test` for complete list"
+        logger.warning(
+            f"There are {len(missing_co2_test)} records where co2 data is missing. Check `missing_co2_test` for complete list"
         )
     return missing_co2_test
 
@@ -1425,8 +1318,8 @@ def test_for_missing_co2(df):
 def test_for_missing_data(df, columns_to_test):
     missing_data_test = df[df[columns_to_test].isnull().all(axis=1)]
     if not missing_data_test.empty:
-        print(
-            f"WARNING: There are {len(missing_data_test)} records for which no data was reported. Check `missing_data_test` for complete list"
+        logger.warning(
+            f"There are {len(missing_data_test)} records for which no data was reported. Check `missing_data_test` for complete list"
         )
     return missing_data_test
 
@@ -1451,15 +1344,15 @@ def test_for_missing_incorrect_prime_movers(df, year):
         != incorrect_pm_test["prime_mover_code_eia860"]
     ]
     if not incorrect_pm_test.empty:
-        print(
-            f"WARNING: There are {len(incorrect_pm_test)} records for which the allocated prime mover does not match the reported prime mover. Check `incorrect_pm_test` for complete list"
+        logger.warning(
+            f"There are {len(incorrect_pm_test)} records for which the allocated prime mover does not match the reported prime mover. Check `incorrect_pm_test` for complete list"
         )
 
     # check for missing PM code
     missing_pm_test = df[df["prime_mover_code"].isna()]
     if not missing_pm_test.empty:
-        print(
-            f"WARNING: There are {len(missing_pm_test)} records for which no prime mover was assigned. Check `missing_pm_test` for complete list"
+        logger.warning(
+            f"There are {len(missing_pm_test)} records for which no prime mover was assigned. Check `missing_pm_test` for complete list"
         )
 
     return incorrect_pm_test, missing_pm_test
@@ -1467,7 +1360,7 @@ def test_for_missing_incorrect_prime_movers(df, year):
 
 def test_for_outlier_heat_rates(df):
     # check heat rates
-    print("Heat Rate Test")
+    logger.warning("Heat Rate Test")
     # remove non-fossil fuel types
     thermal_generators = df[
         ~df["energy_source_code"].isin(["SUN", "MWH", "WND", "WAT", "WH", "PUR"])
@@ -1506,10 +1399,10 @@ def test_for_outlier_heat_rates(df):
                 )
             ]
             if not heat_rate_test.empty:
-                print(
-                    f"    WARNING: {len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
+                logger.warning(
+                    f"{len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
                 )
-                print(
+                logger.warning(
                     f'             median = {heat_rate_stats["50%"].round(2)}, max = {heat_rate_stats["max"].round(2)}, min = {heat_rate_stats["min"].round(2)}'
                 )
                 heat_rate_test_all.append(heat_rate_test)
@@ -1539,8 +1432,8 @@ def test_for_zero_data(df, columns_to_test):
         & (df[columns_to_test].sum(axis=1) == 0)
     ]
     if not zero_data_test.empty:
-        print(
-            f"WARNING: There are {len(zero_data_test)} records where all operating data are zero. Check `zero_data_test` for complete list"
+        logger.warning(
+            f"There are {len(zero_data_test)} records where all operating data are zero. Check `zero_data_test` for complete list"
         )
     return zero_data_test
 
@@ -1548,7 +1441,7 @@ def test_for_zero_data(df, columns_to_test):
 def test_gtn_results(df):
     gtn_test = df[df["net_generation_mwh"] > df["gross_generation_mwh"]]
     if not gtn_test.empty:
-        print(
-            f"WARNING: There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
+        logger.warning(
+            f"There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
         )
     return gtn_test

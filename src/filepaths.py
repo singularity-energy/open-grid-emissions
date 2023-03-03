@@ -1,6 +1,5 @@
+"""Convenience functions for paths."""
 import os
-
-# Convenience functions for paths.
 
 
 def top_folder(rel=""):
@@ -33,3 +32,13 @@ def results_folder(rel=""):
 
 def outputs_folder(rel=""):
     return os.path.join(data_folder("outputs"), rel)
+
+
+def containing_folder(filepath: str) -> str:
+    """Returns the folder containing `filepath`."""
+    return os.path.dirname(os.path.realpath(filepath))
+
+
+def make_containing_folder(filepath: str):
+    """Make sure the the folder where `filepath` goes exists."""
+    os.makedirs(containing_folder(filepath), exist_ok=True)

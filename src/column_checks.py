@@ -17,6 +17,9 @@ those files or uses, then remove it here.
 After any change, re-run data_pipeline to regenerate all files and re-run these
 checks.
 """
+from logging_util import get_logger
+logger = get_logger(__name__)
+
 
 COLUMNS = {
     "eia923_allocated": {
@@ -348,8 +351,8 @@ def check_columns(df, file_name):
     # Check for extra columns. Warning not exception
     extras = cols - expected_cols
     if len(extras) > 0:
-        print(
-            f"WARNING: columns {extras} in {file_name} are not guaranteed by column_checks.py"
+        logger.warning(
+            f"columns {extras} in {file_name} are not guaranteed by column_checks.py"
         )
 
     # Raise exception for missing columns
@@ -464,8 +467,8 @@ def apply_dtypes(df):
         if (col not in dtypes) and (col not in datetime_columns)
     ]
     if len(cols_missing_dtypes) > 0:
-        print(
-            "WARNING: The following columns do not have dtypes assigned in `column_checks.get_dtypes()`"
+        logger.warning(
+            "The following columns do not have dtypes assigned in `column_checks.get_dtypes()`"
         )
-        print(cols_missing_dtypes)
+        logger.warning(cols_missing_dtypes)
     return df.astype({col: dtypes[col] for col in df.columns if col in dtypes})

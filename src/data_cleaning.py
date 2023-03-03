@@ -13,7 +13,9 @@ import emissions
 from constants import CLEAN_FUELS
 from column_checks import get_dtypes, apply_dtypes
 from filepaths import manual_folder, outputs_folder, downloads_folder
+from logging_util import get_logger
 
+logger = get_logger(__name__)
 
 DATA_COLUMNS = [
     "net_generation_mwh",
@@ -52,11 +54,11 @@ def identify_subplants(year, number_of_years=5):
     end_year = year
 
     # load 5 years of monthly data from CEMS
-    print("    loading CEMS ids")
+    logger.info("loading CEMS ids")
     cems_ids = load_data.load_cems_ids(start_year, end_year)
 
     # add subplant ids to the data
-    print("    identifying unique subplants")
+    logger.info("identifying unique subplants")
     generate_subplant_ids(start_year, end_year, cems_ids)
 
 
@@ -543,14 +545,13 @@ def update_energy_source_codes(df):
         (df["energy_source_code"] == "OTH") & (df["fuel_consumed_mmbtu"] > 0)
     ]
     if len(plants_with_other_fuel) > 0:
-        print(
-            "WARNING: After cleaning energy source codes, some fuel consumption is still associated with an 'OTH' fuel type."
+        logger.warning(
+            f"""
+            After cleaning energy source codes, some fuel consumption is still associated with an 'OTH' fuel type.
+            This will lead to incorrect emissions calculations.
+            Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}
+            Assign a fuel type in `data_cleaning.update_energy_source_codes`"""
         )
-        print("This will lead to incorrect emissions calculations.")
-        print(
-            f"Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}"
-        )
-        print("Assign a fuel type in `data_cleaning.update_energy_source_codes`")
 
     return df
 
@@ -574,6 +575,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
+        validation.test_for_missing_subplant_id(gen_fuel_allocated)
 
         # get a table of primary energy source codes
         gen_primary_fuel = gen_fuel_allocated[
@@ -735,7 +737,7 @@ def calculate_aggregated_primary_fuel(
         plants_with_no_primary_fuel = agg_primary_fuel[
             agg_primary_fuel[f"{level}_primary_fuel"].isna()
         ]
-        print(
+        logger.warning(
             f"Check the following plants: {list(plants_with_no_primary_fuel.plant_id_eia.unique())}"
         )
         raise UserWarning(
@@ -763,6 +765,7 @@ def calculate_capacity_based_primary_fuel(pudl_out, agg_keys, year):
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
+        validation.test_for_missing_subplant_id(gen_capacity)
 
     gen_capacity = (
         gen_capacity.groupby(agg_keys + ["energy_source_code_1"], dropna=False)[
@@ -811,6 +814,7 @@ def calculate_subplant_efs(gen_fuel_allocated, year):
         on=["plant_id_eia", "generator_id"],
         validate="m:1",
     )
+    validation.test_for_missing_subplant_id(subplant_efs)
 
     # calculate the total emissions and fuel consumption by subplant-month
     subplant_efs = subplant_efs.groupby(
@@ -882,8 +886,8 @@ def remove_plants(
                 plant_states["state"].isin(remove_states)
             ].plant_id_eia.unique()
         )
-        print(
-            f"    Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
+        logger.info(
+            f"Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
         )
         df = df[~df["plant_id_eia"].isin(plants_in_states_to_remove)]
     if steam_only_plants:
@@ -918,7 +922,7 @@ def remove_non_grid_connected_plants(df):
             "plant_id_eia"
         ].unique()
     )
-    print(f"    Removing {num_plants} plants that are not grid-connected")
+    logger.info(f"Removing {num_plants} plants that are not grid-connected")
 
     df = df[~df["plant_id_eia"].isin(ngc_plants)]
 
@@ -998,6 +1002,9 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     cems = remove_cems_with_zero_monthly_data(cems)
 
     validation.test_for_negative_values(cems)
+    validation.validate_unique_datetimes(
+        cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
+    )
 
     cems = apply_dtypes(cems)
 
@@ -1005,7 +1012,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
 
 
 def smallerize_test_data(df, random_seed=None):
-    print("    Randomly selecting 5% of plants for faster test run.")
+    logger.info("Randomly selecting 5% of plants for faster test run.")
     # Select 5% of plants
     selected_plants = df.plant_id_eia.unique()
     if random_seed is not None:
@@ -1030,8 +1037,8 @@ def manually_remove_steam_units(df):
         dtype=get_dtypes(),
     )[["plant_id_eia", "emissions_unit_id_epa"]]
 
-    print(
-        f"    Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
+    logger.info(
+        f"Removing {len(units_to_remove)} units that only produce steam and do not report to EIA"
     )
 
     df = df.merge(
@@ -1062,8 +1069,8 @@ def remove_incomplete_unit_months(cems):
         unit_hours_in_month["datetime_utc"] < 600
     ].drop(columns="datetime_utc")
 
-    print(
-        f"    Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
+    logger.info(
+        f"Removing {len(unit_months_to_remove)} unit-months with incomplete hourly data"
     )
 
     cems = cems.merge(
@@ -1295,8 +1302,8 @@ def remove_cems_with_zero_monthly_data(cems):
         validate="m:1",
     )
     # remove any observations with the missing data flag
-    print(
-        f"    Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+    logger.info(
+        f"Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
     validation.check_removed_data_is_empty(cems)
     cems = cems[cems["missing_data_flag"] != "remove"]
@@ -1670,7 +1677,7 @@ def identify_partial_cems_plants(all_data):
         # likely resulting from mixed fuel types.
         # If subplant_id assignment is working, there shouldn't be any
         raise Exception(
-            f"    ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
+            f"ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
         )
 
     # remove the intermediate indicator column
@@ -1960,8 +1967,8 @@ def assign_ba_code_to_plant(df, year):
     df = df.merge(plant_ba, how="left", on="plant_id_eia", validate="m:1")
 
     if len(df[df["ba_code"].isna()]) > 0:
-        print("    WARNING: the following plants are missing ba_code:")
-        print(df[df["ba_code"].isna()])
+        logger.warning("the following plants are missing ba_code:")
+        logger.warning("\n" + df[df["ba_code"].isna()].tostring())
 
     # replace missing ba codes with NA
     df["ba_code"] = df["ba_code"].fillna("NA")
