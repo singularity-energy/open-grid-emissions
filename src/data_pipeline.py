@@ -157,9 +157,37 @@ def main():
         primary_fuel_table,
         subplant_emission_factors,
     ) = data_cleaning.clean_eia923(year, args.small)
+    # output primary fuel table
+    output_data.output_intermediate_data(
+        primary_fuel_table,
+        "primary_fuel_table",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
+    # remove intermediate columns from primary fuel table
+    primary_fuel_table = primary_fuel_table[
+        [
+            "plant_id_eia",
+            "subplant_id",
+            "generator_id",
+            "energy_source_code",
+            "plant_primary_fuel",
+            "subplant_primary_fuel",
+        ]
+    ]
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
-        primary_fuel_table,
+        primary_fuel_table[
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "generator_id",
+                "energy_source_code",
+                "plant_primary_fuel",
+                "subplant_primary_fuel",
+            ]
+        ],
         how="left",
         on=["plant_id_eia", "subplant_id", "generator_id"],
         validate="m:1",
