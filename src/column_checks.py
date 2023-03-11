@@ -18,6 +18,7 @@ After any change, re-run data_pipeline to regenerate all files and re-run these
 checks.
 """
 from logging_util import get_logger
+
 logger = get_logger(__name__)
 
 
@@ -324,6 +325,17 @@ COLUMNS = {
         "plant_regression_ratio",
         "plant_regression_shift_mw",
         "plant_regression_rsq_adj",
+    },
+    "subplant_crosswalk": {
+        "plant_id_epa",
+        "emissions_unit_id_epa",
+        "plant_id_eia",
+        "generator_id",
+        "subplant_id",
+        "unit_id_pudl",
+        "current_planned_operating_date",
+        "retirement_date",
+        "prime_mover_code",
     },
     "shaped_aggregated_plants": {
         "plant_id_eia",

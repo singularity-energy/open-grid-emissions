@@ -59,7 +59,9 @@ def identify_subplants(year, number_of_years=5):
 
     # add subplant ids to the data
     logger.info("identifying unique subplants")
-    generate_subplant_ids(start_year, end_year, cems_ids)
+    subplant_crosswalk = generate_subplant_ids(start_year, end_year, cems_ids)
+
+    return subplant_crosswalk
 
 
 def generate_subplant_ids(start_year, end_year, cems_ids):
@@ -164,14 +166,14 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     subplant_crosswalk_complete = add_operating_and_retirement_dates(
         subplant_crosswalk_complete, start_year, end_year
     )
-
-    os.makedirs(outputs_folder(f"{end_year}"), exist_ok=True)
-
-    # export the crosswalk to csv
-    subplant_crosswalk_complete.to_csv(
-        outputs_folder(f"{end_year}/subplant_crosswalk_{end_year}.csv"),
-        index=False,
+    # add prime mover code to the crosswalk
+    subplant_crosswalk_complete = add_prime_mover_to_subplant_crosswalk(
+        subplant_crosswalk_complete, end_year
     )
+    # validate that there are no orphaned combined cycle plant parts in a subplant
+    validation.check_for_orphaned_cc_part_in_subplant(subplant_crosswalk_complete)
+
+    return subplant_crosswalk_complete
 
 
 def manually_update_subplant_id(subplant_crosswalk):
@@ -378,6 +380,34 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
         how="left",
         on=["plant_id_eia", "generator_id"],
         validate="m:1",
+    )
+
+    return df
+
+
+def add_prime_mover_to_subplant_crosswalk(df, year):
+    """Adds a column identifying each generator's prime_mover to a dataframe."""
+    pudl_db = f"sqlite:///{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_engine = sa.create_engine(pudl_db)
+    # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
+    pudl_out_pm = pudl.output.pudltabl.PudlTabl(
+        pudl_engine,
+        freq="AS",
+        start_date=f"{year}-01-01",
+        end_date=f"{year}-12-31",
+    )
+    generator_pm = pudl_out_pm.gens_eia860().loc[
+        :,
+        [
+            "plant_id_eia",
+            "generator_id",
+            "prime_mover_code",
+        ],
+    ]
+
+    # merge the dates into the crosswalk
+    df = df.merge(
+        generator_pm, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
     )
 
     return df

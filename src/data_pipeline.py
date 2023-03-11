@@ -147,7 +147,14 @@ def main():
     # 2. Identify subplants
     ####################################################################################
     logger.info("2. Identifying subplant IDs")
-    data_cleaning.identify_subplants(year)
+    subplant_crosswalk = data_cleaning.identify_subplants(year)
+    output_data.output_intermediate_data(
+        subplant_crosswalk,
+        "subplant_crosswalk",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
