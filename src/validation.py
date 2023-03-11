@@ -401,6 +401,19 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
 
     cems_net_not_equal_to_eia = validated_ng[validated_ng["pct_error"] != 0]
 
+    # get the gtn method used for these plants
+    gtn_method = cems.loc[
+        cems["plant_id_eia"].isin(list(cems_net_not_equal_to_eia.index)),
+        ["plant_id_eia", "gtn_method"],
+    ].drop_duplicates()
+    gtn_method["gtn_method"] = gtn_method["gtn_method"].astype(str)
+    gtn_method = (
+        gtn_method.groupby("plant_id_eia").agg(["unique"]).droplevel(level=1, axis=1)
+    )
+    cems_net_not_equal_to_eia = cems_net_not_equal_to_eia.merge(
+        gtn_method, how="left", left_index=True, right_index=True
+    )
+
     if len(cems_net_not_equal_to_eia) > 0:
         logger.warning(
             f"There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
