@@ -119,6 +119,51 @@ def load_egrid_ba_file(year):
     return egrid_ba
 
 
+def create_egrid_ba_from_plant_data(egrid_plant, data_columns):
+    egrid_ba_from_plant_agg = (
+        egrid_plant.groupby(["ba_code"]).sum()[data_columns].reset_index()
+    )
+    egrid_ba_from_plant_agg["generated_co2_rate_lb_per_mwh"] = (
+        egrid_ba_from_plant_agg["co2_mass_lb"]
+        / egrid_ba_from_plant_agg["net_generation_mwh"]
+    )
+
+    egrid_ba_from_plant_agg = egrid_ba_from_plant_agg.set_index("ba_code")
+
+    return egrid_ba_from_plant_agg
+
+
+def load_oge_ba_data(year, data_columns):
+
+    # load our annual ba data
+    oge_ba = []
+
+    for filename in os.listdir(
+        results_folder(f"{year}/power_sector_data/annual/us_units/")
+    ):
+        ba = filename.split(".")[0]
+        ba_data = pd.read_csv(
+            results_folder(f"{year}/power_sector_data/annual/us_units/{filename}"),
+            usecols=(["fuel_category"] + data_columns),
+        )
+        ba_data = ba_data[ba_data["fuel_category"] == "total"].drop(
+            columns=["fuel_category"]
+        )
+        ba_data["ba_code"] = ba
+        ba_data = ba_data[["ba_code"] + data_columns]
+        oge_ba.append(ba_data)
+
+    oge_ba = pd.concat(oge_ba, axis=0)
+
+    oge_ba["generated_co2_rate_lb_per_mwh"] = (
+        oge_ba["co2_mass_lb"] / oge_ba["net_generation_mwh"]
+    )
+
+    oge_ba = oge_ba.set_index("ba_code")
+
+    return oge_ba
+
+
 def add_egrid_plant_id(df, from_id, to_id):
     # For plants that have different EPA and EIA plant IDs, the plant ID in eGRID is usually the EPA ID, but sometimes the EIA ID
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
