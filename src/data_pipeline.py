@@ -238,6 +238,12 @@ def main():
         df_name="partial_cems_plant",
         keys=["plant_id_eia", "subplant_id"],
     )
+    validation.check_for_complete_timeseries(
+        df=partial_cems_plant,
+        df_name="partial_cems_plant",
+        keys=["plant_id_eia", "subplant_id"],
+        period="month",
+    )
     output_data.output_intermediate_data(
         partial_cems_plant,
         "partial_cems_plant",
@@ -255,6 +261,12 @@ def main():
         df=partial_cems_subplant,
         df_name="partial_cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
+    )
+    validation.check_for_complete_timeseries(
+        df=partial_cems_subplant,
+        df_name="partial_cems_subplant",
+        keys=["plant_id_eia", "subplant_id"],
+        period="month",
     )
     output_data.output_intermediate_data(
         partial_cems_subplant,
@@ -298,6 +310,12 @@ def main():
         df=cems,
         df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
+    )
+    validation.check_for_complete_timeseries(
+        df=cems,
+        df_name="cems_subplant",
+        keys=["plant_id_eia", "subplant_id"],
+        period="month",
     )
     output_data.output_intermediate_data(
         cems, "cems_subplant", path_prefix, year, args.skip_outputs
@@ -456,6 +474,12 @@ def main():
         df_name="shaped_eia_data",
         keys=["plant_id_eia"],
     )
+    validation.check_for_complete_timeseries(
+        df=shaped_eia_data,
+        df_name="shaped_eia_data",
+        keys=["plant_id_eia"],
+        period="month",
+    )
     output_data.output_intermediate_data(
         shaped_eia_data, "shaped_eia923_data", path_prefix, year, args.skip_outputs
     )
@@ -514,6 +538,12 @@ def main():
         df=combined_plant_data,
         df_name="combined_plant_data",
         keys=["plant_id_eia"],
+    )
+    validation.check_for_complete_timeseries(
+        df=combined_plant_data,
+        df_name="combined_plant_data",
+        keys=["plant_id_eia"],
+        period="year",
     )
     if not args.shape_individual_plants:
         output_data.output_plant_data(

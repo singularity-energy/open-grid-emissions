@@ -518,6 +518,64 @@ def validate_unique_datetimes(df, df_name, keys):
                 )
 
 
+def check_for_complete_timeseries(df, df_name, keys, period):
+    """Validates that a timeseries contains complete hourly data.
+
+    If the `period` is a 'year', checks that the length of the timeseries is 8760 (for a
+    non-leap year) or 8784 (for a leap year). If the `period` is a 'month', checks that
+    the length of the timeseries is equal to number of days * 24 in the month associated
+    with the `report_date` column.
+
+    Args:
+        df: dataframe containing datetime columns
+        df_name: a descriptive name for the dataframe
+        year
+        keys: list of column names that contain the groups within which datetimes should be unique
+        period: either 'month' or 'year'. Period within which to ensure complete hourly data"""
+
+    if period == "year":
+        # identify the year of the data
+        year = df.datetime_utc.dt.year.mode()[0]
+        # count the number of timestamps in each group
+        test = df.groupby(keys)[["datetime_utc"]].count()
+        # if the year is divisible by 4, it is a leap year
+        if year % 4 == 0:
+            hours_in_year = 8784
+        else:
+            hours_in_year = 8760
+        test["expected_num_hours"] = hours_in_year
+        # identify any rows where the number of timestamps is not equal to the total number of hours in the year
+        test = test[test["datetime_utc"] != test["expected_num_hours"]]
+        if len(test) > 0:
+            logger.warning(
+                f"There are incomplete timeseries for the following {keys} groups in {df_name}"
+            )
+            logger.warning("\n" + test.to_string())
+    elif period == "month":
+
+        # count the number of timestamps in each group-month
+        test = (
+            df.groupby(keys + ["report_date"])[["datetime_utc"]]
+            .agg(["count", "min", "max"])
+            .droplevel(level=0, axis=1)
+        )
+        # identify the number of hours in a complete date range for that month
+        test["expected_num_hours"] = test.apply(
+            lambda row: len(pd.date_range(row["min"], row["max"], freq="H")), axis=1
+        )
+        # identify any rows where the number of timestamps is not equal to the total number of hours in the month
+        test = test[test["count"] != test["expected_num_hours"]]
+        if len(test) > 0:
+            logger.warning(
+                f"There are incomplete timeseries for the following {keys} groups in {df_name}"
+            )
+            logger.warning("\n" + test.to_string())
+    else:
+        raise UserWarning(
+            f"{period} is not a valid value for the `period` argument in `check_for_complete_timeseries`. Value must be 'year' or 'month'"
+        )
+
+
 # DATA QUALITY METRIC FUNCTIONS
 ########################################################################################
 
