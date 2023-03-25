@@ -523,8 +523,8 @@ def check_for_complete_timeseries(df, df_name, keys, period):
 
     If the `period` is a 'year', checks that the length of the timeseries is 8760 (for a
     non-leap year) or 8784 (for a leap year). If the `period` is a 'month', checks that
-    the length of the timeseries is equal to number of days * 24 in the month associated
-    with the `report_date` column.
+    the length of the timeseries is equal to the length of the complete date_range
+    between the earliest and latest timestamp in a month. 
 
     Args:
         df: dataframe containing datetime columns
