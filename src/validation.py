@@ -88,6 +88,62 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
         )
 
 
+def flag_possible_primary_fuel_mismatches(plant_primary_fuel):
+    """
+    Since we do not know exactly how plants are assigned to fuel categories in EIA-930,
+    it is possible that the primary fuel we assign to the plant may differ from the
+    primary fuel category used in EIA-930. The most likely source of this disconnect is
+    if these plants are assigned a primary fuel based on the type of generation with the
+    highest nameplate capacity (since this is relatively static over time), rather than
+    based on fuel consumption (which may change year-to-year).
+
+    This test identifies where the primary fuel that the pipeline assigns would lead to
+    the plant being categorized under a different fuel category than if a capacity-based
+    method were used.
+
+    Plants flagged by this test are not necessarily incorrectly assigned, but rather
+    this is intended to bring this issue to our attention as a potential source of
+    inconsistency.
+    """
+    test = plant_primary_fuel.copy()[
+        ["plant_id_eia", "plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]
+    ]
+
+    for esc_column in ["plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]:
+
+        # load the fuel category table
+        energy_source_groups = pd.read_csv(
+            manual_folder("energy_source_groups.csv"), dtype=get_dtypes()
+        )[["energy_source_code", "fuel_category_eia930"]].rename(
+            columns={
+                "energy_source_code": esc_column,
+                "fuel_category_eia930": f"{esc_column}_category",
+            }
+        )
+
+        # assign a fuel category to the monthly eia data
+        test = test.merge(
+            energy_source_groups,
+            how="left",
+            on=esc_column,
+            validate="m:1",
+        )
+
+    mismatched_primary_fuels = test[
+        (
+            test["plant_primary_fuel_from_capacity_mw_category"]
+            != test["plant_primary_fuel_category"]
+        )
+        & (~test["plant_primary_fuel_from_capacity_mw_category"].isna())
+    ]
+
+    if len(mismatched_primary_fuels) > 0:
+        logger.warning(
+            f"There are {len(mismatched_primary_fuels)} plants where the assigned primary fuel doesn't match the capacity-based primary fuel.\nIt is possible that these plants will categorized as a different fuel in EIA-930"
+        )
+        logger.warning("\n" + mismatched_primary_fuels.to_string())
+
+
 def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
     logger.info("Checking that fuel and emissions values are positive...  ")
