@@ -344,6 +344,22 @@ COLUMNS = {
         "ba_code",
         "aggregated_plants",
     },
+    "primary_fuel_table": {
+        "plant_id_eia",
+        "generator_id",
+        "subplant_id",
+        "energy_source_code",
+        "plant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu",
+        "plant_primary_fuel_from_net_generation_mwh",
+        "plant_primary_fuel_from_capacity_mw",
+        "plant_primary_fuel_from_mode",
+        "plant_primary_fuel",
+        "subplant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu",
+        "subplant_primary_fuel_from_net_generation_mwh",
+        "subplant_primary_fuel_from_capacity_mw",
+        "subplant_primary_fuel_from_mode",
+        "subplant_primary_fuel",
+    },
 }
 
 

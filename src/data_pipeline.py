@@ -72,17 +72,6 @@ def main():
     args = get_args()
     year = args.year
 
-    # configure the logger
-    # Log the print statements to a file for debugging.
-    configure_root_logger(
-        logfile=results_folder(f"{year}/data_quality_metrics/data_pipeline.log")
-    )
-    logger = get_logger("data_pipeline")
-    print_args(args, logger)
-
-    logger.info(f"Running data pipeline for year {year}")
-    validation.validate_year(year)
-
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
     path_prefix += "flat/" if args.flat else ""
@@ -111,6 +100,17 @@ def main():
                     ),
                     exist_ok=True,
                 )
+
+    # configure the logger
+    # Log the print statements to a file for debugging.
+    configure_root_logger(
+        logfile=results_folder(f"{year}/data_quality_metrics/data_pipeline.log")
+    )
+    logger = get_logger("data_pipeline")
+    print_args(args, logger)
+
+    logger.info(f"Running data pipeline for year {year}")
+    validation.validate_year(year)
 
     # 1. Download data
     ####################################################################################
@@ -164,9 +164,37 @@ def main():
         primary_fuel_table,
         subplant_emission_factors,
     ) = data_cleaning.clean_eia923(year, args.small)
+    # output primary fuel table
+    output_data.output_intermediate_data(
+        primary_fuel_table,
+        "primary_fuel_table",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
+    # remove intermediate columns from primary fuel table
+    primary_fuel_table = primary_fuel_table[
+        [
+            "plant_id_eia",
+            "subplant_id",
+            "generator_id",
+            "energy_source_code",
+            "plant_primary_fuel",
+            "subplant_primary_fuel",
+        ]
+    ]
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
-        primary_fuel_table,
+        primary_fuel_table[
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "generator_id",
+                "energy_source_code",
+                "plant_primary_fuel",
+                "subplant_primary_fuel",
+            ]
+        ],
         how="left",
         on=["plant_id_eia", "subplant_id", "generator_id"],
         validate="m:1",
@@ -245,6 +273,12 @@ def main():
         df_name="partial_cems_plant",
         keys=["plant_id_eia", "subplant_id"],
     )
+    validation.check_for_complete_timeseries(
+        df=partial_cems_plant,
+        df_name="partial_cems_plant",
+        keys=["plant_id_eia", "subplant_id"],
+        period="month",
+    )
     output_data.output_intermediate_data(
         partial_cems_plant,
         "partial_cems_plant",
@@ -262,6 +296,12 @@ def main():
         df=partial_cems_subplant,
         df_name="partial_cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
+    )
+    validation.check_for_complete_timeseries(
+        df=partial_cems_subplant,
+        df_name="partial_cems_subplant",
+        keys=["plant_id_eia", "subplant_id"],
+        period="month",
     )
     output_data.output_intermediate_data(
         partial_cems_subplant,
@@ -305,6 +345,12 @@ def main():
         df=cems,
         df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
+    )
+    validation.check_for_complete_timeseries(
+        df=cems,
+        df_name="cems_subplant",
+        keys=["plant_id_eia", "subplant_id"],
+        period="month",
     )
     output_data.output_intermediate_data(
         cems, "cems_subplant", path_prefix, year, args.skip_outputs
@@ -463,6 +509,12 @@ def main():
         df_name="shaped_eia_data",
         keys=["plant_id_eia"],
     )
+    validation.check_for_complete_timeseries(
+        df=shaped_eia_data,
+        df_name="shaped_eia_data",
+        keys=["plant_id_eia"],
+        period="month",
+    )
     output_data.output_intermediate_data(
         shaped_eia_data, "shaped_eia923_data", path_prefix, year, args.skip_outputs
     )
@@ -521,6 +573,12 @@ def main():
         df=combined_plant_data,
         df_name="combined_plant_data",
         keys=["plant_id_eia"],
+    )
+    validation.check_for_complete_timeseries(
+        df=combined_plant_data,
+        df_name="combined_plant_data",
+        keys=["plant_id_eia"],
+        period="year",
     )
     if not args.shape_individual_plants:
         output_data.output_plant_data(
