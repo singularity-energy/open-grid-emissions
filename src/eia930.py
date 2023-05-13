@@ -421,11 +421,23 @@ def manual_930_adjust(raw: pd.DataFrame):
     raw = pd.concat([raw, sc_dat], axis="columns")
 
     # PJM, CISO, TEPC: shift by one hour
-    for ba in ["PJM", "CISO", "TEPC"]:
+    # CISO correction before Jun 16, 2022
+    start_of_hour_bas = {"CISO": "2022-06-16 07:00:00+00", "PJM": None, "TEPC": None}
+    for ba in list(start_of_hour_bas.keys()):
         cols = get_columns(ba, raw.columns)
-        new = raw[cols].shift(1, freq="H")
-        raw = raw.drop(columns=cols)
-        raw = pd.concat([raw, new], axis="columns")
+        correction_end_date = start_of_hour_bas[ba]
+        if correction_end_date is not None:
+            new = raw[cols].copy()
+            new.loc[raw.index < correction_end_date, cols] = new.loc[
+                new.index < correction_end_date, cols
+            ].shift(1, freq="H")
+            raw = raw.drop(columns=cols)
+            raw = pd.concat([raw, new], axis="columns")
+        else:
+            cols = get_columns(ba, raw.columns)
+            new = raw[cols].shift(1, freq="H")
+            raw = raw.drop(columns=cols)
+            raw = pd.concat([raw, new], axis="columns")
 
     # Interchange sign. Do before we change interchange time for PJM, because
     # identification of sign shift is based on raw data
