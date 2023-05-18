@@ -420,24 +420,51 @@ def manual_930_adjust(raw: pd.DataFrame):
     raw = raw.drop(columns=sc_dat.columns)
     raw = pd.concat([raw, sc_dat], axis="columns")
 
-    # PJM, CISO, TEPC: shift by one hour
-    # CISO correction before Jun 16, 2022
-    start_of_hour_bas = {"CISO": "2022-06-16 07:00:00+00", "PJM": None, "TEPC": None}
-    for ba in list(start_of_hour_bas.keys()):
-        cols = get_columns(ba, raw.columns)
-        correction_end_date = start_of_hour_bas[ba]
-        if correction_end_date is not None:
-            new = raw[cols].copy()
-            new.loc[raw.index < correction_end_date, cols] = new.loc[
-                new.index < correction_end_date, cols
-            ].shift(1, freq="H")
-            raw = raw.drop(columns=cols)
-            raw = pd.concat([raw, new], axis="columns")
-        else:
-            cols = get_columns(ba, raw.columns)
-            new = raw[cols].shift(1, freq="H")
-            raw = raw.drop(columns=cols)
-            raw = pd.concat([raw, new], axis="columns")
+    # PJM data reports start of hour instead of end of hour
+    # This issue is still active as of 5/18/2023
+    # we need to shift all data by +1 hour
+    ba = "PJM"
+    cols = get_columns(ba, raw.columns)
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].shift(1, freq="H")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # TEPC data reports start of hour instead of end of hour
+    # This issue may have been fixed but will be addressed in a future PR
+    # we need to shift all data by +1 hour
+    ba = "TEPC"
+    cols = get_columns(ba, raw.columns)
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].shift(1, freq="H")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # CISO reported start of hour data through June 13, 2022
+    # The June 14 data was corrected, but then the June 15 data went back to start of hour
+    # The data was permanantly fixed as of June 16
+    ba = "CISO"
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].copy()
+    new.loc[
+        (raw.index < "2022-06-14 07:00:00+00")
+        | (
+            (raw.index >= "2022-06-15 07:00:00+00")
+            & (raw.index < "2022-06-16 07:00:00+00")
+        ),
+        cols,
+    ] = new.loc[
+        (raw.index < "2022-06-14 07:00:00+00")
+        | (
+            (raw.index >= "2022-06-15 07:00:00+00")
+            & (raw.index < "2022-06-16 07:00:00+00")
+        ),
+        cols,
+    ].shift(
+        1, freq="H"
+    )
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
 
     # Interchange sign. Do before we change interchange time for PJM, because
     # identification of sign shift is based on raw data
