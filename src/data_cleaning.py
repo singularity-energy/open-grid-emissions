@@ -593,12 +593,14 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
         ]
 
     plant_primary_fuel = calculate_aggregated_primary_fuel(
-        gen_fuel_allocated, gen_primary_fuel, ["plant_id_eia"], pudl_out, year
+        gen_fuel_allocated, gen_primary_fuel, "plant", pudl_out, year
     )
+
+    validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel)
 
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
-        plant_primary_fuel[["plant_id_eia", "plant_primary_fuel"]],
+        plant_primary_fuel,
         how="left",
         on="plant_id_eia",
         validate="many_to_one",
@@ -609,14 +611,12 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
         subplant_primary_fuel = calculate_aggregated_primary_fuel(
             gen_fuel_allocated,
             gen_primary_fuel,
-            ["plant_id_eia", "subplant_id"],
+            "subplant",
             pudl_out,
             year,
         )
         primary_fuel_table = primary_fuel_table.merge(
-            subplant_primary_fuel[
-                ["plant_id_eia", "subplant_id", "subplant_primary_fuel"]
-            ],
+            subplant_primary_fuel,
             how="left",
             on=["plant_id_eia", "subplant_id"],
             validate="many_to_one",
@@ -626,7 +626,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
 
 
 def calculate_aggregated_primary_fuel(
-    gen_fuel_allocated, gen_primary_fuel, agg_keys, pudl_out, year
+    gen_fuel_allocated, gen_primary_fuel, agg_level, pudl_out, year
 ):
     """
     Takes generator-level fuel data and calculates primary fuel for the subplant or plant level.
@@ -634,12 +634,20 @@ def calculate_aggregated_primary_fuel(
     Args:
         gen_fuel_allocated: dataframe of allocated fuel, generation, and emissions data by generator
         gen_primary_fuel: dataframe of primary fuel by generator
-        agg_keys: either ["plant_id_eia"] for plant aggregation or ["plant_id_eia", "subplant_id"] for subplant aggregation
+        agg_level: either "plant" or "subplant"
         pudl_out: for loading pudl output tables
     """
+    if agg_level == "plant":
+        agg_keys = ["plant_id_eia"]
+    elif agg_level == "subplant":
+        agg_keys = ["plant_id_eia", "subplant_id"]
+    else:
+        raise UserWarning(
+            f"Argument agg_level must be 'plant' or 'subplant', not '{agg_level}'"
+        )
 
     primary_fuel_from_capacity = calculate_capacity_based_primary_fuel(
-        pudl_out, agg_keys, year
+        pudl_out, agg_level, agg_keys, year
     )
 
     # NOTE: In some rare cases, a plant will have no fuel specified by
@@ -651,7 +659,7 @@ def calculate_aggregated_primary_fuel(
         .agg(lambda x: pd.Series.mode(x)[0])
         .to_frame()
         .reset_index()
-        .rename(columns={"energy_source_code": "primary_fuel_from_mode"})
+        .rename(columns={"energy_source_code": f"{agg_level}_primary_fuel_from_mode"})
     )
 
     # create a blank dataframe with all of the plant ids to hold primary fuel data
@@ -686,7 +694,7 @@ def calculate_aggregated_primary_fuel(
             subset=agg_keys, keep=False
         )
         primary_fuel_calc = primary_fuel_calc.rename(
-            columns={"energy_source_code": f"primary_fuel_from_{source}"}
+            columns={"energy_source_code": f"{agg_level}_primary_fuel_from_{source}"}
         )
 
         # merge the primary fuel into the main table
@@ -706,49 +714,45 @@ def calculate_aggregated_primary_fuel(
     # Use the fuel consumption-based primary fuel first, then fill using capacity-based
     # primary fuel, then generation based. Finally, to break all ties, use the energy
     # source code that appears most often for generators of a plant (mode).
-    if "subplant_id" in agg_keys:
-        level = "subplant"
-    else:
-        level = "plant"
-    agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        "primary_fuel_from_fuel_consumed_for_electricity_mmbtu"
+    agg_primary_fuel[f"{agg_level}_primary_fuel"] = agg_primary_fuel[
+        f"{agg_level}_primary_fuel_from_fuel_consumed_for_electricity_mmbtu"
     ]
-    agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        f"{level}_primary_fuel"
-    ].fillna(agg_primary_fuel["primary_fuel_from_capacity_mw"])
-    agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        f"{level}_primary_fuel"
-    ].fillna(agg_primary_fuel["primary_fuel_from_net_generation_mwh"])
-    agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        f"{level}_primary_fuel"
-    ].fillna(agg_primary_fuel["primary_fuel_from_mode"])
+    agg_primary_fuel[f"{agg_level}_primary_fuel"] = agg_primary_fuel[
+        f"{agg_level}_primary_fuel"
+    ].fillna(agg_primary_fuel[f"{agg_level}_primary_fuel_from_capacity_mw"])
+    agg_primary_fuel[f"{agg_level}_primary_fuel"] = agg_primary_fuel[
+        f"{agg_level}_primary_fuel"
+    ].fillna(agg_primary_fuel[f"{agg_level}_primary_fuel_from_net_generation_mwh"])
+    agg_primary_fuel[f"{agg_level}_primary_fuel"] = agg_primary_fuel[
+        f"{agg_level}_primary_fuel"
+    ].fillna(agg_primary_fuel[f"{agg_level}_primary_fuel_from_mode"])
 
     # sometimes nuclear generators report 0 fuel consumption in EIA-923.
     # To ensure that a nuclear plant does not get assigned a fuel code of
     # a backup generator, we use the nameplate capacity to assign the
     # primary fuel for any plants that contain a nuclear generator
     agg_primary_fuel.loc[
-        agg_primary_fuel["primary_fuel_from_capacity_mw"] == "NUC",
-        f"{level}_primary_fuel",
+        agg_primary_fuel[f"{agg_level}_primary_fuel_from_capacity_mw"] == "NUC",
+        f"{agg_level}_primary_fuel",
     ] = "NUC"
 
     # check that there are no missing primary fuels
-    if len(agg_primary_fuel[agg_primary_fuel[f"{level}_primary_fuel"].isna()]) > 0:
+    if len(agg_primary_fuel[agg_primary_fuel[f"{agg_level}_primary_fuel"].isna()]) > 0:
         plants_with_no_primary_fuel = agg_primary_fuel[
-            agg_primary_fuel[f"{level}_primary_fuel"].isna()
+            agg_primary_fuel[f"{agg_level}_primary_fuel"].isna()
         ]
         logger.warning(
             f"Check the following plants: {list(plants_with_no_primary_fuel.plant_id_eia.unique())}"
         )
         raise UserWarning(
-            f"{level} primary fuel table contains missing primary fuels.\
+            f"{agg_level} primary fuel table contains missing primary fuels.\
             Update method of `create_primary_fuel_table()` to fix"
         )
 
     return agg_primary_fuel
 
 
-def calculate_capacity_based_primary_fuel(pudl_out, agg_keys, year):
+def calculate_capacity_based_primary_fuel(pudl_out, agg_level, agg_keys, year):
     # create a table of primary fuel by nameplate capacity
     gen_capacity = pudl_out.gens_eia860().loc[
         :, ["plant_id_eia", "generator_id", "capacity_mw", "energy_source_code_1"]
@@ -789,7 +793,7 @@ def calculate_capacity_based_primary_fuel(pudl_out, agg_keys, year):
         gen_capacity.groupby(agg_keys, dropna=False)["capacity_mw"].transform(max)
         == gen_capacity["capacity_mw"]
     ][agg_keys + ["energy_source_code_1"]].rename(
-        columns={"energy_source_code_1": "primary_fuel_from_capacity_mw"}
+        columns={"energy_source_code_1": f"{agg_level}_primary_fuel_from_capacity_mw"}
     )
 
     # drop any duplicate entries (if two fuel types have the same nameplate capacity)
