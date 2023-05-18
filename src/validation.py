@@ -88,6 +88,62 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
         )
 
 
+def flag_possible_primary_fuel_mismatches(plant_primary_fuel):
+    """
+    Since we do not know exactly how plants are assigned to fuel categories in EIA-930,
+    it is possible that the primary fuel we assign to the plant may differ from the
+    primary fuel category used in EIA-930. The most likely source of this disconnect is
+    if these plants are assigned a primary fuel based on the type of generation with the
+    highest nameplate capacity (since this is relatively static over time), rather than
+    based on fuel consumption (which may change year-to-year).
+
+    This test identifies where the primary fuel that the pipeline assigns would lead to
+    the plant being categorized under a different fuel category than if a capacity-based
+    method were used.
+
+    Plants flagged by this test are not necessarily incorrectly assigned, but rather
+    this is intended to bring this issue to our attention as a potential source of
+    inconsistency.
+    """
+    test = plant_primary_fuel.copy()[
+        ["plant_id_eia", "plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]
+    ]
+
+    for esc_column in ["plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]:
+
+        # load the fuel category table
+        energy_source_groups = pd.read_csv(
+            manual_folder("energy_source_groups.csv"), dtype=get_dtypes()
+        )[["energy_source_code", "fuel_category_eia930"]].rename(
+            columns={
+                "energy_source_code": esc_column,
+                "fuel_category_eia930": f"{esc_column}_category",
+            }
+        )
+
+        # assign a fuel category to the monthly eia data
+        test = test.merge(
+            energy_source_groups,
+            how="left",
+            on=esc_column,
+            validate="m:1",
+        )
+
+    mismatched_primary_fuels = test[
+        (
+            test["plant_primary_fuel_from_capacity_mw_category"]
+            != test["plant_primary_fuel_category"]
+        )
+        & (~test["plant_primary_fuel_from_capacity_mw_category"].isna())
+    ]
+
+    if len(mismatched_primary_fuels) > 0:
+        logger.warning(
+            f"There are {len(mismatched_primary_fuels)} plants where the assigned primary fuel doesn't match the capacity-based primary fuel.\nIt is possible that these plants will categorized as a different fuel in EIA-930"
+        )
+        logger.warning("\n" + mismatched_primary_fuels.to_string())
+
+
 def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
     logger.info("Checking that fuel and emissions values are positive...  ")
@@ -646,6 +702,64 @@ def validate_unique_datetimes(df, df_name, keys):
                 raise UserWarning(
                     f"The dataframe {df_name} contains duplicate {datetime_column} values within each group of {keys}. See above output"
                 )
+
+
+def check_for_complete_timeseries(df, df_name, keys, period):
+    """Validates that a timeseries contains complete hourly data.
+
+    If the `period` is a 'year', checks that the length of the timeseries is 8760 (for a
+    non-leap year) or 8784 (for a leap year). If the `period` is a 'month', checks that
+    the length of the timeseries is equal to the length of the complete date_range
+    between the earliest and latest timestamp in a month. 
+
+    Args:
+        df: dataframe containing datetime columns
+        df_name: a descriptive name for the dataframe
+        year
+        keys: list of column names that contain the groups within which datetimes should be unique
+        period: either 'month' or 'year'. Period within which to ensure complete hourly data"""
+
+    if period == "year":
+        # identify the year of the data
+        year = df.datetime_utc.dt.year.mode()[0]
+        # count the number of timestamps in each group
+        test = df.groupby(keys)[["datetime_utc"]].count()
+        # if the year is divisible by 4, it is a leap year
+        if year % 4 == 0:
+            hours_in_year = 8784
+        else:
+            hours_in_year = 8760
+        test["expected_num_hours"] = hours_in_year
+        # identify any rows where the number of timestamps is not equal to the total number of hours in the year
+        test = test[test["datetime_utc"] != test["expected_num_hours"]]
+        if len(test) > 0:
+            logger.warning(
+                f"There are incomplete timeseries for the following {keys} groups in {df_name}"
+            )
+            logger.warning("\n" + test.to_string())
+    elif period == "month":
+
+        # count the number of timestamps in each group-month
+        test = (
+            df.groupby(keys + ["report_date"])[["datetime_utc"]]
+            .agg(["count", "min", "max"])
+            .droplevel(level=0, axis=1)
+        )
+        # identify the number of hours in a complete date range for that month
+        test["expected_num_hours"] = test.apply(
+            lambda row: len(pd.date_range(row["min"], row["max"], freq="H")), axis=1
+        )
+        # identify any rows where the number of timestamps is not equal to the total number of hours in the month
+        test = test[test["count"] != test["expected_num_hours"]]
+        if len(test) > 0:
+            logger.warning(
+                f"There are incomplete timeseries for the following {keys} groups in {df_name}"
+            )
+            logger.warning("\n" + test.to_string())
+    else:
+        raise UserWarning(
+            f"{period} is not a valid value for the `period` argument in `check_for_complete_timeseries`. Value must be 'year' or 'month'"
+        )
 
 
 # DATA QUALITY METRIC FUNCTIONS
