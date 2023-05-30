@@ -199,6 +199,43 @@ def test_for_missing_values(df, small: bool = False):
     return missing_test
 
 
+def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk):
+    """
+    Combined cycle generators contain a steam part (CA) and turbine part (CT) that are
+    linked together. Thus, our subplant groups that contain one part of a combined cycle
+    plant should always in theory contain the other part as well. This test checks that
+    both parts exist in a subplant if one exists.
+
+    Besides CT and CA prime movers, there is also CS prime movers which represent a
+    "single shaft" combined cycle unit where the steam and turbine parts share a single
+    generator. These prime movers are allowed to be by themselves in a subplant, as are
+    CC prime movers, which represent a "total unit."
+    """
+    cc_pm_codes = ["CA", "CT", "CS", "CC"]
+    # keep all rows that contain a combined cycle prime mover part
+    cc_subplants = subplant_crosswalk[
+        subplant_crosswalk["prime_mover_code"].isin(cc_pm_codes)
+    ]
+    # for each subplant, identify a list of all CC prime movers in that subplant
+    cc_subplants = cc_subplants.groupby(["plant_id_eia", "subplant_id"])[
+        "prime_mover_code"
+    ].agg(["unique"])
+    cc_subplants["unique_cc_pms"] = [
+        ",".join(map(str, l)) for l in cc_subplants["unique"]
+    ]
+    cc_subplants = cc_subplants.drop(columns="unique")
+    # identify where there are subplants that only contain a single CC part
+    orphaned_cc_parts = cc_subplants[
+        (cc_subplants["unique_cc_pms"] == "CA")
+        | (cc_subplants["unique_cc_pms"] == "CT")
+    ]
+    if len(orphaned_cc_parts) > 0:
+        logger.warning(
+            f"There are {len(orphaned_cc_parts)} subplants that only contain one part of a combined cycle system.\nSubplants that represent combined cycle generation should contain both CA and CT parts."
+        )
+        logger.warning("\n" + orphaned_cc_parts.to_string())
+
+
 def test_chp_allocation(df):
     """Checks that the CHP allocation didn't create any anomalous values."""
     logger.info(

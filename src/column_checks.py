@@ -326,6 +326,17 @@ COLUMNS = {
         "plant_regression_shift_mw",
         "plant_regression_rsq_adj",
     },
+    "subplant_crosswalk": {
+        "plant_id_epa",
+        "emissions_unit_id_epa",
+        "plant_id_eia",
+        "generator_id",
+        "subplant_id",
+        "unit_id_pudl",
+        "current_planned_operating_date",
+        "retirement_date",
+        "prime_mover_code",
+    },
     "shaped_aggregated_plants": {
         "plant_id_eia",
         "report_date",
