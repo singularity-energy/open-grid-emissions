@@ -210,10 +210,8 @@ def calculate_gross_to_net_conversion_factors(
         {"left_only": "cems_only", "right_only": "eia_only"}
     )
 
-    # drop data that only exists in EIA, but not in CEMS, since there is no gross generation data to calculate NG for
-    combined_gen_data = combined_gen_data[
-        ~(combined_gen_data["data_source"] == "eia_only")
-    ]
+    # validate the data
+    validation.check_missing_or_zero_generation_matches(combined_gen_data)
 
     # calculate other groupings at the plant and annual levels
     annual_subplant_ratio = (
@@ -245,37 +243,24 @@ def calculate_gross_to_net_conversion_factors(
     # fill missing values (due to divide by zero) with zero
     # replace infinite values with missing
     combined_gen_data["monthly_subplant_ratio"] = (
-        (
-            combined_gen_data["net_generation_mwh"]
-            / combined_gen_data["gross_generation_mwh"]
-        )
-        .fillna(0)
-        .replace([np.inf, -np.inf], np.nan)
-    )
+        combined_gen_data["net_generation_mwh"]
+        / combined_gen_data["gross_generation_mwh"]
+    ).replace([np.inf, -np.inf], np.nan)
     annual_subplant_ratio["annual_subplant_ratio"] = (
-        (
-            annual_subplant_ratio["net_generation_mwh"]
-            / annual_subplant_ratio["gross_generation_mwh"]
-        )
-        .fillna(0)
-        .replace([np.inf, -np.inf], np.nan)
-    )
+        annual_subplant_ratio["net_generation_mwh"]
+        / annual_subplant_ratio["gross_generation_mwh"]
+    ).replace([np.inf, -np.inf], np.nan)
     monthly_plant_ratio["monthly_plant_ratio"] = (
-        (
-            monthly_plant_ratio["net_generation_mwh"]
-            / monthly_plant_ratio["gross_generation_mwh"]
-        )
-        .fillna(0)
-        .replace([np.inf, -np.inf], np.nan)
-    )
+        monthly_plant_ratio["net_generation_mwh"]
+        / monthly_plant_ratio["gross_generation_mwh"]
+    ).replace([np.inf, -np.inf], np.nan)
     annual_plant_ratio["annual_plant_ratio"] = (
-        (
-            annual_plant_ratio["net_generation_mwh"]
-            / annual_plant_ratio["gross_generation_mwh"]
-        )
-        .fillna(0)
-        .replace([np.inf, -np.inf], np.nan)
-    )
+        annual_plant_ratio["net_generation_mwh"]
+        / annual_plant_ratio["gross_generation_mwh"]
+    ).replace([np.inf, -np.inf], np.nan)
+
+    # flag anomalous plant ratios
+    validation.identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio)
 
     # calculate a monthly and annual shift factor
     combined_gen_data["monthly_subplant_shift_mw"] = (
@@ -506,7 +491,7 @@ def filter_gtn_conversion_factors(gtn_conversions):
         factors_to_use.loc[
             factors_to_use[scaling_factor] < 0.75, scaling_factor
         ] = np.NaN
-        # remove any factors that would cause the generation in any hour to exceed 150% of nameplate capacity
+        # remove any factors that would cause the generation in any hour to exceed 125% of nameplate capacity
         factors_to_use.loc[
             (
                 factors_to_use[scaling_factor]
