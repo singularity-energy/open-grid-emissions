@@ -7,3 +7,6 @@ Open Grid Emissions is a [Singularity Energy](https://singularity.energy/) initi
 
 ## Using this documentation
 This documentation describes the data sources, methodologies, and steps used to produce the current version of the Open Grid Emissions dataset. The navigation bar on the left can be used to explore the documentation. If you have questions about this documentation or notice any issues with it, please do not hesitate to contact us at oge (at) singularity (dot) energy.
+
+## Documentation for previous versions
+As of August 2023, we will begin maintaining stoplight versions of the OGE documentation for only the current version and the most recent previous version (which can be accessed using the dropdown in the sidebar). Documentation for versions prior to that will be archived in the `docs/` folder of the version release zip file. Documentation for versions prior to v0.2.2 (0.1.0 - 0.2.1) can be found at https://github.com/singularity-energy/open-grid-emissions-docs, in separate branches that are named for each versioned release.
