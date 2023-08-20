@@ -13,17 +13,17 @@
     {
       "type": "item",
       "title": "Using the Data",
-      "uri": "/docs/Overview/Using the Data.md"
+      "uri": "/docs/docs/Overview/Using the Data.md"
     },
     {
       "type": "item",
       "title": "Input Data Sources",
-      "uri": "/docs/Overview/Input Data Sources.md"
+      "uri": "/docs/docs/Overview/Input Data Sources.md"
     },
     {
       "type": "item",
       "title": "Contributing To The Code Repository",
-      "uri": "/docs/Overview/Contributing to the Code Repository.md"
+      "uri": "/docs/docs/Overview/Contributing to the Code Repository.md"
     },
     {
       "type": "divider",
@@ -32,7 +32,7 @@
     {
       "type": "item",
       "title": "Overview of the data pipeline",
-      "uri": "/docs/Methodology/Method_overview.md"
+      "uri": "/docs/docs/Methodology/Method_overview.md"
     },
     {
       "type": "group",
@@ -41,22 +41,22 @@
         {
           "type": "item",
           "title": "CEMS Data",
-          "uri": "/docs/Methodology/Data Cleaning/CEMS Data.md"
+          "uri": "/docs/docs/Methodology/Data Cleaning/CEMS Data.md"
         },
         {
           "type": "item",
           "title": "EIA-860 Data",
-          "uri": "/docs/Methodology/Data Cleaning/EIA-860 Data.md"
+          "uri": "/docs/docs/Methodology/Data Cleaning/EIA-860 Data.md"
         },
         {
           "type": "item",
           "title": "EIA-923 Data",
-          "uri": "/docs/Methodology/Data Cleaning/EIA-923 Data.md"
+          "uri": "/docs/docs/Methodology/Data Cleaning/EIA-923 Data.md"
         },
         {
           "type": "item",
           "title": "EIA-930 Data",
-          "uri": "/docs/Methodology/Data Cleaning/EIA-930 Data.md"
+          "uri": "/docs/docs/Methodology/Data Cleaning/EIA-930 Data.md"
         }
       ]
     },
@@ -67,49 +67,49 @@
         {
           "type": "item",
           "title": "Overview",
-          "uri": "/docs/Methodology/Emissions Calculations/Overview.md"
+          "uri": "/docs/docs/Methodology/Emissions Calculations/Overview.md"
         },
         {
           "type": "item",
           "title": "Assigning Energy Source Codes",
-          "uri": "/docs/Methodology/Emissions Calculations/Assigning Energy Source Codes.md"
+          "uri": "/docs/docs/Methodology/Emissions Calculations/Assigning Energy Source Codes.md"
         },
         {
           "type": "item",
           "title": "GHG Emissions",
-          "uri": "/docs/Methodology/Emissions Calculations/GHG Emissions.md"
+          "uri": "/docs/docs/Methodology/Emissions Calculations/GHG Emissions.md"
         },
         {
           "type": "item",
           "title": "NOx Emissions",
-          "uri": "/docs/Methodology/Emissions Calculations/NOx Emissions.md"
+          "uri": "/docs/docs/Methodology/Emissions Calculations/NOx Emissions.md"
         },
         {
           "type": "item",
           "title": "SO2 Emissions",
-          "uri": "/docs/Methodology/Emissions Calculations/SO2 Emissions.md"
+          "uri": "/docs/docs/Methodology/Emissions Calculations/SO2 Emissions.md"
         },
         {
           "type": "item",
           "title": "Adjusting Emissions For CHP",
-          "uri": "/docs/Methodology/Emissions Calculations/Adjusting Emissions for CHP.md"
+          "uri": "/docs/docs/Methodology/Emissions Calculations/Adjusting Emissions for CHP.md"
         },
         {
           "type": "item",
           "title": "Adjusting Emissions For Biomass",
-          "uri": "/docs/Methodology/Emissions Calculations/Adjusting Emissions for Biomass.md"
+          "uri": "/docs/docs/Methodology/Emissions Calculations/Adjusting Emissions for Biomass.md"
         },
         {
           "type": "item",
           "title": "Consumption-based Emissions",
-          "uri": "/docs/Methodology/Emissions Calculations/Consumption-based Emissions.md"
+          "uri": "/docs/docs/Methodology/Emissions Calculations/Consumption-based Emissions.md"
         }
       ]
     },
     {
       "type": "item",
       "title": "Converting Gross To Net Generation",
-      "uri": "/docs/Methodology/Converting Gross to Net Generation.md"
+      "uri": "/docs/docs/Methodology/Converting Gross to Net Generation.md"
     },
     {
       "type": "group",
@@ -118,17 +118,17 @@
         {
           "type": "item",
           "title": "Subplant Aggregation",
-          "uri": "/docs/Methodology/Data Aggregation/Subplant Aggregation.md"
+          "uri": "/docs/docs/Methodology/Data Aggregation/Subplant Aggregation.md"
         },
         {
           "type": "item",
           "title": "Assigning Plant Primary Fuel",
-          "uri": "/docs/Methodology/Data Aggregation/Plant Primary Fuel.md"
+          "uri": "/docs/docs/Methodology/Data Aggregation/Plant Primary Fuel.md"
         },
         {
           "type": "item",
           "title": "Aggregating plant data to balancing authority",
-          "uri": "/docs/Methodology/Data Aggregation/Aggregating Data to Balancing Authority.md"
+          "uri": "/docs/docs/Methodology/Data Aggregation/Aggregating Data to Balancing Authority.md"
         }
       ]
     },
@@ -139,22 +139,22 @@
         {
           "type": "item",
           "title": "Summary of Approach",
-          "uri": "/docs/Methodology/Assigning Hourly Profiles to Monthly Data/Summary.md"
+          "uri": "/docs/docs/Methodology/Assigning Hourly Profiles to Monthly Data/Summary.md"
         },
         {
           "type": "item",
           "title": "Scaling partial CEMS subplant data",
-          "uri": "/docs/Methodology/Assigning Hourly Profiles to Monthly Data/Scaling Partial CEMS Subplant Data.md"
+          "uri": "/docs/docs/Methodology/Assigning Hourly Profiles to Monthly Data/Scaling Partial CEMS Subplant Data.md"
         },
         {
           "type": "item",
           "title": "Shaping EIA subplants with partial CEMS plant data",
-          "uri": "/docs/Methodology/Assigning Hourly Profiles to Monthly Data/Shaping Partial CEMS Plant Data.md"
+          "uri": "/docs/docs/Methodology/Assigning Hourly Profiles to Monthly Data/Shaping Partial CEMS Plant Data.md"
         },
         {
           "type": "item",
           "title": "Shaping EIA-only without plant-specific profiles",
-          "uri": "/docs/Methodology/Assigning Hourly Profiles to Monthly Data/Shaping Using Fleet-Specific Profiles.md"
+          "uri": "/docs/docs/Methodology/Assigning Hourly Profiles to Monthly Data/Shaping Using Fleet-Specific Profiles.md"
         }
       ]
     },
@@ -165,12 +165,12 @@
     {
       "type": "item",
       "title": "Data Quality Metrics",
-      "uri": "/docs/Data Validation/Data Quality Metrics.md"
+      "uri": "/docs/docs/Data Validation/Data Quality Metrics.md"
     },
     {
       "type": "item",
       "title": "Comparing Data to eGRID",
-      "uri": "/docs/Data Validation/Comparing Data to eGRID.md"
+      "uri": "/docs/docs/Data Validation/Comparing Data to eGRID.md"
     }
   ]
 }
