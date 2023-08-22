@@ -1,0 +1,7 @@
+ba_code	start_datetime_utc	end_datetime_utc	columns_affected	dst_shift	st_shift		description
+SC		2021-01-01 00:00:00+00	all				
+PJM				1	1		PJM reports data as start of hour rather than end of hour
+TEPC		2021-11-01 00:00:00+00	all	1	1		TEPC reported all data as start of hour rather than end of hour
+CISO		2022-06-14 07:00:00+00	all	1	1		"CISO reported start of hour data through June 13, 2022"
+CISO	2022-06-15 07:00:00+00	2022-06-16 07:00:00+00	all	1	1		"The June 14 data was corrected, but then the June 15 data went back to start of hour. The data was permanantly fixed as of June 16."
+TEPC			interchange				

@@ -425,18 +425,19 @@ def manual_930_adjust(raw: pd.DataFrame):
     # we need to shift all data by +1 hour
     ba = "PJM"
     cols = get_columns(ba, raw.columns)
-    cols = get_columns(ba, raw.columns)
     new = raw[cols].shift(1, freq="H")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
     # TEPC data reports start of hour instead of end of hour
-    # This issue may have been fixed but will be addressed in a future PR
     # we need to shift all data by +1 hour
+    # This issue was corrected in the raw data on 2021-11-01
     ba = "TEPC"
     cols = get_columns(ba, raw.columns)
-    cols = get_columns(ba, raw.columns)
-    new = raw[cols].shift(1, freq="H")
+    new = raw[cols].copy()
+    new.loc[raw.index < "2021-11-01 00:00:00+00", cols] = new.loc[
+        raw.index < "2021-11-01 00:00:00+00", cols
+    ].shift(1, freq="H")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
