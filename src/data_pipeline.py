@@ -665,9 +665,9 @@ def main():
         ####################################################################################
         logger.info("17. Creating and exporting BA-level power sector results")
         ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
-            combined_plant_data, plant_attributes
+            monthly_plant_data, plant_attributes
         )
-        del combined_plant_data
+
         # Output intermediate data: produced per-fuel annual averages
         output_data.write_generated_averages(
             ba_fuel_data, year, path_prefix, args.skip_outputs
