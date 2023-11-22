@@ -598,55 +598,26 @@ def main():
             output_data.output_plant_data(
                 combined_plant_data,
                 path_prefix,
-                args.skip_outputs,
-            )
-            # set validate parameter to False since validating non-overlapping data requires subplant-level data
-            # since the shaped eia data is at the fleet level, this check will not work.
-            # However, we already checked for non-overlapping data in step 11 when combining monthly data
-            combined_plant_data = data_cleaning.combine_plant_data(
-                cems,
-                partial_cems_subplant,
-                partial_cems_plant,
-                shaped_eia_data,
                 "hourly",
-                False,
+                args.skip_outputs,
+                plant_attributes,
             )
-            del (
-                shaped_eia_data,
-                cems,
-                partial_cems_subplant,
-                partial_cems_plant,
-            )  # free memory back to python
-            # export to a csv.
-            validation.validate_unique_datetimes(
-                df=combined_plant_data,
-                df_name="combined_plant_data",
-                keys=["plant_id_eia"],
-            )
-            if not args.shape_individual_plants:
-                output_data.output_plant_data(
-                    combined_plant_data,
-                    path_prefix,
-                    "hourly",
-                    args.skip_outputs,
-                    plant_attributes,
-                )
 
-            # 17. Aggregate CEMS data to BA-fuel and write power sector results
-            ####################################################################################
-            print("17. Creating and exporting BA-level power sector results")
-            ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
-                combined_plant_data, plant_attributes
-            )
-            del combined_plant_data
-            # Output intermediate data: produced per-fuel annual averages
-            output_data.write_generated_averages(
-                ba_fuel_data, year, path_prefix, args.skip_outputs
-            )
-            # Output final data: per-ba hourly generation and rate
-            output_data.write_power_sector_results(
-                ba_fuel_data, path_prefix, args.skip_outputs, include_hourly=True
-            )
+        # 17. Aggregate CEMS data to BA-fuel and write power sector results
+        ####################################################################################
+        logger.info("17. Creating and exporting BA-level power sector results")
+        ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
+            combined_plant_data, plant_attributes
+        )
+        del combined_plant_data
+        # Output intermediate data: produced per-fuel annual averages
+        output_data.write_generated_averages(
+            ba_fuel_data, year, path_prefix, args.skip_outputs
+        )
+        # Output final data: per-ba hourly generation and rate
+        output_data.write_power_sector_results(
+            ba_fuel_data, path_prefix, args.skip_outputs, include_hourly=True
+        )
 
         # 18. Calculate consumption-based emissions and write carbon accounting results
         ####################################################################################
