@@ -90,7 +90,7 @@ def zip_results_for_s3(year):
     # move and rename the plant attributes files
     shutil.copy(
         f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
-        f"{data_folder()}/s3_upload/plant_static_attributes_{year}.csv",
+        f"{data_folder()}/s3_upload/{year}_plant_static_attributes.csv",
     )
     # archive the data quality metrics
     shutil.make_archive(
@@ -141,7 +141,6 @@ def output_to_results(
     validation.test_for_missing_values(df, small)
 
     if not skip_outputs:
-
         df.to_csv(
             results_folder(f"{path_prefix}{subfolder}us_units/{file_name}.csv"),
             index=False,
@@ -426,7 +425,7 @@ def round_table(table):
     return table.round(decimals)
 
 
-def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
+def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs, include_hourly):
     """
     Helper function to write combined data by BA
     """
@@ -474,35 +473,80 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 columns="ba_code"
             )
 
-            # convert the datetime_utc column back to a datetime
-            ba_table["datetime_utc"] = pd.to_datetime(
-                ba_table["datetime_utc"], utc=True
-            )
+            if include_hourly:
+                # convert the datetime_utc column back to a datetime
+                ba_table["datetime_utc"] = pd.to_datetime(
+                    ba_table["datetime_utc"], utc=True
+                )
 
-            # calculate a total for the BA
-            # grouping by datetime_utc and report_date will create some duplicate datetime_utc
-            # values for certain bas where there are plants located in multiple timezones
-            # the report date column is necessary for monthly aggregation, but we will have to
-            # remove it and group values by datetime_utc for the hourly calculations
-            ba_total = (
-                ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
-                    data_columns
+                # calculate a total for the BA
+                # grouping by datetime_utc and report_date will create some duplicate datetime_utc
+                # values for certain bas where there are plants located in multiple timezones
+                # the report date column is necessary for monthly aggregation, but we will have to
+                # remove it and group values by datetime_utc for the hourly calculations
+                ba_total = (
+                    ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
+                        data_columns
+                    ]
+                    .sum()
+                    .reset_index()
+                )
+                ba_total["fuel_category"] = "total"
+
+                # concat the totals to the fuel-specific totals
+                ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
+
+                # create a dataframe for the hourly values that groups duplicate datetime_utc values
+                ba_table_hourly = ba_table.copy().drop(columns=["report_date"])
+                ba_table_hourly = (
+                    ba_table_hourly.groupby(["fuel_category", "datetime_utc"])
+                    .sum()
+                    .reset_index()
+                )
+
+                # output the hourly data
+                ba_table_hourly = add_generated_emission_rate_columns(ba_table_hourly)
+
+                # create a local datetime column
+                try:
+                    local_tz = load_data.ba_timezone(ba, "local")
+                    ba_table_hourly["datetime_local"] = ba_table_hourly[
+                        "datetime_utc"
+                    ].dt.tz_convert(local_tz)
+                except ValueError:
+                    ba_table_hourly["datetime_local"] = pd.NaT
+
+                # re-order columns
+                ba_table_hourly = ba_table_hourly[
+                    ["fuel_category", "datetime_local", "datetime_utc"]
+                    + data_columns
+                    + GENERATED_EMISSION_RATE_COLS
                 ]
-                .sum()
-                .reset_index()
-            )
-            ba_total["fuel_category"] = "total"
 
-            # concat the totals to the fuel-specific totals
-            ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
+                validation.validate_unique_datetimes(
+                    df=ba_table_hourly,
+                    df_name="power sector hourly ba table",
+                    keys=["fuel_category"],
+                )
 
-            # create a dataframe for the hourly values that groups duplicate datetime_utc values
-            ba_table_hourly = ba_table.copy().drop(columns=["report_date"])
-            ba_table_hourly = (
-                ba_table_hourly.groupby(["fuel_category", "datetime_utc"])
-                .sum()
-                .reset_index()
-            )
+                # export to a csv
+                output_to_results(
+                    ba_table_hourly,
+                    ba,
+                    "power_sector_data/hourly/",
+                    path_prefix,
+                    skip_outputs,
+                )
+            else:
+                ba_total = (
+                    ba_table.groupby(["report_date"], dropna=False)[data_columns]
+                    .sum()
+                    .reset_index()
+                )
+                ba_total["fuel_category"] = "total"
+
+                # concat the totals to the fuel-specific totals
+                ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
 
             def add_generated_emission_rate_columns(df):
                 for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
@@ -609,3 +653,18 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 path_prefix,
                 skip_outputs,
             )
+
+
+def add_generated_emission_rate_columns(df):
+    for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
+        for emission in ["co2", "ch4", "n2o", "co2e", "nox", "so2"]:
+            col_name = f"generated_{emission}_rate_lb_per_mwh{emission_type}"
+            df[col_name] = (
+                (df[f"{emission}_mass_lb{emission_type}"] / df["net_generation_mwh"])
+                .fillna(0)
+                .replace(np.inf, np.NaN)
+                .replace(-np.inf, np.NaN)
+            )
+            # Set negative rates to zero, following eGRID methodology
+            df.loc[df[col_name] < 0, col_name] = 0
+    return df
