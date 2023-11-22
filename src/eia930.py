@@ -7,11 +7,14 @@ from os.path import join
 import load_data
 from column_checks import get_dtypes
 from filepaths import top_folder, downloads_folder, outputs_folder, manual_folder
+from logging_util import get_logger
 
 # Tell gridemissions where to find config before we load gridemissions
 os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")
 
 from gridemissions.workflows import make_dataset
+
+logger = get_logger(__name__)
 
 
 def convert_balance_file_to_gridemissions_format(year: int, small: bool = False):
@@ -142,14 +145,14 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
         df = df.loc[start:end]  # Don't worry about processing everything
 
     # Adjust
-    print("    Adjusting EIA-930 time stamps")
+    logger.info("Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
     df.to_csv(
         join(data_folder, "eia930_raw.csv")
     )  # Will be read by gridemissions workflow
 
     # Run cleaning
-    print("    Running physics-based data cleaning")
+    logger.info("Running physics-based data cleaning")
     make_dataset(
         start,
         end,
@@ -171,17 +174,17 @@ def reformat_chalendar(raw):
     """
     # where we have variable (NG = net generation) and fuel type
     target_cols = [c for c in raw.columns if len(c.split(".")) == 5]
-    print("Filtering")
+    logger.info("Filtering")
     cleaned = (
         raw.loc[:, target_cols]
         .melt(ignore_index=False, value_name="generation", var_name="variable")
         .reset_index()
     )
-    print("Expanding cols")
+    logger.info("Expanding cols")
     cleaned[["dtype", "BA", "other BA", "var", "fuel", "interval"]] = cleaned[
         "variable"
     ].str.split(r"[.-]", expand=True, regex=True)
-    print("Dropping and renaming")
+    logger.info("Dropping and renaming")
     cleaned = cleaned.drop(columns=["dtype", "var", "interval", "other BA"])
     cleaned = cleaned.rename(columns={"index": "datetime_utc"})
     return cleaned
@@ -286,7 +289,7 @@ def remove_imputed_ones(eia930_data):
     filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
 
     # replace all 1.0 values with zero
-    print(f"  replacing {sum(filter)} imputed 1 values with 0")
+    logger.info(f"Replacing {sum(filter)} imputed 1 values with 0")
     eia930_data.loc[filter, "net_generation_mwh_930"] = 0
 
     return eia930_data
@@ -417,12 +420,51 @@ def manual_930_adjust(raw: pd.DataFrame):
     raw = raw.drop(columns=sc_dat.columns)
     raw = pd.concat([raw, sc_dat], axis="columns")
 
-    # PJM, CISO, TEPC: shift by one hour
-    for ba in ["PJM", "CISO", "TEPC"]:
-        cols = get_columns(ba, raw.columns)
-        new = raw[cols].shift(1, freq="H")
-        raw = raw.drop(columns=cols)
-        raw = pd.concat([raw, new], axis="columns")
+    # PJM data reports start of hour instead of end of hour
+    # This issue is still active as of 5/18/2023
+    # we need to shift all data by +1 hour
+    ba = "PJM"
+    cols = get_columns(ba, raw.columns)
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].shift(1, freq="H")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # TEPC data reports start of hour instead of end of hour
+    # This issue may have been fixed but will be addressed in a future PR
+    # we need to shift all data by +1 hour
+    ba = "TEPC"
+    cols = get_columns(ba, raw.columns)
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].shift(1, freq="H")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # CISO reported start of hour data through June 13, 2022
+    # The June 14 data was corrected, but then the June 15 data went back to start of hour
+    # The data was permanantly fixed as of June 16
+    ba = "CISO"
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].copy()
+    new.loc[
+        (raw.index < "2022-06-14 07:00:00+00")
+        | (
+            (raw.index >= "2022-06-15 07:00:00+00")
+            & (raw.index < "2022-06-16 07:00:00+00")
+        ),
+        cols,
+    ] = new.loc[
+        (raw.index < "2022-06-14 07:00:00+00")
+        | (
+            (raw.index >= "2022-06-15 07:00:00+00")
+            & (raw.index < "2022-06-16 07:00:00+00")
+        ),
+        cols,
+    ].shift(
+        1, freq="H"
+    )
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
 
     # Interchange sign. Do before we change interchange time for PJM, because
     # identification of sign shift is based on raw data

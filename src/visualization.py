@@ -1,7 +1,4 @@
-"""
-Helper functions for visualization
-
-"""
+"""Helper functions for visualization."""
 import pandas as pd
 import plotly.express as px
 

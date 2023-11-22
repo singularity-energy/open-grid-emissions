@@ -27,6 +27,7 @@ dependencies:
   - sqlalchemy
   - sqlite # used for pudl
   - statsmodels
+  - coloredlogs # used for prettier logging
 
   - pip:
       # --editable ../pudl #NOTE: this is for development use

@@ -1,0 +1,15 @@
+---
+stoplight-id: partial_cems_subplant
+---
+
+### Scaling partial CEMS subplant data
+
+Because subplants may include multiple CEMS units, in some cases we have hourly CEMS data for some units that make up a subplant but not others. In the case that there is partial CEMS subplant data for a given month, the pipeline scales the partial hourly data to match the monthly total reported for the complete subplant in EIA-923. This approach assumes that the hourly operational profile of all units within a subplant will be similar, although further research is needed to establish the accuracy of this assumption.
+
+Partial subplants are identified by counting the number of unique units that report data to CEMS in each subplant-month, and comparing that to the number of non-retired units that should belong to the subplant in each month based on the subplant crosswalk table. If the number of reporting units is less than the number of units that should belong to the subplant, and the total fuel consumption reported by those units in CEMS is less than 95% of the total fuel consumption reported for the subplant in EIA-923, that subplant is identified as a partial CEMS subplant. We use fuel consumption to help identify partial subplants because it is possible that the number of units is lower than should exist because of a unit retirement date being incorrect, or because the unit was reporting all zeros and was removed during the CEMS data cleaning process.
+
+Data for units identified as partial CEMS subplants are removed from the CEMS dataframe so that it is not double counted when the shaped EIA data is combined with the CEMS data.
+
+Each monthly total EIA-923 value for a subplant is scaled by applying a scaling factor to each hourly value from the partial CEMS data. All EIA data values related to fuel consumption or emissions are shaped using the hourly fuel consumption profile reported in CEMS. The net generation profile is shaped using the gross generation profile reported in CEMS.
+
+Either a scaling factor or shift factor is calculated by comparing the monthly total CEMS value to the monthly EIA-923 value. A scaling factor is calculated by dividing the EIA total by the CEMS total. Scaling factors are then multiplied by the hourly CEMS value to get the shaped hourly EIA value. A shift factor is calculated by subtracting the CEMS total from the EIA total and dividing by the number of hours in the month. Shift factors are then added to the hourly CEMS value to get the shaped hourly EIA value. If both the EIA value and the CEMS value are positive, use a scaling factor. In the case of net generation, if the corresponding CEMS gross generation total is zero, use the CEMS fuel consumption to shape the net generation profile. In all other cases when one of the totals is zero or negative, the pipeline uses a shift factor.
