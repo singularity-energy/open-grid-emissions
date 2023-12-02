@@ -61,17 +61,6 @@ def load_cems_data(year):
         columns=cems_columns,
     )
 
-    ### Code to load data from zenodo version of pudl archive
-    # NOTE(greg): keeping for now until pudl archiving finalized
-    """
-    cems_path = downloads_folder("pudl/pudl_data/parquet/epacems/")
-    cems = pd.concat(
-        pd.read_parquet((cems_path + filename), columns=cems_columns)
-        for filename in os.listdir(cems_path)
-        if str(year) in filename
-    )
-    """
-
     # **** manual adjustments ****
     cems = correct_epa_eia_plant_id_mapping(cems)
 
@@ -140,41 +129,6 @@ def load_cems_ids(start_year, end_year):
 
     # **** manual adjustments ****
     cems = correct_epa_eia_plant_id_mapping(cems)
-
-    # code pattern for loading data from pudl zenodo archive
-    # NOTE(greg): keeping for now until pudl archiving finalized
-    """
-    cems_all = []
-
-    for year in range(start_year, end_year + 1):
-        # specify the path to the CEMS data
-        cems_path = downloads_folder("pudl/pudl_data/parquet/epacems/")
-
-        # load the CEMS data
-        cems = pd.concat(
-            pd.read_parquet(
-                (cems_path + filename),
-                columns=[
-                    "plant_id_eia",
-                    "emissions_unit_id_epa",
-                ],
-            )
-            for filename in os.listdir(cems_path)
-            if str(year) in filename
-        )
-
-        # **** manual adjustments ****
-        cems = correct_epa_eia_plant_id_mapping(cems)
-
-        # drop duplicate ids to reduce size
-        cems = cems[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates()
-
-        cems_all.append(cems)
-
-    cems = pd.concat(cems_all, axis=0).reset_index()
-
-    cems = cems[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates()
-    """
 
     return cems
 
