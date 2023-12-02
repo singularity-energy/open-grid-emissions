@@ -399,10 +399,11 @@ def calculate_gross_to_net_conversion_factors(
 def calculate_subplant_nameplate_capacity(year):
     """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
     # load generator data
-    pudl_out = load_data.initialize_pudl_out(year)
-    gen_capacity = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "prime_mover_code", "capacity_mw"]
-    ]
+    gen_capacity = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "prime_mover_code", "capacity_mw"],
+    )
 
     # add subplant ids to the generator data
     subplant_crosswalk = pd.read_csv(
@@ -756,7 +757,7 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
 
     # load and clean EIA data
     # create pudl_out
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite") 
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
     pudl_out = pudl.output.pudltabl.PudlTabl(
         pudl_engine,
@@ -779,7 +780,6 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
 
 
 def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
-
     if agg_level == "plant":
         plant_aggregation_columns = ["plant_id_eia"]
     elif agg_level == "subplant":

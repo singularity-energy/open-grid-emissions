@@ -110,10 +110,11 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
 
     # update the subplant_crosswalk to ensure completeness
     # prepare the subplant crosswalk by adding a complete list of generators and adding the unit_id_pudl column
-    pudl_out = load_data.initialize_pudl_out(year=end_year)
-    complete_generator_ids = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "unit_id_pudl"]
-    ].drop_duplicates()
+    complete_generator_ids = load_data.load_pudl_table(
+        "generators_eia860",
+        end_year,
+        columns=["plant_id_eia", "generator_id", "unit_id_pudl"],
+    ).drop_duplicates()
     subplant_crosswalk_complete = crosswalk_with_subplant_ids.merge(
         complete_generator_ids,
         how="outer",
@@ -325,18 +326,11 @@ def connect_ids(df, id_to_update, connecting_id):
 
 def add_operating_and_retirement_dates(df, start_year, end_year):
     """Adds columns listing a generator's planned operating date or retirement date to a dataframe."""
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
-    pudl_engine = sa.create_engine(pudl_db)
-    # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
-    pudl_out_status = pudl.output.pudltabl.PudlTabl(
-        pudl_engine,
-        freq="MS",
-        start_date=f"{start_year-1}-01-01",
-        end_date=f"{end_year}-12-31",
-    )
-    generator_status = pudl_out_status.gens_eia860().loc[
-        :,
-        [
+
+    generator_status = load_data.load_pudl_table(
+        "generators_eia860",
+        year=start_year,
+        columns=[
             "plant_id_eia",
             "generator_id",
             "report_date",
@@ -344,7 +338,9 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
             "current_planned_operating_date",
             "retirement_date",
         ],
-    ]
+        end_year=end_year,
+    )
+
     # only keep values that have a planned operating date or retirement date
     generator_status = generator_status[
         (~generator_status["current_planned_operating_date"].isna())
@@ -387,25 +383,17 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
 
 def add_prime_mover_to_subplant_crosswalk(df, year):
     """Adds a column identifying each generator's prime_mover to a dataframe."""
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
-    pudl_engine = sa.create_engine(pudl_db)
-    # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
-    pudl_out_pm = pudl.output.pudltabl.PudlTabl(
-        pudl_engine,
-        freq="AS",
-        start_date=f"{year}-01-01",
-        end_date=f"{year}-12-31",
-    )
-    generator_pm = pudl_out_pm.gens_eia860().loc[
-        :,
-        [
+    generator_pm = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=[
             "plant_id_eia",
             "generator_id",
             "prime_mover_code",
         ],
-    ]
+    )
 
-    # merge the dates into the crosswalk
+    # merge the prime movers into the crosswalk
     df = df.merge(
         generator_pm, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
     )
@@ -425,15 +413,13 @@ def clean_eia923(
     """
     # Distribute net generation and heat input data reported by the three different EIA-923 tables
 
-    pudl_out = load_data.initialize_pudl_out(year=year)
-
     # allocate net generation and heat input to each generator-fuel grouping
     gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
         pudl_out, drop_interim_cols=True
     )
 
     # test to make sure allocated totals match input totals
-    validation.check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated)
+    validation.check_allocated_gf_matches_input_gf(year, gen_fuel_allocated)
 
     # manually update energy source code when OTH
     gen_fuel_allocated = update_energy_source_codes(gen_fuel_allocated)
@@ -462,7 +448,7 @@ def clean_eia923(
 
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(
-        gen_fuel_allocated, pudl_out, add_subplant_id, year
+        gen_fuel_allocated, add_subplant_id, year
     )
 
     if small:
@@ -480,11 +466,11 @@ def clean_eia923(
     # Calculate NOx and SO2 emissions
     if calculate_nox_emissions:
         gen_fuel_allocated = emissions.calculate_nox_from_fuel_consumption(
-            gen_fuel_allocated, pudl_out, year
+            gen_fuel_allocated, year
         )
     if calculate_so2_emissions:
         gen_fuel_allocated = emissions.calculate_so2_from_fuel_consumption(
-            gen_fuel_allocated, pudl_out, year
+            gen_fuel_allocated, year
         )
 
     # adjust total emissions for biomass
@@ -539,9 +525,11 @@ def clean_eia923(
         validation.test_for_missing_subplant_id(gen_fuel_allocated)
 
     # add the cleaned prime mover code to the data
-    gen_pm = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "prime_mover_code"]
-    ]
+    gen_pm = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "prime_mover_code"],
+    )
     gen_fuel_allocated = gen_fuel_allocated.merge(
         gen_pm, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
     )
@@ -586,7 +574,7 @@ def update_energy_source_codes(df):
     return df
 
 
-def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, year):
+def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
     """
     Identifies the primary fuel for each generator and plant
     Gen primary fuel is identified based on the "energy source code 1" identified in EIA-860
@@ -623,7 +611,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
         ]
 
     plant_primary_fuel = calculate_aggregated_primary_fuel(
-        gen_fuel_allocated, gen_primary_fuel, "plant", pudl_out, year
+        gen_fuel_allocated, gen_primary_fuel, "plant", year
     )
 
     validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel)
@@ -642,7 +630,6 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
             gen_fuel_allocated,
             gen_primary_fuel,
             "subplant",
-            pudl_out,
             year,
         )
         primary_fuel_table = primary_fuel_table.merge(
@@ -656,7 +643,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
 
 
 def calculate_aggregated_primary_fuel(
-    gen_fuel_allocated, gen_primary_fuel, agg_level, pudl_out, year
+    gen_fuel_allocated, gen_primary_fuel, agg_level, year
 ):
     """
     Takes generator-level fuel data and calculates primary fuel for the subplant or plant level.
@@ -665,7 +652,6 @@ def calculate_aggregated_primary_fuel(
         gen_fuel_allocated: dataframe of allocated fuel, generation, and emissions data by generator
         gen_primary_fuel: dataframe of primary fuel by generator
         agg_level: either "plant" or "subplant"
-        pudl_out: for loading pudl output tables
     """
     if agg_level == "plant":
         agg_keys = ["plant_id_eia"]
@@ -677,7 +663,7 @@ def calculate_aggregated_primary_fuel(
         )
 
     primary_fuel_from_capacity = calculate_capacity_based_primary_fuel(
-        pudl_out, agg_level, agg_keys, year
+        agg_level, agg_keys, year
     )
 
     # NOTE: In some rare cases, a plant will have no fuel specified by
@@ -781,11 +767,13 @@ def calculate_aggregated_primary_fuel(
     return agg_primary_fuel
 
 
-def calculate_capacity_based_primary_fuel(pudl_out, agg_level, agg_keys, year):
+def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
     # create a table of primary fuel by nameplate capacity
-    gen_capacity = pudl_out.gens_eia860().loc[
-        :, ["plant_id_eia", "generator_id", "capacity_mw", "energy_source_code_1"]
-    ]
+    gen_capacity = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "capacity_mw", "energy_source_code_1"],
+    )
 
     if "subplant_id" in agg_keys:
         subplant_crosswalk = pd.read_csv(
@@ -911,9 +899,9 @@ def remove_plants(
     if non_grid_connected:
         df = remove_non_grid_connected_plants(df)
     if len(remove_states) > 0:
-        plant_states = load_data.load_pudl_table("plants_entity_eia").loc[
-            :, ["plant_id_eia", "state"]
-        ]
+        plant_states = load_data.load_pudl_table(
+            "plants_entity_eia", columns=["plant_id_eia", "state"]
+        )
         plants_in_states_to_remove = list(
             plant_states[
                 plant_states["state"].isin(remove_states)
@@ -1167,9 +1155,11 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
 
     # if there are still missing fuels, the plant might be proposed and not yet in EIA-923
     # in this case, load data from EIA-860 to see if the plant exists in the proposed category
-    gen_fuel = load_data.load_pudl_table("generators_eia860", year)[
-        ["plant_id_eia", "generator_id", "energy_source_code_1"]
-    ].drop_duplicates()
+    gen_fuel = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
+    ).drop_duplicates()
     generator_unit_map = pd.read_csv(
         outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
@@ -1248,9 +1238,16 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     """
 
     # identify plant-months for which there is a single fossil fuel type reported
-    gf = load_data.load_pudl_table("generation_fuel_eia923", year=year)[
-        ["plant_id_eia", "report_date", "energy_source_code", "fuel_consumed_mmbtu"]
-    ]
+    gf = load_data.load_pudl_table(
+        "generation_fuel_eia923",
+        year,
+        columns=[
+            "plant_id_eia",
+            "report_date",
+            "energy_source_code",
+            "fuel_consumed_mmbtu",
+        ],
+    )
 
     # remove any rows for clean fuels
     gf = gf[~gf["energy_source_code"].isin(CLEAN_FUELS)]
@@ -2012,19 +2009,32 @@ def create_plant_ba_table(year):
     """
     Creates a table assigning a ba_code and physical ba code to each plant id.
     """
-    pudl_out = load_data.initialize_pudl_out(year=year)
 
-    plant_ba = pudl_out.plants_eia860().loc[
-        :,
-        [
+    plant_ba = load_data.load_pudl_table(
+        "plants_eia860",
+        year,
+        columns=[
             "plant_id_eia",
             "balancing_authority_code_eia",
             "balancing_authority_name_eia",
-            "utility_name_eia",
+            "utility_id_eia",
             "transmission_distribution_owner_name",
-            "state",
         ],
-    ]
+    )
+    # merge utility name
+    utilities_eia = load_data.load_pudl_table(
+        "utilities_eia", columns=["utility_id_eia", "utility_name_eia"]
+    )
+    plant_ba = plant_ba.merge(
+        utilities_eia, how="left", on="utility_id_eia", validate="m:1"
+    )
+    # merge plant state
+    plant_states = load_data.load_pudl_table(
+        "plants_entity_eia", columns=["plant_id_eia", "state"]
+    )
+    plant_ba = plant_ba.merge(
+        plant_states, how="left", on="plant_id_eia", validate="m:1"
+    )
 
     # convert the dtype of the balancing authority code column from string to object
     # this will allow for missing values to be filled
@@ -2118,11 +2128,9 @@ def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
         df: with additional binary column `distribution_flag`
     """
     # load the EIA-860 data
-    pudl_out = load_data.initialize_pudl_out(year=year)
-
-    plant_voltage = pudl_out.plants_eia860().loc[
-        :, ["plant_id_eia", "grid_voltage_1_kv"]
-    ]
+    plant_voltage = load_data.load_pudl_table(
+        "plants_eia860", year, columns=["plant_id_eia", "grid_voltage_1_kv"]
+    )
 
     plant_voltage = plant_voltage.assign(
         distribution_flag=lambda x: np.where(
@@ -2172,9 +2180,9 @@ def assign_fuel_category_to_ESC(
 
 
 def add_plant_local_timezone(df, year):
-    plant_tz = load_data.load_pudl_table("plants_entity_eia")[
-        ["plant_id_eia", "timezone"]
-    ]
+    plant_tz = load_data.load_pudl_table(
+        "plants_entity_eia", columns=["plant_id_eia", "timezone"]
+    )
     df = df.merge(plant_tz, how="left", on=["plant_id_eia"], validate="m:1")
 
     return df

@@ -14,6 +14,9 @@ from logging_util import get_logger
 
 logger = get_logger(__name__)
 
+# initialize the pudl_engine
+PUDL_ENGINE = sa.create_engine("sqlite:///" + downloads_folder("pudl/pudl.sqlite"))
+
 
 def correct_epa_eia_plant_id_mapping(df):
     """
@@ -193,11 +196,13 @@ def add_report_date(df):
     Returns:
         Original dataframe with 'report_date' column added
     """
-    plants_entity_eia = load_pudl_table("plants_entity_eia")
+    plant_timezone = load_pudl_table(
+        "plants_entity_eia", columns=["plant_id_eia", "timezone"]
+    )
 
     # get timezone
     df = df.merge(
-        plants_entity_eia[["plant_id_eia", "timezone"]],
+        plant_timezone,
         how="left",
         on="plant_id_eia",
         validate="m:1",
@@ -234,28 +239,6 @@ def add_report_date(df):
     df = df.drop(columns=["timezone"])
 
     return df
-
-
-def load_pudl_table(table_name, year=None):
-    """
-    Loads a table from the PUDL SQL database.
-    Inputs:
-        sql_query: string containing table name (to retrieve entire table) or SQL query (to select part of table)
-    Returns:
-        table: pandas dataframe containing requested query
-    """
-    # specify the relative path to the sqllite database, and create an sqalchemy engine
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
-    pudl_engine = sa.create_engine(pudl_db)
-
-    if year is not None:
-        sql_query = f"SELECT * FROM {table_name} WHERE report_date >= '{year}-01-01' AND report_date <= '{year}-12-01'"
-    else:
-        sql_query = table_name
-
-    table = pd.read_sql(sql_query, pudl_engine)
-
-    return table
 
 
 def load_ghg_emission_factors():
@@ -320,26 +303,52 @@ def load_so2_emission_factors():
     return df
 
 
-def initialize_pudl_out(year=None):
+def load_pudl_table(
+    table_name: str, year: int = None, columns: list[str] = None, end_year: int = None
+):
     """
-    Initializes a `pudl_out` object used to create tables for EIA and FERC Form 1 analysis.
+    Loads a table from the pudl database.
 
-    If `year` is set to `None`, all years of data are returned.
+    `table_name` must be one of the options specified in the data dictionary:
+    https://catalystcoop-pudl.readthedocs.io/en/latest/data_dictionaries/pudl_db.html
+
+    There are multiple options for date filtering:
+        - if `year` is not specified, all years will be loaded
+        - if `year` is specified, but not `end_year`, only a single year will be loaded
+        - if both `year` and `end_year` are specified, all years in that range inclusive
+          will be loaded. `end_year` must be >= `year`.
+
+    If a list of `columns` is passed, only those columns will be returned. Otherwise,
+    all columns will be returned.
     """
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
-    pudl_engine = sa.create_engine(pudl_db)
+
+    if columns is None:
+        columns_to_select = "*"
+    else:
+        columns_to_select = ", ".join(columns)
 
     if year is None:
-        pudl_out = pudl.output.pudltabl.PudlTabl(pudl_engine)
-    else:
-        pudl_out = pudl.output.pudltabl.PudlTabl(
-            pudl_engine,
-            freq="MS",
-            start_date=f"{year}-01-01",
-            end_date=f"{year}-12-31",
-            fill_tech_desc=False,
+        # load the table without filtering dates
+        table = pd.read_sql(
+            f"SELECT {columns_to_select} FROM {table_name}",
+            PUDL_ENGINE,
         )
-    return pudl_out
+    elif year is not None and end_year is None:
+        # load the table for a single year
+        table = pd.read_sql(
+            f"SELECT {columns_to_select} FROM {table_name} WHERE \
+                report_date >= '{year}-01-01' AND report_date < '{year + 1}-01-01'",
+            PUDL_ENGINE,
+        )
+    else:
+        # load the for the specified years
+        table = pd.read_sql(
+            f"SELECT {columns_to_select} FROM {table_name} WHERE \
+                report_date >= '{year}-01-01' AND report_date < '{end_year + 1}-01-01'",
+            PUDL_ENGINE,
+        )
+
+    return table
 
 
 def load_epa_eia_crosswalk_from_raw(year):
@@ -418,10 +427,11 @@ def load_epa_eia_crosswalk_from_raw(year):
     ).drop(columns=["notes"])
 
     # load EIA-860 data
-    pudl_out = initialize_pudl_out(year=year)
-    gen_esc_860 = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "energy_source_code_1"]
-    ]
+    gen_esc_860 = load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
+    )
 
     # merge the energy source code from EIA-860
     crosswalk_manual = crosswalk_manual.merge(
@@ -475,12 +485,13 @@ def load_epa_eia_crosswalk(year):
     )
 
     # load EIA-860 data
-    pudl_out = initialize_pudl_out(year=year)
-    gen_esc_860 = pudl_out.gens_eia860()[["plant_id_eia", "generator_id"]]
+    gen_ids = load_pudl_table(
+        "generators_eia860", year, columns=["plant_id_eia", "generator_id"]
+    )
 
     # merge in any plants that are missing from the EPA crosswalk but appear in EIA-860
     crosswalk = crosswalk.merge(
-        gen_esc_860, how="outer", on=["plant_id_eia", "generator_id"], validate="m:1"
+        gen_ids, how="outer", on=["plant_id_eia", "generator_id"], validate="m:1"
     )
     crosswalk["plant_id_epa"] = crosswalk["plant_id_epa"].fillna(
         crosswalk["plant_id_eia"]
@@ -865,8 +876,7 @@ def load_unit_to_boiler_associations(year):
         outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
     )
-    pudl_out = initialize_pudl_out(year=year)
-    boiler_generator_assn = pudl_out.bga_eia860()
+    boiler_generator_assn = load_pudl_table("boiler_generator_assn_eia860", year)
     unit_boiler_assn = subplant_crosswalk.merge(
         boiler_generator_assn, how="left", on=["plant_id_eia", "generator_id"]
     )
