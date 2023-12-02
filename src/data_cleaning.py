@@ -325,7 +325,7 @@ def connect_ids(df, id_to_update, connecting_id):
 
 def add_operating_and_retirement_dates(df, start_year, end_year):
     """Adds columns listing a generator's planned operating date or retirement date to a dataframe."""
-    pudl_db = f"sqlite:///{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
     # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
     pudl_out_status = pudl.output.pudltabl.PudlTabl(
@@ -387,7 +387,7 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
 
 def add_prime_mover_to_subplant_crosswalk(df, year):
     """Adds a column identifying each generator's prime_mover to a dataframe."""
-    pudl_db = f"sqlite:///{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
     # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
     pudl_out_pm = pudl.output.pudltabl.PudlTabl(

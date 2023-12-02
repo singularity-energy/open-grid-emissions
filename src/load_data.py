@@ -280,7 +280,7 @@ def load_pudl_table(table_name, year=None):
         table: pandas dataframe containing requested query
     """
     # specify the relative path to the sqllite database, and create an sqalchemy engine
-    pudl_db = f"sqlite:///{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
 
     if year is not None:
@@ -361,7 +361,7 @@ def initialize_pudl_out(year=None):
 
     If `year` is set to `None`, all years of data are returned.
     """
-    pudl_db = f"sqlite:///{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
 
     if year is None:

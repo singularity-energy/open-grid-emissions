@@ -14,7 +14,7 @@ import load_data
 import data_cleaning
 import validation
 from column_checks import get_dtypes
-from filepaths import outputs_folder
+from filepaths import outputs_folder, downloads_folder
 from logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -756,7 +756,7 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
 
     # load and clean EIA data
     # create pudl_out
-    pudl_db = "sqlite:///../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite") 
     pudl_engine = sa.create_engine(pudl_db)
     pudl_out = pudl.output.pudltabl.PudlTabl(
         pudl_engine,
