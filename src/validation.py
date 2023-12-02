@@ -2157,8 +2157,8 @@ def identify_plants_missing_from_our_calculations(
         columns=[
             "plant_id_eia",
             "operational_status",
-            "current_planned_operating_date",
-            "retirement_date",
+            "current_planned_generator_operating_date",
+            "generator_retirement_date",
         ],
     ).drop_duplicates()
     missing_from_calc.merge(

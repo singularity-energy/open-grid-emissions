@@ -5,8 +5,6 @@ import sqlalchemy as sa
 import warnings
 from pathlib import Path
 
-import pudl.output.pudltabl
-
 from column_checks import get_dtypes
 from filepaths import downloads_folder, manual_folder, outputs_folder
 from validation import validate_unique_datetimes
@@ -16,18 +14,6 @@ logger = get_logger(__name__)
 
 # initialize the pudl_engine
 PUDL_ENGINE = sa.create_engine("sqlite:///" + downloads_folder("pudl/pudl.sqlite"))
-
-
-def correct_epa_eia_plant_id_mapping(df):
-    """
-    The EPA's power sector data crosswalk incorrectly maps plant_id_epa 55248 to
-    plant_id_eia 55248, when it should be mapped to id 2847. This function is temporary
-    until this is fixed.
-    """
-
-    df.loc[df["plant_id_eia"] == 55248, "plant_id_eia"] = 2847
-
-    return df
 
 
 def load_cems_data(year):
@@ -63,9 +49,6 @@ def load_cems_data(year):
         filters=[["year", "==", year]],
         columns=cems_columns,
     )
-
-    # **** manual adjustments ****
-    cems = correct_epa_eia_plant_id_mapping(cems)
 
     cems = cems.rename(
         columns={
@@ -129,9 +112,6 @@ def load_cems_ids(start_year, end_year):
         filters=[["year", ">=", start_year], ["year", "<=", end_year]],
         columns=["plant_id_eia", "emissions_unit_id_epa"],
     ).drop_duplicates()
-
-    # **** manual adjustments ****
-    cems = correct_epa_eia_plant_id_mapping(cems)
 
     return cems
 
@@ -354,6 +334,9 @@ def load_pudl_table(
 def load_epa_eia_crosswalk_from_raw(year):
     """
     Read in the manual EPA-EIA Crosswalk table downloaded from the EPA website.
+
+    This is only used in OGE to access the CAMD_FUEL_TYPE column, which is dropped from
+    the PUDL version of the table.
     """
 
     crosswalk = pd.read_csv(
@@ -417,9 +400,6 @@ def load_epa_eia_crosswalk_from_raw(year):
         crosswalk["energy_source_code_epa"]
     )
 
-    # **** manual adjustments ****
-    crosswalk = correct_epa_eia_plant_id_mapping(crosswalk)
-
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
         manual_folder("epa_eia_crosswalk_manual.csv"),
@@ -468,9 +448,6 @@ def load_epa_eia_crosswalk(year):
     """
 
     crosswalk = load_pudl_table("epacamd_eia")
-
-    # **** manual adjustments ****
-    crosswalk = correct_epa_eia_plant_id_mapping(crosswalk)
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(

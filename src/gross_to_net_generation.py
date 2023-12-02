@@ -7,7 +7,6 @@ import warnings
 
 # import pudl packages
 import pudl.analysis.allocate_net_gen as allocate_gen_fuel
-import pudl.output.pudltabl
 
 # import other modules
 import load_data
@@ -755,21 +754,13 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
     # load cems data
     cems_monthly = load_data.load_cems_gross_generation(start_year, end_year)
 
-    # load and clean EIA data
-    # create pudl_out
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
-    pudl_engine = sa.create_engine(pudl_db)
-    pudl_out = pudl.output.pudltabl.PudlTabl(
-        pudl_engine,
-        freq="MS",
-        start_date=f"{start_year}-01-01",
-        end_date=f"{end_year}-12-31",
-    )
-
     # allocate net generation and heat input to each generator-fuel grouping
     logger.info("Allocating EIA-923 generation data")
-    gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
-        pudl_out, drop_interim_cols=True
+    gen_fuel_allocated = load_data.load_pudl_table(
+        "generation_fuel_by_generator_energy_source_monthly_eia923",
+        year=start_year,
+        columns=None,
+        end_year=end_year,
     )
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
@@ -815,14 +806,14 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     # drop any of these rows where the retirement date is before the report date (only applies if net generation missing)
     incomplete_data = incomplete_data[
-        ~(incomplete_data["retirement_date"] < incomplete_data["report_date"])
+        ~(incomplete_data["generator_retirement_date"] < incomplete_data["report_date"])
     ]
 
     # drop any of these rows where the report date is before the planned operating date
     incomplete_data = incomplete_data[
         ~(
             incomplete_data["report_date"]
-            < incomplete_data["current_planned_operating_date"]
+            < incomplete_data["current_planned_generator_operating_date"]
         )
     ]
 

@@ -5,7 +5,6 @@ import sqlalchemy as sa
 
 import pudl.analysis.allocate_net_gen as allocate_gen_fuel
 import pudl.analysis.epacamd_eia as epacamd_eia_crosswalk
-import pudl.output.pudltabl
 
 import load_data
 import validation
@@ -164,7 +163,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     )
 
     # add proposed operating dates and retirements to the subplant id crosswalk
-    subplant_crosswalk_complete = add_operating_and_retirement_dates(
+    subplant_crosswalk_complete = add_operating_and_generator_retirement_dates(
         subplant_crosswalk_complete, start_year, end_year
     )
     # add prime mover code to the crosswalk
@@ -324,7 +323,7 @@ def connect_ids(df, id_to_update, connecting_id):
     return df
 
 
-def add_operating_and_retirement_dates(df, start_year, end_year):
+def add_operating_and_generator_retirement_dates(df, start_year, end_year):
     """Adds columns listing a generator's planned operating date or retirement date to a dataframe."""
 
     generator_status = load_data.load_pudl_table(
@@ -335,16 +334,16 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
             "generator_id",
             "report_date",
             "operational_status",
-            "current_planned_operating_date",
-            "retirement_date",
+            "current_planned_generator_operating_date",
+            "generator_retirement_date",
         ],
         end_year=end_year,
     )
 
     # only keep values that have a planned operating date or retirement date
     generator_status = generator_status[
-        (~generator_status["current_planned_operating_date"].isna())
-        | (~generator_status["retirement_date"].isna())
+        (~generator_status["current_planned_generator_operating_date"].isna())
+        | (~generator_status["generator_retirement_date"].isna())
     ]
     # drop any duplicate entries
     generator_status = generator_status.sort_values(
@@ -353,8 +352,8 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
         subset=[
             "plant_id_eia",
             "generator_id",
-            "current_planned_operating_date",
-            "retirement_date",
+            "current_planned_generator_operating_date",
+            "generator_retirement_date",
         ],
         keep="last",
     )
@@ -369,8 +368,8 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
             [
                 "plant_id_eia",
                 "generator_id",
-                "current_planned_operating_date",
-                "retirement_date",
+                "current_planned_generator_operating_date",
+                "generator_retirement_date",
             ]
         ],
         how="left",
@@ -414,8 +413,8 @@ def clean_eia923(
     # Distribute net generation and heat input data reported by the three different EIA-923 tables
 
     # allocate net generation and heat input to each generator-fuel grouping
-    gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
-        pudl_out, drop_interim_cols=True
+    gen_fuel_allocated = load_data.load_pudl_table(
+        "generation_fuel_by_generator_energy_source_monthly_eia923", year
     )
 
     # test to make sure allocated totals match input totals
@@ -1579,15 +1578,15 @@ def count_total_units_in_subplant(year):
         pd.read_csv(
             outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
             dtype=get_dtypes(),
-            parse_dates=["current_planned_operating_date", "retirement_date"],
-        )[["plant_id_eia", "emissions_unit_id_epa", "subplant_id", "retirement_date"]]
+            parse_dates=["current_planned_generator_operating_date", "generator_retirement_date"],
+        )[["plant_id_eia", "emissions_unit_id_epa", "subplant_id", "generator_retirement_date"]]
         .drop_duplicates()
         .dropna(subset="emissions_unit_id_epa")
     )
 
     # remove units that retired before the current year
     units_in_subplant = units_in_subplant[
-        ~(units_in_subplant["retirement_date"].dt.year < year)
+        ~(units_in_subplant["generator_retirement_date"].dt.year < year)
     ]
 
     # get a count of the number of CEMS units in each subplant
