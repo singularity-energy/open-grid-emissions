@@ -118,8 +118,14 @@ def download_pudl_data(source: str = "aws"):
             )
 
             # add a version file
-            with open(downloads_folder("pudlo/pudl_sqlite_version.txt"), "w+") as v:
+            with open(downloads_folder("pudl/pudl_sqlite_version.txt"), "w+") as v:
                 v.write(datetime.date.today())
+        else:
+            with open(downloads_folder("pudl/pudl_sqlite_version.txt"), "r") as f:
+                existing_version = f.readlines()[0].replace("\n", "")
+                logger.info(
+                    f"Using nightly build version of PUDL sqlite database downloaded {existing_version}"
+                )
 
         if not os.path.exists(
             downloads_folder("pudl/hourly_emissions_epacems.parquet")
@@ -132,8 +138,15 @@ def download_pudl_data(source: str = "aws"):
             )
 
             # add a version file
-            with open(downloads_folder("pudlo/epacems_parquet_version.txt"), "w+") as v:
+            with open(downloads_folder("pudl/epacems_parquet_version.txt"), "w+") as v:
                 v.write(datetime.date.today())
+
+        else:
+            with open(downloads_folder("pudl/epacems_parquet_version.txt"), "r") as f:
+                existing_version = f.readlines()[0].replace("\n", "")
+                logger.info(
+                    f"Using nightly build version of PUDL epacems parquet file downloaded {existing_version}"
+                )
     elif source == "zenodo":
         # NOTE: This is the most recent available version as of 12/2/2023
         zenodo_url = "https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
