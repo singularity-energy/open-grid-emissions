@@ -659,32 +659,34 @@ def load_emissions_controls_eia923(year: int):
         "report_date",
         "plant_id_eia",
         "equipment_tech_description",
-        "pm_control_id",
-        "so2_control_id",
-        "nox_control_id",
-        "hg_control_id",
+        "particulate_control_id_eia",
+        "so2_control_id_eia",
+        "nox_control_id_eia",
+        "mercury_control_id_eia",
         "operational_status",
         "hours_in_service",
         "annual_nox_emission_rate_lb_per_mmbtu",
         "ozone_season_nox_emission_rate_lb_per_mmbtu",
-        "pm_emission_rate_lb_per_mmbtu",
-        "pm_removal_efficiency_annual",
-        "pm_removal_efficiency_at_full_load",
-        "pm_test_date",
+        "particulate_emission_rate_lb_per_mmbtu",
+        "particulate_removal_efficiency_annual",
+        "particulate_removal_efficiency_at_full_load",
+        "particulate_test_date",
         "so2_removal_efficiency_annual",
         "so2_removal_efficiency_at_full_load",
         "so2_test_date",
         "fgd_sorbent_consumption_1000_tons",
         "fgd_electricity_consumption_mwh",
-        "hg_removal_efficiency",
-        "hg_emission_rate_lb_per_trillion_btu",
+        "mercury_removal_efficiency",
+        "mercury_emission_rate_lb_per_trillion_btu",
         "acid_gas_removal_efficiency",
     ]
 
     # For 2012-2015 and earlier, mercury emission rate is not reported in EIA923, so we need
     # to remove that column to avoid an error.
     if year <= 2015:
-        emissions_controls_eia923_names.remove("hg_emission_rate_lb_per_trillion_btu")
+        emissions_controls_eia923_names.remove(
+            "mercury_emission_rate_lb_per_trillion_btu"
+        )
 
     if year >= 2012:
         # Handle filename changes across years.
@@ -728,7 +730,7 @@ def load_emissions_controls_eia923(year: int):
             names=emissions_controls_eia923_names,
             dtype=get_dtypes(),
             na_values=".",
-            parse_dates=["report_date", "pm_test_date", "so2_test_date"],
+            parse_dates=["report_date", "particulate_test_date", "so2_test_date"],
         )
     else:
         logger.warning(
@@ -742,109 +744,6 @@ def load_emissions_controls_eia923(year: int):
         )
 
     return emissions_controls_eia923
-
-
-def load_boiler_control_id_association_eia860(year, pollutant):
-    """Generic function for loading the EIA-860 tables that associate boiler_id with a pollutant-specific control id.
-
-    the `pollutant` parameter could be any of the following: ['pm','so2','nox','hg']
-    """
-    pollutant_abbreviation_to_name = {
-        "pm": "Particulate Matter",
-        "so2": "SO2",
-        "nox": "NOx",
-        "hg": "Mercury",
-    }
-    boiler_association_eia860_names = [
-        "utility_id_eia",
-        "utility_name_eia",
-        "plant_id_eia",
-        "plant_name_eia",
-        "boiler_id",
-        f"{pollutant}_control_id",
-        "steam_plant_type",
-    ]
-
-    if year <= 2013:
-        # This column isn't included in 2013 and earlier.
-        boiler_association_eia860_names.remove("steam_plant_type")
-
-    # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
-    # The environmental association data is available pre-2013, but would require additional work to format
-    if year >= 2013:
-        boiler_control_id_association_eia860 = pd.read_excel(
-            io=downloads_folder(f"eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
-            sheet_name=f"Boiler {pollutant_abbreviation_to_name[pollutant]}",
-            header=1,
-            names=boiler_association_eia860_names,
-            dtype=get_dtypes(),
-            na_values=".",
-            skipfooter=1,
-        )
-    # return a blank dataframe if the data is not available
-    else:
-        logger.warning(
-            "Environmental association data prior to 2013 have not been integrated into the data pipeline."
-        )
-        logger.warning(
-            "This may result in less accurate pollutant emissions calculations."
-        )
-        boiler_control_id_association_eia860 = pd.DataFrame(
-            columns=boiler_association_eia860_names
-        )
-
-    return boiler_control_id_association_eia860
-
-
-def load_boiler_design_parameters_eia860(year):
-    raw_column_names = [
-        "Plant Code",
-        "Boiler ID",
-        "Boiler Status",
-        "Firing Type 1",
-        "Firing Type 2",
-        "Firing Type 3",
-        "Wet Dry Bottom",
-    ]
-
-    boiler_design_parameters_eia860_names = {
-        "Plant Code": "plant_id_eia",
-        "Boiler ID": "boiler_id",
-        "Boiler Status": "operational_status",
-        "Firing Type 1": "firing_type_1",
-        "Firing Type 2": "firing_type_2",
-        "Firing Type 3": "firing_type_3",
-        "Wet Dry Bottom": "boiler_bottom_type",
-    }
-
-    # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
-    # The boiler design data is available pre-2013, but would require a lot of work to find the correct format
-    if year >= 2013:
-        boiler_design_parameters_eia860 = pd.read_excel(
-            io=(downloads_folder(f"eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx")),
-            sheet_name="Boiler Info & Design Parameters",
-            header=1,
-            usecols=raw_column_names,  # "C,F,H,N:P,AE",
-            na_values=".",
-            skipfooter=1,
-        )
-
-        boiler_design_parameters_eia860 = boiler_design_parameters_eia860.rename(
-            columns=boiler_design_parameters_eia860_names
-        )
-    # return a blank dataframe if the data is not available
-    else:
-        logger.warning(
-            "Boiler Design data prior to 2013 have not been integrated into the data pipeline."
-        )
-        logger.warning(
-            "This may result in less accurate NOx and SO2 emissions calculations."
-        )
-        boiler_design_parameters_eia860 = pd.DataFrame(
-            columns=list(boiler_design_parameters_eia860_names.values())
-        )
-
-    return boiler_design_parameters_eia860
 
 
 def load_unit_to_boiler_associations(year):

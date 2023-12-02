@@ -572,7 +572,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         subset=[
             "prime_mover_code",
             "energy_source_code",
-            "boiler_bottom_type",
+            "wet_dry_bottom",
             "boiler_firing_type",
         ]
     )
@@ -608,7 +608,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         on=[
             "prime_mover_code",
             "energy_source_code",
-            "boiler_bottom_type",
+            "wet_dry_bottom",
             "boiler_firing_type",
         ],
         validate="m:1",
@@ -644,7 +644,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
             [
                 "prime_mover_code",
                 "energy_source_code",
-                "boiler_bottom_type",
+                "wet_dry_bottom",
                 "boiler_firing_type",
             ],
         ]
@@ -654,7 +654,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
                 "energy_source_code",
                 "prime_mover_code",
                 "boiler_firing_type",
-                "boiler_bottom_type",
+                "wet_dry_bottom",
             ]
         )
     )
@@ -675,7 +675,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
             [
                 "prime_mover_code",
                 "energy_source_code",
-                "boiler_bottom_type",
+                "wet_dry_bottom",
                 "boiler_firing_type",
             ],
         ]
@@ -685,7 +685,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
                 "energy_source_code",
                 "prime_mover_code",
                 "boiler_firing_type",
-                "boiler_bottom_type",
+                "wet_dry_bottom",
             ]
         )
     )
@@ -721,38 +721,34 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
 
 
 def load_boiler_firing_type(year):
-    boiler_design_parameters_eia860 = load_data.load_boiler_design_parameters_eia860(
-        year
+    boiler_firing_type = load_data.load_pudl_table(
+        "boilers_eia860",
+        year,
+        columns=[
+            "plant_id_eia",
+            "boiler_id",
+            "firing_type_1",
+            "wet_dry_bottom",
+        ],
     )
 
-    firing_type_description = {
-        "CB": "CELLBURNER",
-        "CY": "CYCLONE",
-        "DB": "DUCTBURNER",
-        "FB": "FLUIDIZED",
-        "SS": "STOKER",
-        "TF": "TANGENTIAL",
-        "VF": "VERTICAL",
-        "WF": "WALL",
-        "OT": "OTHER",
-    }
+    firing_types_eia = load_data.load_pudl_table("firing_types_eia")
 
-    # only keep boilers that are operational
-    boiler_firing_type = boiler_design_parameters_eia860.copy()[
-        boiler_design_parameters_eia860["operational_status"] == "OP"
-    ]
-
-    boiler_firing_type["boiler_firing_type"] = boiler_firing_type["firing_type_1"].map(
-        firing_type_description
+    boiler_firing_type["boiler_firing_type"] = (
+        boiler_firing_type["firing_type_1"]
+        .map(dict(zip(firing_types_eia["code"], firing_types_eia["label"])))
+        .fillna("none")
     )
 
-    boiler_firing_type["boiler_bottom_type"] = boiler_firing_type[
-        "boiler_bottom_type"
-    ].replace({"D": "DRY", "W": "WET"})
+    boiler_firing_type["wet_dry_bottom"] = (
+        boiler_firing_type["wet_dry_bottom"]
+        .replace({"D": "dry", "W": "wet"})
+        .fillna("none")
+    )
 
     boiler_firing_type = boiler_firing_type[
-        ["plant_id_eia", "boiler_id", "boiler_bottom_type", "boiler_firing_type"]
-    ].dropna(subset=["boiler_bottom_type", "boiler_firing_type"], thresh=1)
+        ["plant_id_eia", "boiler_id", "wet_dry_bottom", "boiler_firing_type"]
+    ].dropna(subset=["wet_dry_bottom", "boiler_firing_type"], thresh=1)
 
     return boiler_firing_type
 
@@ -992,10 +988,10 @@ def load_controlled_nox_emission_rates(year):
     nox_rates = nox_rates[
         [
             "plant_id_eia",
-            "nox_control_id",
-            "pm_control_id",
-            "so2_control_id",
-            "hg_control_id",
+            "nox_control_id_eia",
+            "particulate_control_id_eia",
+            "so2_control_id_eia",
+            "mercury_control_id_eia",
             "hours_in_service",
             "annual_nox_emission_rate_lb_per_mmbtu",
             "ozone_season_nox_emission_rate_lb_per_mmbtu",
@@ -1066,64 +1062,68 @@ def associate_control_ids_with_boiler_id(df, year, pollutant):
     in the order specified by `id_order`
     """
 
-    all_pollutants = ["pm", "so2", "nox", "hg"]
+    all_pollutants = ["particulate", "so2", "nox", "mercury"]
     # reorder the pollutant list to make the primary pollutant first
     all_pollutants.remove(pollutant)
     pollutant_order = [pollutant] + all_pollutants
 
+    boiler_association_eia860 = load_data.load_pudl_table(
+        "boiler_emissions_control_equipment_assn_eia860", year
+    )
+
     counter = 1
 
     for pol in pollutant_order:
+        pol_control_id_assn = (
+            boiler_association_eia860[
+                boiler_association_eia860["emission_control_id_type"] == pol
+            ]
+            .copy()
+            .rename(columns={"emission_control_id_eia": f"{pol}_control_id_eia"})
+        )
+
         # if this is the first time through the loop
         if counter == 1:
             # load the association table and rename the boiler id column to specify which table it came from
-            boiler_association_eia860 = (
-                load_data.load_boiler_control_id_association_eia860(year, pol)
-            )
 
             df = df.merge(
-                boiler_association_eia860[
+                pol_control_id_assn[
                     [
                         "plant_id_eia",
-                        f"{pol}_control_id",
+                        f"{pol}_control_id_eia",
                         "boiler_id",
                     ]
                 ],
                 how="left",
-                on=["plant_id_eia", f"{pol}_control_id"],
+                on=["plant_id_eia", f"{pol}_control_id_eia"],
                 validate="m:m",
             )
             counter += 1
         else:
             # split out the data that is still missing a boiler_id
             missing_boiler_id = df[
-                df["boiler_id"].isna() & ~df[f"{pol}_control_id"].isna()
+                df["boiler_id"].isna() & ~df[f"{pol}_control_id_eia"].isna()
             ].drop(columns=["boiler_id"])
             # remove this data from the original dataframe
-            df = df[~(df["boiler_id"].isna() & ~df[f"{pol}_control_id"].isna())]
-
-            # load the association for the new pol
-            boiler_association_eia860 = (
-                load_data.load_boiler_control_id_association_eia860(year, pol)
-            )
+            df = df[~(df["boiler_id"].isna() & ~df[f"{pol}_control_id_eia"].isna())]
 
             missing_boiler_id = missing_boiler_id.merge(
-                boiler_association_eia860[
+                pol_control_id_assn[
                     [
                         "plant_id_eia",
-                        f"{pol}_control_id",
+                        f"{pol}_control_id_eia",
                         "boiler_id",
                     ]
                 ],
                 how="left",
-                on=["plant_id_eia", f"{pol}_control_id"],
+                on=["plant_id_eia", f"{pol}_control_id_eia"],
                 validate="m:m",
             )
             # add this data back to the original dataframe
             df = pd.concat([df, missing_boiler_id], axis=0)
 
     # if there are any missing boiler_ids, fill using the nox_control_id, which is likely to match a boiler
-    df["boiler_id"] = df["boiler_id"].fillna(df[f"{pollutant}_control_id"])
+    df["boiler_id"] = df["boiler_id"].fillna(df[f"{pollutant}_control_id_eia"])
 
     return df
 
@@ -1300,7 +1300,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
     # load the boiler firing type info
     boiler_firing_type = load_boiler_firing_type(year)
     # drop the boiler bottom type data
-    boiler_firing_type = boiler_firing_type.drop(columns="boiler_bottom_type")
+    boiler_firing_type = boiler_firing_type.drop(columns="wet_dry_bottom")
     boiler_firing_type = boiler_firing_type.drop_duplicates()
 
     # identify the boiler firing type for each generator
@@ -1621,10 +1621,10 @@ def load_so2_control_efficiencies(year):
     so2_efficiency = so2_efficiency[
         [
             "plant_id_eia",
-            "so2_control_id",
-            "nox_control_id",
-            "pm_control_id",
-            "hg_control_id",
+            "so2_control_id_eia",
+            "nox_control_id_eia",
+            "particulate_control_id_eia",
+            "mercury_control_id_eia",
             "hours_in_service",
             "so2_removal_efficiency_annual",
             "so2_removal_efficiency_at_full_load",

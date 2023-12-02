@@ -1578,8 +1578,18 @@ def count_total_units_in_subplant(year):
         pd.read_csv(
             outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
             dtype=get_dtypes(),
-            parse_dates=["current_planned_generator_operating_date", "generator_retirement_date"],
-        )[["plant_id_eia", "emissions_unit_id_epa", "subplant_id", "generator_retirement_date"]]
+            parse_dates=[
+                "current_planned_generator_operating_date",
+                "generator_retirement_date",
+            ],
+        )[
+            [
+                "plant_id_eia",
+                "emissions_unit_id_epa",
+                "subplant_id",
+                "generator_retirement_date",
+            ]
+        ]
         .drop_duplicates()
         .dropna(subset="emissions_unit_id_epa")
     )
