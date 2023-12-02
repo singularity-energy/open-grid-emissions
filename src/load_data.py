@@ -17,8 +17,9 @@ logger = get_logger(__name__)
 
 def correct_epa_eia_plant_id_mapping(df):
     """
-    The EPA's power sector data crosswalk incorrectly maps plant_id_epa 55248 to plant_id_eia 55248,
-    when it should be mapped to id 2847. This function is temporary until this is fixed.
+    The EPA's power sector data crosswalk incorrectly maps plant_id_epa 55248 to
+    plant_id_eia 55248, when it should be mapped to id 2847. This function is temporary
+    until this is fixed.
     """
 
     df.loc[df["plant_id_eia"] == 55248, "plant_id_eia"] = 2847
@@ -34,8 +35,6 @@ def load_cems_data(year):
     Returns:
         cems: pandas dataframe with hourly CEMS data
     """
-    # specify the path to the CEMS data
-    cems_path = downloads_folder("pudl/pudl_data/parquet/epacems/")
 
     # specify the columns to use from the CEMS database
     cems_columns = [
@@ -56,11 +55,22 @@ def load_cems_data(year):
     ]
 
     # load the CEMS data
+    cems = pd.read_parquet(
+        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+        filters=[["year", "==", year]],
+        columns=cems_columns,
+    )
+
+    ### Code to load data from zenodo version of pudl archive
+    # NOTE(greg): keeping for now until pudl archiving finalized
+    """
+    cems_path = downloads_folder("pudl/pudl_data/parquet/epacems/")
     cems = pd.concat(
         pd.read_parquet((cems_path + filename), columns=cems_columns)
         for filename in os.listdir(cems_path)
         if str(year) in filename
     )
+    """
 
     # **** manual adjustments ****
     cems = correct_epa_eia_plant_id_mapping(cems)
@@ -72,7 +82,7 @@ def load_cems_data(year):
             "steam_load_1000_lbs": "steam_load_1000_lb",
             "nox_mass_lbs": "nox_mass_lb",
             "so2_mass_lbs": "so2_mass_lb",
-            "gross_load_mw": "gross_generation_mwh",  # we are going to convert this in a later step
+            "gross_load_mw": "gross_generation_mwh",  # we will convert this to mwh
         }
     )
 
@@ -120,6 +130,20 @@ def load_cems_data(year):
 
 def load_cems_ids(start_year, end_year):
     """Loads CEMS ids for multiple years."""
+
+    # load cems data
+    cems = pd.read_parquet(
+        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+        filters=[["year", ">=", start_year], ["year", "<=", end_year]],
+        columns=["plant_id_eia", "emissions_unit_id_epa"],
+    ).drop_duplicates()
+
+    # **** manual adjustments ****
+    cems = correct_epa_eia_plant_id_mapping(cems)
+
+    # code pattern for loading data from pudl zenodo archive
+    # NOTE(greg): keeping for now until pudl archiving finalized
+    """
     cems_all = []
 
     for year in range(start_year, end_year + 1):
@@ -150,71 +174,58 @@ def load_cems_ids(start_year, end_year):
     cems = pd.concat(cems_all, axis=0).reset_index()
 
     cems = cems[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates()
+    """
 
     return cems
 
 
 def load_cems_gross_generation(start_year, end_year):
     """Loads hourly CEMS gross generation data for multiple years."""
-    cems_all = []
 
-    for year in range(start_year, end_year + 1):
-        logger.info(f"loading {year} CEMS data")
-        # specify the path to the CEMS data
-        cems_path = downloads_folder(
-            "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
-        )
+    # specify the columns to use from the CEMS database
+    cems_columns = [
+        "plant_id_eia",
+        "emissions_unit_id_epa",
+        "operating_datetime_utc",
+        "operating_time_hours",
+        "gross_load_mw",
+    ]
 
-        # specify the columns to use from the CEMS database
-        cems_columns = [
+    # load cems data
+    cems = pd.read_parquet(
+        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+        filters=[["year", ">=", start_year], ["year", "<=", end_year]],
+        columns=cems_columns,
+    )
+
+    # only keep values when the plant was operating
+    # this will help speed up calculations and allow us to add this data back later
+    cems = cems[(cems["gross_load_mw"] > 0) | (cems["operating_time_hours"] > 0)]
+
+    # rename the heat content column to use the convention used in the EIA data
+    cems = cems.rename(
+        columns={
+            "operating_datetime_utc": "datetime_utc",
+            "gross_load_mw": "gross_generation_mwh",
+        }
+    )
+
+    # add a report date
+    cems = add_report_date(cems)
+
+    cems = cems[
+        [
             "plant_id_eia",
             "emissions_unit_id_epa",
-            "operating_datetime_utc",
-            "operating_time_hours",
-            "gross_load_mw",
+            "report_date",
+            "gross_generation_mwh",
         ]
+    ]
 
-        # load the CEMS data
-        cems = pd.concat(
-            pd.read_parquet((cems_path + filename), columns=cems_columns)
-            for filename in os.listdir(cems_path)
-            if str(year) in filename
-        )
-
-        # only keep values when the plant was operating
-        # this will help speed up calculations and allow us to add this data back later
-        cems = cems[(cems["gross_load_mw"] > 0) | (cems["operating_time_hours"] > 0)]
-
-        # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE
-        # column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
-        # rename the heat content column to use the convention used in the EIA data
-        cems = cems.rename(
-            columns={
-                "operating_datetime_utc": "datetime_utc",
-                "gross_load_mw": "gross_generation_mwh",
-            }
-        )
-
-        # add a report date
-        cems = add_report_date(cems)
-
-        cems = cems[
-            [
-                "plant_id_eia",
-                "emissions_unit_id_epa",
-                "report_date",
-                "gross_generation_mwh",
-            ]
-        ]
-
-        # group data by plant, unit, month
-        cems = cems.groupby(
-            ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
-        ).sum()
-
-        cems_all.append(cems)
-
-    cems = pd.concat(cems_all, axis=0).reset_index()
+    # group data by plant, unit, month
+    cems = cems.groupby(
+        ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
+    ).sum()
 
     return cems
 
@@ -280,7 +291,7 @@ def load_pudl_table(table_name, year=None):
         table: pandas dataframe containing requested query
     """
     # specify the relative path to the sqllite database, and create an sqalchemy engine
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite")
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
 
     if year is not None:
@@ -361,13 +372,12 @@ def initialize_pudl_out(year=None):
 
     If `year` is set to `None`, all years of data are returned.
     """
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite")
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
 
     if year is None:
         pudl_out = pudl.output.pudltabl.PudlTabl(pudl_engine)
     else:
-
         pudl_out = pudl.output.pudltabl.PudlTabl(
             pudl_engine,
             freq="MS",
@@ -600,7 +610,6 @@ def load_ipcc_gwp():
 
 
 def load_raw_eia930_data(year, description):
-
     eia_930 = pd.concat(
         [
             pd.read_csv(

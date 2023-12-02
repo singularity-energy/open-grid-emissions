@@ -116,9 +116,7 @@ def main():
     ####################################################################################
     logger.info("1. Downloading data")
     # PUDL
-    download_data.download_pudl_data(
-        zenodo_url="https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
-    )
+    download_data.download_pudl_data(source="aws")
     # eGRID
     # the 2019 and 2020 data appear to be hosted on different urls
     egrid_files_to_download = [

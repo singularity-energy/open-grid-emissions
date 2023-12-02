@@ -756,7 +756,7 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
 
     # load and clean EIA data
     # create pudl_out
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite") 
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite") 
     pudl_engine = sa.create_engine(pudl_db)
     pudl_out = pudl.output.pudltabl.PudlTabl(
         pudl_engine,

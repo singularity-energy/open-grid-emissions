@@ -325,7 +325,7 @@ def connect_ids(df, id_to_update, connecting_id):
 
 def add_operating_and_retirement_dates(df, start_year, end_year):
     """Adds columns listing a generator's planned operating date or retirement date to a dataframe."""
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite")
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
     # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
     pudl_out_status = pudl.output.pudltabl.PudlTabl(
@@ -387,7 +387,7 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
 
 def add_prime_mover_to_subplant_crosswalk(df, year):
     """Adds a column identifying each generator's prime_mover to a dataframe."""
-    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl_data/sqlite/pudl.sqlite")
+    pudl_db = "sqlite:///" + downloads_folder("pudl/pudl.sqlite")
     pudl_engine = sa.create_engine(pudl_db)
     # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
     pudl_out_pm = pudl.output.pudltabl.PudlTabl(
@@ -708,7 +708,6 @@ def calculate_aggregated_primary_fuel(
     # we will calculate primary fuel based on the fuel with the most consumption,
     # generation, and capacity
     for source in ["fuel_consumed_for_electricity_mmbtu", "net_generation_mwh"]:
-
         # only keep values greater than zero so that these can be filled by other
         # methods if non-zero
         primary_fuel_calc = agg_totals_by_fuel[agg_totals_by_fuel[source] > 0]
@@ -1088,7 +1087,6 @@ def manually_remove_steam_units(df):
 
 
 def remove_incomplete_unit_months(cems):
-
     # get a count of how many hours are reported in each month for each unit
     unit_hours_in_month = (
         cems[["plant_id_eia", "report_date", "emissions_unit_id_epa", "datetime_utc"]]
@@ -1630,7 +1628,8 @@ def identify_partial_cems_plants(all_data):
     Args:
         all_data: dataframe identifying the hourly data source for each subplant-month
     Returns:
-        all_data with updated hourly_data_source column indicating partial cems plants"""
+        all_data with updated hourly_data_source column indicating partial cems plants
+    """
 
     # create a column that indicates EIA-only subplant data
     all_data = all_data.assign(
@@ -1748,7 +1747,6 @@ def filter_unique_cems_data(cems, partial_cems):
 
 
 def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table):
-
     # create a table that has data for the sythetic plant attributes
     shaped_plant_attributes = (
         plant_attributes_table[["shaped_plant_id", "ba_code", "fuel_category"]]
@@ -1892,7 +1890,6 @@ def combine_plant_data(
 
 
 def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_table):
-
     # create a table with the unique plantids from both dataframes
     eia_plants = eia923_allocated[
         ["plant_id_eia", "plant_primary_fuel"]
@@ -2184,7 +2181,6 @@ def add_plant_local_timezone(df, year):
 
 
 def aggregate_cems_to_subplant(cems):
-
     GROUPBY_COLUMNS = ["plant_id_eia", "subplant_id", "datetime_utc", "report_date"]
 
     cems_columns_to_aggregate = [
