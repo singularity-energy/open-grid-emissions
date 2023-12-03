@@ -10,6 +10,8 @@ from filepaths import downloads_folder, manual_folder, outputs_folder
 from validation import validate_unique_datetimes
 from logging_util import get_logger
 
+from pudl.metadata.fields import apply_pudl_dtypes
+
 logger = get_logger(__name__)
 
 # initialize the pudl_engine
@@ -327,6 +329,8 @@ def load_pudl_table(
                 report_date >= '{year}-01-01' AND report_date < '{end_year + 1}-01-01'",
             PUDL_ENGINE,
         )
+
+    table = apply_pudl_dtypes(table)
 
     return table
 

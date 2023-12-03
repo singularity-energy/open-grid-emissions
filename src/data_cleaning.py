@@ -110,7 +110,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     # update the subplant_crosswalk to ensure completeness
     # prepare the subplant crosswalk by adding a complete list of generators and adding the unit_id_pudl column
     complete_generator_ids = load_data.load_pudl_table(
-        "generators_eia860",
+        "boiler_generator_assn_eia860",
         end_year,
         columns=["plant_id_eia", "generator_id", "unit_id_pudl"],
     ).drop_duplicates()

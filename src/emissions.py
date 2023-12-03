@@ -601,6 +601,11 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         validate="m:m",
     )
 
+    gen_nox_factors["wet_dry_bottom"] = gen_nox_factors["wet_dry_bottom"].fillna("none")
+    gen_nox_factors["boiler_firing_type"] = gen_nox_factors[
+        "boiler_firing_type"
+    ].fillna("none")
+
     # merge in the emission factors for spedcific boiler types
     gen_nox_factors = gen_nox_factors.merge(
         nox_emission_factors,
@@ -738,12 +743,14 @@ def load_boiler_firing_type(year):
         boiler_firing_type["firing_type_1"]
         .map(dict(zip(firing_types_eia["code"], firing_types_eia["label"])))
         .fillna("none")
+        .str.lower()
     )
 
     boiler_firing_type["wet_dry_bottom"] = (
         boiler_firing_type["wet_dry_bottom"]
         .replace({"D": "dry", "W": "wet"})
         .fillna("none")
+        .str.lower()
     )
 
     boiler_firing_type = boiler_firing_type[
@@ -1324,6 +1331,10 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         on=["plant_id_eia", "generator_id"],
         validate="m:m",
     )
+
+    gen_so2_factors["boiler_firing_type"] = gen_so2_factors[
+        "boiler_firing_type"
+    ].fillna("none")
 
     # merge in the emission factors for specific boiler types
     gen_so2_factors = gen_so2_factors.merge(
