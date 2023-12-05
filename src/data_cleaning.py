@@ -163,7 +163,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     )
 
     # add proposed operating dates and retirements to the subplant id crosswalk
-    subplant_crosswalk_complete = add_operating_and_generator_retirement_dates(
+    subplant_crosswalk_complete = add_generator_operating_and_retirement_dates(
         subplant_crosswalk_complete, start_year, end_year
     )
     # add prime mover code to the crosswalk
@@ -323,7 +323,7 @@ def connect_ids(df, id_to_update, connecting_id):
     return df
 
 
-def add_operating_and_generator_retirement_dates(df, start_year, end_year):
+def add_generator_operating_and_retirement_dates(df, start_year, end_year):
     """Adds columns listing a generator's planned operating date or retirement date to a dataframe."""
 
     generator_status = load_data.load_pudl_table(

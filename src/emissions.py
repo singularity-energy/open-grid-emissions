@@ -591,6 +591,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         boiler_generator_assn,
         how="left",
         on=["plant_id_eia", "boiler_id"],
+        validate="1:m"
     )
 
     # merge the gen keys with the boiler firing types
