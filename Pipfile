@@ -1,0 +1,32 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+cvxopt = "*"
+cvxpy = "*"
+osqp = "*"
+ipykernel = "*"
+notebook = "*"
+numpy = "*"
+openpyxl = "*"
+pandas = "*"
+plotly = "*"
+pyarrow = "*"
+python-snappy = "*"
+qdldl = "*"
+requests = "*"
+seaborn = "*"
+sqlalchemy = "*"
+statsmodels = "*"
+coloredlogs = "*"
+"catalystcoop.pudl" = {ref = "oge_release", git = "git+https://github.com/grgmiller/pudl.git"}
+gridemissions = {git = "git+https://github.com/gailin-p/gridemissions#egg=gridemissions"}
+
+[dev-packages]
+ruff = "*"
+pytest = "*"
+
+[requires]
+python_version = "3.10"
