@@ -421,6 +421,25 @@ def clean_eia923(
         "generation_fuel_by_generator_energy_source_monthly_eia923", year
     )
 
+    # drop rows where all allocated data is missing
+    gen_fuel_allocated = gen_fuel_allocated.dropna(
+        subset=[
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+        ],
+        how="all",
+    )
+
+    # drop rows where all allocated data is zero
+    gen_fuel_allocated = gen_fuel_allocated[
+        ~(
+            (gen_fuel_allocated["net_generation_mwh"] == 0)
+            & (gen_fuel_allocated["fuel_consumed_mmbtu"] == 0)
+            & (gen_fuel_allocated["fuel_consumed_for_electricity_mmbtu"] == 0)
+        )
+    ]
+
     # test to make sure allocated totals match input totals
     validation.check_allocated_gf_matches_input_gf(year, gen_fuel_allocated)
 
