@@ -453,8 +453,28 @@ def calculate_nox_from_fuel_consumption(
     uncontrolled_nox_factors = calculate_generator_nox_ef_per_unit_from_boiler_type(
         gen_fuel_allocated, year
     )
+    # convert all EFs to a standardized unit based on fuel heat content
     uncontrolled_nox_factors = convert_ef_to_lb_per_mmbtu(
         uncontrolled_nox_factors, year, "nox"
+    )
+
+    # For generators associated with multiple boilers, average all nox factors together
+    # to have a single factor per generator
+    # TODO: In the future, these factors should be weighed by the boiler fuel allocation
+    # factors, and not just a straight average.
+    uncontrolled_nox_factors = (
+        uncontrolled_nox_factors.groupby(
+            [
+                "report_date",
+                "plant_id_eia",
+                "generator_id",
+                "prime_mover_code",
+                "energy_source_code",
+            ],
+            dropna=False,
+        )["nox_ef_lb_per_mmbtu"]
+        .mean()
+        .reset_index()
     )
 
     # merge nox efs into the gen_fuel_allocated
@@ -543,9 +563,9 @@ def calculate_nox_from_fuel_consumption(
 
 
 def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, year):
-    """Calculates a generator-specific Nox emission factor per unit fuel based on boiler firing type
-
-    If a generator has multiple boilers, average the emission factor of all boilers
+    """
+    Calculates a boiler-specific NOx emission factor per unit fuel based on boiler
+    firing type, and associates with each generator.
     """
 
     # get a dataframe with all unique generator-pm-esc combinations for emitting energy source types with data reported
@@ -591,7 +611,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         boiler_generator_assn,
         how="left",
         on=["plant_id_eia", "boiler_id"],
-        validate="1:m"
+        validate="1:m",
     )
 
     # merge the gen keys with the boiler firing types
@@ -607,7 +627,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         "boiler_firing_type"
     ].fillna("none")
 
-    # merge in the emission factors for spedcific boiler types
+    # merge in the emission factors for specific boiler types
     gen_nox_factors = gen_nox_factors.merge(
         nox_emission_factors,
         how="left",
@@ -705,23 +725,6 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         logger.warning("\n" + missing_nox_efs.to_string())
 
     gen_nox_factors["emission_factor"] = gen_nox_factors["emission_factor"].fillna(0)
-
-    # average the emission factors for all boilers associated with each generator
-    gen_nox_factors = (
-        gen_nox_factors.groupby(
-            [
-                "report_date",
-                "plant_id_eia",
-                "generator_id",
-                "prime_mover_code",
-                "energy_source_code",
-                "emission_factor_denominator",
-            ],
-            dropna=False,
-        )["emission_factor"]
-        .mean()
-        .reset_index()
-    )
 
     return gen_nox_factors
 
@@ -1203,6 +1206,22 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
         uncontrolled_so2_factors, year, "so2"
     )
 
+    # average the emission factors for all boilers associated with each generator
+    uncontrolled_so2_factors = (
+        uncontrolled_so2_factors.groupby(
+            [
+                "report_date",
+                "plant_id_eia",
+                "generator_id",
+                "prime_mover_code",
+                "energy_source_code",
+            ],
+            dropna=False,
+        )["so2_ef_lb_per_mmbtu"]
+        .mean()
+        .reset_index()
+    )
+
     # merge so2 efs into the gen_fuel_allocated
     gen_fuel_allocated = gen_fuel_allocated.merge(
         uncontrolled_so2_factors,
@@ -1433,24 +1452,6 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
     gen_so2_factors["multiply_by_sulfur_content"] = gen_so2_factors[
         "multiply_by_sulfur_content"
     ].fillna(0)
-
-    # average the emission factors for all boilers associated with each generator
-    gen_so2_factors = (
-        gen_so2_factors.groupby(
-            [
-                "report_date",
-                "plant_id_eia",
-                "generator_id",
-                "prime_mover_code",
-                "energy_source_code",
-                "emission_factor_denominator",
-                "multiply_by_sulfur_content",
-            ],
-            dropna=False,
-        )["emission_factor"]
-        .mean()
-        .reset_index()
-    )
 
     return gen_so2_factors
 

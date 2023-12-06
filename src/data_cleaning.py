@@ -617,20 +617,31 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         )
         validation.test_for_missing_subplant_id(gen_fuel_allocated)
 
-        # get a table of primary energy source codes
-        gen_primary_fuel = gen_fuel_allocated[
-            gen_fuel_allocated["energy_source_code_num"] == "energy_source_code_1"
-        ].drop_duplicates(subset=["plant_id_eia", "generator_id"])[
-            ["plant_id_eia", "generator_id", "subplant_id", "energy_source_code"]
-        ]
+    # get a table of primary energy source codes by generator
+    # this will be used in `calculate_aggregated_primary_fuel()` to determine the
+    # mode of energy source codes by plant
+    # sum the fuel consumption by ESC within each generator
+    gen_primary_fuel = (
+        gen_fuel_allocated.groupby(
+            ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"],
+            dropna=False,
+        )["fuel_consumed_mmbtu"]
+        .sum()
+        .reset_index()
+    )
 
-    else:
-        # get a table of primary energy source codes
-        gen_primary_fuel = gen_fuel_allocated[
-            gen_fuel_allocated["energy_source_code_num"] == "energy_source_code_1"
-        ].drop_duplicates(subset=["plant_id_eia", "generator_id"])[
-            ["plant_id_eia", "generator_id", "energy_source_code"]
-        ]
+    # only keep the ESC associated with the highest fuel consumption for each gen
+    gen_primary_fuel = gen_primary_fuel.sort_values(
+        by=["plant_id_eia", "subplant_id", "generator_id", "fuel_consumed_mmbtu"],
+        ascending=True,
+    ).drop_duplicates(
+        subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
+    )[
+        ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]
+    ]
+
+    if not add_subplant_id:
+        gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
 
     plant_primary_fuel = calculate_aggregated_primary_fuel(
         gen_fuel_allocated, gen_primary_fuel, "plant", year
