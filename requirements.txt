@@ -17,5 +17,5 @@ seaborn
 sqlalchemy
 statsmodels
 coloredlogs
-git+https://github.com/grgmiller/pudl.git@oge_release#egg=catalystcoop.pudl
+git+https://github.com/singularity-energy/pudl.git#egg=catalystcoop.pudl
 git+https://github.com/gailin-p/gridemissions#egg=gridemissions
