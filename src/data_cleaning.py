@@ -1316,7 +1316,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     gf = gf.rename(columns={"energy_source_code": "energy_source_code_single"}).drop(
         columns=["num_fuels", "fuel_consumed_mmbtu"]
     )
-    gf["report_date"] = pd.to_datetime(gf["report_date"])
+    gf["report_date"] = pd.to_datetime(gf["report_date"]).astype("datetime64[s]")
 
     # merge this data into the df
     df = df.merge(gf, how="left", on=["plant_id_eia", "report_date"], validate="m:1")

@@ -334,7 +334,6 @@ def aggregate_for_residual(
 
 
 def aggregate_non_930_fuel_categories(cems, plant_attributes):
-
     # get a list of the fuel categories not in EIA-930
     fuel_categories_not_in_eia930 = list(
         set(plant_attributes.fuel_category.unique())
@@ -573,7 +572,9 @@ def create_flat_profile(report_date, ba, fuel):
 
     # create a report date column
     df_temporary["report_date"] = df_temporary["datetime_local"].str[:7]
-    df_temporary["report_date"] = pd.to_datetime(df_temporary["report_date"])
+    df_temporary["report_date"] = pd.to_datetime(df_temporary["report_date"]).astype(
+        "datetime64[s]"
+    )
 
     # only keep the report dates that match
     df_temporary = df_temporary[df_temporary["report_date"] == report_date]
@@ -664,7 +665,7 @@ def impute_missing_hourly_profiles(
 
     hourly_profiles["datetime_utc"] = pd.to_datetime(
         hourly_profiles["datetime_utc"], utc=True
-    )
+    ).astype("datetime64[s]")
     validation.validate_unique_datetimes(
         hourly_profiles, "hourly_profiles", ["ba_code", "fuel_category"]
     )
@@ -712,7 +713,6 @@ def identify_missing_profiles(
 def average_diba_wind_solar_profiles(
     residual_profiles, ba, fuel, report_date, ba_dibas, validation_run=False
 ):
-
     # calculate the average generation profile for the fuel in all neighboring DIBAs
     df_temporary = residual_profiles.copy()[
         (residual_profiles["ba_code"].isin(ba_dibas))
@@ -764,7 +764,9 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
 
     # re-localize the datetime_local
     local_tz = load_data.ba_timezone(ba, "local")
-    df_temporary["datetime_local"] = pd.to_datetime(df_temporary["datetime_local"])
+    df_temporary["datetime_local"] = pd.to_datetime(
+        df_temporary["datetime_local"]
+    ).astype("datetime64[s]")
     df_temporary["datetime_local"] = (
         df_temporary["datetime_local"]
         .dt.tz_localize(local_tz, nonexistent="NaT", ambiguous="NaT")
@@ -1022,7 +1024,6 @@ def combine_and_export_hourly_plant_data(
 
     # for each region, shape the EIA-only data, combine with CEMS data, and export
     for region in list(plant_attributes[region_to_group].unique()):
-
         # filter each of the data sources to the region
         eia_region = monthly_eia_data_to_shape_agg[
             monthly_eia_data_to_shape_agg[region_to_group] == region
@@ -1257,7 +1258,6 @@ def shape_partial_cems_plants(cems, eia923_allocated):
 
     # if there is no data in the partial cems dataframe, skip.
     if len(eia_data_to_shape) > 0:
-
         # group the eia data by subplant
         eia_data_to_shape = (
             eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)[DATA_COLUMNS]

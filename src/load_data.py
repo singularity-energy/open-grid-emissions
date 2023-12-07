@@ -51,6 +51,12 @@ def load_cems_data(year):
         filters=[["year", "==", year]],
         columns=cems_columns,
     )
+    # convert to tz-naive datetime to allow for dtype application
+    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(None)
+    cems = apply_pudl_dtypes(cems)
+    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
+        "UTC"
+    )
 
     cems = cems.rename(
         columns={
@@ -114,6 +120,7 @@ def load_cems_ids(start_year, end_year):
         filters=[["year", ">=", start_year], ["year", "<=", end_year]],
         columns=["plant_id_eia", "emissions_unit_id_epa"],
     ).drop_duplicates()
+    cems = apply_pudl_dtypes(cems)
 
     return cems
 
@@ -135,6 +142,12 @@ def load_cems_gross_generation(start_year, end_year):
         downloads_folder("pudl/hourly_emissions_epacems.parquet"),
         filters=[["year", ">=", start_year], ["year", "<=", end_year]],
         columns=cems_columns,
+    )
+    # convert to tz-naive datetime to allow for dtype application
+    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(None)
+    cems = apply_pudl_dtypes(cems)
+    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
+        "UTC"
     )
 
     # only keep values when the plant was operating
@@ -215,7 +228,7 @@ def add_report_date(df):
                 .dt.to_timestamp()  # convert to a YYYY-MM-01 stamp
             )
 
-    df["report_date"] = pd.to_datetime(df["report_date"])
+    df["report_date"] = pd.to_datetime(df["report_date"]).astype("datetime64[s]")
 
     # drop the operating_datetime_local column
     df = df.drop(columns=["timezone"])
@@ -545,7 +558,9 @@ def load_gross_to_net_data(
 
     # make sure the report date column is a datetime if loading ratios
     if conversion_type == "ratio":
-        gtn_data["report_date"] = pd.to_datetime(gtn_data["report_date"])
+        gtn_data["report_date"] = pd.to_datetime(gtn_data["report_date"]).astype(
+            "datetime64[s]"
+        )
 
     return gtn_data
 
@@ -685,6 +700,8 @@ def load_emissions_controls_eia923(year: int):
         "acid_gas_removal_efficiency",
     ]
 
+    datetime_columns = ["report_date", "particulate_test_date", "so2_test_date"]
+
     # For 2012-2015 and earlier, mercury emission rate is not reported in EIA923, so we need
     # to remove that column to avoid an error.
     if year <= 2015:
@@ -734,8 +751,12 @@ def load_emissions_controls_eia923(year: int):
             names=emissions_controls_eia923_names,
             dtype=get_dtypes(),
             na_values=".",
-            parse_dates=["report_date", "particulate_test_date", "so2_test_date"],
+            parse_dates=datetime_columns,
+            date_format={"particulate_test_date": "%m-%Y", "so2_test_date": "%m-%Y"},
         )
+        emissions_controls_eia923["report_date"] = emissions_controls_eia923[
+            "report_date"
+        ].astype("datetime64[s]")
     else:
         logger.warning(
             "Emissions control data prior to 2014 has not been integrated into the data pipeline."

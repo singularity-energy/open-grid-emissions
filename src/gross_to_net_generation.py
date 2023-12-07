@@ -426,7 +426,7 @@ def calculate_subplant_nameplate_capacity(year):
     subplant_prime_mover = gen_capacity[
         gen_capacity.groupby(["plant_id_eia", "subplant_id"], dropna=False)[
             "capacity_mw"
-        ].transform(max)
+        ].transform("max")
         == gen_capacity["capacity_mw"]
     ][["plant_id_eia", "subplant_id", "prime_mover_code"]].drop_duplicates(
         subset=["plant_id_eia", "subplant_id"], keep="first"

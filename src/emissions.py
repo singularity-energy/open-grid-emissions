@@ -944,10 +944,10 @@ def return_monthly_plant_fuel_heat_content(year):
     # change the report date columns back to datetimes
     plant_specific_fuel_heat_content["report_date"] = pd.to_datetime(
         plant_specific_fuel_heat_content["report_date"]
-    )
+    ).astype("datetime64[s]")
     national_avg_fuel_heat_content["report_date"] = pd.to_datetime(
         national_avg_fuel_heat_content["report_date"]
-    )
+    ).astype("datetime64[s]")
 
     return (
         plant_specific_fuel_heat_content,
@@ -1512,10 +1512,10 @@ def return_monthly_plant_fuel_sulfur_content(year):
     # change the report date columns back to datetimes
     plant_specific_fuel_sulfur_content["report_date"] = pd.to_datetime(
         plant_specific_fuel_sulfur_content["report_date"]
-    )
+    ).astype("datetime64[s]")
     national_avg_fuel_sulfur_content["report_date"] = pd.to_datetime(
         national_avg_fuel_sulfur_content["report_date"]
-    )
+    ).astype("datetime64[s]")
 
     plant_specific_fuel_sulfur_content
 
