@@ -664,8 +664,11 @@ def impute_missing_hourly_profiles(
     hourly_profiles = pd.concat([residual_profiles, hourly_profiles_to_add], axis=0)
 
     hourly_profiles["datetime_utc"] = pd.to_datetime(
-        hourly_profiles["datetime_utc"], utc=True
+        hourly_profiles["datetime_utc"]
     ).astype("datetime64[s]")
+    hourly_profiles["datetime_utc"] = hourly_profiles["datetime_utc"].dt.tz_localize(
+        "UTC"
+    )
     validation.validate_unique_datetimes(
         hourly_profiles, "hourly_profiles", ["ba_code", "fuel_category"]
     )
@@ -770,7 +773,7 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     df_temporary["datetime_local"] = (
         df_temporary["datetime_local"]
         .dt.tz_localize(local_tz, nonexistent="NaT", ambiguous="NaT")
-        .fillna(method="ffill")
+        .ffill()
     )
     df_temporary["datetime_utc"] = df_temporary["datetime_local"].dt.tz_convert("UTC")
 
