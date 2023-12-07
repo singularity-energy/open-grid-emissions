@@ -6,7 +6,7 @@ import sqlalchemy as sa
 import warnings
 
 # import pudl packages
-import pudl.analysis.allocate_net_gen as allocate_gen_fuel
+import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 
 # import other modules
 import load_data

@@ -3,7 +3,7 @@ import numpy as np
 import os
 import sqlalchemy as sa
 
-import pudl.analysis.allocate_net_gen as allocate_gen_fuel
+import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import pudl.analysis.epacamd_eia as epacamd_eia_crosswalk
 
 import load_data

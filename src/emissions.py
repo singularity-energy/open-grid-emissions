@@ -7,7 +7,7 @@ from column_checks import get_dtypes
 from filepaths import manual_folder
 from logging_util import get_logger
 
-from pudl.analysis.allocate_net_gen import (
+from pudl.analysis.allocate_gen_fuel import (
     distribute_annually_reported_data_to_months_if_annual,
 )
 
