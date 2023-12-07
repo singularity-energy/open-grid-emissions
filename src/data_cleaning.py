@@ -4,7 +4,8 @@ import os
 import sqlalchemy as sa
 
 import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
-import pudl.analysis.epacamd_eia as epacamd_eia_crosswalk
+import pudl.analysis.epacamd_eia as epacamd_eia
+from pudl.etl.glue_assets import make_subplant_ids
 
 import load_data
 import validation
@@ -84,10 +85,10 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     crosswalk = load_data.load_epa_eia_crosswalk(end_year)
 
     # filter the crosswalk to drop any units that don't exist in CEMS
-    filtered_crosswalk = epacamd_eia_crosswalk.filter_crosswalk(crosswalk, cems_ids)
+    filtered_crosswalk = epacamd_eia.filter_crosswalk(crosswalk, cems_ids)
 
     # use graph analysis to identify subplants
-    crosswalk_with_subplant_ids = epacamd_eia_crosswalk.make_subplant_ids(
+    crosswalk_with_subplant_ids = make_subplant_ids(
         filtered_crosswalk
     )
 
@@ -200,7 +201,7 @@ def update_subplant_ids(subplant_crosswalk):
     Ensures a complete and accurate subplant_id mapping for all generators.
 
     NOTE:
-        1. This function is a temporary placeholder until the `pudl.analysis.epacamd_eia_crosswalk` code is updated.
+        1. This function is a temporary placeholder until the `pudl.analysis.epacamd_eia` code is updated.
         2. This function is meant to be applied using a .groupby("plant_id_eia").apply() function. This function
         will only properly work when applied to a single plant_id_eia at a time.
 
@@ -243,7 +244,7 @@ def update_subplant_ids(subplant_crosswalk):
         data, we assign these units to a single subplant.
 
         Args:
-            subplant_crosswalk: a dataframe containing the output of `epacamd_eia_crosswalk.make_subplant_ids` with
+            subplant_crosswalk: a dataframe containing the output of `pudl.etl.glue_assets.make_subplant_ids` with
     """
     # Step 1: Create corrected versions of subplant_id and unit_id_pudl
     # if multiple unit_id_pudl are connected by a single subplant_id, unit_id_pudl_connected groups these unit_id_pudl together
