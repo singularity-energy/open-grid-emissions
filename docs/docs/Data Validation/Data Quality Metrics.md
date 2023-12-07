@@ -26,3 +26,6 @@ Indicates for each subplant-month:
 - the input data source
 - the hourly profile method
 - the gross-to-net generation method
+
+### Data pipeline log
+This text file is a log of all of the warnings and messages when running the data pipeline. This information flags when assumptions are being used, anomalies are detected, or known issues are identified. All warnings include the "[WARNING]" flag, which can be used to search them.
