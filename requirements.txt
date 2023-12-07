@@ -10,7 +10,6 @@ plotly
 pyarrow
 pytest
 ruff
-python-snappy
 qdldl
 requests
 seaborn
