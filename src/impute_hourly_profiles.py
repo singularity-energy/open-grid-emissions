@@ -663,11 +663,12 @@ def impute_missing_hourly_profiles(
 
     hourly_profiles = pd.concat([residual_profiles, hourly_profiles_to_add], axis=0)
 
-    hourly_profiles["datetime_utc"] = pd.to_datetime(
-        hourly_profiles["datetime_utc"]
-    ).astype("datetime64[s]")
-    hourly_profiles["datetime_utc"] = hourly_profiles["datetime_utc"].dt.tz_localize(
-        "UTC"
+    # convert to datetime64[s] format
+    hourly_profiles["datetime_utc"] = (
+        pd.to_datetime(hourly_profiles["datetime_utc"])
+        .dt.tz_localize(None)
+        .astype("datetime64[s]")
+        .dt.tz_localize("UTC")
     )
     validation.validate_unique_datetimes(
         hourly_profiles, "hourly_profiles", ["ba_code", "fuel_category"]
