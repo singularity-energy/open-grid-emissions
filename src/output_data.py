@@ -474,9 +474,12 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             )
 
             # convert the datetime_utc column back to a datetime
-            ba_table["datetime_utc"] = pd.to_datetime(
-                ba_table["datetime_utc"], utc=True
-            ).astype("datetime64[s]")
+            ba_table["datetime_utc"] = (
+                pd.to_datetime(ba_table["datetime_utc"])
+                .dt.tz_localize(None)
+                .astype("datetime64[s]")
+                .dt.tz_localize("UTC")
+            )
 
             # calculate a total for the BA
             # grouping by datetime_utc and report_date will create some duplicate datetime_utc
