@@ -1,4 +1,5 @@
 from typing import Optional
+import datetime
 import gzip
 import os
 import requests
@@ -41,9 +42,7 @@ def download_helper(
     # If the file already exists, do not re-download it.
     final_destination = output_path if output_path is not None else download_path
     if os.path.exists(final_destination):
-        logger.info(
-            f"{final_destination.split('/')[-1]} already downloaded, skipping."
-        )
+        logger.info(f"{final_destination.split('/')[-1]} already downloaded, skipping.")
         return False
 
     # Otherwise, download to the file in chunks.
@@ -80,35 +79,102 @@ def download_helper(
     return True
 
 
-def download_pudl_data(zenodo_url: str):
+def download_pudl_data(source: str = "aws"):
     """
-    Downloads an archived PUDL data release.
+    Downloads the pudl database. OGE currently supports two sources: zenodo and aws
+    (i.e. nightly builds). For more information about data sources see:
+    https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#data-access
 
+    Zenodo provides stable, versioned data based on the output of the `main` branch of
+    pudl but is updated less freqently.
     The most recent version can be found at:
     https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#zenodo-archives
 
+    As of 12/2/2023, the most recent zenodo data was PUDL Data Release v2022.11.30.
+
+    The `aws` source downloads data from the Catalyst's AWS Open Data Registry. This
+    data is updated nightly based on the most recent `dev` branch of pudl so is less
+    stable.
+
     Inputs:
-        `zenodo_url`: the url to the .tgz file hosted on zenodo
+        `source`: where to download pudl from, either "aws" or "zenodo"
     """
-    # get the version number
-    pudl_version = zenodo_url.split("/")[-1].replace(".tgz", "")
+    os.makedirs(downloads_folder("pudl"), exist_ok=True)
 
-    # if the pudl data already exists, do not re-download
-    if os.path.exists(downloads_folder("pudl")):
-        pudl_version_file = downloads_folder("pudl/pudl_version.txt")
-        with open(pudl_version_file, "r") as f:
-            existing_version = f.readlines()[0].replace("\n", "")
-        if pudl_version == existing_version:
-            logger.info("PUDL version already downloaded")
-            return
+    if source == "aws":
+        # define the urls
+        pudl_db_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2023.12.01/pudl.sqlite.gz"
+        epacems_parquet_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2023.12.01/hourly_emissions_epacems.parquet"
+
+        # download the pudl sqlite database
+        if not os.path.exists(downloads_folder("pudl/pudl.sqlite")):
+            output_filepath = downloads_folder("pudl/pudl.sqlite")
+            download_helper(
+                pudl_db_url,
+                download_path=output_filepath + ".gz",
+                output_path=output_filepath,
+                requires_gzip=True,
+                should_clean=True,
+            )
+
+            # add a version file
+            with open(downloads_folder("pudl/pudl_sqlite_version.txt"), "w+") as v:
+                v.write(f"{datetime.date.today()}")
         else:
-            logger.info("Downloading new version of pudl")
-            shutil.rmtree(downloads_folder("pudl"))
+            with open(downloads_folder("pudl/pudl_sqlite_version.txt"), "r") as f:
+                existing_version = f.readlines()[0].replace("\n", "")
+            logger.info(
+                f"Using nightly build version of PUDL sqlite database downloaded {existing_version}"
+            )
 
-    download_pudl(zenodo_url, pudl_version)
+        if not os.path.exists(
+            downloads_folder("pudl/hourly_emissions_epacems.parquet")
+        ):
+            # download the epacems parquet
+            output_filepath = downloads_folder("pudl/hourly_emissions_epacems.parquet")
+            download_helper(
+                epacems_parquet_url,
+                download_path=output_filepath,
+            )
+
+            # add a version file
+            with open(downloads_folder("pudl/epacems_parquet_version.txt"), "w+") as v:
+                v.write(f"{datetime.date.today()}")
+
+        else:
+            with open(downloads_folder("pudl/epacems_parquet_version.txt"), "r") as f:
+                existing_version = f.readlines()[0].replace("\n", "")
+            logger.info(
+                f"Using nightly build version of PUDL epacems parquet file downloaded {existing_version}"
+            )
+    elif source == "zenodo":
+        # NOTE: This is the most recent available version as of 12/2/2023
+        zenodo_url = "https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
+
+        # get the version number
+        pudl_version = zenodo_url.split("/")[-1].replace(".tgz", "")
+
+        # if the pudl data already exists, do not re-download
+        if os.path.exists(downloads_folder("pudl_zenodo")):
+            pudl_version_file = downloads_folder("pudl_zenodo/pudl_version.txt")
+            with open(pudl_version_file, "r") as f:
+                existing_version = f.readlines()[0].replace("\n", "")
+            if pudl_version == existing_version:
+                logger.info("Most recent PUDL Zenodo archive already downloaded.")
+                return
+            else:
+                logger.info("Downloading new version of pudl")
+                shutil.rmtree(downloads_folder("pudl_zenodo"))
+
+        download_pudl_from_zenodo(zenodo_url, pudl_version)
+    else:
+        raise ValueError(
+            f"{source} is an invalid option for `source`. Must be 'aws' \
+                         or 'zenodo'."
+        )
 
 
-def download_pudl(zenodo_url, pudl_version):
+def download_pudl_from_zenodo(zenodo_url, pudl_version):
     r = requests.get(zenodo_url, params={"download": "1"}, stream=True)
     # specify parameters for progress bar
     total_size_in_bytes = int(r.headers.get("content-length", 0))
@@ -130,11 +196,11 @@ def download_pudl(zenodo_url, pudl_version):
     with tarfile.open(downloads_folder("pudl.tgz")) as tar:
         tar.extractall(data_folder())
 
-    # rename the extracted directory to pudl so that we don't have to update this for future versions
-    os.rename(data_folder(pudl_version), downloads_folder("pudl"))
+    # rename the extracted directory to pudl_zenodo
+    os.rename(data_folder(pudl_version), downloads_folder("pudl_zenodo"))
 
     # add a version file
-    with open(downloads_folder("pudl/pudl_version.txt"), "w+") as v:
+    with open(downloads_folder("pudl_zenodo/pudl_version.txt"), "w+") as v:
         v.write(pudl_version)
 
     # delete the downloaded tgz file

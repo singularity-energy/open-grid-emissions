@@ -1,0 +1,52 @@
+---
+stoplight-id: cleaning_cems
+---
+
+## Loading data from PUDL
+All of the CEMS data used by the OGEI is loaded from pre-cleaned versions of these files created by the PUDL project. The PUDL transformation process cleans the input data so that it is adjusted for uniformity, corrected for errors, and ready for bulk programmatic use.
+
+A comprehensive list of transformations made by by pudl can be found [here](https://catalystcoop-pudl.readthedocs.io/en/latest/data_sources/epacems.html#pudl-data-transformations) , but the most notable data cleaning that pudl performs is:
+ - converts all datetimes to UTC
+ - Corrects anomalous `gross_load_mw` values (if a gross load value is greater than 2,000 MW, they assume that they have accidentally reported kWh, so the gross load value is divided by 1,000).
+ - fills missing `gross_load_mw` and `heat_content_mmbtu` values with zero (NOTE: This step causes issues with later data cleaning steps by making it difficult to differentiate between missing values and measured zeros. We are working with the Catalyst team to fix this. Track progress [here](https://github.com/catalyst-cooperative/pudl/issues/604))
+
+After loading the transformed cems data into the pipeline, we perform several other data cleaning steps:
+- Convert `co2_mass_tons` to `co2_mass_lb` so that all emissions mass units are standardized.
+- Convert the `plant_id_epa` to `plant_id_eia`. For some plants, the EPA uses different plant codes from the ones used by the EIA. In order to accurately match plant data between CEMS and the EIA datasets, we use the EPA's [Power Sector Data Crosswalk](https://www.epa.gov/airmarkets/power-sector-data-crosswalk) to convert these IDs.
+- Remove leading zeros from the `unitid` column to enable matching with other tables.
+
+## Data removed from the CEMS data
+
+Certain data reported to CEMS are removed, including:
+- Data for plants that are not connected to the electrical grid (These include all plants with a `plant_id_eia` of `88xxxx` and the plants in [this table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/plants_not_connected_to_grid.csv))
+- Data for plants in Puerto Rico (These data will be added in a future release. Track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79))
+- Certain units report only steam production (and no electricity generation) and also do not report any data to the EIA. A list of these units can be found [here](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/steam_units_to_remove.csv)
+- Data for any unit-months where there is incomplete hourly data for the entire month are dropped.
+- Data for any unit-months where zero generation, fuel consumption, and emissions reported are removed, so that we can check if non-zero data was reported for this unit in EIA-923. This step is partially necessary because we cannot currently tell the difference between missing data and measured zeros (see above section).
+
+## Imputing missing emissions data
+Although CEMS reports measured hourly CO2, NOx, and SO2 emissions, in some cases these data are missing. In addition, there is no data reported for CH4 and N2O.
+
+In addition to actual missing values, CO2 data is considered to be missing if reported CO2 is zero and fuel consumption is positive. Currently, only missing CO2 values from CEMS are imputed; imputation of missing NOx and SO2 values will be included in a future release (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/153)).
+
+Before imputing the missing data, we must assign an `energy_source_code` to each observation so that the appropriate emission factor can be used. See "[Assigning energy source codes](../Emissions%20Calculations/Assigning%20Energy%20Source%20Codes.md)" for a description of this methodology.
+
+When imputing missing CO2 data, if a unit has a unit-specific fuel type identified by the EPA-EIA crosswalk, we calculate co2 using a fuel-specific emission factor. If not (often in the cases when a unit burns multiple fuels), we fill missing data by using a plant-month weighted average emission factor of all fuels burned in that plant-month.
+
+Hourly CH4 and N2O emissions are then calculated based on hourly fuel consumption and fuel type (see [here](../Emissions%20Calculations/GHG%20Emissions.md) for more details)
+
+## Additional adjustments
+
+Biomass adjusted emissions are calculating using the methodology described [here](../Emissions%20Calculations/Adjusting%20Emissions%20for%20Biomass.md).
+
+Because our [methodology for calculating CHP-adjusted emissions](../Emissions%20Calculations/Adjusting%20Emissions%20for%20CHP.md) relies on net generation data, this adjustment is not calculated until after hourly gross generation has been [converted to hourly net generation](../Converting%20Gross%20to%20Net%20Generation.md).
+
+## Validation Checks
+
+While cleaning the CEMS data, we run several validation checks to ensure that the cleaned data does not contain any unexpected or anomalous values. These checks include:
+ - Check that there are no missing energy source codes associated with records with non-zero fuel consumption (which would result in missing emissions data).
+ - Check that there are no negative fuel consumption or emissions values
+ - Check that all records have been assigned a `subplant_id`
+ - Check that adjusted emissions values are less than or equal to total emissions values
+ - Check that there are no duplicate timestamps for each subplant
+

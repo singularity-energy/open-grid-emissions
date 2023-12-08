@@ -141,7 +141,6 @@ def output_to_results(
     validation.test_for_missing_values(df, small)
 
     if not skip_outputs:
-
         df.to_csv(
             results_folder(f"{path_prefix}{subfolder}us_units/{file_name}.csv"),
             index=False,
@@ -180,6 +179,9 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
             # output hourly data
             validation.validate_unique_datetimes(
                 df, "individual_plant_data", ["plant_id_eia"]
+            )
+            validation.check_for_complete_timeseries(
+                df, "individual_plant_data", ["plant_id_eia"], "year"
             )
             # Separately save real and aggregate plants
             output_to_results(
@@ -472,8 +474,11 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             )
 
             # convert the datetime_utc column back to a datetime
-            ba_table["datetime_utc"] = pd.to_datetime(
-                ba_table["datetime_utc"], utc=True
+            ba_table["datetime_utc"] = (
+                pd.to_datetime(ba_table["datetime_utc"])
+                .dt.tz_localize(None)
+                .astype("datetime64[s]")
+                .dt.tz_localize("UTC")
             )
 
             # calculate a total for the BA
@@ -550,6 +555,12 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 df=ba_table_hourly,
                 df_name="power sector hourly ba table",
                 keys=["fuel_category"],
+            )
+            validation.check_for_complete_timeseries(
+                ba_table_hourly,
+                "power sector hourly ba table",
+                ["fuel_category"],
+                "year",
             )
 
             # export to a csv
