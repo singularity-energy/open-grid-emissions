@@ -32,7 +32,7 @@ BUBA,"Constellation Energy Control and Dispatch - City of Benton, Arkansas",,,,Y
 CE,Commonwealth Edison,,,,Yes,1/1/2004,7/1/2006,,,,FERC,31
 CEA,Chugash Electric Association,,US/Alaska,US/Alaska,Yes,,,,,,EIA,32
 CEN,Centro Nacional de Control de Energia,,America/Mexico_City,America/Mexico_City,No,10/31/2017,,,1/1/2016,,EIA & FERC,33
-CFE,Comision Federal de Electricidad,,America/Mexico_City,America/Mexico_City,No,,,,,,EIA & FERC,34
+CFE,Comision Federal de Electricidad,,America/Mexico_City,America/Mexico_City,No,,7/1/2018,,,,EIA & FERC,34
 CFEN,Comision Federal de Electricidad,,,,No,,4/1/2015,,,,FERC,35
 CHPD,Public Utility District No. 1 of Chelan County,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,36
 CILC,Central Illinois Light Co,,,,Yes,1/1/2004,10/1/2007,,,,FERC,37
@@ -82,7 +82,7 @@ FPC,"Duke Energy Florida, Inc.",,US/Eastern,US/Eastern,Yes,1/1/2004,,Florida Pow
 FPL,Florida Power & Light Co.,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,81
 GA,GridAmerica,,,,Yes,1/1/2004,4/1/2015,,,,FERC,82
 GCPD,"Public Utility District No. 2 of Grant County, Washington",,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,83
-GLHB,GridLiance,generation_only,US/Central,US/Central,Yes,2/29/2020,,GridLiance Heartland (BA),1/1/2020,,EIA & FERC,84
+GLHB,GridLiance,generation_only,US/Central,US/Central,Yes,2/29/2020,9/1/2022,GridLiance Heartland (BA),1/1/2020,,EIA & FERC,84
 GLHL,GridLiance Heartland,,,,Yes,1/1/2020,,,,,FERC,85
 GRDA,Grand River Dam Authority,,,,Yes,1/1/2004,4/1/2015,,,,FERC,86
 GRE,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,87
@@ -90,7 +90,7 @@ GREC,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,88
 GREN,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,89
 GRES,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,90
 GRID,"Gridforce Energy Management, LLC",generation_only,US/Pacific,US/Pacific,Yes,4/1/2014,,Constellation Energy Control and Dispatch,,,EIA & FERC,91
-GRIF,"Griffith Energy, LLC",generation_only,US/Arizona,US/Arizona,Yes,10/1/2008,,Constellation Energy Control and Dispatch,,,EIA & FERC,92
+GRIF,"Griffith Energy, LLC",generation_only,US/Arizona,US/Arizona,Yes,10/1/2008,11/1/2023,Constellation Energy Control and Dispatch,,,EIA & FERC,92
 GRIS,Gridforce South,,US/Central,US/Central,Yes,,,,,,EIA,93
 GRMA,"Gila River Power, LLC",generation_only,US/Arizona,US/Arizona,Yes,1/1/2004,5/3/2018,Constellation Energy Control and Dispatch - Gila River,,,EIA & FERC,94
 GSOC,Georgia System Operations Corporation,,,,Yes,1/1/2004,12/31/2009,,,,FERC,95
