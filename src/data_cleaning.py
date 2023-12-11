@@ -1,7 +1,5 @@
 import pandas as pd
 import numpy as np
-import os
-import sqlalchemy as sa
 
 import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import pudl.analysis.epacamd_eia as epacamd_eia
@@ -12,7 +10,7 @@ import validation
 import emissions
 from emissions import CLEAN_FUELS
 from column_checks import get_dtypes, apply_dtypes
-from filepaths import manual_folder, outputs_folder, downloads_folder
+from filepaths import manual_folder, outputs_folder
 from logging_util import get_logger
 
 logger = get_logger(__name__)

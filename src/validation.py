@@ -220,7 +220,7 @@ def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk):
         "prime_mover_code"
     ].agg(["unique"])
     cc_subplants["unique_cc_pms"] = [
-        ",".join(map(str, l)) for l in cc_subplants["unique"]
+        ",".join(map(str, L)) for L in cc_subplants["unique"]
     ]
     cc_subplants = cc_subplants.drop(columns="unique")
     # identify where there are subplants that only contain a single CC part

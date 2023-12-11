@@ -12,7 +12,7 @@ from logging_util import get_logger
 # Tell gridemissions where to find config before we load gridemissions
 os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")
 
-from gridemissions.workflows import make_dataset
+from gridemissions.workflows import make_dataset  # noqa E402
 
 logger = get_logger(__name__)
 
