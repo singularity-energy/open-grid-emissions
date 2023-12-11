@@ -124,7 +124,7 @@ Installation requires that the conda channel-priority be set to "flexible". This
 
 ### Setup with pipenv
 #### Install python and git
-We recommend that you use Python 3.10. If you don't have Python installed, we recommend that you use [**pyenv**](https://github.com/pyenv/pyenv). It lets you easily switch between multiple versions of Python. You will also need to use git to clone the repository. It can be installed from https://git-scm.com/downloads,
+We recommend that you use Python 3.11. If you don't have Python installed, we recommend that you use [**pyenv**](https://github.com/pyenv/pyenv). It lets you easily switch between multiple versions of Python. You will also need to use git to clone the repository. It can be installed from https://git-scm.com/downloads,
 
 #### Install pipenv
 This can be done via:

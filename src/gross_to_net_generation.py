@@ -6,15 +6,14 @@ import sqlalchemy as sa
 import warnings
 
 # import pudl packages
-import pudl.analysis.allocate_net_gen as allocate_gen_fuel
-import pudl.output.pudltabl
+import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 
 # import other modules
 import load_data
 import data_cleaning
 import validation
 from column_checks import get_dtypes
-from filepaths import outputs_folder
+from filepaths import outputs_folder, downloads_folder
 from logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -399,10 +398,11 @@ def calculate_gross_to_net_conversion_factors(
 def calculate_subplant_nameplate_capacity(year):
     """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
     # load generator data
-    pudl_out = load_data.initialize_pudl_out(year)
-    gen_capacity = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "prime_mover_code", "capacity_mw"]
-    ]
+    gen_capacity = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "prime_mover_code", "capacity_mw"],
+    )
 
     # add subplant ids to the generator data
     subplant_crosswalk = pd.read_csv(
@@ -426,7 +426,7 @@ def calculate_subplant_nameplate_capacity(year):
     subplant_prime_mover = gen_capacity[
         gen_capacity.groupby(["plant_id_eia", "subplant_id"], dropna=False)[
             "capacity_mw"
-        ].transform(max)
+        ].transform("max")
         == gen_capacity["capacity_mw"]
     ][["plant_id_eia", "subplant_id", "prime_mover_code"]].drop_duplicates(
         subset=["plant_id_eia", "subplant_id"], keep="first"
@@ -754,21 +754,13 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
     # load cems data
     cems_monthly = load_data.load_cems_gross_generation(start_year, end_year)
 
-    # load and clean EIA data
-    # create pudl_out
-    pudl_db = "sqlite:///../data/downloads/pudl/pudl_data/sqlite/pudl.sqlite"
-    pudl_engine = sa.create_engine(pudl_db)
-    pudl_out = pudl.output.pudltabl.PudlTabl(
-        pudl_engine,
-        freq="MS",
-        start_date=f"{start_year}-01-01",
-        end_date=f"{end_year}-12-31",
-    )
-
     # allocate net generation and heat input to each generator-fuel grouping
     logger.info("Allocating EIA-923 generation data")
-    gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
-        pudl_out, drop_interim_cols=True
+    gen_fuel_allocated = load_data.load_pudl_table(
+        "generation_fuel_by_generator_energy_source_monthly_eia923",
+        year=start_year,
+        columns=None,
+        end_year=end_year,
     )
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
@@ -779,7 +771,6 @@ def load_monthly_gross_and_net_generation(start_year, end_year):
 
 
 def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
-
     if agg_level == "plant":
         plant_aggregation_columns = ["plant_id_eia"]
     elif agg_level == "subplant":
@@ -815,14 +806,14 @@ def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
 
     # drop any of these rows where the retirement date is before the report date (only applies if net generation missing)
     incomplete_data = incomplete_data[
-        ~(incomplete_data["retirement_date"] < incomplete_data["report_date"])
+        ~(incomplete_data["generator_retirement_date"] < incomplete_data["report_date"])
     ]
 
     # drop any of these rows where the report date is before the planned operating date
     incomplete_data = incomplete_data[
         ~(
             incomplete_data["report_date"]
-            < incomplete_data["current_planned_operating_date"]
+            < incomplete_data["current_planned_generator_operating_date"]
         )
     ]
 

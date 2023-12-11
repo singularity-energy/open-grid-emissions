@@ -250,7 +250,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
 
     # create a report date column
     data["report_date"] = data["datetime_local"].str[:7]
-    data["report_date"] = pd.to_datetime(data["report_date"])
+    data["report_date"] = pd.to_datetime(data["report_date"]).astype("datetime64[s]")
 
     # rename the fuel categories using format in
     # data/manual/energy_source_groups
@@ -285,7 +285,6 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
 
 
 def remove_imputed_ones(eia930_data):
-
     filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
 
     # replace all 1.0 values with zero

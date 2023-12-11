@@ -7,7 +7,7 @@ from column_checks import get_dtypes
 from filepaths import manual_folder
 from logging_util import get_logger
 
-from pudl.analysis.allocate_net_gen import (
+from pudl.analysis.allocate_gen_fuel import (
     distribute_annually_reported_data_to_months_if_annual,
 )
 
@@ -146,9 +146,7 @@ def calculate_geothermal_emission_factors(year):
 
 def identify_geothermal_generator_geotype(year):
     """Identifies whether each geothermal generator is binary, flash, or dry steam"""
-    pudl_out = load_data.initialize_pudl_out(year)
-
-    geothermal_geotype = pudl_out.gens_eia860()
+    geothermal_geotype = load_data.load_pudl_table("generators_eia860", year)
     geothermal_geotype = geothermal_geotype.loc[
         geothermal_geotype["energy_source_code_1"] == "GEO",
         [
@@ -440,7 +438,7 @@ def calculate_co2e_mass(df, year, gwp_horizon=100, ar5_climate_carbon_feedback=T
 
 
 def calculate_nox_from_fuel_consumption(
-    gen_fuel_allocated: pd.DataFrame, pudl_out, year
+    gen_fuel_allocated: pd.DataFrame, year
 ) -> pd.DataFrame:
     """
     Calculate NOx emissions from fuel consumption data.
@@ -453,10 +451,30 @@ def calculate_nox_from_fuel_consumption(
 
     # calculate uncontrolled nox emission factors based on boiler design parameters
     uncontrolled_nox_factors = calculate_generator_nox_ef_per_unit_from_boiler_type(
-        gen_fuel_allocated, year, pudl_out
+        gen_fuel_allocated, year
     )
+    # convert all EFs to a standardized unit based on fuel heat content
     uncontrolled_nox_factors = convert_ef_to_lb_per_mmbtu(
-        uncontrolled_nox_factors, pudl_out, "nox"
+        uncontrolled_nox_factors, year, "nox"
+    )
+
+    # For generators associated with multiple boilers, average all nox factors together
+    # to have a single factor per generator
+    # TODO: In the future, these factors should be weighed by the boiler fuel allocation
+    # factors, and not just a straight average.
+    uncontrolled_nox_factors = (
+        uncontrolled_nox_factors.groupby(
+            [
+                "report_date",
+                "plant_id_eia",
+                "generator_id",
+                "prime_mover_code",
+                "energy_source_code",
+            ],
+            dropna=False,
+        )["nox_ef_lb_per_mmbtu"]
+        .mean()
+        .reset_index()
     )
 
     # merge nox efs into the gen_fuel_allocated
@@ -481,8 +499,9 @@ def calculate_nox_from_fuel_consumption(
     if len(missing_ef) > 0:
         logger.warning("NOx emission factors are missing for the following records")
         logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning("\n" +
-            missing_ef[
+        logger.warning(
+            "\n"
+            + missing_ef[
                 [
                     "report_date",
                     "plant_id_eia",
@@ -490,7 +509,9 @@ def calculate_nox_from_fuel_consumption(
                     "prime_mover_code",
                     "generator_id",
                 ]
-            ].drop_duplicates().to_string()
+            ]
+            .drop_duplicates()
+            .to_string()
         )
     gen_fuel_allocated["nox_mass_lb"] = (
         gen_fuel_allocated["fuel_consumed_mmbtu"]
@@ -541,12 +562,10 @@ def calculate_nox_from_fuel_consumption(
     return gen_fuel_allocated
 
 
-def calculate_generator_nox_ef_per_unit_from_boiler_type(
-    gen_fuel_allocated, year, pudl_out
-):
-    """Calculates a generator-specific Nox emission factor per unit fuel based on boiler firing type
-
-    If a generator has multiple boilers, average the emission factor of all boilers
+def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, year):
+    """
+    Calculates a boiler-specific NOx emission factor per unit fuel based on boiler
+    firing type, and associates with each generator.
     """
 
     # get a dataframe with all unique generator-pm-esc combinations for emitting energy source types with data reported
@@ -573,7 +592,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         subset=[
             "prime_mover_code",
             "energy_source_code",
-            "boiler_bottom_type",
+            "wet_dry_bottom",
             "boiler_firing_type",
         ]
     )
@@ -582,12 +601,17 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
     boiler_firing_type = load_boiler_firing_type(year)
 
     # identify the boiler firing type for each generator
-    boiler_generator_assn = pudl_out.bga_eia860()
+    boiler_generator_assn = load_data.load_pudl_table(
+        "boiler_generator_assn_eia860",
+        year,
+        columns=["plant_id_eia", "boiler_id", "generator_id"],
+    )
     # associate each boiler record with generator_id s
     boiler_firing_type = boiler_firing_type.merge(
-        boiler_generator_assn[["plant_id_eia", "boiler_id", "generator_id"]],
+        boiler_generator_assn,
         how="left",
         on=["plant_id_eia", "boiler_id"],
+        validate="1:m",
     )
 
     # merge the gen keys with the boiler firing types
@@ -598,14 +622,19 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         validate="m:m",
     )
 
-    # merge in the emission factors for spedcific boiler types
+    gen_nox_factors["wet_dry_bottom"] = gen_nox_factors["wet_dry_bottom"].fillna("none")
+    gen_nox_factors["boiler_firing_type"] = gen_nox_factors[
+        "boiler_firing_type"
+    ].fillna("none")
+
+    # merge in the emission factors for specific boiler types
     gen_nox_factors = gen_nox_factors.merge(
         nox_emission_factors,
         how="left",
         on=[
             "prime_mover_code",
             "energy_source_code",
-            "boiler_bottom_type",
+            "wet_dry_bottom",
             "boiler_firing_type",
         ],
         validate="m:1",
@@ -641,7 +670,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
             [
                 "prime_mover_code",
                 "energy_source_code",
-                "boiler_bottom_type",
+                "wet_dry_bottom",
                 "boiler_firing_type",
             ],
         ]
@@ -651,7 +680,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
                 "energy_source_code",
                 "prime_mover_code",
                 "boiler_firing_type",
-                "boiler_bottom_type",
+                "wet_dry_bottom",
             ]
         )
     )
@@ -672,7 +701,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
             [
                 "prime_mover_code",
                 "energy_source_code",
-                "boiler_bottom_type",
+                "wet_dry_bottom",
                 "boiler_firing_type",
             ],
         ]
@@ -682,12 +711,13 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
                 "energy_source_code",
                 "prime_mover_code",
                 "boiler_firing_type",
-                "boiler_bottom_type",
+                "wet_dry_bottom",
             ]
         )
     )
     if len(missing_nox_efs) > 0:
-        logger.warning("""
+        logger.warning(
+            """
             After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types.
             An emission factor of zero will be used for these boilers.
             Missing factors for FC prime movers are currently expected."""
@@ -696,60 +726,40 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
 
     gen_nox_factors["emission_factor"] = gen_nox_factors["emission_factor"].fillna(0)
 
-    # average the emission factors for all boilers associated with each generator
-    gen_nox_factors = (
-        gen_nox_factors.groupby(
-            [
-                "report_date",
-                "plant_id_eia",
-                "generator_id",
-                "prime_mover_code",
-                "energy_source_code",
-                "emission_factor_denominator",
-            ],
-            dropna=False,
-        )["emission_factor"]
-        .mean()
-        .reset_index()
-    )
-
     return gen_nox_factors
 
 
 def load_boiler_firing_type(year):
-
-    boiler_design_parameters_eia860 = load_data.load_boiler_design_parameters_eia860(
-        year
+    boiler_firing_type = load_data.load_pudl_table(
+        "boilers_eia860",
+        year,
+        columns=[
+            "plant_id_eia",
+            "boiler_id",
+            "firing_type_1",
+            "wet_dry_bottom",
+        ],
     )
 
-    firing_type_description = {
-        "CB": "CELLBURNER",
-        "CY": "CYCLONE",
-        "DB": "DUCTBURNER",
-        "FB": "FLUIDIZED",
-        "SS": "STOKER",
-        "TF": "TANGENTIAL",
-        "VF": "VERTICAL",
-        "WF": "WALL",
-        "OT": "OTHER",
-    }
+    firing_types_eia = load_data.load_pudl_table("firing_types_eia")
 
-    # only keep boilers that are operational
-    boiler_firing_type = boiler_design_parameters_eia860.copy()[
-        boiler_design_parameters_eia860["operational_status"] == "OP"
-    ]
-
-    boiler_firing_type["boiler_firing_type"] = boiler_firing_type["firing_type_1"].map(
-        firing_type_description
+    boiler_firing_type["boiler_firing_type"] = (
+        boiler_firing_type["firing_type_1"]
+        .map(dict(zip(firing_types_eia["code"], firing_types_eia["label"])))
+        .fillna("none")
+        .str.lower()
     )
 
-    boiler_firing_type["boiler_bottom_type"] = boiler_firing_type[
-        "boiler_bottom_type"
-    ].replace({"D": "DRY", "W": "WET"})
+    boiler_firing_type["wet_dry_bottom"] = (
+        boiler_firing_type["wet_dry_bottom"]
+        .replace({"D": "dry", "W": "wet"})
+        .fillna("none")
+        .str.lower()
+    )
 
     boiler_firing_type = boiler_firing_type[
-        ["plant_id_eia", "boiler_id", "boiler_bottom_type", "boiler_firing_type"]
-    ].dropna(subset=["boiler_bottom_type", "boiler_firing_type"], thresh=1)
+        ["plant_id_eia", "boiler_id", "wet_dry_bottom", "boiler_firing_type"]
+    ].dropna(subset=["wet_dry_bottom", "boiler_firing_type"], thresh=1)
 
     return boiler_firing_type
 
@@ -798,14 +808,13 @@ def fill_missing_factors_based_on_pm_fuel(emission_factors, gen_factors):
     return gen_factors
 
 
-def convert_ef_to_lb_per_mmbtu(gen_emission_factors, pudl_out, pollutant):
-
+def convert_ef_to_lb_per_mmbtu(gen_emission_factors, year, pollutant):
     # get the reported fuel heat content values from EIA-923
     (
         plant_specific_fuel_heat_content,
         national_avg_fuel_heat_content,
         annual_avg_fuel_heat_content,
-    ) = return_monthly_plant_fuel_heat_content(pudl_out)
+    ) = return_monthly_plant_fuel_heat_content(year)
 
     # merge in plant pm specific fuel heat content values
     gen_emission_factors = gen_emission_factors.merge(
@@ -888,26 +897,23 @@ def convert_ef_to_lb_per_mmbtu(gen_emission_factors, pudl_out, pollutant):
     return gen_emission_factors
 
 
-def return_monthly_plant_fuel_heat_content(pudl_out):
+def return_monthly_plant_fuel_heat_content(year):
     # load information about the monthly heat input of fuels
-    plant_specific_fuel_heat_content = (
-        pudl_out.gf_eia923()
-        .loc[
-            :,
-            [
-                "plant_id_eia",
-                "energy_source_code",
-                "prime_mover_code",
-                "report_date",
-                "fuel_mmbtu_per_unit",
-            ],
-        ]
-        .pipe(
-            distribute_annually_reported_data_to_months_if_annual,
-            key_columns=["plant_id_eia", "energy_source_code", "prime_mover_code"],
-            data_column_name="fuel_mmbtu_per_unit",
-            freq="MS",
-        )
+    plant_specific_fuel_heat_content = load_data.load_pudl_table(
+        "generation_fuel_eia923",
+        year,
+        columns=[
+            "plant_id_eia",
+            "energy_source_code",
+            "prime_mover_code",
+            "report_date",
+            "fuel_mmbtu_per_unit",
+        ],
+    ).pipe(
+        distribute_annually_reported_data_to_months_if_annual,
+        key_columns=["plant_id_eia", "energy_source_code", "prime_mover_code"],
+        data_column_name="fuel_mmbtu_per_unit",
+        freq="MS",
     )
     plant_specific_fuel_heat_content = plant_specific_fuel_heat_content[
         ~plant_specific_fuel_heat_content["energy_source_code"].isin(CLEAN_FUELS)
@@ -938,10 +944,10 @@ def return_monthly_plant_fuel_heat_content(pudl_out):
     # change the report date columns back to datetimes
     plant_specific_fuel_heat_content["report_date"] = pd.to_datetime(
         plant_specific_fuel_heat_content["report_date"]
-    )
+    ).astype("datetime64[s]")
     national_avg_fuel_heat_content["report_date"] = pd.to_datetime(
         national_avg_fuel_heat_content["report_date"]
-    )
+    ).astype("datetime64[s]")
 
     return (
         plant_specific_fuel_heat_content,
@@ -993,10 +999,10 @@ def load_controlled_nox_emission_rates(year):
     nox_rates = nox_rates[
         [
             "plant_id_eia",
-            "nox_control_id",
-            "pm_control_id",
-            "so2_control_id",
-            "hg_control_id",
+            "nox_control_id_eia",
+            "particulate_control_id_eia",
+            "so2_control_id_eia",
+            "mercury_control_id_eia",
             "hours_in_service",
             "annual_nox_emission_rate_lb_per_mmbtu",
             "ozone_season_nox_emission_rate_lb_per_mmbtu",
@@ -1022,10 +1028,14 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
     )
 
     if aggregation_level == "generator_id":
-        boiler_generator_assn = load_data.initialize_pudl_out(year).bga_eia860()
+        boiler_generator_assn = load_data.load_pudl_table(
+            "boiler_generator_assn_eia860",
+            year,
+            columns=["plant_id_eia", "boiler_id", "generator_id"],
+        )
         # associate a generator_id with each record
         nox_rates = nox_rates.merge(
-            boiler_generator_assn[["plant_id_eia", "boiler_id", "generator_id"]],
+            boiler_generator_assn,
             how="left",
             on=["plant_id_eia", "boiler_id"],
             validate="m:m",
@@ -1063,64 +1073,68 @@ def associate_control_ids_with_boiler_id(df, year, pollutant):
     in the order specified by `id_order`
     """
 
-    all_pollutants = ["pm", "so2", "nox", "hg"]
+    all_pollutants = ["particulate", "so2", "nox", "mercury"]
     # reorder the pollutant list to make the primary pollutant first
     all_pollutants.remove(pollutant)
     pollutant_order = [pollutant] + all_pollutants
 
+    boiler_association_eia860 = load_data.load_pudl_table(
+        "boiler_emissions_control_equipment_assn_eia860", year
+    )
+
     counter = 1
 
     for pol in pollutant_order:
+        pol_control_id_assn = (
+            boiler_association_eia860[
+                boiler_association_eia860["emission_control_id_type"] == pol
+            ]
+            .copy()
+            .rename(columns={"emission_control_id_eia": f"{pol}_control_id_eia"})
+        )
+
         # if this is the first time through the loop
         if counter == 1:
             # load the association table and rename the boiler id column to specify which table it came from
-            boiler_association_eia860 = (
-                load_data.load_boiler_control_id_association_eia860(year, pol)
-            )
 
             df = df.merge(
-                boiler_association_eia860[
+                pol_control_id_assn[
                     [
                         "plant_id_eia",
-                        f"{pol}_control_id",
+                        f"{pol}_control_id_eia",
                         "boiler_id",
                     ]
                 ],
                 how="left",
-                on=["plant_id_eia", f"{pol}_control_id"],
+                on=["plant_id_eia", f"{pol}_control_id_eia"],
                 validate="m:m",
             )
             counter += 1
         else:
             # split out the data that is still missing a boiler_id
             missing_boiler_id = df[
-                df["boiler_id"].isna() & ~df[f"{pol}_control_id"].isna()
+                df["boiler_id"].isna() & ~df[f"{pol}_control_id_eia"].isna()
             ].drop(columns=["boiler_id"])
             # remove this data from the original dataframe
-            df = df[~(df["boiler_id"].isna() & ~df[f"{pol}_control_id"].isna())]
-
-            # load the association for the new pol
-            boiler_association_eia860 = (
-                load_data.load_boiler_control_id_association_eia860(year, pol)
-            )
+            df = df[~(df["boiler_id"].isna() & ~df[f"{pol}_control_id_eia"].isna())]
 
             missing_boiler_id = missing_boiler_id.merge(
-                boiler_association_eia860[
+                pol_control_id_assn[
                     [
                         "plant_id_eia",
-                        f"{pol}_control_id",
+                        f"{pol}_control_id_eia",
                         "boiler_id",
                     ]
                 ],
                 how="left",
-                on=["plant_id_eia", f"{pol}_control_id"],
+                on=["plant_id_eia", f"{pol}_control_id_eia"],
                 validate="m:m",
             )
             # add this data back to the original dataframe
             df = pd.concat([df, missing_boiler_id], axis=0)
 
     # if there are any missing boiler_ids, fill using the nox_control_id, which is likely to match a boiler
-    df["boiler_id"] = df["boiler_id"].fillna(df[f"{pollutant}_control_id"])
+    df["boiler_id"] = df["boiler_id"].fillna(df[f"{pollutant}_control_id_eia"])
 
     return df
 
@@ -1167,7 +1181,7 @@ def calculate_non_ozone_season_nox_rate(weighted_nox_rates):
     return weighted_nox_rates
 
 
-def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
+def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
     """
     Calculate SO2 emissions from fuel consumption data.
 
@@ -1179,17 +1193,33 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
 
     # load uncontrolled emission factors
     uncontrolled_so2_factors = calculate_generator_so2_ef_per_unit_from_boiler_type(
-        gen_fuel_allocated, year, pudl_out
+        gen_fuel_allocated, year
     )
 
     # adjust for sulfur content
     uncontrolled_so2_factors = adjust_so2_efs_for_fuel_sulfur_content(
-        uncontrolled_so2_factors, pudl_out
+        uncontrolled_so2_factors, year
     )
 
     # convert to mmbtu
     uncontrolled_so2_factors = convert_ef_to_lb_per_mmbtu(
-        uncontrolled_so2_factors, pudl_out, "so2"
+        uncontrolled_so2_factors, year, "so2"
+    )
+
+    # average the emission factors for all boilers associated with each generator
+    uncontrolled_so2_factors = (
+        uncontrolled_so2_factors.groupby(
+            [
+                "report_date",
+                "plant_id_eia",
+                "generator_id",
+                "prime_mover_code",
+                "energy_source_code",
+            ],
+            dropna=False,
+        )["so2_ef_lb_per_mmbtu"]
+        .mean()
+        .reset_index()
     )
 
     # merge so2 efs into the gen_fuel_allocated
@@ -1214,8 +1244,9 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
     if len(missing_ef) > 0:
         logger.warning("SO2 emission factors are missing for the above records")
         logger.warning("Missing factors for FC prime movers are currently expected")
-        logger.warning("\n" +
-            missing_ef[
+        logger.warning(
+            "\n"
+            + missing_ef[
                 [
                     "report_date",
                     "plant_id_eia",
@@ -1223,7 +1254,9 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
                     "prime_mover_code",
                     "generator_id",
                 ]
-            ].drop_duplicates().to_string()
+            ]
+            .drop_duplicates()
+            .to_string()
         )
     gen_fuel_allocated["so2_mass_lb"] = (
         gen_fuel_allocated["fuel_consumed_mmbtu"]
@@ -1265,9 +1298,7 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, pudl_out, year):
     return gen_fuel_allocated
 
 
-def calculate_generator_so2_ef_per_unit_from_boiler_type(
-    gen_fuel_allocated, year, pudl_out
-):
+def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, year):
     """Calculates a generator-specific Nox emission factor per unit fuel based on boiler firing type
 
     If a generator has multiple boilers, average the emission factor of all boilers
@@ -1296,14 +1327,18 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
     # load the boiler firing type info
     boiler_firing_type = load_boiler_firing_type(year)
     # drop the boiler bottom type data
-    boiler_firing_type = boiler_firing_type.drop(columns="boiler_bottom_type")
+    boiler_firing_type = boiler_firing_type.drop(columns="wet_dry_bottom")
     boiler_firing_type = boiler_firing_type.drop_duplicates()
 
     # identify the boiler firing type for each generator
-    boiler_generator_assn = pudl_out.bga_eia860()
+    boiler_generator_assn = load_data.load_pudl_table(
+        "boiler_generator_assn_eia860",
+        year,
+        columns=["plant_id_eia", "boiler_id", "generator_id"],
+    )
     # associate each boiler record with generator_id s
     boiler_firing_type = boiler_firing_type.merge(
-        boiler_generator_assn[["plant_id_eia", "boiler_id", "generator_id"]],
+        boiler_generator_assn,
         how="left",
         on=["plant_id_eia", "boiler_id"],
         validate="1:m",
@@ -1316,6 +1351,10 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
         on=["plant_id_eia", "generator_id"],
         validate="m:m",
     )
+
+    gen_so2_factors["boiler_firing_type"] = gen_so2_factors[
+        "boiler_firing_type"
+    ].fillna("none")
 
     # merge in the emission factors for specific boiler types
     gen_so2_factors = gen_so2_factors.merge(
@@ -1414,56 +1453,32 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
         "multiply_by_sulfur_content"
     ].fillna(0)
 
-    # average the emission factors for all boilers associated with each generator
-    gen_so2_factors = (
-        gen_so2_factors.groupby(
-            [
-                "report_date",
-                "plant_id_eia",
-                "generator_id",
-                "prime_mover_code",
-                "energy_source_code",
-                "emission_factor_denominator",
-                "multiply_by_sulfur_content",
-            ],
-            dropna=False,
-        )["emission_factor"]
-        .mean()
-        .reset_index()
-    )
-
     return gen_so2_factors
 
 
-def return_monthly_plant_fuel_sulfur_content(pudl_out):
+def return_monthly_plant_fuel_sulfur_content(year):
     """
     Returns the month specific, plant average sulfur content.
 
     Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
     """
-    plant_specific_fuel_sulfur_content = pudl_out.bf_eia923().loc[
-        :,
-        [
+    plant_specific_fuel_sulfur_content = load_data.load_pudl_table(
+        "boiler_fuel_eia923",
+        year,
+        columns=[
             "plant_id_eia",
             "boiler_id",
+            "prime_mover_code",
             "energy_source_code",
             "report_date",
             "fuel_consumed_units",
             "sulfur_content_pct",
         ],
-    ]
+    )
 
     plant_specific_fuel_sulfur_content = plant_specific_fuel_sulfur_content[
         ~plant_specific_fuel_sulfur_content["energy_source_code"].isin(CLEAN_FUELS)
     ]
-
-    # merge in the prime mover data
-    plant_specific_fuel_sulfur_content = plant_specific_fuel_sulfur_content.merge(
-        pd.read_sql("boilers_entity_eia", pudl_out.pudl_engine),
-        how="left",
-        on=["plant_id_eia", "boiler_id"],
-        validate="m:1",
-    )
 
     # calculate a weighted average for each  generator
     plant_specific_fuel_sulfur_content = calculate_weighted_averages(
@@ -1497,10 +1512,10 @@ def return_monthly_plant_fuel_sulfur_content(pudl_out):
     # change the report date columns back to datetimes
     plant_specific_fuel_sulfur_content["report_date"] = pd.to_datetime(
         plant_specific_fuel_sulfur_content["report_date"]
-    )
+    ).astype("datetime64[s]")
     national_avg_fuel_sulfur_content["report_date"] = pd.to_datetime(
         national_avg_fuel_sulfur_content["report_date"]
-    )
+    ).astype("datetime64[s]")
 
     plant_specific_fuel_sulfur_content
 
@@ -1511,13 +1526,13 @@ def return_monthly_plant_fuel_sulfur_content(pudl_out):
     )
 
 
-def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, pudl_out):
+def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, year):
     # multiply factors by sulfur content
     (
         plant_specific_fuel_sulfur_content,
         national_avg_fuel_sulfur_content,
         annual_avg_fuel_sulfur_content,
-    ) = return_monthly_plant_fuel_sulfur_content(pudl_out)
+    ) = return_monthly_plant_fuel_sulfur_content(year)
 
     # merge in plant pm specific fuel sulfur content values
     uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
@@ -1561,15 +1576,18 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, pudl_out):
     ]
     if len(missing_sulfur_content) > 0:
         logger.warning("Sulfur content data is missing in EIA-923 for the above units.")
-        logger.warning("\n" +
-            missing_sulfur_content[
+        logger.warning(
+            "\n"
+            + missing_sulfur_content[
                 [
                     "plant_id_eia",
                     "generator_id",
                     "prime_mover_code",
                     "energy_source_code",
                 ]
-            ].drop_duplicates().to_string()
+            ]
+            .drop_duplicates()
+            .to_string()
         )
     uncontrolled_so2_factors.loc[
         uncontrolled_so2_factors["sulfur_content_pct"].isna()
@@ -1616,10 +1634,10 @@ def load_so2_control_efficiencies(year):
     so2_efficiency = so2_efficiency[
         [
             "plant_id_eia",
-            "so2_control_id",
-            "nox_control_id",
-            "pm_control_id",
-            "hg_control_id",
+            "so2_control_id_eia",
+            "nox_control_id_eia",
+            "particulate_control_id_eia",
+            "mercury_control_id_eia",
             "hours_in_service",
             "so2_removal_efficiency_annual",
             "so2_removal_efficiency_at_full_load",
@@ -1650,10 +1668,14 @@ def calculate_weighted_so2_control_efficiency(
     )
 
     if aggregation_level == "generator_id":
-        boiler_generator_assn = load_data.initialize_pudl_out(year).bga_eia860()
+        boiler_generator_assn = load_data.load_pudl_table(
+            "boiler_generator_assn_eia860",
+            year,
+            columns=["plant_id_eia", "boiler_id", "generator_id"],
+        )
         # associate a generator_id with each record
         so2_control_efficiency = so2_control_efficiency.merge(
-            boiler_generator_assn[["plant_id_eia", "boiler_id", "generator_id"]],
+            boiler_generator_assn,
             how="left",
             on=["plant_id_eia", "boiler_id"],
             validate="m:m",

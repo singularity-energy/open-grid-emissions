@@ -43,14 +43,14 @@ def validate_year(year):
         raise UserWarning(year_warning)
 
 
-def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
+def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     """
     Checks that the allocated generation and fuel from EIA-923 matches the input totals.
 
     We use np.isclose() to identify any values that are off by more than 1e-9% different
     from the total input generation or fuel.
     """
-    gf = pudl_out.gf_eia923()
+    gf = load_data.load_pudl_table("generation_fuel_eia923", year)
     plant_total_gf = gf.groupby("plant_id_eia")[
         [
             "net_generation_mwh",
@@ -110,7 +110,6 @@ def flag_possible_primary_fuel_mismatches(plant_primary_fuel):
     ]
 
     for esc_column in ["plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]:
-
         # load the fuel category table
         energy_source_groups = pd.read_csv(
             manual_folder("energy_source_groups.csv"), dtype=get_dtypes()
@@ -727,7 +726,8 @@ def validate_unique_datetimes(df, df_name, keys):
     Args:
         df: dataframe containing datetime columns
         df_name: a descriptive name for the dataframe
-        keys: list of column names that contain the groups within which datetimes should be unique"""
+        keys: list of column names that contain the groups within which datetimes should be unique
+    """
 
     for datetime_column in ["datetime_utc", "datetime_local"]:
         if datetime_column in list(df.columns):
@@ -747,14 +747,15 @@ def check_for_complete_timeseries(df, df_name, keys, period):
     If the `period` is a 'year', checks that the length of the timeseries is 8760 (for a
     non-leap year) or 8784 (for a leap year). If the `period` is a 'month', checks that
     the length of the timeseries is equal to the length of the complete date_range
-    between the earliest and latest timestamp in a month. 
+    between the earliest and latest timestamp in a month.
 
     Args:
         df: dataframe containing datetime columns
         df_name: a descriptive name for the dataframe
         year
         keys: list of column names that contain the groups within which datetimes should be unique
-        period: either 'month' or 'year'. Period within which to ensure complete hourly data"""
+        period: either 'month' or 'year'. Period within which to ensure complete hourly data
+    """
 
     if period == "year":
         # identify the year of the data
@@ -775,7 +776,6 @@ def check_for_complete_timeseries(df, df_name, keys, period):
             )
             logger.warning("\n" + test.to_string())
     elif period == "month":
-
         # count the number of timestamps in each group-month
         test = (
             df.groupby(keys + ["report_date"])[["datetime_utc"]]
@@ -1115,10 +1115,9 @@ def identify_reporting_frequency(eia923_allocated, year):
     Returns input dataframe with `eia_data_resolution` column added"""
 
     # load data about the respondent frequency for each plant and merge into the EIA-923 data
-    pudl_out = load_data.initialize_pudl_out(year)
-    plant_frequency = pudl_out.plants_eia860()[
-        ["plant_id_eia", "reporting_frequency_code"]
-    ].copy()
+    plant_frequency = load_data.load_pudl_table(
+        "plants_eia860", year, columns=["plant_id_eia", "reporting_frequency_code"]
+    )
     plant_frequency["reporting_frequency_code"] = plant_frequency[
         "reporting_frequency_code"
     ].fillna("multiple")
@@ -1435,7 +1434,6 @@ def validate_diba_imputation_method(hourly_profiles, year):
 
 
 def validate_national_imputation_method(hourly_profiles):
-
     # only keep wind and solar data
     data_to_validate = hourly_profiles[
         (hourly_profiles["fuel_category"].isin(["wind", "solar"]))
@@ -1606,12 +1604,12 @@ def test_for_missing_data(df, columns_to_test):
 
 
 def test_for_missing_incorrect_prime_movers(df, year):
-
     # cehck for incorrect PM by comparing to EIA-860 data
-    pudl_out = load_data.initialize_pudl_out(year)
-    pms_in_eia860 = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "prime_mover_code"]
-    ]
+    pms_in_eia860 = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "prime_mover_code"],
+    )
     incorrect_pm_test = df.copy()[["plant_id_eia", "generator_id", "prime_mover_code"]]
     incorrect_pm_test = incorrect_pm_test.merge(
         pms_in_eia860,
@@ -2122,7 +2120,6 @@ def compare_plant_level_results_to_egrid(
 def identify_plants_missing_from_our_calculations(
     egrid_plant, annual_plant_results, year
 ):
-
     # remove any plants that have no reported data in egrid
     # NOTE: it seems that egrid includes a lot of proposed projects that are not yet operating, but just has missing data for them
     plants_with_no_data_in_egrid = list(
@@ -2154,16 +2151,18 @@ def identify_plants_missing_from_our_calculations(
     ]
 
     # see if any of these plants are retired
-    generators_eia860 = load_data.load_pudl_table("generators_eia860", year=year)
+    generator_status = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=[
+            "plant_id_eia",
+            "operational_status",
+            "current_planned_generator_operating_date",
+            "generator_retirement_date",
+        ],
+    ).drop_duplicates()
     missing_from_calc.merge(
-        generators_eia860[
-            [
-                "plant_id_eia",
-                "operational_status",
-                "current_planned_operating_date",
-                "retirement_date",
-            ]
-        ].drop_duplicates(),
+        generator_status,
         how="left",
         on="plant_id_eia",
         validate="m:m",
@@ -2179,9 +2178,9 @@ def identify_plants_missing_from_egrid(egrid_plant, annual_plant_results):
         - set(egrid_plant["plant_id_egrid"].unique())
     )
 
-    plant_names = load_data.load_pudl_table(table_name="plants_entity_eia")[
-        ["plant_id_eia", "plant_name_eia"]
-    ]
+    plant_names = load_data.load_pudl_table(
+        "plants_entity_eia", columns=["plant_id_eia", "plant_name_eia"]
+    )
     missing_from_egrid = annual_plant_results[
         annual_plant_results["plant_id_egrid"].isin(PLANTS_MISSING_FROM_EGRID)
     ].merge(plant_names, how="left", on="plant_id_eia", validate="m:1")
@@ -2193,7 +2192,7 @@ def segment_plants_by_known_issues(
     annual_plant_results,
     egrid_plant,
     eia923_allocated,
-    pudl_out,
+    year,
     PLANTS_MISSING_FROM_EGRID,
 ):
     annual_plant_results_segmented = annual_plant_results.copy()
@@ -2217,7 +2216,7 @@ def segment_plants_by_known_issues(
     ] = 1
 
     # fuel cells
-    gens_eia860 = pudl_out.gens_eia860()
+    gens_eia860 = load_data.load_pudl_table("generators_eia860", year)
     PLANTS_WITH_FUEL_CELLS = list(
         gens_eia860.loc[
             gens_eia860["prime_mover_code"] == "FC", "plant_id_eia"
@@ -2258,8 +2257,16 @@ def segment_plants_by_known_issues(
     ] = 1
 
     # identify plants that report data to the bf or gen table
-    bf_reporter = list(pudl_out.bf_eia923()["plant_id_eia"].unique())
-    gen_reporter = list(pudl_out.gen_original_eia923()["plant_id_eia"].unique())
+    bf_reporter = list(
+        load_data.load_pudl_table(
+            "boiler_fuel_eia923", year, columns=["plant_id_eia"]
+        ).unique()
+    )
+    gen_reporter = list(
+        load_data.load_pudl_table(
+            "generation_eia923", year, columns=["plant_id_eia"]
+        ).unique()
+    )
     annual_plant_results_segmented["flag_bf_gen_reporter"] = 0
     annual_plant_results_segmented.loc[
         (
@@ -2270,9 +2277,11 @@ def segment_plants_by_known_issues(
     ] = 1
 
     # identify plants with proposed generators
-    status = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "operational_status"]
-    ]
+    status = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "operational_status"],
+    )
     plants_with_proposed_gens = list(
         status.loc[
             status["operational_status"] == "proposed",
@@ -2364,7 +2373,7 @@ def compare_egrid_fuel_total(plant_data, egrid_plant_df):
     return compare_fuel
 
 
-def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
+def identify_potential_missing_fuel_in_egrid(year, egrid_plant, cems):
     # load the EIA generator fuel data
     IDX_PM_ESC = [
         "report_date",
@@ -2372,15 +2381,16 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
         "energy_source_code",
         "prime_mover_code",
     ]
-    gf = pudl_out.gf_eia923().loc[
-        :,
-        IDX_PM_ESC
+    gf = load_data.load_pudl_table(
+        "generation_fuel_eia923",
+        year,
+        columns=IDX_PM_ESC
         + [
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ],
-    ]
+    )
 
     # add egrid plant ids
     egrid_crosswalk = pd.read_csv(
