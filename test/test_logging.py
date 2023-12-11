@@ -6,10 +6,9 @@ import pandas as pd
 sys.path.append("../src")
 sys.path.append("..")
 
-import src.eia930 as eia930
-from src.filepaths import top_folder
+from src.filepaths import top_folder  # noqa E402
 
-from src.logging_util import get_logger, configure_root_logger
+from src.logging_util import get_logger, configure_root_logger  # noqa E402
 
 pudl_logger = logging.getLogger(name="catalystcoop.pudl")
 
