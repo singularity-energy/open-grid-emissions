@@ -1,3 +1,7 @@
+src/oge/__pycache__
+
+dist/*
+
 data/*
 !data/manual/
 
