@@ -1,12 +1,12 @@
 import pandas as pd
 import numpy as np
 
-import load_data
-import impute_hourly_profiles
-from emissions import CLEAN_FUELS
-from column_checks import get_dtypes
-from filepaths import downloads_folder, manual_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+import oge.impute_hourly_profiles as impute_hourly_profiles
+from oge.emissions import CLEAN_FUELS
+from oge.column_checks import get_dtypes
+from oge.filepaths import downloads_folder, manual_folder
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 

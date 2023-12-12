@@ -4,10 +4,10 @@ import sqlalchemy as sa
 import warnings
 from pathlib import Path
 
-from column_checks import get_dtypes
-from filepaths import downloads_folder, manual_folder, outputs_folder
-from validation import validate_unique_datetimes
-from logging_util import get_logger
+from oge.column_checks import get_dtypes
+from oge.filepaths import downloads_folder, manual_folder, outputs_folder
+from oge.validation import validate_unique_datetimes
+from oge.logging_util import get_logger
 
 from pudl.metadata.fields import apply_pudl_dtypes
 

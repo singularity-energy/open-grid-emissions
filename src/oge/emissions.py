@@ -1,11 +1,11 @@
 import pandas as pd
 import numpy as np
 
-import load_data
-import validation
-from column_checks import get_dtypes
-from filepaths import manual_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+import oge.validation as validation
+from oge.column_checks import get_dtypes
+from oge.filepaths import manual_folder
+from oge.logging_util import get_logger
 
 from pudl.analysis.allocate_gen_fuel import (
     distribute_annually_reported_data_to_months_if_annual,

@@ -11,17 +11,17 @@ import os
 import shutil
 
 # import local modules
-import download_data
-import data_cleaning
-import emissions
-import gross_to_net_generation
-import impute_hourly_profiles
-import eia930
-import validation
-import output_data
-import consumed
-from filepaths import downloads_folder, outputs_folder, results_folder
-from logging_util import get_logger, configure_root_logger
+import oge.download_data as download_data
+import oge.data_cleaning as data_cleaning
+import oge.emissions as emissions
+import oge.gross_to_net_generation as gross_to_net_generation
+import oge.impute_hourly_profiles as impute_hourly_profiles
+import oge.eia930 as eia930
+import oge.validation as validation
+import oge.output_data as output_data
+import oge.consumed as consumed
+from oge.filepaths import downloads_folder, outputs_folder, results_folder
+from oge.logging_util import get_logger, configure_root_logger
 
 
 def get_args() -> argparse.Namespace:
@@ -67,7 +67,7 @@ def print_args(args: argparse.Namespace, logger):
     logger.info(f"\n\nRunning with the following options:\n{argstring}\n")
 
 
-def main():
+def main(args):
     """Runs the OGE data pipeline."""
     args = get_args()
     year = args.year
@@ -616,4 +616,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    main(sys.argv[1:])

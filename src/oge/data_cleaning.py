@@ -5,13 +5,13 @@ import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import pudl.analysis.epacamd_eia as epacamd_eia
 from pudl.etl.glue_assets import make_subplant_ids
 
-import load_data
-import validation
-import emissions
-from emissions import CLEAN_FUELS
-from column_checks import get_dtypes, apply_dtypes
-from filepaths import manual_folder, outputs_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+import oge.validation as validation
+import oge.emissions as emissions
+from oge.emissions import CLEAN_FUELS
+from oge.column_checks import get_dtypes, apply_dtypes
+from oge.filepaths import manual_folder, outputs_folder
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 

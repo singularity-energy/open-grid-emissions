@@ -4,10 +4,10 @@ from datetime import timedelta
 import os
 from os.path import join
 
-import load_data
-from column_checks import get_dtypes
-from filepaths import top_folder, downloads_folder, outputs_folder, manual_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+from oge.column_checks import get_dtypes
+from oge.filepaths import top_folder, downloads_folder, outputs_folder, manual_folder
+from oge.logging_util import get_logger
 
 # Tell gridemissions where to find config before we load gridemissions
 os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")

@@ -2,12 +2,12 @@ import pandas as pd
 import numpy as np
 
 # import open-grid-emissions modules
-from column_checks import apply_dtypes
-import load_data
-from filepaths import manual_folder
-import validation
-import output_data
-from logging_util import get_logger
+from oge.column_checks import apply_dtypes
+import oge.load_data as load_data
+from oge.filepaths import manual_folder
+import oge.validation as validation
+import oge.output_data as output_data
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
