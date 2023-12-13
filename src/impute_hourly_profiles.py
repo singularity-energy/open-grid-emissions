@@ -425,9 +425,7 @@ def calculate_residual(
         ~combined_data["eia930_profile"].isna(), "cems_profile"
     ] = combined_data.loc[
         ~combined_data["eia930_profile"].isna(), "cems_profile"
-    ].fillna(
-        0
-    )
+    ].fillna(0)
 
     combined_data = calculate_scaled_residual(combined_data)
     combined_data = calculate_shifted_residual(combined_data)

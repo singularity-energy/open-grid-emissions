@@ -220,7 +220,7 @@ def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk):
         "prime_mover_code"
     ].agg(["unique"])
     cc_subplants["unique_cc_pms"] = [
-        ",".join(map(str, l)) for l in cc_subplants["unique"]
+        ",".join(map(str, L)) for L in cc_subplants["unique"]
     ]
     cc_subplants = cc_subplants.drop(columns="unique")
     # identify where there are subplants that only contain a single CC part
@@ -340,7 +340,7 @@ def check_missing_or_zero_generation_matches(combined_gen_data):
     # identify when there is zero or NA gross generation associated with positive net generation
     missing_gross_gen = combined_gen_data[
         (combined_gen_data["net_generation_mwh"] > 0)
-        & ((combined_gen_data["gross_generation_mwh"] == 0))
+        & (combined_gen_data["gross_generation_mwh"] == 0)
     ]
 
     # identify when there is zero or NA net generation associated with nonzero gross generation
@@ -620,9 +620,7 @@ def ensure_non_overlapping_data_from_all_sources(
         ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
     ] = data_overlap[
         ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
-    ].fillna(
-        0
-    )
+    ].fillna(0)
     data_overlap["number_of_locations"] = (
         data_overlap["in_eia"]
         + data_overlap["in_cems"]
@@ -1257,9 +1255,7 @@ def summarize_cems_measurement_quality(cems):
             "so2_mass_measurement_code",
             "nox_mass_measurement_code",
         ]
-    ].astype(
-        str
-    )
+    ].astype(str)
     # replace the CEMS mass measurement codes with two categories
     measurement_code_map = {
         "Measured": "Measured",
@@ -1282,9 +1278,7 @@ def summarize_cems_measurement_quality(cems):
             "so2_mass_measurement_code",
             "nox_mass_measurement_code",
         ]
-    ].replace(
-        measurement_code_map
-    )
+    ].replace(measurement_code_map)
 
     cems_quality_summary = []
     # calculate the percent of mass for each pollutant that is measured or imputed
@@ -1797,16 +1791,12 @@ def load_egrid_plant_file(year):
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
-    ].fillna(
-        0
-    )
+    ].fillna(0)
     egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
-    ].fillna(
-        0
-    )
+    ].fillna(0)
 
     # reorder the columns
     egrid_plant = egrid_plant[

@@ -7,6 +7,7 @@ import os
 
 from src.eia import EIA
 
+
 # File open mocking modeled on https://stackoverflow.com/questions/1289894/how-do-i-mock-an-open-used-in-a-with-statement-using-the-mock-framework-in-pyth
 @pytest.fixture
 @patch(

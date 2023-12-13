@@ -2,7 +2,6 @@ import numpy as np
 import os
 import pandas as pd
 import statsmodels.formula.api as smf
-import sqlalchemy as sa
 import warnings
 
 # import pudl packages
@@ -13,7 +12,7 @@ import load_data
 import data_cleaning
 import validation
 from column_checks import get_dtypes
-from filepaths import outputs_folder, downloads_folder
+from filepaths import outputs_folder
 from logging_util import get_logger
 
 logger = get_logger(__name__)

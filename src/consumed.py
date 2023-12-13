@@ -439,12 +439,12 @@ class HourlyConsumed:
                     )
 
                 # Cut off emissions at 9 hours after UTC year
-                emissions = emissions[:f"{self.year+1}-01-01 09:00:00+00:00"]
-                rates[((adj, pol))] = emissions
+                emissions = emissions[: f"{self.year+1}-01-01 09:00:00+00:00"]
+                rates[(adj, pol)] = emissions
 
         # Make generation data frame
         generation = pd.DataFrame(data=gens)
-        generation = generation[:f"{self.year+1}-01-01 09:00:00+00:00"]
+        generation = generation[: f"{self.year+1}-01-01 09:00:00+00:00"]
 
         return rates, generation
 
@@ -462,7 +462,7 @@ class HourlyConsumed:
 
         # Build generation array, using 930 for import-only regions
         G = np.zeros(len(self.regions))
-        for (i, r) in enumerate(self.regions):
+        for i, r in enumerate(self.regions):
             if r in self.import_regions:
                 G[i] = self.eia930.df.loc[date, KEYS["E"]["NG"] % r]
             else:
@@ -513,7 +513,7 @@ class HourlyConsumed:
                             consumed_emissions = np.full(len(self.regions), np.nan)
 
                     # Export
-                    for (i, r) in enumerate(self.regions):
+                    for i, r in enumerate(self.regions):
                         self.results[r].loc[date, col] = consumed_emissions[i]
                 if total_failed > 0:
                     logger.warning(

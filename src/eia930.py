@@ -12,7 +12,7 @@ from logging_util import get_logger
 # Tell gridemissions where to find config before we load gridemissions
 os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")
 
-from gridemissions.workflows import make_dataset
+from gridemissions.workflows import make_dataset  # noqa E402
 
 logger = get_logger(__name__)
 
@@ -459,9 +459,7 @@ def manual_930_adjust(raw: pd.DataFrame):
             & (raw.index < "2022-06-16 07:00:00+00")
         ),
         cols,
-    ].shift(
-        1, freq="H"
-    )
+    ].shift(1, freq="H")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 

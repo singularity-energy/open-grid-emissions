@@ -1,7 +1,5 @@
 import pandas as pd
 import numpy as np
-import os
-import sqlalchemy as sa
 
 import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import pudl.analysis.epacamd_eia as epacamd_eia
@@ -12,7 +10,7 @@ import validation
 import emissions
 from emissions import CLEAN_FUELS
 from column_checks import get_dtypes, apply_dtypes
-from filepaths import manual_folder, outputs_folder, downloads_folder
+from filepaths import manual_folder, outputs_folder
 from logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -88,9 +86,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     filtered_crosswalk = epacamd_eia.filter_crosswalk(crosswalk, cems_ids)
 
     # use graph analysis to identify subplants
-    crosswalk_with_subplant_ids = make_subplant_ids(
-        filtered_crosswalk
-    )
+    crosswalk_with_subplant_ids = make_subplant_ids(filtered_crosswalk)
 
     # change the eia plant id to int
     crosswalk_with_subplant_ids["plant_id_eia"] = crosswalk_with_subplant_ids[
@@ -462,9 +458,7 @@ def clean_eia923(
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ],
-    ].round(
-        1
-    )
+    ].round(1)
 
     validation.test_for_missing_energy_source_code(gen_fuel_allocated)
     validation.test_for_negative_values(gen_fuel_allocated)
@@ -637,9 +631,7 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         ascending=True,
     ).drop_duplicates(
         subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
-    )[
-        ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]
-    ]
+    )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
 
     if not add_subplant_id:
         gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
