@@ -3,7 +3,7 @@ import numpy as np
 
 import oge.load_data as load_data
 import oge.impute_hourly_profiles as impute_hourly_profiles
-from oge.emissions import CLEAN_FUELS
+import oge.emissions as emissions
 from oge.column_checks import get_dtypes
 from oge.filepaths import downloads_folder, manual_folder
 from oge.logging_util import get_logger
@@ -975,22 +975,30 @@ def identify_percent_of_data_by_input_source(
     # use the generator-specific energy source code for the eia data, otherwise use the pliant primary fuel
     eia_only_data = eia_only_data.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.energy_source_code.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+            ~x.energy_source_code.isin(emissions.CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
         )
     )
     cems = cems.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+            ~x.plant_primary_fuel.isin(emissions.CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
         )
     )
     partial_cems_subplant = partial_cems_subplant.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+            ~x.plant_primary_fuel.isin(emissions.CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
         )
     )
     partial_cems_plant = partial_cems_plant.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+            ~x.plant_primary_fuel.isin(emissions.CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
         )
     )
 
@@ -1786,16 +1794,16 @@ def load_egrid_plant_file(year):
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
     egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
+        egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
     ] = egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
+        egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
     ].fillna(0)
     egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS), "co2_mass_lb"
     ].fillna(0)
 
     # reorder the columns

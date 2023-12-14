@@ -6,7 +6,7 @@ from pathlib import Path
 
 from oge.column_checks import get_dtypes
 from oge.filepaths import downloads_folder, manual_folder, outputs_folder
-from oge.validation import validate_unique_datetimes
+import oge.validation as validation
 from oge.logging_util import get_logger
 
 from pudl.metadata.fields import apply_pudl_dtypes
@@ -105,7 +105,9 @@ def load_cems_data(year):
         }
     )
 
-    validate_unique_datetimes(cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"])
+    validation.validate_unique_datetimes(
+        cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
+    )
 
     return cems
 
