@@ -19,7 +19,9 @@ def reference_table_folder(rel=""):
 
 def data_folder(rel=""):
     """Returns a path relative to the `data` folder."""
-    return os.path.join(os.path.join(os.path.expanduser("~"), "open_grid_emissions_data"), rel)
+    return os.path.join(
+        os.path.join(os.path.expanduser("~"), "open_grid_emissions_data"), rel
+    )
 
 
 def downloads_folder(rel=""):

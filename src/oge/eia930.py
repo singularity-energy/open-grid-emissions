@@ -6,7 +6,12 @@ from os.path import join
 
 import oge.load_data as load_data
 from oge.column_checks import get_dtypes
-from oge.filepaths import top_folder, downloads_folder, outputs_folder, reference_table_folder
+from oge.filepaths import (
+    top_folder,
+    downloads_folder,
+    outputs_folder,
+    reference_table_folder,
+)
 from oge.logging_util import get_logger
 
 # Tell gridemissions where to find config before we load gridemissions
@@ -459,7 +464,9 @@ def manual_930_adjust(raw: pd.DataFrame):
             & (raw.index < "2022-06-16 07:00:00+00")
         ),
         cols,
-    ].shift(1, freq="H")
+    ].shift(
+        1, freq="H"
+    )
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
