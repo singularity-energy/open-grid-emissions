@@ -2,7 +2,7 @@
 import pandas as pd
 import plotly.express as px
 
-from filepaths import downloads_folder, results_folder
+from oge.filepaths import downloads_folder, results_folder
 
 """
 From a timeseries, make a day-hour array with hours in EST. Also return day labels for plotting.

@@ -4,15 +4,20 @@ from datetime import timedelta
 import os
 from os.path import join
 
-import load_data
-from column_checks import get_dtypes
-from filepaths import top_folder, downloads_folder, outputs_folder, manual_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+from oge.column_checks import get_dtypes
+from oge.filepaths import (
+    top_folder,
+    downloads_folder,
+    outputs_folder,
+    reference_table_folder,
+)
+from oge.logging_util import get_logger
 
 # Tell gridemissions where to find config before we load gridemissions
 os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")
 
-from gridemissions.workflows import make_dataset
+from gridemissions.workflows import make_dataset  # noqa E402
 
 logger = get_logger(__name__)
 
@@ -236,7 +241,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     )[[1, 4]]
 
     # drop BAs not located in the United States
-    ba_ref = pd.read_csv(manual_folder("ba_reference.csv"))
+    ba_ref = pd.read_csv(reference_table_folder("ba_reference.csv"))
     foreign_bas = list(ba_ref.loc[ba_ref["us_ba"] == "No", "ba_code"])
     data = data[~data["ba_code"].isin(foreign_bas)]
 
@@ -459,9 +464,7 @@ def manual_930_adjust(raw: pd.DataFrame):
             & (raw.index < "2022-06-16 07:00:00+00")
         ),
         cols,
-    ].shift(
-        1, freq="H"
-    )
+    ].shift(1, freq="H")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 

@@ -7,8 +7,8 @@ import shutil
 import tarfile
 import zipfile
 
-from filepaths import downloads_folder, data_folder
-from logging_util import get_logger
+from oge.filepaths import downloads_folder, data_folder
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 

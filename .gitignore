@@ -1,5 +1,7 @@
-data/*
-!data/manual/
+src/oge/__pycache__
+
+dist/*
+
 
 example/.ipynb_checkpoints/
 test/__pycache__/

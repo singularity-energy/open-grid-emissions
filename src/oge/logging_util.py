@@ -2,7 +2,7 @@
 import logging
 import coloredlogs
 
-from filepaths import make_containing_folder
+from oge.filepaths import make_containing_folder
 
 
 def get_logger(name: str) -> logging.Logger:

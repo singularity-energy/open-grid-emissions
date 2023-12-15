@@ -3,11 +3,12 @@ import pandas as pd
 import numpy as np
 import shutil
 import os
-import load_data
-import column_checks
-import validation
-from filepaths import outputs_folder, results_folder, data_folder
-from logging_util import get_logger
+
+import oge.load_data as load_data
+import oge.column_checks as column_checks
+import oge.validation as validation
+from oge.filepaths import outputs_folder, results_folder, data_folder
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
@@ -462,7 +463,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
 
     if not skip_outputs:
         for ba in list(ba_fuel_data.ba_code.unique()):
-            if type(ba) is not str:
+            if not isinstance(ba, str):
                 logger.warning(
                     f"not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
                 )

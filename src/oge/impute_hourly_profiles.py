@@ -2,12 +2,12 @@ import pandas as pd
 import numpy as np
 
 # import open-grid-emissions modules
-from column_checks import apply_dtypes
-import load_data
-from filepaths import manual_folder
-import validation
-import output_data
-from logging_util import get_logger
+from oge.column_checks import apply_dtypes
+import oge.load_data as load_data
+from oge.filepaths import reference_table_folder
+import oge.validation as validation
+import oge.output_data as output_data
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
@@ -425,9 +425,7 @@ def calculate_residual(
         ~combined_data["eia930_profile"].isna(), "cems_profile"
     ] = combined_data.loc[
         ~combined_data["eia930_profile"].isna(), "cems_profile"
-    ].fillna(
-        0
-    )
+    ].fillna(0)
 
     combined_data = calculate_scaled_residual(combined_data)
     combined_data = calculate_shifted_residual(combined_data)
@@ -1108,7 +1106,7 @@ def get_shaped_plant_id_from_ba_fuel(df):
     """
 
     # load the ba reference table with all of the ba number ids
-    ba_numbers = pd.read_csv(manual_folder("ba_reference.csv"))[
+    ba_numbers = pd.read_csv(reference_table_folder("ba_reference.csv"))[
         ["ba_code", "ba_number"]
     ]
     # reformat the number with leading zeros

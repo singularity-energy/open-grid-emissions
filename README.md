@@ -84,10 +84,12 @@ Notebooks are organized into five directories based on their purpose
 - `work_in_progress`: temporary notebooks being used for development purposes on specific branches
 
 ### Data Structure
-- `data/downloads` contains all files that are downloaded by functions in `load_data`
-- `data/manual` contains all manually-created files, including the egrid static tables
-- `data/outputs` contains intermediate outputs from the data pipeline... any files created by our code that are not final results
-- `data/results` contains all final output files that will be published
+All manual reference tables are stored in `src/oge/reference_tables`. 
+
+All files downloaded/created as part of the pipeline are stored in your HOME directory (e.g. users/user.name/):
+- `HOME/open_grid_emissions_data/downloads` contains all files that are downloaded by functions in `load_data`
+- `HOME/open_grid_emissions_data/outputs` contains intermediate outputs from the data pipeline... any files created by our code that are not final results
+- `HOME/open_grid_emissions_data/results` contains all final output files that will be published
 
 ## Development Setup
 If you would like to run the code on your own computer and/or contribute updates to the code, the following steps can help get you started.
