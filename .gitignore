@@ -2,8 +2,6 @@ src/oge/__pycache__
 
 dist/*
 
-data/*
-!data/manual/
 
 example/.ipynb_checkpoints/
 test/__pycache__/
