@@ -9,29 +9,29 @@ def top_folder(rel=""):
     This will work regardless of where the function is imported or called from.
     """
     return os.path.join(
-        os.path.abspath(os.path.join(os.path.realpath(__file__), "../../")), rel
+        os.path.abspath(os.path.join(os.path.realpath(__file__), "../")), rel
     )
+
+
+def reference_table_folder(rel=""):
+    return os.path.join(top_folder("reference_tables"), rel)
 
 
 def data_folder(rel=""):
     """Returns a path relative to the `data` folder."""
-    return os.path.join(top_folder("data"), rel)
+    return os.path.join(os.path.join(os.path.expanduser("~"), "open_grid_emissions_data"), rel)
 
 
 def downloads_folder(rel=""):
     return os.path.join(data_folder("downloads"), rel)
 
 
-def manual_folder(rel=""):
-    return os.path.join(data_folder("manual"), rel)
+def outputs_folder(rel=""):
+    return os.path.join(data_folder("outputs"), rel)
 
 
 def results_folder(rel=""):
     return os.path.join(data_folder("results"), rel)
-
-
-def outputs_folder(rel=""):
-    return os.path.join(data_folder("outputs"), rel)
 
 
 def containing_folder(filepath: str) -> str:
