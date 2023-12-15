@@ -55,12 +55,10 @@ Issues = "https://github.com/singularity-energy/open-grid-emissions/issues"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-only-include = ["config", "data/manual", "src/oge"]
+only-include = ["src/oge"]
 
 [tool.hatch.build.targets.wheel.sources]
 "src" = ""
-"data" = "data"
-"config" = "config"
 
 
 [tool.ruff]

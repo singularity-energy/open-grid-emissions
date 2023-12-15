@@ -5,7 +5,7 @@ import oge.load_data as load_data
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.emissions as emissions
 from oge.column_checks import get_dtypes
-from oge.filepaths import downloads_folder, manual_folder
+from oge.filepaths import downloads_folder, reference_table_folder
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -112,7 +112,7 @@ def flag_possible_primary_fuel_mismatches(plant_primary_fuel):
     for esc_column in ["plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]:
         # load the fuel category table
         energy_source_groups = pd.read_csv(
-            manual_folder("energy_source_groups.csv"), dtype=get_dtypes()
+            reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
         )[["energy_source_code", "fuel_category_eia930"]].rename(
             columns={
                 "energy_source_code": esc_column,
@@ -1866,7 +1866,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        manual_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
+        reference_table_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
         dtype=get_dtypes(),
     )
     id_map = dict(
@@ -2392,7 +2392,7 @@ def identify_potential_missing_fuel_in_egrid(year, egrid_plant, cems):
 
     # add egrid plant ids
     egrid_crosswalk = pd.read_csv(
-        manual_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv")
+        reference_table_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv")
     )
     eia_to_egrid_id = dict(
         zip(

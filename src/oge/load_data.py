@@ -5,7 +5,7 @@ import warnings
 from pathlib import Path
 
 from oge.column_checks import get_dtypes
-from oge.filepaths import downloads_folder, manual_folder, outputs_folder
+from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
 import oge.validation as validation
 from oge.logging_util import get_logger
 
@@ -243,7 +243,7 @@ def load_ghg_emission_factors():
     """
 
     efs = pd.read_csv(
-        manual_folder("emission_factors_for_co2_ch4_n2o.csv"),
+        reference_table_folder("emission_factors_for_co2_ch4_n2o.csv"),
         dtype=get_dtypes(),
     )
 
@@ -259,7 +259,7 @@ def load_ghg_emission_factors():
 def load_nox_emission_factors():
     """Read in the NOx emission factors from eGRID Table C2."""
     emission_factors = pd.read_csv(
-        manual_folder("emission_factors_for_nox.csv"),
+        reference_table_folder("emission_factors_for_nox.csv"),
         dtype=get_dtypes(),
     )
 
@@ -279,7 +279,7 @@ def load_so2_emission_factors():
     reported in Table C3 as a formula like `123*S`.
     """
     df = pd.read_csv(
-        manual_folder("emission_factors_for_so2.csv"),
+        reference_table_folder("emission_factors_for_so2.csv"),
         dtype=get_dtypes(),
     )
 
@@ -420,7 +420,7 @@ def load_epa_eia_crosswalk_from_raw(year):
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
-        manual_folder("epa_eia_crosswalk_manual.csv"),
+        reference_table_folder("epa_eia_crosswalk_manual.csv"),
         dtype=get_dtypes(),
     ).drop(columns=["notes"])
 
@@ -469,7 +469,7 @@ def load_epa_eia_crosswalk(year):
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
-        manual_folder("epa_eia_crosswalk_manual.csv"),
+        reference_table_folder("epa_eia_crosswalk_manual.csv"),
         dtype=get_dtypes(),
     ).drop(columns=["notes"])
 
@@ -568,7 +568,7 @@ def load_gross_to_net_data(
 
 def load_ipcc_gwp():
     """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
-    return pd.read_csv(manual_folder("ipcc_gwp.csv"), dtype=get_dtypes())
+    return pd.read_csv(reference_table_folder("ipcc_gwp.csv"), dtype=get_dtypes())
 
 
 def load_raw_eia930_data(year, description):
@@ -609,7 +609,7 @@ def load_raw_eia930_data(year, description):
 
 def load_ba_reference():
     return pd.read_csv(
-        manual_folder("ba_reference.csv"),
+        reference_table_folder("ba_reference.csv"),
         dtype=get_dtypes(),
         parse_dates=["activation_date", "retirement_date"],
     )
@@ -659,7 +659,7 @@ def ba_timezone(ba, type):
     """
 
     tz = pd.read_csv(
-        manual_folder("ba_reference.csv"),
+        reference_table_folder("ba_reference.csv"),
         usecols=["ba_code", f"timezone_{type}"],
     )
     tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"]
@@ -792,7 +792,7 @@ def load_unit_to_boiler_associations(year):
 def load_default_gtn_ratios():
     """Read in the default gross to net generation ratios."""
     default_gtn = pd.read_csv(
-        manual_folder("default_gross_to_net_ratios.csv"),
+        reference_table_folder("default_gross_to_net_ratios.csv"),
         dtype=get_dtypes(),
     )[["prime_mover_code", "default_gtn_ratio"]]
 
