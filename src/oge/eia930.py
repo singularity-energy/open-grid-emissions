@@ -464,9 +464,7 @@ def manual_930_adjust(raw: pd.DataFrame):
             & (raw.index < "2022-06-16 07:00:00+00")
         ),
         cols,
-    ].shift(
-        1, freq="H"
-    )
+    ].shift(1, freq="H")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 

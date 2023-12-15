@@ -458,7 +458,9 @@ def clean_eia923(
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ],
-    ].round(1)
+    ].round(
+        1
+    )
 
     validation.test_for_missing_energy_source_code(gen_fuel_allocated)
     validation.test_for_negative_values(gen_fuel_allocated)
@@ -565,7 +567,9 @@ def update_energy_source_codes(df):
     Manually update fuel source codes
     """
     # load the table of updated fuel types
-    updated_esc = pd.read_csv(reference_table_folder("updated_oth_energy_source_codes.csv"))
+    updated_esc = pd.read_csv(
+        reference_table_folder("updated_oth_energy_source_codes.csv")
+    )
 
     for index, row in updated_esc.iterrows():
         plant_id = row["plant_id_eia"]
@@ -631,7 +635,9 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         ascending=True,
     ).drop_duplicates(
         subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
-    )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
+    )[
+        ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]
+    ]
 
     if not add_subplant_id:
         gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
@@ -2091,7 +2097,9 @@ def create_plant_ba_table(year):
     )
 
     # specify a ba code for certain utilities
-    utility_as_ba_code = pd.read_csv(reference_table_folder("utility_name_ba_code_map.csv"))
+    utility_as_ba_code = pd.read_csv(
+        reference_table_folder("utility_name_ba_code_map.csv")
+    )
     utility_as_ba_code = dict(
         zip(
             utility_as_ba_code["name"],
@@ -2138,7 +2146,9 @@ def create_plant_ba_table(year):
     )
 
     # update based on mapping table when ambiguous
-    physical_ba = pd.read_csv(reference_table_folder("physical_ba.csv"), dtype=get_dtypes())
+    physical_ba = pd.read_csv(
+        reference_table_folder("physical_ba.csv"), dtype=get_dtypes()
+    )
     plant_ba = plant_ba.merge(
         physical_ba,
         how="left",
