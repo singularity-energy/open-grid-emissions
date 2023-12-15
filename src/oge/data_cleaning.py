@@ -458,9 +458,7 @@ def clean_eia923(
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ],
-    ].round(
-        1
-    )
+    ].round(1)
 
     validation.test_for_missing_energy_source_code(gen_fuel_allocated)
     validation.test_for_negative_values(gen_fuel_allocated)
@@ -635,9 +633,7 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         ascending=True,
     ).drop_duplicates(
         subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
-    )[
-        ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]
-    ]
+    )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
 
     if not add_subplant_id:
         gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
