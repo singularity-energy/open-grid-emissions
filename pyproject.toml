@@ -1,7 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
 [project]
-name = "open-grid-emissions"
-requires-python = ">3.10"
+name = "oge"
+version = "0.2.2"
+requires-python = ">3.11"
 readme = "README.md"
+authors = [
+  { name="Greg Miller", email="greg.miller@singularity.energy" },
+]
+description = "Open-source grid emissions data processing tools"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+  "cvxopt",
+  "cvxpy",
+  "osqp",
+  "numpy",
+  "openpyxl",
+  "pandas",
+  "pyarrow",
+  "qdldl",
+  "requests",
+  "seaborn",
+  "sqlalchemy",
+  "statsmodels",
+  "coloredlogs",
+  "catalystcoop-pudl@git+https://github.com/singularity-energy/pudl.git",
+  "gridemissions@git+https://github.com/gailin-p/gridemissions.git",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+]
+notebook = [
+  "ipykernel",
+  "notebook",
+  "plotly",
+]
+
+[project.urls]
+Homepage = "https://github.com/singularity-energy/open-grid-emissions"
+Issues = "https://github.com/singularity-energy/open-grid-emissions/issues"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/oge"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.

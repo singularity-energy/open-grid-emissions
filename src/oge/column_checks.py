@@ -17,7 +17,7 @@ those files or uses, then remove it here.
 After any change, re-run data_pipeline to regenerate all files and re-run these
 checks.
 """
-from logging_util import get_logger
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 

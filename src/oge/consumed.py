@@ -5,10 +5,10 @@ import sys
 
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
-from filepaths import outputs_folder, manual_folder, results_folder
-from logging_util import get_logger
+from oge.filepaths import outputs_folder, reference_table_folder, results_folder
+from oge.logging_util import get_logger
 
-from output_data import (
+from oge.output_data import (
     GENERATED_EMISSION_RATE_COLS,
     CONSUMED_EMISSION_RATE_COLS,
     output_to_results,
@@ -246,7 +246,7 @@ class HourlyConsumed:
             We won't export files for these
         """
         self.ba_ref = pd.read_csv(
-            manual_folder("ba_reference.csv"), index_col="ba_code"
+            reference_table_folder("ba_reference.csv"), index_col="ba_code"
         )
         generation_only = list(
             self.ba_ref[self.ba_ref.ba_category == "generation_only"].index

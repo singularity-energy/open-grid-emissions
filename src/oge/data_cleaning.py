@@ -5,13 +5,13 @@ import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import pudl.analysis.epacamd_eia as epacamd_eia
 from pudl.etl.glue_assets import make_subplant_ids
 
-import load_data
-import validation
-import emissions
-from emissions import CLEAN_FUELS
-from column_checks import get_dtypes, apply_dtypes
-from filepaths import manual_folder, outputs_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+import oge.validation as validation
+import oge.emissions as emissions
+from oge.emissions import CLEAN_FUELS
+from oge.column_checks import get_dtypes, apply_dtypes
+from oge.filepaths import reference_table_folder, outputs_folder
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
@@ -565,7 +565,9 @@ def update_energy_source_codes(df):
     Manually update fuel source codes
     """
     # load the table of updated fuel types
-    updated_esc = pd.read_csv(manual_folder("updated_oth_energy_source_codes.csv"))
+    updated_esc = pd.read_csv(
+        reference_table_folder("updated_oth_energy_source_codes.csv")
+    )
 
     for index, row in updated_esc.iterrows():
         plant_id = row["plant_id_eia"]
@@ -957,7 +959,7 @@ def remove_non_grid_connected_plants(df):
     # get the list of plant_id_eia from the static table
     ngc_plants = list(
         pd.read_csv(
-            manual_folder("plants_not_connected_to_grid.csv"),
+            reference_table_folder("plants_not_connected_to_grid.csv"),
             dtype=get_dtypes(),
         )["Plant ID"]
     )
@@ -1080,7 +1082,7 @@ def manually_remove_steam_units(df):
 
     # get the list of plant_id_eia from the static table
     units_to_remove = pd.read_csv(
-        manual_folder("steam_units_to_remove.csv"),
+        reference_table_folder("steam_units_to_remove.csv"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "emissions_unit_id_epa"]]
 
@@ -2082,7 +2084,7 @@ def create_plant_ba_table(year):
     ].fillna(value=np.NaN)
 
     # load the ba name reference
-    ba_name_to_ba_code = pd.read_csv(manual_folder("ba_reference.csv"))
+    ba_name_to_ba_code = pd.read_csv(reference_table_folder("ba_reference.csv"))
     ba_name_to_ba_code = dict(
         zip(
             ba_name_to_ba_code["ba_name"],
@@ -2091,7 +2093,9 @@ def create_plant_ba_table(year):
     )
 
     # specify a ba code for certain utilities
-    utility_as_ba_code = pd.read_csv(manual_folder("utility_name_ba_code_map.csv"))
+    utility_as_ba_code = pd.read_csv(
+        reference_table_folder("utility_name_ba_code_map.csv")
+    )
     utility_as_ba_code = dict(
         zip(
             utility_as_ba_code["name"],
@@ -2138,7 +2142,9 @@ def create_plant_ba_table(year):
     )
 
     # update based on mapping table when ambiguous
-    physical_ba = pd.read_csv(manual_folder("physical_ba.csv"), dtype=get_dtypes())
+    physical_ba = pd.read_csv(
+        reference_table_folder("physical_ba.csv"), dtype=get_dtypes()
+    )
     plant_ba = plant_ba.merge(
         physical_ba,
         how="left",
@@ -2200,7 +2206,7 @@ def assign_fuel_category_to_ESC(
     """
     # load the fuel category table
     energy_source_groups = pd.read_csv(
-        manual_folder("energy_source_groups.csv"), dtype=get_dtypes()
+        reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
     )[["energy_source_code"] + fuel_category_names].rename(
         columns={"energy_source_code": esc_column}
     )
