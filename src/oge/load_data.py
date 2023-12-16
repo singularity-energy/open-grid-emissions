@@ -57,6 +57,9 @@ def load_cems_data(year):
         "UTC"
     )
 
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
+
     cems = cems.rename(
         columns={
             "operating_datetime_utc": "datetime_utc",
@@ -119,11 +122,14 @@ def load_cems_ids(start_year, end_year):
     cems = pd.read_parquet(
         downloads_folder("pudl/hourly_emissions_epacems.parquet"),
         filters=[["year", ">=", start_year], ["year", "<=", end_year]],
-        columns=["plant_id_eia", "emissions_unit_id_epa"],
+        columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
     ).drop_duplicates()
     cems = apply_pudl_dtypes(cems)
 
-    return cems
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
+
+    return cems[["plant_id_eia", "emissions_unit_id_epa"]]
 
 
 def load_cems_gross_generation(start_year, end_year):
@@ -131,6 +137,7 @@ def load_cems_gross_generation(start_year, end_year):
 
     # specify the columns to use from the CEMS database
     cems_columns = [
+        "plant_id_epa",
         "plant_id_eia",
         "emissions_unit_id_epa",
         "operating_datetime_utc",
@@ -150,6 +157,9 @@ def load_cems_gross_generation(start_year, end_year):
     cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
         "UTC"
     )
+
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
 
     # only keep values when the plant was operating
     # this will help speed up calculations and allow us to add this data back later
@@ -181,6 +191,41 @@ def load_cems_gross_generation(start_year, end_year):
     ).sum()
 
     return cems
+
+
+def update_epa_to_eia_map(cems_df: pd.DataFrame):
+    """
+    Updates the `plant_id_eia` column in cems data loaded from pudl based on the
+    manual epa_eia_crosswalk_manual table
+    """
+    # load the manual table
+    manual_plant_map = pd.read_csv(
+        reference_table_folder("epa_eia_crosswalk_manual.csv"),
+        dtype=get_dtypes(),
+    ).drop(columns=["notes"])
+
+    # only keep rows where the epa and eia plant ids don't match
+    manual_plant_map = manual_plant_map.loc[
+        manual_plant_map["plant_id_epa"] != manual_plant_map["plant_id_eia"],
+        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"],
+    ].drop_duplicates()
+
+    # merge into the cems data
+    cems_df = cems_df.merge(
+        manual_plant_map,
+        how="left",
+        on=["plant_id_epa", "emissions_unit_id_epa"],
+        suffixes=(None, "_manual"),
+        validate="m:1",
+    )
+
+    # update the eia plant ids
+    cems_df["plant_id_eia"].update(cems_df["plant_id_eia_manual"])
+
+    # drop the intermediate column
+    cems_df = cems_df.drop(columns=["plant_id_eia_manual"])
+
+    return cems_df
 
 
 def add_report_date(df):

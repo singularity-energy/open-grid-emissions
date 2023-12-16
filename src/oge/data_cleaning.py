@@ -411,9 +411,7 @@ def clean_eia923(
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
-    # Distribute net generation and heat input data reported by the three different EIA-923 tables
-
-    # allocate net generation and heat input to each generator-fuel grouping
+    # Load the EIA-923 data that is already allocated to each generator-pm-fuel
     gen_fuel_allocated = load_data.load_pudl_table(
         "generation_fuel_by_generator_energy_source_monthly_eia923", year
     )
@@ -437,6 +435,31 @@ def clean_eia923(
         )
     ]
 
+    # drop bad data where there is negative fuel consumption
+    # NOTE(greg) this is in response to a specific issue with the input data for
+    # plant 10613 in May 2022, where the data is reported incorrectly in the source
+    # data from EIA. EIA has been notified to fix this as of 12/15/2023
+    for column in ["fuel_consumed_mmbtu","fuel_consumed_for_electricity_mmbtu"]:
+        bad_fuel_data = gen_fuel_allocated[gen_fuel_allocated[column] < 0]
+        if len(bad_fuel_data) > 0:
+            logger.warning("Bad input fuel data detected for the following generators:")
+            logger.warning(
+                bad_fuel_data[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "energy_source_code",
+                        "prime_mover_code",
+                        column,
+                    ]
+                ]
+            )
+            logger.warning("These values will be treated as missing values")
+            gen_fuel_allocated.loc[
+                gen_fuel_allocated[column] < 0, column
+            ] = np.NaN
+
     # test to make sure allocated totals match input totals
     validation.check_allocated_gf_matches_input_gf(year, gen_fuel_allocated)
 
@@ -458,7 +481,9 @@ def clean_eia923(
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ],
-    ].round(1)
+    ].round(
+        1
+    )
 
     validation.test_for_missing_energy_source_code(gen_fuel_allocated)
     validation.test_for_negative_values(gen_fuel_allocated)
@@ -633,7 +658,9 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         ascending=True,
     ).drop_duplicates(
         subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
-    )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
+    )[
+        ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]
+    ]
 
     if not add_subplant_id:
         gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
@@ -1002,8 +1029,8 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     )
 
     # manually remove steam-only units
-    #NOTE(greg): disabling this for the 2022 data release
-    #cems = manually_remove_steam_units(cems)
+    # NOTE(greg): disabling this for the 2022 data release
+    # cems = manually_remove_steam_units(cems)
 
     # add a report date
     cems = load_data.add_report_date(cems)
