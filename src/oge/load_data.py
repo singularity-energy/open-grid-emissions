@@ -215,7 +215,7 @@ def add_report_date(df):
 
     # convert UTC to the local timezone
     for tz in timezones:
-        tz_mask = (df["timezone"] == tz)  # find all rows where the tz matches
+        tz_mask = df["timezone"] == tz  # find all rows where the tz matches
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -477,6 +477,33 @@ def load_epa_eia_crosswalk(year):
     crosswalk = pd.concat(
         [crosswalk, crosswalk_manual],
         axis=0,
+    )
+
+    # load eGRID plant mapping
+    egrid_plant_map = pd.read_csv(
+        reference_table_folder("eGRID_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
+        dtype=get_dtypes(),
+    ).drop(columns=["plant_id_egrid"])
+
+    # concat this data with the main table
+    crosswalk = pd.concat(
+        [crosswalk, egrid_plant_map],
+        axis=0,
+    )
+
+    # drop duplicate crosswalks
+    # pudl now includes crosswalks related to multiple report years
+    # keep the newest mapping
+    crosswalk = crosswalk.drop_duplicates(
+        subset=[
+            "plant_id_epa",
+            "emissions_unit_id_epa",
+            "generator_id_epa",
+            "plant_id_eia",
+            "boiler_id",
+            "generator_id",
+        ],
+        keep="last",
     )
 
     # load EIA-860 data
