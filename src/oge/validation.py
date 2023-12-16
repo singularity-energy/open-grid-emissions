@@ -160,6 +160,23 @@ def test_for_negative_values(df, small: bool = False):
                     logger.warning(
                         f"There are {len(negative_test)} records where {column} is negative."
                     )
+                    logger.warning(
+                        negative_test[
+                            [
+                                col
+                                for col in df.columns
+                                if col
+                                in [
+                                    "report_date",
+                                    "plant_id_eia",
+                                    "generator_id",
+                                    "energy_source_code",
+                                    "prime_mover_code",
+                                    column,
+                                ]
+                            ]
+                        ]
+                    )
                     negative_warnings += 1
             else:
                 pass
@@ -524,7 +541,7 @@ def test_emissions_adjustments(df):
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
 
-    bad_adjustments = 0
+    bad_adjustment_count = 0
 
     for pollutant in pollutants:
         # test that mass_lb >= mass_lb_for_electricity
@@ -535,7 +552,20 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity > {pollutant}_mass_lb"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb",
+                        f"{pollutant}_mass_lb_for_electricity",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
         # test that mass_lb >= mass_lb_adjusted
         bad_adjustment = df[
@@ -545,7 +575,20 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_adjusted > {pollutant}_mass_lb"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb",
+                        f"{pollutant}_mass_lb_adjusted",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
         # test that mass_lb_for_electricity >= mass_lb_for_electricity_adjusted
         bad_adjustment = df[
@@ -558,10 +601,23 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb_for_electricity",
+                        f"{pollutant}_mass_lb_for_electricity_adjusted",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
     # if there were any bad adjustments, raise a userwarning.
-    if bad_adjustments > 0:
+    if bad_adjustment_count > 0:
         raise UserWarning("The above issues with emissions adjustments must be fixed.")
     else:
         logger.info("OK")
@@ -620,7 +676,9 @@ def ensure_non_overlapping_data_from_all_sources(
         ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
     ] = data_overlap[
         ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
-    ].fillna(0)
+    ].fillna(
+        0
+    )
     data_overlap["number_of_locations"] = (
         data_overlap["in_eia"]
         + data_overlap["in_cems"]
@@ -1263,7 +1321,9 @@ def summarize_cems_measurement_quality(cems):
             "so2_mass_measurement_code",
             "nox_mass_measurement_code",
         ]
-    ].astype(str)
+    ].astype(
+        str
+    )
     # replace the CEMS mass measurement codes with two categories
     measurement_code_map = {
         "Measured": "Measured",
@@ -1286,7 +1346,9 @@ def summarize_cems_measurement_quality(cems):
             "so2_mass_measurement_code",
             "nox_mass_measurement_code",
         ]
-    ].replace(measurement_code_map)
+    ].replace(
+        measurement_code_map
+    )
 
     cems_quality_summary = []
     # calculate the percent of mass for each pollutant that is measured or imputed
@@ -1799,12 +1861,16 @@ def load_egrid_plant_file(year):
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
-    ].fillna(0)
+    ].fillna(
+        0
+    )
     egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS), "co2_mass_lb"
-    ].fillna(0)
+    ].fillna(
+        0
+    )
 
     # reorder the columns
     egrid_plant = egrid_plant[

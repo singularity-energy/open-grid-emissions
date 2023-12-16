@@ -215,7 +215,7 @@ def add_report_date(df):
 
     # convert UTC to the local timezone
     for tz in timezones:
-        tz_mask = df["timezone"] == tz  # find all rows where the tz matches
+        tz_mask = (df["timezone"] == tz)  # find all rows where the tz matches
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
