@@ -514,7 +514,9 @@ def filter_gtn_conversion_factors(gtn_conversions):
     for method in method_hierarchy:
         # get a count of the number of non-na factor values and non-na net generation values for each plant
         incomplete_factors = (
-            factors_to_use.groupby(["plant_id_eia", "data_source"], dropna=False, observed=False)
+            factors_to_use.groupby(
+                ["plant_id_eia", "data_source"], dropna=False, observed=False
+            )
             .count()[[method, "net_generation_mwh"]]
             .reset_index()
         )

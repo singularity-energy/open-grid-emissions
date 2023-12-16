@@ -90,6 +90,7 @@ ST,BFG,tangential_firing,0.0006,lb,Mcf,0
 ST,BFG,vertical_firing,0.0006,lb,Mcf,0
 ST,BFG,wall_fired,0.0006,lb,Mcf,0
 CA,BIT,duct_burner,38*S,lb,short ton,1
+CA,BIT,none,38*S,lb,short ton,1
 OT,BIT,cell_burner,38*S,lb,short ton,1
 OT,BIT,cyclone_firing,38*S,lb,short ton,1
 OT,BIT,duct_burner,38*S,lb,short ton,1

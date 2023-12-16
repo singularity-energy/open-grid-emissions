@@ -676,9 +676,7 @@ def ensure_non_overlapping_data_from_all_sources(
         ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
     ] = data_overlap[
         ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
-    ].fillna(
-        0
-    )
+    ].fillna(0)
     data_overlap["number_of_locations"] = (
         data_overlap["in_eia"]
         + data_overlap["in_cems"]
@@ -1321,9 +1319,7 @@ def summarize_cems_measurement_quality(cems):
             "so2_mass_measurement_code",
             "nox_mass_measurement_code",
         ]
-    ].astype(
-        str
-    )
+    ].astype(str)
     # replace the CEMS mass measurement codes with two categories
     measurement_code_map = {
         "Measured": "Measured",
@@ -1346,9 +1342,7 @@ def summarize_cems_measurement_quality(cems):
             "so2_mass_measurement_code",
             "nox_mass_measurement_code",
         ]
-    ].replace(
-        measurement_code_map
-    )
+    ].replace(measurement_code_map)
 
     cems_quality_summary = []
     # calculate the percent of mass for each pollutant that is measured or imputed
@@ -1861,16 +1855,12 @@ def load_egrid_plant_file(year):
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
-    ].fillna(
-        0
-    )
+    ].fillna(0)
     egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS), "co2_mass_lb"
-    ].fillna(
-        0
-    )
+    ].fillna(0)
 
     # reorder the columns
     egrid_plant = egrid_plant[

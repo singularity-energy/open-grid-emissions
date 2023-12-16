@@ -1462,6 +1462,70 @@ def return_monthly_plant_fuel_sulfur_content(year):
 
     Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
     """
+    plant_specific_fuel_sulfur_content = load_plant_specific_fuel_sulfur_content(year)
+
+    # calculate the average monthly heat content for a fuel
+    national_avg_fuel_sulfur_content = (
+        plant_specific_fuel_sulfur_content.drop(columns=["plant_id_eia"])
+        .groupby(["energy_source_code", "report_date"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
+    annual_avg_fuel_sulfur_content = (
+        national_avg_fuel_sulfur_content.groupby(["energy_source_code"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
+    # if there are any missing annual average values, attempt to fill using data from
+    # previous years
+    if annual_avg_fuel_sulfur_content["sulfur_content_pct"].isna().any():
+        previous_year_values = load_plant_specific_fuel_sulfur_content((year - 1))
+        previous_year_values = (
+            previous_year_values.groupby(["energy_source_code"], dropna=False)[
+                ["sulfur_content_pct"]
+            ]
+            .mean(numeric_only=True)
+            .reset_index()
+        )
+        annual_avg_fuel_sulfur_content = annual_avg_fuel_sulfur_content.merge(
+            previous_year_values,
+            how="left",
+            on="energy_source_code",
+            validate="1:1",
+            suffixes=(None, "_fill"),
+        )
+        annual_avg_fuel_sulfur_content[
+            "sulfur_content_pct"
+        ] = annual_avg_fuel_sulfur_content["sulfur_content_pct"].fillna(
+            annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"]
+        )
+        annual_avg_fuel_sulfur_content = annual_avg_fuel_sulfur_content.drop(
+            columns=["sulfur_content_pct_fill"]
+        )
+
+    # change the report date columns back to datetimes
+    plant_specific_fuel_sulfur_content["report_date"] = pd.to_datetime(
+        plant_specific_fuel_sulfur_content["report_date"]
+    ).astype("datetime64[s]")
+    national_avg_fuel_sulfur_content["report_date"] = pd.to_datetime(
+        national_avg_fuel_sulfur_content["report_date"]
+    ).astype("datetime64[s]")
+
+    plant_specific_fuel_sulfur_content
+
+    return (
+        plant_specific_fuel_sulfur_content,
+        national_avg_fuel_sulfur_content,
+        annual_avg_fuel_sulfur_content,
+    )
+
+
+def load_plant_specific_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """
+    Calculates the weighted average sulfur content of each fuel by the fuel consumption
+    """
     plant_specific_fuel_sulfur_content = load_data.load_pudl_table(
         "boiler_fuel_eia923",
         year,
@@ -1495,35 +1559,7 @@ def return_monthly_plant_fuel_sulfur_content(year):
         weight_col="fuel_consumed_units",
     )
 
-    # calculate the average monthly heat content for a fuel
-    national_avg_fuel_sulfur_content = (
-        plant_specific_fuel_sulfur_content.drop(columns=["plant_id_eia"])
-        .groupby(["energy_source_code", "report_date"], dropna=False)
-        .mean(numeric_only=True)
-        .reset_index()
-    )
-
-    annual_avg_fuel_sulfur_content = (
-        national_avg_fuel_sulfur_content.groupby(["energy_source_code"], dropna=False)
-        .mean(numeric_only=True)
-        .reset_index()
-    )
-
-    # change the report date columns back to datetimes
-    plant_specific_fuel_sulfur_content["report_date"] = pd.to_datetime(
-        plant_specific_fuel_sulfur_content["report_date"]
-    ).astype("datetime64[s]")
-    national_avg_fuel_sulfur_content["report_date"] = pd.to_datetime(
-        national_avg_fuel_sulfur_content["report_date"]
-    ).astype("datetime64[s]")
-
-    plant_specific_fuel_sulfur_content
-
-    return (
-        plant_specific_fuel_sulfur_content,
-        national_avg_fuel_sulfur_content,
-        annual_avg_fuel_sulfur_content,
-    )
+    return plant_specific_fuel_sulfur_content
 
 
 def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, year):
@@ -1575,7 +1611,7 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, year):
         & (uncontrolled_so2_factors["multiply_by_sulfur_content"] == 1)
     ]
     if len(missing_sulfur_content) > 0:
-        logger.warning("Sulfur content data is missing in EIA-923 for the above units.")
+        logger.warning("Sulfur content data is missing in EIA-923 for the below units.")
         logger.warning(
             "\n"
             + missing_sulfur_content[
