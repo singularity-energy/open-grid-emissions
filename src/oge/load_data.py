@@ -253,7 +253,7 @@ def add_report_date(df):
     datetime_utc = pd.DatetimeIndex(df["datetime_utc"])
 
     # create blank column to hold local datetimes
-    df["report_date"] = np.NaN
+    df["report_date"] = pd.to_datetime(np.NaN)
 
     # get list of unique timezones
     timezones = list(df["timezone"].unique())
