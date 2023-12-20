@@ -25,10 +25,13 @@ demand! But it is better than combining inconsistent generation and interchange,
 which results in unreasonable profiles with many negative hours.
 """
 # Identify the BAs for which we need to use demand data for the consumed calculation
+# To identify these, run the pipeline, and if the validation checks raise any negative
+# consumed emissions rates for a region, add those to this list.
 BA_930_INCONSISTENCY = {
     2019: ["CPLW", "EEI"],
     2020: ["CPLW", "EEI"],
     2021: ["CPLW", "GCPD"],
+    2022: ["CPLW", "GCPD", "HST"],
 }
 
 # Defined in output_data, written to each BA file
@@ -438,13 +441,13 @@ class HourlyConsumed:
                         axis=1,
                     )
 
-                # Cut off emissions at 9 hours after UTC year
-                emissions = emissions[: f"{self.year+1}-01-01 09:00:00+00:00"]
+                # Cut off emissions at 8 hours after UTC year
+                emissions = emissions[: f"{self.year+1}-01-01 08:00:00+00:00"]
                 rates[(adj, pol)] = emissions
 
         # Make generation data frame
         generation = pd.DataFrame(data=gens)
-        generation = generation[: f"{self.year+1}-01-01 09:00:00+00:00"]
+        generation = generation[: f"{self.year+1}-01-01 08:00:00+00:00"]
 
         return rates, generation
 
