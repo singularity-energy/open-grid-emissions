@@ -1289,7 +1289,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
 
     # identify plant-months for which there is a single fossil fuel type reported
     gf = load_data.load_pudl_table(
-        "generation_fuel_eia923",
+        "denorm_generation_fuel_combined_eia923",
         year,
         columns=[
             "plant_id_eia",

@@ -50,7 +50,7 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     We use np.isclose() to identify any values that are off by more than 1e-9% different
     from the total input generation or fuel.
     """
-    gf = load_data.load_pudl_table("generation_fuel_eia923", year)
+    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
     plant_total_gf = gf.groupby("plant_id_eia")[
         [
             "net_generation_mwh",
@@ -2436,7 +2436,7 @@ def identify_potential_missing_fuel_in_egrid(year, egrid_plant, cems):
         "prime_mover_code",
     ]
     gf = load_data.load_pudl_table(
-        "generation_fuel_eia923",
+        "denorm_generation_fuel_combined_eia923",
         year,
         columns=IDX_PM_ESC
         + [

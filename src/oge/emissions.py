@@ -900,7 +900,7 @@ def convert_ef_to_lb_per_mmbtu(gen_emission_factors, year, pollutant):
 def return_monthly_plant_fuel_heat_content(year):
     # load information about the monthly heat input of fuels
     plant_specific_fuel_heat_content = load_data.load_pudl_table(
-        "generation_fuel_eia923",
+        "denorm_generation_fuel_combined_eia923",
         year,
         columns=[
             "plant_id_eia",
