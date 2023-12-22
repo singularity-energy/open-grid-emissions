@@ -453,6 +453,17 @@ def main(args):
 
     # 14. Export hourly plant-level data
     ####################################################################################
+    # The data pipeline offers two options for exporting plant-level data. The first
+    # option, executed here in step 14 is to shape hourly data for each individual plant
+    # This option provides a complete hourly timeseries for each plant, but is more
+    # memory-intensive and results in larger output files.
+    # This data is immediately exported and not held in memory for the rest of the pipe-
+    # line. Instead, this data is re-combined again using the aggregated shaped plants
+    # in step 16.
+    # The other option happens in step 16 if step 14 is not run: instead of shaping each
+    # plant, only an aggregate fleet-level synthetic plant is exported, which represents
+    # the characteristics of all plants that do not report hourly data elsewhere in each
+    # month.
     logger.info("14. Exporting Hourly Plant-level data for each BA")
     if args.shape_individual_plants and not args.small:
         impute_hourly_profiles.combine_and_export_hourly_plant_data(

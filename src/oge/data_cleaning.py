@@ -1017,10 +1017,6 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
         distribution_connected_plants=False,
     )
 
-    # manually remove steam-only units
-    # NOTE(greg): disabling this for the 2022 data release
-    # cems = manually_remove_steam_units(cems)
-
     # add a report date
     cems = load_data.add_report_date(cems)
 

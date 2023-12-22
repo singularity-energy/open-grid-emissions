@@ -202,7 +202,6 @@ COLUMNS = {
         "data_source",
         "hourly_profile_source",
         "net_generation_method",
-        "shaped_plant_id",
     },
     "hourly_profiles": {
         "ba_code",

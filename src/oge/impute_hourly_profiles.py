@@ -896,15 +896,15 @@ def convert_profile_to_percent(hourly_profiles, group_keys, columns_to_convert):
 
 
 def combine_and_export_hourly_plant_data(
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    monthly_eia_data_to_shape,
-    plant_attributes,
-    hourly_profiles,
-    path_prefix,
-    skip_outputs,
-    region_to_group,
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    monthly_eia_data_to_shape: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    hourly_profiles: pd.DataFrame,
+    path_prefix: str,
+    skip_outputs: bool,
+    region_to_group: str = "ba_code",
 ):
     """
     Exports files with hourly data for each individual plant, split up by region.
@@ -1084,6 +1084,14 @@ def combine_and_export_hourly_plant_data(
 
         # re-order columns
         combined_plant_data = combined_plant_data[all_columns]
+
+        # validate that there are complete timeseries
+        validation.check_for_complete_hourly_timeseries(
+            df=combined_plant_data,
+            df_name=f"plant_data/hourly/{region}",
+            keys=["plant_id_eia"],
+            period="year",
+        )
 
         # write data
         output_data.output_to_results(
