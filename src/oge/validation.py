@@ -795,7 +795,9 @@ def validate_unique_datetimes(df, df_name, keys):
                 )
 
 
-def check_for_complete_timeseries(df, df_name, keys, period):
+def check_for_complete_hourly_timeseries(
+    df: pd.DataFrame, df_name: str, keys: list[str], period: str
+):
     """Validates that a timeseries contains complete hourly data.
 
     If the `period` is a 'year', checks that the length of the timeseries is 8760 (for a
@@ -849,8 +851,33 @@ def check_for_complete_timeseries(df, df_name, keys, period):
             logger.warning("\n" + test.to_string())
     else:
         raise UserWarning(
-            f"{period} is not a valid value for the `period` argument in `check_for_complete_timeseries`. Value must be 'year' or 'month'"
+            f"{period} is not a valid value for the `period` argument in `check_for_complete_hourly_timeseries`. Value must be 'year' or 'month'"
         )
+
+
+def check_for_complete_monthly_timeseries(
+    df: pd.DataFrame, df_name: str, keys: list[str]
+):
+    """Validates that a dataset contains complete monthly data for all months.
+
+    Checks that there are 12 observations for each group of keys
+
+    Args:
+        df: dataframe containing datetime columns
+        df_name: a descriptive name for the dataframe
+        keys: list of column names that contain the groups within which datetimes should be unique
+    """
+
+    # count the number of report_dates in each group
+    test = df.groupby(keys)[["report_date"]].count()
+    test["expected_num_months"] = 12
+    # identify any rows where there are less than 12 months of data
+    test = test[test["report_date"] != test["expected_num_months"]]
+    if len(test) > 0:
+        logger.warning(
+            f"There is incomplete monthly data for the following {keys} groups in {df_name}"
+        )
+        logger.warning("\n" + test.to_string())
 
 
 # DATA QUALITY METRIC FUNCTIONS

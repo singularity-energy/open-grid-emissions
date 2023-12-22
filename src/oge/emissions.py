@@ -493,7 +493,7 @@ def calculate_nox_from_fuel_consumption(
     # raise a warning if we are missing emission factors for any non-zero fuel consumption from non-clean fuels
     missing_ef = gen_fuel_allocated[
         gen_fuel_allocated["nox_ef_lb_per_mmbtu"].isna()
-        & ~gen_fuel_allocated["fuel_consumed_mmbtu"].isna()
+        & (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
         & ~gen_fuel_allocated["energy_source_code"].isin(CLEAN_FUELS)
     ]
     if len(missing_ef) > 0:
@@ -570,7 +570,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
 
     # get a dataframe with all unique generator-pm-esc combinations for emitting energy source types with data reported
     gen_keys_for_nox = gen_fuel_allocated.copy()[
-        ~gen_fuel_allocated["fuel_consumed_mmbtu"].isna()
+        (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
     ]
     gen_keys_for_nox = gen_keys_for_nox[
         [
@@ -1238,7 +1238,7 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
     # raise a warning if we are missing emission factors for any non-zero fuel consumption from non-clean fuels
     missing_ef = gen_fuel_allocated[
         gen_fuel_allocated["so2_ef_lb_per_mmbtu"].isna()
-        & ~gen_fuel_allocated["fuel_consumed_mmbtu"].isna()
+        & (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
         & ~gen_fuel_allocated["energy_source_code"].isin(CLEAN_FUELS)
     ]
     if len(missing_ef) > 0:
@@ -1306,7 +1306,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
 
     # get a dataframe with all unique generator-pm-esc combinations for emitting energy source types with data reported
     gen_keys_for_so2 = gen_fuel_allocated.copy()[
-        ~gen_fuel_allocated["fuel_consumed_mmbtu"].isna()
+        (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
     ]
     gen_keys_for_so2 = gen_keys_for_so2[
         [

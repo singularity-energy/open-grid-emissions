@@ -181,7 +181,7 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
             validation.validate_unique_datetimes(
                 df, "individual_plant_data", ["plant_id_eia"]
             )
-            validation.check_for_complete_timeseries(
+            validation.check_for_complete_hourly_timeseries(
                 df, "individual_plant_data", ["plant_id_eia"], "year"
             )
             # Separately save real and aggregate plants
@@ -557,7 +557,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 df_name="power sector hourly ba table",
                 keys=["fuel_category"],
             )
-            validation.check_for_complete_timeseries(
+            validation.check_for_complete_hourly_timeseries(
                 ba_table_hourly,
                 "power sector hourly ba table",
                 ["fuel_category"],

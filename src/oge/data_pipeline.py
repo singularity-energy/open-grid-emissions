@@ -271,7 +271,7 @@ def main(args):
         df_name="partial_cems_plant",
         keys=["plant_id_eia", "subplant_id"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=partial_cems_plant,
         df_name="partial_cems_plant",
         keys=["plant_id_eia", "subplant_id"],
@@ -295,7 +295,7 @@ def main(args):
         df_name="partial_cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=partial_cems_subplant,
         df_name="partial_cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
@@ -344,7 +344,7 @@ def main(args):
         df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=cems,
         df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
@@ -382,6 +382,9 @@ def main(args):
         partial_cems_plant,
         monthly_eia_data_to_shape,
         "monthly",
+    )
+    validation.check_for_complete_monthly_timeseries(
+        monthly_plant_data, "monthly_plant_data", ["plant_id_eia"]
     )
     output_data.output_plant_data(
         monthly_plant_data, path_prefix, "monthly", args.skip_outputs, plant_attributes
@@ -507,7 +510,7 @@ def main(args):
         df_name="shaped_eia_data",
         keys=["plant_id_eia"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=shaped_eia_data,
         df_name="shaped_eia_data",
         keys=["plant_id_eia"],
@@ -572,7 +575,7 @@ def main(args):
         df_name="combined_plant_data",
         keys=["plant_id_eia"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=combined_plant_data,
         df_name="combined_plant_data",
         keys=["plant_id_eia"],

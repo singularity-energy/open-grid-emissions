@@ -411,29 +411,24 @@ def clean_eia923(
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
-    # Load the EIA-923 data that is already allocated to each generator-pm-fuel
-    gen_fuel_allocated = load_data.load_pudl_table(
-        "generation_fuel_by_generator_energy_source_monthly_eia923", year
-    )
+    # Allocate fuel and generation across each generator-pm-energy source
+    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
+    bf = load_data.load_pudl_table("denorm_boiler_fuel_eia923", year)
+    gen = load_data.load_pudl_table("denorm_generation_eia923", year)
+    gens = load_data.load_pudl_table("denorm_generators_eia", year)
+    bga = load_data.load_pudl_table("boiler_generator_assn_eia860", year)
 
-    # drop rows where all allocated data is missing
-    gen_fuel_allocated = gen_fuel_allocated.dropna(
-        subset=[
-            "net_generation_mwh",
-            "fuel_consumed_mmbtu",
-            "fuel_consumed_for_electricity_mmbtu",
-        ],
-        how="all",
+    gf, bf, gen, bga, gens = allocate_gen_fuel.select_input_data(
+        gf=gf, bf=bf, gen=gen, bga=bga, gens=gens
     )
-
-    # drop rows where all allocated data is zero
-    gen_fuel_allocated = gen_fuel_allocated[
-        ~(
-            (gen_fuel_allocated["net_generation_mwh"] == 0)
-            & (gen_fuel_allocated["fuel_consumed_mmbtu"] == 0)
-            & (gen_fuel_allocated["fuel_consumed_for_electricity_mmbtu"] == 0)
-        )
-    ]
+    gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
+        gf,
+        bf,
+        gen,
+        bga,
+        gens,
+        freq="MS",
+    )
 
     # drop bad data where there is negative fuel consumption
     # NOTE(greg) this is in response to a specific issue with the input data for
@@ -1739,7 +1734,7 @@ def identify_partial_cems_plants(all_data):
         (all_data["hourly_data_source"] == "eia")
         & (all_data["partial_plant"] == "both")
         & (
-            ~all_data["energy_source_code"].isin(non_cems_fuels)
+            ~all_data["plant_primary_fuel"].isin(non_cems_fuels)
         ),  # CEMS data should only be used to shape if plant is primarilly fossil
         "hourly_data_source",
     ] = "partial_cems_plant"
