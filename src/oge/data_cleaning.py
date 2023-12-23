@@ -2180,7 +2180,7 @@ def assign_ba_code_to_plant(df, year):
 
     if len(df[df["ba_code"].isna()]) > 0:
         logger.warning("the following plants are missing ba_code:")
-        logger.warning("\n" + df[df["ba_code"].isna()].tostring())
+        logger.warning("\n" + df[df["ba_code"].isna()].to_string())
 
     # replace missing ba codes with NA
     df["ba_code"] = df["ba_code"].fillna("NA")
