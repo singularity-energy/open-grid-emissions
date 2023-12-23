@@ -745,7 +745,7 @@ def calculate_aggregated_primary_fuel(
 
         # identify the fuel type with the maximum value for each plant
         primary_fuel_calc = primary_fuel_calc[
-            primary_fuel_calc.groupby(agg_keys, dropna=False)[source].transform(max)
+            primary_fuel_calc.groupby(agg_keys, dropna=False)[source].transform("max")
             == primary_fuel_calc[source]
         ][agg_keys + ["energy_source_code"]]
 
@@ -852,7 +852,7 @@ def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
 
     # find the fuel with the greatest capacity
     gen_capacity = gen_capacity[
-        gen_capacity.groupby(agg_keys, dropna=False)["capacity_mw"].transform(max)
+        gen_capacity.groupby(agg_keys, dropna=False)["capacity_mw"].transform("max")
         == gen_capacity["capacity_mw"]
     ][agg_keys + ["energy_source_code_1"]].rename(
         columns={"energy_source_code_1": f"{agg_level}_primary_fuel_from_capacity_mw"}
@@ -2196,15 +2196,25 @@ def create_plant_ba_table(year):
 
     plant_ba = load_data.load_pudl_table(
         "plants_eia860",
-        year,
         columns=[
             "plant_id_eia",
+            "report_date",
             "balancing_authority_code_eia",
             "balancing_authority_name_eia",
             "utility_id_eia",
             "transmission_distribution_owner_name",
         ],
     )
+
+    # remove report dates newer than the current year
+    plant_ba = plant_ba[plant_ba["report_date"].dt.year <= year]
+
+    # sort the data from newest to oldest
+    plant_ba = plant_ba.sort_values(by=["plant_id_eia", "report_date"], ascending=False)
+
+    # only keep the most recent row of data
+    plant_ba = plant_ba.drop_duplicates(subset=["plant_id_eia"], keep="first")
+
     # merge utility name
     utilities_eia = load_data.load_pudl_table(
         "utilities_eia", columns=["utility_id_eia", "utility_name_eia"]

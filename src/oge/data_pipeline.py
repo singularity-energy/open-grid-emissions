@@ -360,7 +360,6 @@ def main(args):
     # create a separate dataframe containing only the EIA data that is missing from cems
     monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
-        #& ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
     output_data.output_data_quality_metrics(
         validation.identify_percent_of_data_by_input_source(
