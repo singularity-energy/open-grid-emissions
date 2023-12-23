@@ -5,7 +5,7 @@ import oge.load_data as load_data
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.emissions as emissions
 from oge.column_checks import get_dtypes
-from oge.filepaths import downloads_folder, reference_table_folder
+from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -856,11 +856,19 @@ def check_for_complete_hourly_timeseries(
 
 
 def check_for_complete_monthly_timeseries(
-    df: pd.DataFrame, df_name: str, keys: list[str]
+    df: pd.DataFrame,
+    df_name: str,
+    keys: list[str],
+    columns_to_check: list[str],
+    year: int,
 ):
-    """Validates that a dataset contains complete monthly data for all months.
+    """
+    Validates that a dataset contains complete monthly data for all months.
 
-    Checks that there are 12 observations for each group of keys
+    There are two separate checks that are completed:
+    1. Ensure that there is a complete set of 12 report_date's for each group
+    2. Ensure that missing data within a month is expected based on the availability
+    of input data
 
     Args:
         df: dataframe containing datetime columns
@@ -868,16 +876,55 @@ def check_for_complete_monthly_timeseries(
         keys: list of column names that contain the groups within which datetimes should be unique
     """
 
-    # count the number of report_dates in each group
-    test = df.groupby(keys)[["report_date"]].count()
-    test["expected_num_months"] = 12
+    input_data_inventory = pd.read_csv(
+        outputs_folder(f"{year}/input_data_inventory_{year}.csv")
+    )
+
+    # count the number of report_dates and non-missing data in each group
+    test = df.groupby(keys)[["report_date"] + columns_to_check].count().reset_index()
+    # identify the expected number of months of data
+    expected_months = (
+        input_data_inventory.groupby("plant_id_eia")[
+            ["input_data_exists", "nonzero_input_data_exists"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    test = test.merge(
+        expected_months,
+        how="outer",
+        on="plant_id_eia",
+    )
+    test[["report_date"] + columns_to_check] = test[
+        ["report_date"] + columns_to_check
+    ].fillna(0)
+
+    # 1. Check that all 12 months exist for each group
     # identify any rows where there are less than 12 months of data
-    test = test[test["report_date"] != test["expected_num_months"]]
+    missing_rd_test = test.loc[
+        (test["report_date"] < 12) & (test["nonzero_input_data_exists"] > 0),
+        (keys + ["report_date", "input_data_exists", "nonzero_input_data_exists"]),
+    ]
+    if len(missing_rd_test) > 0:
+        logger.warning(
+            f"There is less than 12 months of data for the following {keys} groups in {df_name}"
+        )
+        logger.warning("\n" + missing_rd_test.to_string())
+
+    # 2. identify any rows where there is data that is missing
+    missing_data_test = test[
+        (
+            test[columns_to_check].min(axis=1)
+            < test[["input_data_exists", "nonzero_input_data_exists"]].max(axis=1)
+        )
+        & (test["nonzero_input_data_exists"] > 0)
+    ]
     if len(test) > 0:
         logger.warning(
-            f"There is incomplete monthly data for the following {keys} groups in {df_name}"
+            f"There appears to be missing data for the following {keys} groups in {df_name}"
         )
-        logger.warning("\n" + test.to_string())
+        logger.warning("\n" + missing_data_test.to_string())
 
 
 # DATA QUALITY METRIC FUNCTIONS

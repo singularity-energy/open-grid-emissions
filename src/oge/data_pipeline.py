@@ -360,7 +360,7 @@ def main(args):
     # create a separate dataframe containing only the EIA data that is missing from cems
     monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
-        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
+        #& ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
     output_data.output_data_quality_metrics(
         validation.identify_percent_of_data_by_input_source(
@@ -384,7 +384,11 @@ def main(args):
         "monthly",
     )
     validation.check_for_complete_monthly_timeseries(
-        monthly_plant_data, "monthly_plant_data", ["plant_id_eia"]
+        df=monthly_plant_data,
+        df_name="monthly_plant_data",
+        keys=["plant_id_eia"],
+        columns_to_check=["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"],
+        year=year,
     )
     output_data.output_plant_data(
         monthly_plant_data, path_prefix, "monthly", args.skip_outputs, plant_attributes
@@ -562,6 +566,7 @@ def main(args):
         shaped_eia_data,
         path_prefix,
         args.skip_outputs,
+        year,
     )
     # set validate parameter to False since validating non-overlapping data requires subplant-level data
     # since the shaped eia data is at the fleet level, this check will not work.

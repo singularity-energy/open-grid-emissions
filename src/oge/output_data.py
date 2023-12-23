@@ -300,6 +300,7 @@ def write_plant_metadata(
     shaped_eia_data: pd.DataFrame,
     path_prefix: str,
     skip_outputs: bool,
+    year: int,
 ):
     """
     Outputs metadata for each subplant-month.
@@ -396,7 +397,11 @@ def write_plant_metadata(
     ).sort_values(by=["plant_id_eia", "subplant_id", "report_date"], ascending=True)
 
     validation.check_for_complete_monthly_timeseries(
-        metadata, "plant_metadata", ["plant_id_eia", "subplant_id"]
+        df=metadata,
+        df_name="plant_metadata",
+        keys=["plant_id_eia", "subplant_id"],
+        columns_to_check=["hourly_profile_source"],
+        year=year,
     )
 
     column_checks.check_columns(metadata, "plant_metadata")

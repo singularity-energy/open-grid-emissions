@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from itertools import product
 
 import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import pudl.analysis.epacamd_eia as epacamd_eia
@@ -1024,6 +1025,9 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     # this is generally when there is a single observation reported for an entire month
     cems = remove_incomplete_unit_months(cems)
 
+    # create an inventory of which plant-months have input data from any source
+    inventory_input_data_sources(cems, year)
+
     # TODO: identify and remove any hourly values that appear to be outliers
     # See: https://github.com/singularity-energy/open-grid-emissions/issues/50
 
@@ -1059,9 +1063,14 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
         df=cems, year=year, include_co2=False, include_ch4=True, include_n2o=True
     )
 
-    # remove any observations from cems where zero operation is reported for an entire month
-    # although this data could be considered to be accurately reported, let's remove it so that we can double check against the eia data
-    cems = remove_cems_with_zero_monthly_data(cems)
+    # remove any observations from cems where zero operation is reported for an entire
+    # month. Although this data could be considered to be accurately reported, let's
+    # remove it so that we can double check against the eia data
+    # NOTE(12/22/23): We will treat reported zeros as actual data and not attempt to
+    # fill reported zeros with EIA-923 data due to the issues that exist with the method
+    # EIA uses to allocate annual data to months. In the future, we could use monthly-
+    # reported EIA data since this is directly reported by the generator.
+    # cems = remove_cems_with_zero_monthly_data(cems)
 
     validation.test_for_negative_values(cems)
     validation.validate_unique_datetimes(
@@ -1124,10 +1133,10 @@ def remove_incomplete_unit_months(cems):
         .reset_index()
     )
 
-    # identify months where there is not complete data
+    # identify months where there is less than a single day of data
     # The fewest number of hours in a month is 28*24 = 672
     unit_months_to_remove = unit_hours_in_month[
-        unit_hours_in_month["datetime_utc"] < 600
+        unit_hours_in_month["datetime_utc"] < 24
     ].drop(columns="datetime_utc")
 
     logger.info(
@@ -1245,6 +1254,136 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
     cems = update_energy_source_codes(cems)
 
     return cems
+
+
+def inventory_input_data_sources(cems: pd.DataFrame, year: int):
+    """
+    Exports a csv that identifies for each plant-month whether input data exists from
+    CEMS or EIA-923. This will be used when checking for missing timestamps in the
+    output data.
+
+    This function expects CEMS data after it has been loaded, non-grid connected plants
+    removed, report date added, and incomplete unit-months removed.
+    """
+
+    # load EIA-923 generation and fuel data
+    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
+
+    # sum generation and fuel by plant-month
+    plant_months_in_eia = (
+        gf.groupby(["plant_id_eia", "report_date"], dropna=False)[
+            ["net_generation_mwh", "fuel_consumed_mmbtu"]
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    # add a flag if the data exists
+    plant_months_in_eia["data_in_eia"] = 1
+    # add a flag if the data is nonzero
+    plant_months_in_eia["nonzero_data_in_eia"] = 0
+    plant_months_in_eia.loc[
+        plant_months_in_eia[["net_generation_mwh", "fuel_consumed_mmbtu"]].sum(axis=1)
+        > 0,
+        "nonzero_data_in_eia",
+    ] = 1
+
+    plant_months_in_eia = plant_months_in_eia[
+        ["plant_id_eia", "report_date", "data_in_eia", "nonzero_data_in_eia"]
+    ].sort_values(by=["plant_id_eia", "report_date"])
+
+    # sum the generation and fuel data for each plant-month,
+    # if there is at least one non-na value
+    plant_months_in_cems = (
+        cems.groupby(["plant_id_eia", "report_date"], dropna=False)[
+            ["gross_generation_mwh", "fuel_consumed_mmbtu"]
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    # add an indicator column if any data exists
+    plant_months_in_cems["data_in_cems"] = 0
+    plant_months_in_cems.loc[
+        (
+            ~plant_months_in_cems[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
+            .isna()
+            .all(axis=1)
+        ),
+        "data_in_cems",
+    ] = 1
+
+    # add a flag if the data is zero
+    plant_months_in_cems["nonzero_data_in_cems"] = 0
+    plant_months_in_cems.loc[
+        plant_months_in_cems[["gross_generation_mwh", "fuel_consumed_mmbtu"]].sum(
+            axis=1
+        )
+        > 0,
+        "nonzero_data_in_cems",
+    ] = 1
+
+    plant_months_in_cems = plant_months_in_cems[
+        ["plant_id_eia", "report_date", "data_in_cems", "nonzero_data_in_cems"]
+    ].sort_values(by=["plant_id_eia", "report_date"])
+
+    # outer merge cems and eia inventories together
+    input_data_exists = plant_months_in_eia.merge(
+        plant_months_in_cems,
+        how="outer",
+        on=["plant_id_eia", "report_date"],
+        validate="1:1",
+    ).sort_values(by=["plant_id_eia", "report_date"])
+
+    # create a dataframe with a complete set of plant-months in case some months
+    # are missing from the inventory
+    complete_plant_months = pd.DataFrame(
+        list(
+            product(
+                list(input_data_exists.plant_id_eia.unique()),
+                list(input_data_exists.report_date.unique()),
+            )
+        ),
+        columns=["plant_id_eia", "report_date"],
+    )
+    # make sure the datetime dtypes match before merging
+    complete_plant_months["report_date"] = complete_plant_months.report_date.astype(
+        input_data_exists.report_date.dtype
+    )
+    # complete the report dates
+    input_data_exists = input_data_exists.merge(
+        complete_plant_months,
+        how="outer",
+        on=["plant_id_eia", "report_date"],
+        validate="1:1",
+    ).sort_values(by=["plant_id_eia", "report_date"])
+
+    # fill missing values with zeros
+    input_data_exists["data_in_eia"] = input_data_exists["data_in_eia"].fillna(0)
+    input_data_exists["data_in_cems"] = input_data_exists["data_in_cems"].fillna(0)
+    input_data_exists["nonzero_data_in_eia"] = input_data_exists[
+        "nonzero_data_in_eia"
+    ].fillna(0)
+    input_data_exists["nonzero_data_in_cems"] = input_data_exists[
+        "nonzero_data_in_cems"
+    ].fillna(0)
+
+    # create a column to indicate if data exists from any source
+    input_data_exists["input_data_exists"] = 0
+    input_data_exists.loc[
+        input_data_exists[["data_in_eia", "data_in_cems"]].sum(axis=1) > 0,
+        "input_data_exists",
+    ] = 1
+    # create a column to indicate if nonzero data exists from any source
+    input_data_exists["nonzero_input_data_exists"] = 0
+    input_data_exists.loc[
+        input_data_exists[["nonzero_data_in_eia", "nonzero_data_in_cems"]].sum(axis=1)
+        > 0,
+        "nonzero_input_data_exists",
+    ] = 1
+
+    # export to csv
+    input_data_exists.to_csv(
+        outputs_folder(f"{year}/input_data_inventory_{year}.csv"), index=False
+    )
 
 
 def fillna_with_missing_strings(df, column_to_fill, filler_column):
@@ -1523,15 +1662,6 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
 
     # for the remaining plants, identify the hourly data source as EIA
     all_data["hourly_data_source"] = all_data["hourly_data_source"].fillna("eia")
-
-    # remove any generator-months for which there is no data reported in either data source
-    all_data = all_data[
-        ~(
-            (all_data["reported_eia923"] == 0)
-            & (all_data["hourly_data_source"] == "eia")
-        )
-    ]
-
     all_data = all_data.drop(columns=["reported_eia923"])
 
     # identify the partial cems plants
@@ -1593,14 +1723,16 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
     )
 
     # identify which subplant-months have complete or partial cems data
-    # we identify this as subplant months where the number of CEMS reported units is less
-    # than the total number of units in that subplant, AND the total fuel reported in CEMS
-    # is less than 95% of the fuel reported in EIA
+    # we identify this as subplant months where the number of CEMS reported units is
+    # less than the total number of units in that subplant, AND the total, non-zero fuel
+    # reported in CEMS is less than 95% of the non-zero fuel reported in EIA
     cems_status = cems_units_reported.assign(
         hourly_data_source=lambda x: np.where(
             (
                 (x.reported_units_in_subplant < x.units_in_subplant)
                 & (x.fuel_consumed_mmbtu_cems < (x.fuel_consumed_mmbtu_eia * 0.95))
+                & (x.fuel_consumed_mmbtu_cems > 0)
+                & (x.fuel_consumed_mmbtu_eia > 0)
             ),
             "partial_cems_subplant",
             "cems",
@@ -1757,6 +1889,7 @@ def identify_partial_cems_plants(all_data):
         # Check for subplants with mixed hourly data sources,
         # likely resulting from mixed fuel types.
         # If subplant_id assignment is working, there shouldn't be any
+        print(mixed_method_subplants)
         raise Exception(
             f"ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
         )
@@ -1939,7 +2072,7 @@ def combine_plant_data(
 
 def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_table):
     # create a table with the unique plantids from both dataframes
-    eia_plants = eia923_allocated[
+    eia_plants = eia923_allocated.copy()[
         ["plant_id_eia", "plant_primary_fuel"]
     ].drop_duplicates()
     cems_plants = cems[["plant_id_eia"]].drop_duplicates()
