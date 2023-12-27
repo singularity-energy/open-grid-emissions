@@ -5,7 +5,7 @@ import oge.load_data as load_data
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.emissions as emissions
 from oge.column_checks import get_dtypes
-from oge.filepaths import downloads_folder, reference_table_folder
+from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -19,7 +19,7 @@ def validate_year(year):
     """Returns a warning if the year specified is not known to work with the pipeline."""
 
     earliest_validated_year = 2019
-    latest_validated_year = 2021
+    latest_validated_year = 2022
 
     if year < earliest_validated_year:
         year_warning = f"""
@@ -50,7 +50,7 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     We use np.isclose() to identify any values that are off by more than 1e-9% different
     from the total input generation or fuel.
     """
-    gf = load_data.load_pudl_table("generation_fuel_eia923", year)
+    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
     plant_total_gf = gf.groupby("plant_id_eia")[
         [
             "net_generation_mwh",
@@ -66,9 +66,10 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
         ]
     ].sum()
     # calculate the percentage difference between the values
-    plant_total_diff = ((plant_total_alloc - plant_total_gf) / plant_total_gf).dropna(
-        how="any", axis=0
-    )
+    # replace 0s with small sentinel value to prevent missing values from divide by zero
+    plant_total_diff = (
+        (plant_total_alloc - plant_total_gf) / plant_total_gf.replace(0, 0.00001)
+    ).dropna(how="all", axis=0)
     # flag rows where the absolute percentage difference is greater than our threshold
     mismatched_allocation = plant_total_diff[
         (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0))
@@ -159,6 +160,23 @@ def test_for_negative_values(df, small: bool = False):
                 if not negative_test.empty:
                     logger.warning(
                         f"There are {len(negative_test)} records where {column} is negative."
+                    )
+                    logger.warning(
+                        negative_test[
+                            [
+                                col
+                                for col in df.columns
+                                if col
+                                in [
+                                    "report_date",
+                                    "plant_id_eia",
+                                    "generator_id",
+                                    "energy_source_code",
+                                    "prime_mover_code",
+                                    column,
+                                ]
+                            ]
+                        ]
                     )
                     negative_warnings += 1
             else:
@@ -524,7 +542,7 @@ def test_emissions_adjustments(df):
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
 
-    bad_adjustments = 0
+    bad_adjustment_count = 0
 
     for pollutant in pollutants:
         # test that mass_lb >= mass_lb_for_electricity
@@ -535,7 +553,20 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity > {pollutant}_mass_lb"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb",
+                        f"{pollutant}_mass_lb_for_electricity",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
         # test that mass_lb >= mass_lb_adjusted
         bad_adjustment = df[
@@ -545,7 +576,20 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_adjusted > {pollutant}_mass_lb"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb",
+                        f"{pollutant}_mass_lb_adjusted",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
         # test that mass_lb_for_electricity >= mass_lb_for_electricity_adjusted
         bad_adjustment = df[
@@ -558,10 +602,23 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb_for_electricity",
+                        f"{pollutant}_mass_lb_for_electricity_adjusted",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
     # if there were any bad adjustments, raise a userwarning.
-    if bad_adjustments > 0:
+    if bad_adjustment_count > 0:
         raise UserWarning("The above issues with emissions adjustments must be fixed.")
     else:
         logger.info("OK")
@@ -739,7 +796,9 @@ def validate_unique_datetimes(df, df_name, keys):
                 )
 
 
-def check_for_complete_timeseries(df, df_name, keys, period):
+def check_for_complete_hourly_timeseries(
+    df: pd.DataFrame, df_name: str, keys: list[str], period: str
+):
     """Validates that a timeseries contains complete hourly data.
 
     If the `period` is a 'year', checks that the length of the timeseries is 8760 (for a
@@ -793,8 +852,80 @@ def check_for_complete_timeseries(df, df_name, keys, period):
             logger.warning("\n" + test.to_string())
     else:
         raise UserWarning(
-            f"{period} is not a valid value for the `period` argument in `check_for_complete_timeseries`. Value must be 'year' or 'month'"
+            f"{period} is not a valid value for the `period` argument in `check_for_complete_hourly_timeseries`. Value must be 'year' or 'month'"
         )
+
+
+def check_for_complete_monthly_timeseries(
+    df: pd.DataFrame,
+    df_name: str,
+    keys: list[str],
+    columns_to_check: list[str],
+    year: int,
+):
+    """
+    Validates that a dataset contains complete monthly data for all months.
+
+    There are two separate checks that are completed:
+    1. Ensure that there is a complete set of 12 report_date's for each group
+    2. Ensure that missing data within a month is expected based on the availability
+    of input data
+
+    Args:
+        df: dataframe containing datetime columns
+        df_name: a descriptive name for the dataframe
+        keys: list of column names that contain the groups within which datetimes should be unique
+    """
+
+    input_data_inventory = pd.read_csv(
+        outputs_folder(f"{year}/input_data_inventory_{year}.csv")
+    )
+
+    # count the number of report_dates and non-missing data in each group
+    test = df.groupby(keys)[["report_date"] + columns_to_check].count().reset_index()
+    # identify the expected number of months of data
+    expected_months = (
+        input_data_inventory.groupby("plant_id_eia")[
+            ["input_data_exists", "nonzero_input_data_exists"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    test = test.merge(
+        expected_months,
+        how="outer",
+        on="plant_id_eia",
+    )
+    test[["report_date"] + columns_to_check] = test[
+        ["report_date"] + columns_to_check
+    ].fillna(0)
+
+    # 1. Check that all 12 months exist for each group
+    # identify any rows where there are less than 12 months of data
+    missing_rd_test = test.loc[
+        (test["report_date"] < 12) & (test["nonzero_input_data_exists"] > 0),
+        (keys + ["report_date", "input_data_exists", "nonzero_input_data_exists"]),
+    ]
+    if len(missing_rd_test) > 0:
+        logger.warning(
+            f"There is less than 12 months of data for the following {keys} groups in {df_name}"
+        )
+        logger.warning("\n" + missing_rd_test.to_string())
+
+    # 2. identify any rows where there is data that is missing
+    missing_data_test = test[
+        (
+            test[columns_to_check].min(axis=1)
+            < test[["input_data_exists", "nonzero_input_data_exists"]].max(axis=1)
+        )
+        & (test["nonzero_input_data_exists"] > 0)
+    ]
+    if len(test) > 0:
+        logger.warning(
+            f"There appears to be missing data for the following {keys} groups in {df_name}"
+        )
+        logger.warning("\n" + missing_data_test.to_string())
 
 
 # DATA QUALITY METRIC FUNCTIONS
@@ -1866,7 +1997,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        reference_table_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
+        reference_table_folder("eGRID_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
         dtype=get_dtypes(),
     )
     id_map = dict(
@@ -2380,7 +2511,7 @@ def identify_potential_missing_fuel_in_egrid(year, egrid_plant, cems):
         "prime_mover_code",
     ]
     gf = load_data.load_pudl_table(
-        "generation_fuel_eia923",
+        "denorm_generation_fuel_combined_eia923",
         year,
         columns=IDX_PM_ESC
         + [
@@ -2392,7 +2523,7 @@ def identify_potential_missing_fuel_in_egrid(year, egrid_plant, cems):
 
     # add egrid plant ids
     egrid_crosswalk = pd.read_csv(
-        reference_table_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv")
+        reference_table_folder("eGRID_crosswalk_of_EIA_ID_to_EPA_ID.csv")
     )
     eia_to_egrid_id = dict(
         zip(

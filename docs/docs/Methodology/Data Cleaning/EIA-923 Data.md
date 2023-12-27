@@ -4,9 +4,9 @@ stoplight-id: cleaning_eia923
 
 
 ## Loading data from PUDL
-All of the generation and fuel consumption data that the OGEI uses from EIA-923 comes from pre-cleaned tables from the PUDL project, rather than from raw EIA-923 webfiles. The PUDL transformation process cleans the input data so that it is adjusted for uniformity, corrected for errors, and ready for bulk programmatic use. More information about the transformations that PUDL applies to the raw data can be found [here](https://catalystcoop-pudl.readthedocs.io/en/latest/data_sources/eia923.html#pudl-data-transformations).
+All of the generation and fuel consumption data that OGE uses from EIA-923 comes from pre-cleaned tables from the PUDL project, rather than from raw EIA-923 webfiles. The PUDL transformation process cleans the input data so that it is adjusted for uniformity, corrected for errors, and ready for bulk programmatic use. More information about the transformations that PUDL applies to the raw data can be found [here](https://catalystcoop-pudl.readthedocs.io/en/latest/data_sources/eia923.html#pudl-data-transformations).
 
-Because annual environmental information from EIA-923 has not yet been integrated into PUDL, these tables are loaded from the raw files, and column names are changed so that they are consistent with the column names used in PUDL.
+Because annual emissions control data from EIA-923 (Schedule 8) has not yet been integrated into PUDL, these tables are loaded from the raw files, and column names are changed so that they are consistent with the column names used in PUDL.
 
 ## Allocating Generation and Fuel Data
 

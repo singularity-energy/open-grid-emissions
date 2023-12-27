@@ -3,7 +3,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
-Optional arguments are --year (default 2021), --shape_individual_plants (default True)
+Optional arguments are --year (default 2022), --shape_individual_plants (default True)
 Optional arguments for development are --small, --flat, and --skip_outputs
 """
 import argparse
@@ -30,7 +30,7 @@ def get_args() -> argparse.Namespace:
     Returns dictionary of {arg_name: arg_value}
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--year", help="Year for analysis", default=2021, type=int)
+    parser.add_argument("--year", help="Year for analysis", default=2022, type=int)
     parser.add_argument(
         "--shape_individual_plants",
         help="Assign an hourly profile to each individual plant with EIA-only data, instead of aggregating to the fleet level before shaping.",
@@ -122,7 +122,7 @@ def main(args):
     egrid_files_to_download = [
         "https://www.epa.gov/sites/default/files/2020-03/egrid2018_data_v2.xlsx",
         "https://www.epa.gov/sites/default/files/2021-02/egrid2019_data.xlsx",
-        "https://www.epa.gov/system/files/documents/2022-01/egrid2020_data.xlsx",
+        "https://www.epa.gov/system/files/documents/2022-09/eGRID2020_Data_v2.xlsx",
         "https://www.epa.gov/system/files/documents/2023-01/eGRID2021_data.xlsx",
     ]
     download_data.download_egrid_files(egrid_files_to_download)
@@ -271,7 +271,7 @@ def main(args):
         df_name="partial_cems_plant",
         keys=["plant_id_eia", "subplant_id"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=partial_cems_plant,
         df_name="partial_cems_plant",
         keys=["plant_id_eia", "subplant_id"],
@@ -295,7 +295,7 @@ def main(args):
         df_name="partial_cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=partial_cems_subplant,
         df_name="partial_cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
@@ -344,7 +344,7 @@ def main(args):
         df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=cems,
         df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
@@ -360,7 +360,6 @@ def main(args):
     # create a separate dataframe containing only the EIA data that is missing from cems
     monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
-        & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
     ]
     output_data.output_data_quality_metrics(
         validation.identify_percent_of_data_by_input_source(
@@ -382,6 +381,13 @@ def main(args):
         partial_cems_plant,
         monthly_eia_data_to_shape,
         "monthly",
+    )
+    validation.check_for_complete_monthly_timeseries(
+        df=monthly_plant_data,
+        df_name="monthly_plant_data",
+        keys=["plant_id_eia"],
+        columns_to_check=["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"],
+        year=year,
     )
     output_data.output_plant_data(
         monthly_plant_data, path_prefix, "monthly", args.skip_outputs, plant_attributes
@@ -450,6 +456,17 @@ def main(args):
 
     # 14. Export hourly plant-level data
     ####################################################################################
+    # The data pipeline offers two options for exporting plant-level data. The first
+    # option, executed here in step 14 is to shape hourly data for each individual plant
+    # This option provides a complete hourly timeseries for each plant, but is more
+    # memory-intensive and results in larger output files.
+    # This data is immediately exported and not held in memory for the rest of the pipe-
+    # line. Instead, this data is re-combined again using the aggregated shaped plants
+    # in step 16.
+    # The other option happens in step 16 if step 14 is not run: instead of shaping each
+    # plant, only an aggregate fleet-level synthetic plant is exported, which represents
+    # the characteristics of all plants that do not report hourly data elsewhere in each
+    # month.
     logger.info("14. Exporting Hourly Plant-level data for each BA")
     if args.shape_individual_plants and not args.small:
         impute_hourly_profiles.combine_and_export_hourly_plant_data(
@@ -507,7 +524,7 @@ def main(args):
         df_name="shaped_eia_data",
         keys=["plant_id_eia"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=shaped_eia_data,
         df_name="shaped_eia_data",
         keys=["plant_id_eia"],
@@ -548,6 +565,7 @@ def main(args):
         shaped_eia_data,
         path_prefix,
         args.skip_outputs,
+        year,
     )
     # set validate parameter to False since validating non-overlapping data requires subplant-level data
     # since the shaped eia data is at the fleet level, this check will not work.
@@ -572,7 +590,7 @@ def main(args):
         df_name="combined_plant_data",
         keys=["plant_id_eia"],
     )
-    validation.check_for_complete_timeseries(
+    validation.check_for_complete_hourly_timeseries(
         df=combined_plant_data,
         df_name="combined_plant_data",
         keys=["plant_id_eia"],

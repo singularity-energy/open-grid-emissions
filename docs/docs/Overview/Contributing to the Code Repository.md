@@ -44,6 +44,6 @@ If you plan on contributing edits to the codebase that will be merged into the m
 - Functions should include descriptive docstrings (using the [Google style guide](https://google.github.io/styleguide/pyguide.html#383-functions-and-methods)), inline comments should be used to describe individual steps, and variable names should be made descriptive (e.g. `cems_plants_with_missing_co2_data` not `cems_missing` or `cpmco2`)
 - All pandas [merge operations](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.merge.html) should include the `validate` parameter to ensure that unintentional duplicate entries are not created
 - All pandas groupby operations should include the `dropna=False` parameter so that data with missing groupby keys are not unintentionally dropped from the data.
-- All code should be formatted using `black`
+- All code should be formatted using `ruff`
 - Clear all outputs from notebooks before committing your work.
 - Any manual changes to reported categorical data, conversion factors, or manual data mappings should be loaded from a .csv file `data/manual` rather than stored in a dictionary or variable in the code.

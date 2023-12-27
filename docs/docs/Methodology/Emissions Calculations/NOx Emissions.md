@@ -11,7 +11,7 @@ Measured NOx data is reported in CEMS, but otherwise must be estimated. Unlike g
 3. Calculate controlled NOx emissions using reported controlled emissions factors if available.
 
 ## Data inputs for NOx emissions calculations
-Calculating uncontrolled and controlled NOx emissions relies on boiler design, environmental attribute, and environmental control data that is reported in EIA-860 and EIA-923, but which are contained in tables that are not currently included in the PUDL data pipeline. Until these tables are integrated into PUDL (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/154)), the OGEI data pipeline downloads the raw EIA-860 and EIA-923 webfiles and loads these tables directly from those files.
+Calculating uncontrolled and controlled NOx emissions relies on boiler design, environmental attribute, and environmental control data that is reported in EIA-860 and EIA-923, but which are contained in tables that are not currently included in the PUDL data pipeline. Until these tables are integrated into PUDL (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/154)), the OGE data pipeline downloads the raw EIA-860 and EIA-923 webfiles and loads these tables directly from those files.
 
 ## Detailed steps for calculating NOx emissions
 

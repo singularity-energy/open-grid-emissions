@@ -63,7 +63,7 @@ Our understanding is that the BA reported in EIA-860 represents the plant’s co
 
 **Fuel code assignment**
 
-The primary fuel codes assigned to each plant in the OGEI pipeline may not match the generator primary fuel code used by the balancing authority. Thus, it is possible that the set of plants classified as “natural gas”, for example, in EIA-930 may be different from the set of plants that we classify as natural gas.
+The primary fuel codes assigned to each plant in the OGE pipeline may not match the generator primary fuel code used by the balancing authority. Thus, it is possible that the set of plants classified as “natural gas”, for example, in EIA-930 may be different from the set of plants that we classify as natural gas.
 
 **Inclusion of distribution-connected plants**
 

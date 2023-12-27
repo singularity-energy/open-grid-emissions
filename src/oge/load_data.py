@@ -57,6 +57,9 @@ def load_cems_data(year):
         "UTC"
     )
 
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
+
     cems = cems.rename(
         columns={
             "operating_datetime_utc": "datetime_utc",
@@ -119,11 +122,14 @@ def load_cems_ids(start_year, end_year):
     cems = pd.read_parquet(
         downloads_folder("pudl/hourly_emissions_epacems.parquet"),
         filters=[["year", ">=", start_year], ["year", "<=", end_year]],
-        columns=["plant_id_eia", "emissions_unit_id_epa"],
+        columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
     ).drop_duplicates()
     cems = apply_pudl_dtypes(cems)
 
-    return cems
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
+
+    return cems[["plant_id_eia", "emissions_unit_id_epa"]]
 
 
 def load_cems_gross_generation(start_year, end_year):
@@ -131,6 +137,7 @@ def load_cems_gross_generation(start_year, end_year):
 
     # specify the columns to use from the CEMS database
     cems_columns = [
+        "plant_id_epa",
         "plant_id_eia",
         "emissions_unit_id_epa",
         "operating_datetime_utc",
@@ -150,6 +157,9 @@ def load_cems_gross_generation(start_year, end_year):
     cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
         "UTC"
     )
+
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
 
     # only keep values when the plant was operating
     # this will help speed up calculations and allow us to add this data back later
@@ -183,6 +193,41 @@ def load_cems_gross_generation(start_year, end_year):
     return cems
 
 
+def update_epa_to_eia_map(cems_df: pd.DataFrame):
+    """
+    Updates the `plant_id_eia` column in cems data loaded from pudl based on the
+    manual epa_eia_crosswalk_manual table
+    """
+    # load the manual table
+    manual_plant_map = pd.read_csv(
+        reference_table_folder("epa_eia_crosswalk_manual.csv"),
+        dtype=get_dtypes(),
+    ).drop(columns=["notes"])
+
+    # only keep rows where the epa and eia plant ids don't match
+    manual_plant_map = manual_plant_map.loc[
+        manual_plant_map["plant_id_epa"] != manual_plant_map["plant_id_eia"],
+        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"],
+    ].drop_duplicates()
+
+    # merge into the cems data
+    cems_df = cems_df.merge(
+        manual_plant_map,
+        how="left",
+        on=["plant_id_epa", "emissions_unit_id_epa"],
+        suffixes=(None, "_manual"),
+        validate="m:1",
+    )
+
+    # update the eia plant ids
+    cems_df["plant_id_eia"].update(cems_df["plant_id_eia_manual"])
+
+    # drop the intermediate column
+    cems_df = cems_df.drop(columns=["plant_id_eia_manual"])
+
+    return cems_df
+
+
 def add_report_date(df):
     """
     Add a report date column to the cems data based on the plant's local timezone
@@ -208,7 +253,7 @@ def add_report_date(df):
     datetime_utc = pd.DatetimeIndex(df["datetime_utc"])
 
     # create blank column to hold local datetimes
-    df["report_date"] = np.NaN
+    df["report_date"] = pd.to_datetime(np.NaN)
 
     # get list of unique timezones
     timezones = list(df["timezone"].unique())
@@ -372,7 +417,6 @@ def load_epa_eia_crosswalk_from_raw(year):
 
     # remove leading zeros from the generator id and emissions_unit_id_epa
     crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
-    crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # some eia plant ids are missing. Let us assume that the EIA and EPA plant ids match in this case
     crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].fillna(
@@ -477,6 +521,33 @@ def load_epa_eia_crosswalk(year):
     crosswalk = pd.concat(
         [crosswalk, crosswalk_manual],
         axis=0,
+    )
+
+    # load eGRID plant mapping
+    egrid_plant_map = pd.read_csv(
+        reference_table_folder("eGRID_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
+        dtype=get_dtypes(),
+    ).drop(columns=["plant_id_egrid"])
+
+    # concat this data with the main table
+    crosswalk = pd.concat(
+        [crosswalk, egrid_plant_map],
+        axis=0,
+    )
+
+    # drop duplicate crosswalks
+    # pudl now includes crosswalks related to multiple report years
+    # keep the newest mapping
+    crosswalk = crosswalk.drop_duplicates(
+        subset=[
+            "plant_id_epa",
+            "emissions_unit_id_epa",
+            "generator_id_epa",
+            "plant_id_eia",
+            "boiler_id",
+            "generator_id",
+        ],
+        keep="last",
     )
 
     # load EIA-860 data
@@ -742,6 +813,9 @@ def load_emissions_controls_eia923(year: int):
             ),
             2021: downloads_folder(
                 f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
+            2022: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx"
             ),
         }[year]
 
