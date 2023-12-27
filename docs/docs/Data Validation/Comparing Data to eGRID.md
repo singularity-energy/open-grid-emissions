@@ -1,7 +1,7 @@
 ---
 stoplight-id: egrid_comparison
 ---
-Although the OGEI methodology is based on the EPA's eGRID methodology, there are some important differences. Thus, if comparing OGEI data to eGRID data, it is important to keep the following differences in mind:
+Although the OGE methodology is based on the EPA's eGRID methodology, there are some important differences. Thus, if comparing OGEI data to eGRID data, it is important to keep the following differences in mind:
 
 
 <table>

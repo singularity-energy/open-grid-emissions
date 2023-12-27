@@ -417,7 +417,6 @@ def load_epa_eia_crosswalk_from_raw(year):
 
     # remove leading zeros from the generator id and emissions_unit_id_epa
     crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
-    crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # some eia plant ids are missing. Let us assume that the EIA and EPA plant ids match in this case
     crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].fillna(
