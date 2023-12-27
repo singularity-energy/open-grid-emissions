@@ -5,7 +5,7 @@
 
 The Open Grid Emissions Initiative seeks to fill a critical need for high-quality, publicly-accessible, hourly grid emissions data that can be used for GHG accounting, policymaking, academic research, and energy attribute certificate markets. The initiative includes this repository of open-source grid emissions data processing tools that use peer-reviewed, well-documented, and validated methodologies to create the accompanying public dataset of hourly, monthly, and annual U.S. electric grid generation, GHG, and air pollution data.
 
-Please check out [our documentation](https://docs.singularity.energy/docs/open-grid-emissions-docs) for more details about the Open Grid Emissions methodology.
+Please check out [our documentation](https://docs.singularity.energy/docs/open-grid-emissions) for more details about the Open Grid Emissions methodology.
 
 The Open Grid Emissions Dataset can be [downloaded here](https://singularity.energy/open-grid-emissions). An archive of previous versions of the dataset and intermediate data outputs (for research and validation purposes) can be found on [Zenodo](https://zenodo.org/communities/singularity-energy?page=1&size=20).
 
@@ -35,7 +35,7 @@ pipenv shell
 The pipeline can be run as follows:
 ```bash
 cd src
-python data_pipeline.py --year 2021
+python data_pipeline.py --year 2022
 ```
 independently of the installation method you chose.
 
