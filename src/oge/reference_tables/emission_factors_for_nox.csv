@@ -8,6 +8,7 @@ OT,AB,wet,none,1.2,lb,ton
 OT,AB,none,none,1.2,lb,ton
 OT,BFG,none,none,0.0154,lb,mcf
 ST,BFG,none,none,0.0154,lb,mcf
+ST,BFG,dry,none,0.0154,lb,mcf
 ST,BFG,wet,tangential_firing,0.0154,lb,mcf
 ST,BFG,dry,tangential_firing,0.0154,lb,mcf
 ST,BFG,none,tangential_firing,0.0154,lb,mcf
@@ -83,6 +84,7 @@ CT,DFO,dry,other,5.124,lb,barrels
 CT,DFO,none,other,5.124,lb,barrels
 CT,DFO,none,tangential_firing,5.124,lb,barrels
 CT,DFO,none,wall_fired,5.124,lb,barrels
+CT,DFO,dry,wall_fired,5.124,lb,barrels
 GT,DFO,none,CT,5.124,lb,barrels
 GT,DFO,none,none,5.124,lb,barrels
 IC,DFO,none,none,18.6396,lb,barrels
@@ -182,6 +184,7 @@ FC,NG,none,none,,lb,mcf
 GT,NG,none,CT,0.328,lb,mcf
 GT,NG,none,none,0.32,lb,MMBtu
 GT,NG,none,tangential_firing,0.328,lb,mcf
+GT,NG,none,wall_fired,0.328,lb,mcf
 IC,NG,none,none,2.768,lb,mcf
 OT,NG,none,none,0.28,lb,mcf
 ST,NG,dry,cell_burner,0.28,lb,mcf
@@ -305,6 +308,7 @@ ST,PC,wet,wall_fired,21,lb,ton
 ST,PC,wet,cyclone_firing,21,lb,ton
 ST,PC,wet,other,21,lb,ton
 ST,PC,dry,stoker,21,lb,ton
+ST,PC,none,stoker,21,lb,ton
 ST,PC,wet,tangential_firing,21,lb,ton
 ST,PC,none,wall_fired,21,lb,ton
 CS,PG,none,none,0.80336,lb,mcf
