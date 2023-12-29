@@ -169,6 +169,11 @@
     },
     {
       "type": "item",
+      "title": "Known Issues",
+      "uri": "/docs/docs/Data Validation/Known Issues.md"
+    },
+    {
+      "type": "item",
       "title": "Comparing Data to eGRID",
       "uri": "/docs/docs/Data Validation/Comparing Data to eGRID.md"
     }

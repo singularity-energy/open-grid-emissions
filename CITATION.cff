@@ -12,16 +12,16 @@ authors:
     family-names: Pease
     orcid: 'https://orcid.org/0000-0003-3528-6048'
     affiliation: "Singularity Energy"
-  - given-names: Milo
-    family-names: Knowles
-    orcid: 'https://orcid.org/0000-0003-4052-5517'
+  - given-names: Benjamin
+    family-names: Rouille d'Orfeuil
     affiliation: "Singularity Energy"
   - given-names: Wenbo
     family-names: Shi
+    orcid: 'https://orcid.org/0000-0003-4889-0834'
     affiliation: "Singularity Energy"
 identifiers:
   - type: doi
     value: 'https://doi.org/10.5281/zenodo.7692997'
-version: 0.2.2
+version: 0.3.0
 license: MIT
-date-released: '2023-03-02'
+date-released: '2023-12-29'

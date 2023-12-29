@@ -5,7 +5,7 @@
 
 The Open Grid Emissions Initiative seeks to fill a critical need for high-quality, publicly-accessible, hourly grid emissions data that can be used for GHG accounting, policymaking, academic research, and energy attribute certificate markets. The initiative includes this repository of open-source grid emissions data processing tools that use peer-reviewed, well-documented, and validated methodologies to create the accompanying public dataset of hourly, monthly, and annual U.S. electric grid generation, GHG, and air pollution data.
 
-Please check out [our documentation](https://docs.singularity.energy/docs/open-grid-emissions-docs) for more details about the Open Grid Emissions methodology.
+Please check out [our documentation](https://docs.singularity.energy/docs/open-grid-emissions) for more details about the Open Grid Emissions methodology.
 
 The Open Grid Emissions Dataset can be [downloaded here](https://singularity.energy/open-grid-emissions). An archive of previous versions of the dataset and intermediate data outputs (for research and validation purposes) can be found on [Zenodo](https://zenodo.org/communities/singularity-energy?page=1&size=20).
 
@@ -35,7 +35,7 @@ pipenv shell
 The pipeline can be run as follows:
 ```bash
 cd src
-python data_pipeline.py --year 2021
+python data_pipeline.py --year 2022
 ```
 independently of the installation method you chose.
 
@@ -147,9 +147,24 @@ cd open-grid-emissions
 #### Setup the environment
 In the root of the directory, create and activate the environment with:
 ```bash
+# set up virtual environment (use whichever version of python 3.11 you have installed)
+pipenv --python 3.11.4
+
+# if you have updated the pipfile and need to update pipfile.lock, run
+pipenv install
+# Otherwise, if you just want to install packages from the pipfile.lock, run
 pipenv sync
+
+# activate virtual environment
 pipenv shell
+
+# install an editable version of the oge package
+pip install build
+python -m build
+pip install –-editable .
 ```
+
+If you ever need to remove and reinstall the environment, run `pipenv --rm` from the root directory then follow the directions above.
 
 ### Running the complete data pipeline
 If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src`, and run the following (replacing 2021 with whichever year you want to run):
