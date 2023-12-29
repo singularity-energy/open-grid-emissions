@@ -147,9 +147,24 @@ cd open-grid-emissions
 #### Setup the environment
 In the root of the directory, create and activate the environment with:
 ```bash
-pipenv sync
-pipenv shell
+# set up virtual environment (use whichever version of python 3.11 you have installed)
+pipenv --python 3.11.4
+
+# if you have updated the pipfile and need to update pipfile.lock, run
+Pipenv install
+# Otherwise, if you just want to install packages from the pipfile.lock, run
+Pipenv sync
+
+# activate virtual environment
+Pipenv shell
+
+# install an editable version of the oge package
+pip install build
+python -m build
+pip install –editable .
 ```
+
+If you ever need to remove and reinstall the environment, run `pipenv -rm` from the root directory then follow the directions above.
 
 ### Running the complete data pipeline
 If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src`, and run the following (replacing 2021 with whichever year you want to run):
