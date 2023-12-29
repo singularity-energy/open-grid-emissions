@@ -22,7 +22,6 @@ statsmodels = "*"
 coloredlogs = "*"
 "catalystcoop.pudl" = {git = "git+https://github.com/singularity-energy/pudl.git@oge_release"}
 gridemissions = {git = "git+https://github.com/singularity-energy/gridemissions"}
-oge = {git = "git+https://github.com/singularity-energy/open-grid-emissions"}
 
 [dev-packages]
 ruff = "*"
