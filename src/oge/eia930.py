@@ -395,7 +395,7 @@ def manual_930_adjust(raw: pd.DataFrame):
         - Interchange
             - PJM: + 4 hours
             - TEPC: + 7 hours
-            - CFE:  -11 hours
+            - IID:  + 4 hours
         - Interchange sign
             - PJM-{CPLE, CPLW, DUK, LGEE, MISO, NYIS, TVA} before
                     Oct 31, 2019, 4:00 UTC
@@ -428,7 +428,6 @@ def manual_930_adjust(raw: pd.DataFrame):
     # This issue is still active as of 5/18/2023
     # we need to shift all data by +1 hour
     ba = "PJM"
-    cols = get_columns(ba, raw.columns)
     cols = get_columns(ba, raw.columns)
     new = raw[cols].shift(1, freq="H")
     raw = raw.drop(columns=cols)
@@ -496,10 +495,22 @@ def manual_930_adjust(raw: pd.DataFrame):
         :"2020-06-01 07:00:00+00", all_cols
     ].sum(axis=1)
 
-    # Interchange TEPC is uniformly lagged
+    # Interchange TEPC is uniformly lagged until 10-25-2021
     cols = get_int_columns("TEPC", raw.columns)
-    new = raw[cols].shift(-7, freq="H")
+    new = raw[cols].copy()
+    new.loc[raw.index < "2021-10-25 00:00:00+00", cols] = new.loc[
+        raw.index < "2021-10-25 00:00:00+00", cols
+    ].shift(-7, freq="H")
     raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # Interchange IID-CISO is lagged by 4 hours in 2021
+    col = get_int_columns("IID", raw.columns, ["CISO"])
+    new = raw[col].copy()
+    new.loc["2021-01-01 08:00:00+00:00":"2022-01-01 07:00:00+00:00", col] = new.loc[
+        "2021-01-01 08:00:00+00:00":"2022-01-01 07:00:00+00:00", col
+    ].shift(4, freq="H")
+    raw = raw.drop(columns=col)
     raw = pd.concat([raw, new], axis="columns")
 
     # Interchange PJM is lagged differently across DST boundary
