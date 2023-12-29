@@ -5,10 +5,10 @@ import sys
 
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
-from filepaths import outputs_folder, manual_folder, results_folder
-from logging_util import get_logger
+from oge.filepaths import outputs_folder, reference_table_folder, results_folder
+from oge.logging_util import get_logger
 
-from output_data import (
+from oge.output_data import (
     GENERATED_EMISSION_RATE_COLS,
     CONSUMED_EMISSION_RATE_COLS,
     output_to_results,
@@ -25,10 +25,13 @@ demand! But it is better than combining inconsistent generation and interchange,
 which results in unreasonable profiles with many negative hours.
 """
 # Identify the BAs for which we need to use demand data for the consumed calculation
+# To identify these, run the pipeline, and if the validation checks raise any negative
+# consumed emissions rates for a region, add those to this list.
 BA_930_INCONSISTENCY = {
     2019: ["CPLW", "EEI"],
     2020: ["CPLW", "EEI"],
     2021: ["CPLW", "GCPD"],
+    2022: ["CPLW", "GCPD", "HST"],
 }
 
 # Defined in output_data, written to each BA file
@@ -246,7 +249,7 @@ class HourlyConsumed:
             We won't export files for these
         """
         self.ba_ref = pd.read_csv(
-            manual_folder("ba_reference.csv"), index_col="ba_code"
+            reference_table_folder("ba_reference.csv"), index_col="ba_code"
         )
         generation_only = list(
             self.ba_ref[self.ba_ref.ba_category == "generation_only"].index
@@ -438,13 +441,13 @@ class HourlyConsumed:
                         axis=1,
                     )
 
-                # Cut off emissions at 9 hours after UTC year
-                emissions = emissions[:f"{self.year+1}-01-01 09:00:00+00:00"]
-                rates[((adj, pol))] = emissions
+                # Cut off emissions at 8 hours after UTC year
+                emissions = emissions[: f"{self.year+1}-01-01 08:00:00+00:00"]
+                rates[(adj, pol)] = emissions
 
         # Make generation data frame
         generation = pd.DataFrame(data=gens)
-        generation = generation[:f"{self.year+1}-01-01 09:00:00+00:00"]
+        generation = generation[: f"{self.year+1}-01-01 08:00:00+00:00"]
 
         return rates, generation
 
@@ -462,7 +465,7 @@ class HourlyConsumed:
 
         # Build generation array, using 930 for import-only regions
         G = np.zeros(len(self.regions))
-        for (i, r) in enumerate(self.regions):
+        for i, r in enumerate(self.regions):
             if r in self.import_regions:
                 G[i] = self.eia930.df.loc[date, KEYS["E"]["NG"] % r]
             else:
@@ -513,7 +516,7 @@ class HourlyConsumed:
                             consumed_emissions = np.full(len(self.regions), np.nan)
 
                     # Export
-                    for (i, r) in enumerate(self.regions):
+                    for i, r in enumerate(self.regions):
                         self.results[r].loc[date, col] = consumed_emissions[i]
                 if total_failed > 0:
                     logger.warning(

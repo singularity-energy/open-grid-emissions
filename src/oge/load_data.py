@@ -1,29 +1,20 @@
 import pandas as pd
 import numpy as np
-import os
 import sqlalchemy as sa
 import warnings
 from pathlib import Path
 
-import pudl.output.pudltabl
+from oge.column_checks import get_dtypes
+from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
+import oge.validation as validation
+from oge.logging_util import get_logger
 
-from column_checks import get_dtypes
-from filepaths import downloads_folder, manual_folder, outputs_folder
-from validation import validate_unique_datetimes
-from logging_util import get_logger
+from pudl.metadata.fields import apply_pudl_dtypes
 
 logger = get_logger(__name__)
 
-
-def correct_epa_eia_plant_id_mapping(df):
-    """
-    The EPA's power sector data crosswalk incorrectly maps plant_id_epa 55248 to plant_id_eia 55248,
-    when it should be mapped to id 2847. This function is temporary until this is fixed.
-    """
-
-    df.loc[df["plant_id_eia"] == 55248, "plant_id_eia"] = 2847
-
-    return df
+# initialize the pudl_engine
+PUDL_ENGINE = sa.create_engine("sqlite:///" + downloads_folder("pudl/pudl.sqlite"))
 
 
 def load_cems_data(year):
@@ -34,8 +25,6 @@ def load_cems_data(year):
     Returns:
         cems: pandas dataframe with hourly CEMS data
     """
-    # specify the path to the CEMS data
-    cems_path = downloads_folder("pudl/pudl_data/parquet/epacems/")
 
     # specify the columns to use from the CEMS database
     cems_columns = [
@@ -56,14 +45,20 @@ def load_cems_data(year):
     ]
 
     # load the CEMS data
-    cems = pd.concat(
-        pd.read_parquet((cems_path + filename), columns=cems_columns)
-        for filename in os.listdir(cems_path)
-        if str(year) in filename
+    cems = pd.read_parquet(
+        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+        filters=[["year", "==", year]],
+        columns=cems_columns,
+    )
+    # convert to tz-naive datetime to allow for dtype application
+    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(None)
+    cems = apply_pudl_dtypes(cems)
+    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
+        "UTC"
     )
 
-    # **** manual adjustments ****
-    cems = correct_epa_eia_plant_id_mapping(cems)
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
 
     cems = cems.rename(
         columns={
@@ -72,7 +67,7 @@ def load_cems_data(year):
             "steam_load_1000_lbs": "steam_load_1000_lb",
             "nox_mass_lbs": "nox_mass_lb",
             "so2_mass_lbs": "so2_mass_lb",
-            "gross_load_mw": "gross_generation_mwh",  # we are going to convert this in a later step
+            "gross_load_mw": "gross_generation_mwh",  # we will convert this to mwh
         }
     )
 
@@ -113,110 +108,124 @@ def load_cems_data(year):
         }
     )
 
-    validate_unique_datetimes(cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"])
+    validation.validate_unique_datetimes(
+        cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
+    )
 
     return cems
 
 
 def load_cems_ids(start_year, end_year):
     """Loads CEMS ids for multiple years."""
-    cems_all = []
 
-    for year in range(start_year, end_year + 1):
-        # specify the path to the CEMS data
-        cems_path = downloads_folder("pudl/pudl_data/parquet/epacems/")
+    # load cems data
+    cems = pd.read_parquet(
+        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+        filters=[["year", ">=", start_year], ["year", "<=", end_year]],
+        columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
+    ).drop_duplicates()
+    cems = apply_pudl_dtypes(cems)
 
-        # load the CEMS data
-        cems = pd.concat(
-            pd.read_parquet(
-                (cems_path + filename),
-                columns=[
-                    "plant_id_eia",
-                    "emissions_unit_id_epa",
-                ],
-            )
-            for filename in os.listdir(cems_path)
-            if str(year) in filename
-        )
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
 
-        # **** manual adjustments ****
-        cems = correct_epa_eia_plant_id_mapping(cems)
-
-        # drop duplicate ids to reduce size
-        cems = cems[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates()
-
-        cems_all.append(cems)
-
-    cems = pd.concat(cems_all, axis=0).reset_index()
-
-    cems = cems[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates()
-
-    return cems
+    return cems[["plant_id_eia", "emissions_unit_id_epa"]]
 
 
 def load_cems_gross_generation(start_year, end_year):
     """Loads hourly CEMS gross generation data for multiple years."""
-    cems_all = []
 
-    for year in range(start_year, end_year + 1):
-        logger.info(f"loading {year} CEMS data")
-        # specify the path to the CEMS data
-        cems_path = downloads_folder(
-            "pudl/pudl_data/parquet/epacems/hourly_emissions_epacems/"
-        )
+    # specify the columns to use from the CEMS database
+    cems_columns = [
+        "plant_id_epa",
+        "plant_id_eia",
+        "emissions_unit_id_epa",
+        "operating_datetime_utc",
+        "operating_time_hours",
+        "gross_load_mw",
+    ]
 
-        # specify the columns to use from the CEMS database
-        cems_columns = [
+    # load cems data
+    cems = pd.read_parquet(
+        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+        filters=[["year", ">=", start_year], ["year", "<=", end_year]],
+        columns=cems_columns,
+    )
+    # convert to tz-naive datetime to allow for dtype application
+    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(None)
+    cems = apply_pudl_dtypes(cems)
+    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
+        "UTC"
+    )
+
+    # update the plant_id_eia column using manual matches
+    cems = update_epa_to_eia_map(cems)
+
+    # only keep values when the plant was operating
+    # this will help speed up calculations and allow us to add this data back later
+    cems = cems[(cems["gross_load_mw"] > 0) | (cems["operating_time_hours"] > 0)]
+
+    # rename the heat content column to use the convention used in the EIA data
+    cems = cems.rename(
+        columns={
+            "operating_datetime_utc": "datetime_utc",
+            "gross_load_mw": "gross_generation_mwh",
+        }
+    )
+
+    # add a report date
+    cems = add_report_date(cems)
+
+    cems = cems[
+        [
             "plant_id_eia",
             "emissions_unit_id_epa",
-            "operating_datetime_utc",
-            "operating_time_hours",
-            "gross_load_mw",
+            "report_date",
+            "gross_generation_mwh",
         ]
+    ]
 
-        # load the CEMS data
-        cems = pd.concat(
-            pd.read_parquet((cems_path + filename), columns=cems_columns)
-            for filename in os.listdir(cems_path)
-            if str(year) in filename
-        )
-
-        # only keep values when the plant was operating
-        # this will help speed up calculations and allow us to add this data back later
-        cems = cems[(cems["gross_load_mw"] > 0) | (cems["operating_time_hours"] > 0)]
-
-        # rename cems plant_id_eia to plant_id_epa (PUDL simply renames the ORISPL_CODE
-        # column from the raw CEMS data as 'plant_id_eia' without actually crosswalking to the EIA id)
-        # rename the heat content column to use the convention used in the EIA data
-        cems = cems.rename(
-            columns={
-                "operating_datetime_utc": "datetime_utc",
-                "gross_load_mw": "gross_generation_mwh",
-            }
-        )
-
-        # add a report date
-        cems = add_report_date(cems)
-
-        cems = cems[
-            [
-                "plant_id_eia",
-                "emissions_unit_id_epa",
-                "report_date",
-                "gross_generation_mwh",
-            ]
-        ]
-
-        # group data by plant, unit, month
-        cems = cems.groupby(
-            ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
-        ).sum()
-
-        cems_all.append(cems)
-
-    cems = pd.concat(cems_all, axis=0).reset_index()
+    # group data by plant, unit, month
+    cems = cems.groupby(
+        ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
+    ).sum()
 
     return cems
+
+
+def update_epa_to_eia_map(cems_df: pd.DataFrame):
+    """
+    Updates the `plant_id_eia` column in cems data loaded from pudl based on the
+    manual epa_eia_crosswalk_manual table
+    """
+    # load the manual table
+    manual_plant_map = pd.read_csv(
+        reference_table_folder("epa_eia_crosswalk_manual.csv"),
+        dtype=get_dtypes(),
+    ).drop(columns=["notes"])
+
+    # only keep rows where the epa and eia plant ids don't match
+    manual_plant_map = manual_plant_map.loc[
+        manual_plant_map["plant_id_epa"] != manual_plant_map["plant_id_eia"],
+        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"],
+    ].drop_duplicates()
+
+    # merge into the cems data
+    cems_df = cems_df.merge(
+        manual_plant_map,
+        how="left",
+        on=["plant_id_epa", "emissions_unit_id_epa"],
+        suffixes=(None, "_manual"),
+        validate="m:1",
+    )
+
+    # update the eia plant ids
+    cems_df["plant_id_eia"].update(cems_df["plant_id_eia_manual"])
+
+    # drop the intermediate column
+    cems_df = cems_df.drop(columns=["plant_id_eia_manual"])
+
+    return cems_df
 
 
 def add_report_date(df):
@@ -228,11 +237,13 @@ def add_report_date(df):
     Returns:
         Original dataframe with 'report_date' column added
     """
-    plants_entity_eia = load_pudl_table("plants_entity_eia")
+    plant_timezone = load_pudl_table(
+        "plants_entity_eia", columns=["plant_id_eia", "timezone"]
+    )
 
     # get timezone
     df = df.merge(
-        plants_entity_eia[["plant_id_eia", "timezone"]],
+        plant_timezone,
         how="left",
         on="plant_id_eia",
         validate="m:1",
@@ -242,7 +253,7 @@ def add_report_date(df):
     datetime_utc = pd.DatetimeIndex(df["datetime_utc"])
 
     # create blank column to hold local datetimes
-    df["report_date"] = np.NaN
+    df["report_date"] = pd.to_datetime(np.NaN)
 
     # get list of unique timezones
     timezones = list(df["timezone"].unique())
@@ -263,34 +274,12 @@ def add_report_date(df):
                 .dt.to_timestamp()  # convert to a YYYY-MM-01 stamp
             )
 
-    df["report_date"] = pd.to_datetime(df["report_date"])
+    df["report_date"] = pd.to_datetime(df["report_date"]).astype("datetime64[s]")
 
     # drop the operating_datetime_local column
     df = df.drop(columns=["timezone"])
 
     return df
-
-
-def load_pudl_table(table_name, year=None):
-    """
-    Loads a table from the PUDL SQL database.
-    Inputs:
-        sql_query: string containing table name (to retrieve entire table) or SQL query (to select part of table)
-    Returns:
-        table: pandas dataframe containing requested query
-    """
-    # specify the relative path to the sqllite database, and create an sqalchemy engine
-    pudl_db = f"sqlite:///{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite"
-    pudl_engine = sa.create_engine(pudl_db)
-
-    if year is not None:
-        sql_query = f"SELECT * FROM {table_name} WHERE report_date >= '{year}-01-01' AND report_date <= '{year}-12-01'"
-    else:
-        sql_query = table_name
-
-    table = pd.read_sql(sql_query, pudl_engine)
-
-    return table
 
 
 def load_ghg_emission_factors():
@@ -299,7 +288,7 @@ def load_ghg_emission_factors():
     """
 
     efs = pd.read_csv(
-        manual_folder("emission_factors_for_co2_ch4_n2o.csv"),
+        reference_table_folder("emission_factors_for_co2_ch4_n2o.csv"),
         dtype=get_dtypes(),
     )
 
@@ -315,7 +304,7 @@ def load_ghg_emission_factors():
 def load_nox_emission_factors():
     """Read in the NOx emission factors from eGRID Table C2."""
     emission_factors = pd.read_csv(
-        manual_folder("emission_factors_for_nox.csv"),
+        reference_table_folder("emission_factors_for_nox.csv"),
         dtype=get_dtypes(),
     )
 
@@ -335,7 +324,7 @@ def load_so2_emission_factors():
     reported in Table C3 as a formula like `123*S`.
     """
     df = pd.read_csv(
-        manual_folder("emission_factors_for_so2.csv"),
+        reference_table_folder("emission_factors_for_so2.csv"),
         dtype=get_dtypes(),
     )
 
@@ -355,32 +344,62 @@ def load_so2_emission_factors():
     return df
 
 
-def initialize_pudl_out(year=None):
+def load_pudl_table(
+    table_name: str, year: int = None, columns: list[str] = None, end_year: int = None
+):
     """
-    Initializes a `pudl_out` object used to create tables for EIA and FERC Form 1 analysis.
+    Loads a table from the pudl database.
 
-    If `year` is set to `None`, all years of data are returned.
+    `table_name` must be one of the options specified in the data dictionary:
+    https://catalystcoop-pudl.readthedocs.io/en/latest/data_dictionaries/pudl_db.html
+
+    There are multiple options for date filtering:
+        - if `year` is not specified, all years will be loaded
+        - if `year` is specified, but not `end_year`, only a single year will be loaded
+        - if both `year` and `end_year` are specified, all years in that range inclusive
+          will be loaded. `end_year` must be >= `year`.
+
+    If a list of `columns` is passed, only those columns will be returned. Otherwise,
+    all columns will be returned.
     """
-    pudl_db = f"sqlite:///{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite"
-    pudl_engine = sa.create_engine(pudl_db)
+
+    if columns is None:
+        columns_to_select = "*"
+    else:
+        columns_to_select = ", ".join(columns)
 
     if year is None:
-        pudl_out = pudl.output.pudltabl.PudlTabl(pudl_engine)
-    else:
-
-        pudl_out = pudl.output.pudltabl.PudlTabl(
-            pudl_engine,
-            freq="MS",
-            start_date=f"{year}-01-01",
-            end_date=f"{year}-12-31",
-            fill_tech_desc=False,
+        # load the table without filtering dates
+        table = pd.read_sql(
+            f"SELECT {columns_to_select} FROM {table_name}",
+            PUDL_ENGINE,
         )
-    return pudl_out
+    elif year is not None and end_year is None:
+        # load the table for a single year
+        table = pd.read_sql(
+            f"SELECT {columns_to_select} FROM {table_name} WHERE \
+                report_date >= '{year}-01-01' AND report_date < '{year + 1}-01-01'",
+            PUDL_ENGINE,
+        )
+    else:
+        # load the for the specified years
+        table = pd.read_sql(
+            f"SELECT {columns_to_select} FROM {table_name} WHERE \
+                report_date >= '{year}-01-01' AND report_date < '{end_year + 1}-01-01'",
+            PUDL_ENGINE,
+        )
+
+    table = apply_pudl_dtypes(table)
+
+    return table
 
 
 def load_epa_eia_crosswalk_from_raw(year):
     """
     Read in the manual EPA-EIA Crosswalk table downloaded from the EPA website.
+
+    This is only used in OGE to access the CAMD_FUEL_TYPE column, which is dropped from
+    the PUDL version of the table.
     """
 
     crosswalk = pd.read_csv(
@@ -398,7 +417,6 @@ def load_epa_eia_crosswalk_from_raw(year):
 
     # remove leading zeros from the generator id and emissions_unit_id_epa
     crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
-    crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # some eia plant ids are missing. Let us assume that the EIA and EPA plant ids match in this case
     crosswalk["EIA_PLANT_ID"] = crosswalk["EIA_PLANT_ID"].fillna(
@@ -444,20 +462,18 @@ def load_epa_eia_crosswalk_from_raw(year):
         crosswalk["energy_source_code_epa"]
     )
 
-    # **** manual adjustments ****
-    crosswalk = correct_epa_eia_plant_id_mapping(crosswalk)
-
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
-        manual_folder("epa_eia_crosswalk_manual.csv"),
+        reference_table_folder("epa_eia_crosswalk_manual.csv"),
         dtype=get_dtypes(),
     ).drop(columns=["notes"])
 
     # load EIA-860 data
-    pudl_out = initialize_pudl_out(year=year)
-    gen_esc_860 = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "energy_source_code_1"]
-    ]
+    gen_esc_860 = load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
+    )
 
     # merge the energy source code from EIA-860
     crosswalk_manual = crosswalk_manual.merge(
@@ -495,12 +511,9 @@ def load_epa_eia_crosswalk(year):
 
     crosswalk = load_pudl_table("epacamd_eia")
 
-    # **** manual adjustments ****
-    crosswalk = correct_epa_eia_plant_id_mapping(crosswalk)
-
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
-        manual_folder("epa_eia_crosswalk_manual.csv"),
+        reference_table_folder("epa_eia_crosswalk_manual.csv"),
         dtype=get_dtypes(),
     ).drop(columns=["notes"])
 
@@ -510,13 +523,41 @@ def load_epa_eia_crosswalk(year):
         axis=0,
     )
 
+    # load eGRID plant mapping
+    egrid_plant_map = pd.read_csv(
+        reference_table_folder("eGRID_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
+        dtype=get_dtypes(),
+    ).drop(columns=["plant_id_egrid"])
+
+    # concat this data with the main table
+    crosswalk = pd.concat(
+        [crosswalk, egrid_plant_map],
+        axis=0,
+    )
+
+    # drop duplicate crosswalks
+    # pudl now includes crosswalks related to multiple report years
+    # keep the newest mapping
+    crosswalk = crosswalk.drop_duplicates(
+        subset=[
+            "plant_id_epa",
+            "emissions_unit_id_epa",
+            "generator_id_epa",
+            "plant_id_eia",
+            "boiler_id",
+            "generator_id",
+        ],
+        keep="last",
+    )
+
     # load EIA-860 data
-    pudl_out = initialize_pudl_out(year=year)
-    gen_esc_860 = pudl_out.gens_eia860()[["plant_id_eia", "generator_id"]]
+    gen_ids = load_pudl_table(
+        "generators_eia860", year, columns=["plant_id_eia", "generator_id"]
+    )
 
     # merge in any plants that are missing from the EPA crosswalk but appear in EIA-860
     crosswalk = crosswalk.merge(
-        gen_esc_860, how="outer", on=["plant_id_eia", "generator_id"], validate="m:1"
+        gen_ids, how="outer", on=["plant_id_eia", "generator_id"], validate="m:1"
     )
     crosswalk["plant_id_epa"] = crosswalk["plant_id_epa"].fillna(
         crosswalk["plant_id_eia"]
@@ -589,18 +630,19 @@ def load_gross_to_net_data(
 
     # make sure the report date column is a datetime if loading ratios
     if conversion_type == "ratio":
-        gtn_data["report_date"] = pd.to_datetime(gtn_data["report_date"])
+        gtn_data["report_date"] = pd.to_datetime(gtn_data["report_date"]).astype(
+            "datetime64[s]"
+        )
 
     return gtn_data
 
 
 def load_ipcc_gwp():
     """Load a table containing global warming potential (GWP) values for CO2, CH4, and N2O."""
-    return pd.read_csv(manual_folder("ipcc_gwp.csv"), dtype=get_dtypes())
+    return pd.read_csv(reference_table_folder("ipcc_gwp.csv"), dtype=get_dtypes())
 
 
 def load_raw_eia930_data(year, description):
-
     eia_930 = pd.concat(
         [
             pd.read_csv(
@@ -638,7 +680,7 @@ def load_raw_eia930_data(year, description):
 
 def load_ba_reference():
     return pd.read_csv(
-        manual_folder("ba_reference.csv"),
+        reference_table_folder("ba_reference.csv"),
         dtype=get_dtypes(),
         parse_dates=["activation_date", "retirement_date"],
     )
@@ -688,7 +730,7 @@ def ba_timezone(ba, type):
     """
 
     tz = pd.read_csv(
-        manual_folder("ba_reference.csv"),
+        reference_table_folder("ba_reference.csv"),
         usecols=["ba_code", f"timezone_{type}"],
     )
     tz = tz.loc[tz["ba_code"] == ba, f"timezone_{type}"]
@@ -708,32 +750,36 @@ def load_emissions_controls_eia923(year: int):
         "report_date",
         "plant_id_eia",
         "equipment_tech_description",
-        "pm_control_id",
-        "so2_control_id",
-        "nox_control_id",
-        "hg_control_id",
+        "particulate_control_id_eia",
+        "so2_control_id_eia",
+        "nox_control_id_eia",
+        "mercury_control_id_eia",
         "operational_status",
         "hours_in_service",
         "annual_nox_emission_rate_lb_per_mmbtu",
         "ozone_season_nox_emission_rate_lb_per_mmbtu",
-        "pm_emission_rate_lb_per_mmbtu",
-        "pm_removal_efficiency_annual",
-        "pm_removal_efficiency_at_full_load",
-        "pm_test_date",
+        "particulate_emission_rate_lb_per_mmbtu",
+        "particulate_removal_efficiency_annual",
+        "particulate_removal_efficiency_at_full_load",
+        "particulate_test_date",
         "so2_removal_efficiency_annual",
         "so2_removal_efficiency_at_full_load",
         "so2_test_date",
         "fgd_sorbent_consumption_1000_tons",
         "fgd_electricity_consumption_mwh",
-        "hg_removal_efficiency",
-        "hg_emission_rate_lb_per_trillion_btu",
+        "mercury_removal_efficiency",
+        "mercury_emission_rate_lb_per_trillion_btu",
         "acid_gas_removal_efficiency",
     ]
+
+    datetime_columns = ["report_date", "particulate_test_date", "so2_test_date"]
 
     # For 2012-2015 and earlier, mercury emission rate is not reported in EIA923, so we need
     # to remove that column to avoid an error.
     if year <= 2015:
-        emissions_controls_eia923_names.remove("hg_emission_rate_lb_per_trillion_btu")
+        emissions_controls_eia923_names.remove(
+            "mercury_emission_rate_lb_per_trillion_btu"
+        )
 
     if year >= 2012:
         # Handle filename changes across years.
@@ -766,6 +812,9 @@ def load_emissions_controls_eia923(year: int):
                 f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
             ),
             2021: downloads_folder(
+                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+            ),
+            2022: downloads_folder(
                 f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx"
             ),
         }[year]
@@ -777,8 +826,12 @@ def load_emissions_controls_eia923(year: int):
             names=emissions_controls_eia923_names,
             dtype=get_dtypes(),
             na_values=".",
-            parse_dates=["report_date", "pm_test_date", "so2_test_date"],
+            parse_dates=datetime_columns,
+            date_format={"particulate_test_date": "%m-%Y", "so2_test_date": "%m-%Y"},
         )
+        emissions_controls_eia923["report_date"] = emissions_controls_eia923[
+            "report_date"
+        ].astype("datetime64[s]")
     else:
         logger.warning(
             "Emissions control data prior to 2014 has not been integrated into the data pipeline."
@@ -793,117 +846,13 @@ def load_emissions_controls_eia923(year: int):
     return emissions_controls_eia923
 
 
-def load_boiler_control_id_association_eia860(year, pollutant):
-    """Generic function for loading the EIA-860 tables that associate boiler_id with a pollutant-specific control id.
-
-    the `pollutant` parameter could be any of the following: ['pm','so2','nox','hg']
-    """
-    pollutant_abbreviation_to_name = {
-        "pm": "Particulate Matter",
-        "so2": "SO2",
-        "nox": "NOx",
-        "hg": "Mercury",
-    }
-    boiler_association_eia860_names = [
-        "utility_id_eia",
-        "utility_name_eia",
-        "plant_id_eia",
-        "plant_name_eia",
-        "boiler_id",
-        f"{pollutant}_control_id",
-        "steam_plant_type",
-    ]
-
-    if year <= 2013:
-        # This column isn't included in 2013 and earlier.
-        boiler_association_eia860_names.remove("steam_plant_type")
-
-    # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
-    # The environmental association data is available pre-2013, but would require additional work to format
-    if year >= 2013:
-        boiler_control_id_association_eia860 = pd.read_excel(
-            io=downloads_folder(f"eia860/eia860{year}/6_1_EnviroAssoc_Y{year}.xlsx"),
-            sheet_name=f"Boiler {pollutant_abbreviation_to_name[pollutant]}",
-            header=1,
-            names=boiler_association_eia860_names,
-            dtype=get_dtypes(),
-            na_values=".",
-            skipfooter=1,
-        )
-    # return a blank dataframe if the data is not available
-    else:
-        logger.warning(
-            "Environmental association data prior to 2013 have not been integrated into the data pipeline."
-        )
-        logger.warning(
-            "This may result in less accurate pollutant emissions calculations."
-        )
-        boiler_control_id_association_eia860 = pd.DataFrame(
-            columns=boiler_association_eia860_names
-        )
-
-    return boiler_control_id_association_eia860
-
-
-def load_boiler_design_parameters_eia860(year):
-    raw_column_names = [
-        "Plant Code",
-        "Boiler ID",
-        "Boiler Status",
-        "Firing Type 1",
-        "Firing Type 2",
-        "Firing Type 3",
-        "Wet Dry Bottom",
-    ]
-
-    boiler_design_parameters_eia860_names = {
-        "Plant Code": "plant_id_eia",
-        "Boiler ID": "boiler_id",
-        "Boiler Status": "operational_status",
-        "Firing Type 1": "firing_type_1",
-        "Firing Type 2": "firing_type_2",
-        "Firing Type 3": "firing_type_3",
-        "Wet Dry Bottom": "boiler_bottom_type",
-    }
-
-    # NOTE: Pre-2013, the EIA-860 file format changes, so this load function will not work
-    # The boiler design data is available pre-2013, but would require a lot of work to find the correct format
-    if year >= 2013:
-        boiler_design_parameters_eia860 = pd.read_excel(
-            io=(downloads_folder(f"eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx")),
-            sheet_name="Boiler Info & Design Parameters",
-            header=1,
-            usecols=raw_column_names,  # "C,F,H,N:P,AE",
-            na_values=".",
-            skipfooter=1,
-        )
-
-        boiler_design_parameters_eia860 = boiler_design_parameters_eia860.rename(
-            columns=boiler_design_parameters_eia860_names
-        )
-    # return a blank dataframe if the data is not available
-    else:
-        logger.warning(
-            "Boiler Design data prior to 2013 have not been integrated into the data pipeline."
-        )
-        logger.warning(
-            "This may result in less accurate NOx and SO2 emissions calculations."
-        )
-        boiler_design_parameters_eia860 = pd.DataFrame(
-            columns=list(boiler_design_parameters_eia860_names.values())
-        )
-
-    return boiler_design_parameters_eia860
-
-
 def load_unit_to_boiler_associations(year):
     """Creates a table that associates EPA units with EIA boilers"""
     subplant_crosswalk = pd.read_csv(
         outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
     )
-    pudl_out = initialize_pudl_out(year=year)
-    boiler_generator_assn = pudl_out.bga_eia860()
+    boiler_generator_assn = load_pudl_table("boiler_generator_assn_eia860", year)
     unit_boiler_assn = subplant_crosswalk.merge(
         boiler_generator_assn, how="left", on=["plant_id_eia", "generator_id"]
     )
@@ -917,7 +866,7 @@ def load_unit_to_boiler_associations(year):
 def load_default_gtn_ratios():
     """Read in the default gross to net generation ratios."""
     default_gtn = pd.read_csv(
-        manual_folder("default_gross_to_net_ratios.csv"),
+        reference_table_folder("default_gross_to_net_ratios.csv"),
         dtype=get_dtypes(),
     )[["prime_mover_code", "default_gtn_ratio"]]
 

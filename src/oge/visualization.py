@@ -2,7 +2,7 @@
 import pandas as pd
 import plotly.express as px
 
-from filepaths import downloads_folder, results_folder
+from oge.filepaths import downloads_folder, results_folder
 
 """
 From a timeseries, make a day-hour array with hours in EST. Also return day labels for plotting.
@@ -11,7 +11,7 @@ Assumes timeseries is hourly, because we don't know how to resample to hourly if
 """
 
 
-def day_hour_heatmap(timeseries: pd.Series, year: int = 2021):
+def day_hour_heatmap(timeseries: pd.Series, year: int = 2022):
     timeseries = timeseries.rename("a")  # needs to be named so we can merge
 
     # Make a new dataframe that has all full days in year in EST

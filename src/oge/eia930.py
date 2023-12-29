@@ -4,15 +4,20 @@ from datetime import timedelta
 import os
 from os.path import join
 
-import load_data
-from column_checks import get_dtypes
-from filepaths import top_folder, downloads_folder, outputs_folder, manual_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+from oge.column_checks import get_dtypes
+from oge.filepaths import (
+    top_folder,
+    downloads_folder,
+    outputs_folder,
+    reference_table_folder,
+)
+from oge.logging_util import get_logger
 
 # Tell gridemissions where to find config before we load gridemissions
 os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")
 
-from gridemissions.workflows import make_dataset
+from gridemissions.workflows import make_dataset  # noqa E402
 
 logger = get_logger(__name__)
 
@@ -236,7 +241,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     )[[1, 4]]
 
     # drop BAs not located in the United States
-    ba_ref = pd.read_csv(manual_folder("ba_reference.csv"))
+    ba_ref = pd.read_csv(reference_table_folder("ba_reference.csv"))
     foreign_bas = list(ba_ref.loc[ba_ref["us_ba"] == "No", "ba_code"])
     data = data[~data["ba_code"].isin(foreign_bas)]
 
@@ -250,7 +255,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
 
     # create a report date column
     data["report_date"] = data["datetime_local"].str[:7]
-    data["report_date"] = pd.to_datetime(data["report_date"])
+    data["report_date"] = pd.to_datetime(data["report_date"]).astype("datetime64[s]")
 
     # rename the fuel categories using format in
     # data/manual/energy_source_groups
@@ -285,7 +290,6 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
 
 
 def remove_imputed_ones(eia930_data):
-
     filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
 
     # replace all 1.0 values with zero
@@ -391,7 +395,7 @@ def manual_930_adjust(raw: pd.DataFrame):
         - Interchange
             - PJM: + 4 hours
             - TEPC: + 7 hours
-            - CFE:  -11 hours
+            - IID:  + 4 hours
         - Interchange sign
             - PJM-{CPLE, CPLW, DUK, LGEE, MISO, NYIS, TVA} before
                     Oct 31, 2019, 4:00 UTC
@@ -420,12 +424,51 @@ def manual_930_adjust(raw: pd.DataFrame):
     raw = raw.drop(columns=sc_dat.columns)
     raw = pd.concat([raw, sc_dat], axis="columns")
 
-    # PJM, CISO, TEPC: shift by one hour
-    for ba in ["PJM", "CISO", "TEPC"]:
-        cols = get_columns(ba, raw.columns)
-        new = raw[cols].shift(1, freq="H")
-        raw = raw.drop(columns=cols)
-        raw = pd.concat([raw, new], axis="columns")
+    # PJM data reports start of hour instead of end of hour
+    # This issue is still active as of 5/18/2023
+    # we need to shift all data by +1 hour
+    ba = "PJM"
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].shift(1, freq="H")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # TEPC data reports start of hour instead of end of hour
+    # This issue may have been fixed but will be addressed in a future PR
+    # we need to shift all data by +1 hour
+    # This issue was corrected in the raw data on 2021-11-01
+    ba = "TEPC"
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].copy()
+    new.loc[raw.index < "2021-11-01 00:00:00+00", cols] = new.loc[
+        raw.index < "2021-11-01 00:00:00+00", cols
+    ].shift(1, freq="H")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # CISO reported start of hour data through June 13, 2022
+    # The June 14 data was corrected, but then the June 15 data went back to start of hour
+    # The data was permanantly fixed as of June 16
+    ba = "CISO"
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].copy()
+    new.loc[
+        (raw.index < "2022-06-14 07:00:00+00")
+        | (
+            (raw.index >= "2022-06-15 07:00:00+00")
+            & (raw.index < "2022-06-16 07:00:00+00")
+        ),
+        cols,
+    ] = new.loc[
+        (raw.index < "2022-06-14 07:00:00+00")
+        | (
+            (raw.index >= "2022-06-15 07:00:00+00")
+            & (raw.index < "2022-06-16 07:00:00+00")
+        ),
+        cols,
+    ].shift(1, freq="H")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
 
     # Interchange sign. Do before we change interchange time for PJM, because
     # identification of sign shift is based on raw data
@@ -452,10 +495,22 @@ def manual_930_adjust(raw: pd.DataFrame):
         :"2020-06-01 07:00:00+00", all_cols
     ].sum(axis=1)
 
-    # Interchange TEPC is uniformly lagged
+    # Interchange TEPC is uniformly lagged until 10-25-2021
     cols = get_int_columns("TEPC", raw.columns)
-    new = raw[cols].shift(-7, freq="H")
+    new = raw[cols].copy()
+    new.loc[raw.index < "2021-10-25 00:00:00+00", cols] = new.loc[
+        raw.index < "2021-10-25 00:00:00+00", cols
+    ].shift(-7, freq="H")
     raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # Interchange IID-CISO is lagged by 4 hours in 2021
+    col = get_int_columns("IID", raw.columns, ["CISO"])
+    new = raw[col].copy()
+    new.loc["2021-01-01 08:00:00+00:00":"2022-01-01 07:00:00+00:00", col] = new.loc[
+        "2021-01-01 08:00:00+00:00":"2022-01-01 07:00:00+00:00", col
+    ].shift(4, freq="H")
+    raw = raw.drop(columns=col)
     raw = pd.concat([raw, new], axis="columns")
 
     # Interchange PJM is lagged differently across DST boundary

@@ -12,7 +12,7 @@ This initial release only includes 2019 and 2020 data because as of August 2022,
 
 ## Data Release Schedule
 
-Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2021 data should be available Autumn 2022). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGEI methodology. All previous versions of the data will be archived on Zenodo.
+Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2021 data should be available Autumn 2022). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
 
 ## Files
 
@@ -74,5 +74,3 @@ Field Name | Type | Description | Source
 ### Plant Metadata Table
 
 This table sumarizes the methods used to assign hourly profiles to each subplant in the OGE dataset, including the aggregated "synthetic plants" representing all non-CEMS-reporting generation in each BA.
-
-Subplants which are aggregated to a synthetic plant are also listed in the plant metadata file, although their row will not include methodology details. Instead, the  row will indicate the synthetic plant that the subplant in question was aggregated into.

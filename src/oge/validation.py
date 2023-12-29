@@ -1,12 +1,12 @@
 import pandas as pd
 import numpy as np
 
-import load_data
-import impute_hourly_profiles
-from emissions import CLEAN_FUELS
-from column_checks import get_dtypes
-from filepaths import downloads_folder, manual_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+import oge.impute_hourly_profiles as impute_hourly_profiles
+import oge.emissions as emissions
+from oge.column_checks import get_dtypes
+from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
@@ -19,7 +19,7 @@ def validate_year(year):
     """Returns a warning if the year specified is not known to work with the pipeline."""
 
     earliest_validated_year = 2019
-    latest_validated_year = 2021
+    latest_validated_year = 2022
 
     if year < earliest_validated_year:
         year_warning = f"""
@@ -43,14 +43,14 @@ def validate_year(year):
         raise UserWarning(year_warning)
 
 
-def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
+def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     """
     Checks that the allocated generation and fuel from EIA-923 matches the input totals.
 
     We use np.isclose() to identify any values that are off by more than 1e-9% different
     from the total input generation or fuel.
     """
-    gf = pudl_out.gf_eia923()
+    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
     plant_total_gf = gf.groupby("plant_id_eia")[
         [
             "net_generation_mwh",
@@ -66,9 +66,10 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
         ]
     ].sum()
     # calculate the percentage difference between the values
-    plant_total_diff = ((plant_total_alloc - plant_total_gf) / plant_total_gf).dropna(
-        how="any", axis=0
-    )
+    # replace 0s with small sentinel value to prevent missing values from divide by zero
+    plant_total_diff = (
+        (plant_total_alloc - plant_total_gf) / plant_total_gf.replace(0, 0.00001)
+    ).dropna(how="all", axis=0)
     # flag rows where the absolute percentage difference is greater than our threshold
     mismatched_allocation = plant_total_diff[
         (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0))
@@ -88,6 +89,61 @@ def check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated):
         )
 
 
+def flag_possible_primary_fuel_mismatches(plant_primary_fuel):
+    """
+    Since we do not know exactly how plants are assigned to fuel categories in EIA-930,
+    it is possible that the primary fuel we assign to the plant may differ from the
+    primary fuel category used in EIA-930. The most likely source of this disconnect is
+    if these plants are assigned a primary fuel based on the type of generation with the
+    highest nameplate capacity (since this is relatively static over time), rather than
+    based on fuel consumption (which may change year-to-year).
+
+    This test identifies where the primary fuel that the pipeline assigns would lead to
+    the plant being categorized under a different fuel category than if a capacity-based
+    method were used.
+
+    Plants flagged by this test are not necessarily incorrectly assigned, but rather
+    this is intended to bring this issue to our attention as a potential source of
+    inconsistency.
+    """
+    test = plant_primary_fuel.copy()[
+        ["plant_id_eia", "plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]
+    ]
+
+    for esc_column in ["plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]:
+        # load the fuel category table
+        energy_source_groups = pd.read_csv(
+            reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
+        )[["energy_source_code", "fuel_category_eia930"]].rename(
+            columns={
+                "energy_source_code": esc_column,
+                "fuel_category_eia930": f"{esc_column}_category",
+            }
+        )
+
+        # assign a fuel category to the monthly eia data
+        test = test.merge(
+            energy_source_groups,
+            how="left",
+            on=esc_column,
+            validate="m:1",
+        )
+
+    mismatched_primary_fuels = test[
+        (
+            test["plant_primary_fuel_from_capacity_mw_category"]
+            != test["plant_primary_fuel_category"]
+        )
+        & (~test["plant_primary_fuel_from_capacity_mw_category"].isna())
+    ]
+
+    if len(mismatched_primary_fuels) > 0:
+        logger.warning(
+            f"There are {len(mismatched_primary_fuels)} plants where the assigned primary fuel doesn't match the capacity-based primary fuel.\nIt is possible that these plants will categorized as a different fuel in EIA-930"
+        )
+        logger.warning("\n" + mismatched_primary_fuels.to_string())
+
+
 def test_for_negative_values(df, small: bool = False):
     """Checks that there are no unexpected negative values in the data."""
     logger.info("Checking that fuel and emissions values are positive...  ")
@@ -104,6 +160,23 @@ def test_for_negative_values(df, small: bool = False):
                 if not negative_test.empty:
                     logger.warning(
                         f"There are {len(negative_test)} records where {column} is negative."
+                    )
+                    logger.warning(
+                        negative_test[
+                            [
+                                col
+                                for col in df.columns
+                                if col
+                                in [
+                                    "report_date",
+                                    "plant_id_eia",
+                                    "generator_id",
+                                    "energy_source_code",
+                                    "prime_mover_code",
+                                    column,
+                                ]
+                            ]
+                        ]
                     )
                     negative_warnings += 1
             else:
@@ -141,6 +214,43 @@ def test_for_missing_values(df, small: bool = False):
     else:
         logger.info("OK")
     return missing_test
+
+
+def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk):
+    """
+    Combined cycle generators contain a steam part (CA) and turbine part (CT) that are
+    linked together. Thus, our subplant groups that contain one part of a combined cycle
+    plant should always in theory contain the other part as well. This test checks that
+    both parts exist in a subplant if one exists.
+
+    Besides CT and CA prime movers, there is also CS prime movers which represent a
+    "single shaft" combined cycle unit where the steam and turbine parts share a single
+    generator. These prime movers are allowed to be by themselves in a subplant, as are
+    CC prime movers, which represent a "total unit."
+    """
+    cc_pm_codes = ["CA", "CT", "CS", "CC"]
+    # keep all rows that contain a combined cycle prime mover part
+    cc_subplants = subplant_crosswalk[
+        subplant_crosswalk["prime_mover_code"].isin(cc_pm_codes)
+    ]
+    # for each subplant, identify a list of all CC prime movers in that subplant
+    cc_subplants = cc_subplants.groupby(["plant_id_eia", "subplant_id"])[
+        "prime_mover_code"
+    ].agg(["unique"])
+    cc_subplants["unique_cc_pms"] = [
+        ",".join(map(str, L)) for L in cc_subplants["unique"]
+    ]
+    cc_subplants = cc_subplants.drop(columns="unique")
+    # identify where there are subplants that only contain a single CC part
+    orphaned_cc_parts = cc_subplants[
+        (cc_subplants["unique_cc_pms"] == "CA")
+        | (cc_subplants["unique_cc_pms"] == "CT")
+    ]
+    if len(orphaned_cc_parts) > 0:
+        logger.warning(
+            f"There are {len(orphaned_cc_parts)} subplants that only contain one part of a combined cycle system.\nSubplants that represent combined cycle generation should contain both CA and CT parts."
+        )
+        logger.warning("\n" + orphaned_cc_parts.to_string())
 
 
 def test_chp_allocation(df):
@@ -239,6 +349,123 @@ def test_for_missing_subplant_id(df):
     return missing_subplant_test
 
 
+def check_missing_or_zero_generation_matches(combined_gen_data):
+    """checks that gross generation is positive when net generation is positive.
+
+    This could indicate an issue with missing data or incorrect subplant matching.
+    """
+
+    # identify when there is zero or NA gross generation associated with positive net generation
+    missing_gross_gen = combined_gen_data[
+        (combined_gen_data["net_generation_mwh"] > 0)
+        & (combined_gen_data["gross_generation_mwh"] == 0)
+    ]
+
+    # identify when there is zero or NA net generation associated with nonzero gross generation
+    missing_net_gen = combined_gen_data[
+        (combined_gen_data["gross_generation_mwh"] > 0)
+        & (combined_gen_data["net_generation_mwh"] == 0)
+    ]
+
+    if len(missing_gross_gen) > 0:
+        unique_plants = len(missing_gross_gen[["plant_id_eia"]].drop_duplicates())
+        unique_subplants = len(
+            missing_gross_gen[["plant_id_eia", "subplant_id"]].drop_duplicates()
+        )
+        logger.warning(
+            f"There are {unique_subplants} subplants at {unique_plants} plants for which there is zero gross generation associated with positive net generation."
+        )
+        logger.warning(
+            "\n"
+            + missing_gross_gen[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "data_source",
+                ]
+            ]
+            .head(10)
+            .to_string()
+            + "\n...\n"
+            + missing_gross_gen[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "data_source",
+                ]
+            ]
+            .tail(10)
+            .to_string()
+        )
+
+    if len(missing_net_gen) > 0:
+        unique_plants = len(missing_net_gen[["plant_id_eia"]].drop_duplicates())
+        unique_subplants = len(
+            missing_net_gen[["plant_id_eia", "subplant_id"]].drop_duplicates()
+        )
+        logger.warning(
+            f"There are {unique_subplants} subplants at {unique_plants} plants for which there is zero net generation associated with positive gross generation."
+        )
+        logger.warning(
+            "\n"
+            + missing_net_gen[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "data_source",
+                ]
+            ]
+            .head(10)
+            .to_string()
+            + "\n...\n"
+            + missing_net_gen[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "data_source",
+                ]
+            ]
+            .tail(10)
+            .to_string()
+        )
+
+
+def identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio):
+    """Identifies when net generation for a plant is substantially higher than gross generation."""
+
+    anomalous_gtn = annual_plant_ratio[annual_plant_ratio["annual_plant_ratio"] > 1.25]
+
+    if len(anomalous_gtn) > 0:
+        logger.warning(
+            "The following plants have annual net generation that is >125% of annual gross generation:"
+        )
+        logger.warning(
+            "\n"
+            + anomalous_gtn[
+                [
+                    "plant_id_eia",
+                    "gross_generation_mwh",
+                    "net_generation_mwh",
+                    "annual_plant_ratio",
+                ]
+            ]
+            .sort_values(by="annual_plant_ratio", ascending=False)
+            .to_string()
+        )
+
+
 def validate_gross_to_net_conversion(cems, eia923_allocated):
     """checks whether the calculated net generation matches the reported net generation from EIA-923 at the annual plant level."""
     logger.info(
@@ -284,6 +511,19 @@ def validate_gross_to_net_conversion(cems, eia923_allocated):
 
     cems_net_not_equal_to_eia = validated_ng[validated_ng["pct_error"] != 0]
 
+    # get the gtn method used for these plants
+    gtn_method = cems.loc[
+        cems["plant_id_eia"].isin(list(cems_net_not_equal_to_eia.index)),
+        ["plant_id_eia", "gtn_method"],
+    ].drop_duplicates()
+    gtn_method["gtn_method"] = gtn_method["gtn_method"].astype(str)
+    gtn_method = (
+        gtn_method.groupby("plant_id_eia").agg(["unique"]).droplevel(level=1, axis=1)
+    )
+    cems_net_not_equal_to_eia = cems_net_not_equal_to_eia.merge(
+        gtn_method, how="left", left_index=True, right_index=True
+    )
+
     if len(cems_net_not_equal_to_eia) > 0:
         logger.warning(
             f"There are {len(cems_net_not_equal_to_eia)} plants where calculated annual net generation does not match EIA annual net generation."
@@ -302,7 +542,7 @@ def test_emissions_adjustments(df):
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
 
-    bad_adjustments = 0
+    bad_adjustment_count = 0
 
     for pollutant in pollutants:
         # test that mass_lb >= mass_lb_for_electricity
@@ -313,7 +553,20 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity > {pollutant}_mass_lb"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb",
+                        f"{pollutant}_mass_lb_for_electricity",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
         # test that mass_lb >= mass_lb_adjusted
         bad_adjustment = df[
@@ -323,7 +576,20 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_adjusted > {pollutant}_mass_lb"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb",
+                        f"{pollutant}_mass_lb_adjusted",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
         # test that mass_lb_for_electricity >= mass_lb_for_electricity_adjusted
         bad_adjustment = df[
@@ -336,10 +602,23 @@ def test_emissions_adjustments(df):
             logger.warning(
                 f"There are {len(bad_adjustment)} records where {pollutant}_mass_lb_for_electricity_adjusted > {pollutant}_mass_lb_for_electricity"
             )
-            bad_adjustment += 1
+            logger.warning(
+                bad_adjustment[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "prime_mover_code",
+                        "energy_source_code",
+                        f"{pollutant}_mass_lb_for_electricity",
+                        f"{pollutant}_mass_lb_for_electricity_adjusted",
+                    ]
+                ]
+            )
+            bad_adjustment_count += 1
 
     # if there were any bad adjustments, raise a userwarning.
-    if bad_adjustments > 0:
+    if bad_adjustment_count > 0:
         raise UserWarning("The above issues with emissions adjustments must be fixed.")
     else:
         logger.info("OK")
@@ -398,9 +677,7 @@ def ensure_non_overlapping_data_from_all_sources(
         ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
     ] = data_overlap[
         ["in_eia", "in_cems", "in_partial_cems_subplant", "in_partial_cems_plant"]
-    ].fillna(
-        0
-    )
+    ].fillna(0)
     data_overlap["number_of_locations"] = (
         data_overlap["in_eia"]
         + data_overlap["in_cems"]
@@ -504,7 +781,8 @@ def validate_unique_datetimes(df, df_name, keys):
     Args:
         df: dataframe containing datetime columns
         df_name: a descriptive name for the dataframe
-        keys: list of column names that contain the groups within which datetimes should be unique"""
+        keys: list of column names that contain the groups within which datetimes should be unique
+    """
 
     for datetime_column in ["datetime_utc", "datetime_local"]:
         if datetime_column in list(df.columns):
@@ -516,6 +794,138 @@ def validate_unique_datetimes(df, df_name, keys):
                 raise UserWarning(
                     f"The dataframe {df_name} contains duplicate {datetime_column} values within each group of {keys}. See above output"
                 )
+
+
+def check_for_complete_hourly_timeseries(
+    df: pd.DataFrame, df_name: str, keys: list[str], period: str
+):
+    """Validates that a timeseries contains complete hourly data.
+
+    If the `period` is a 'year', checks that the length of the timeseries is 8760 (for a
+    non-leap year) or 8784 (for a leap year). If the `period` is a 'month', checks that
+    the length of the timeseries is equal to the length of the complete date_range
+    between the earliest and latest timestamp in a month.
+
+    Args:
+        df: dataframe containing datetime columns
+        df_name: a descriptive name for the dataframe
+        year
+        keys: list of column names that contain the groups within which datetimes should be unique
+        period: either 'month' or 'year'. Period within which to ensure complete hourly data
+    """
+
+    if period == "year":
+        # identify the year of the data
+        year = df.datetime_utc.dt.year.mode()[0]
+        # count the number of timestamps in each group
+        test = df.groupby(keys)[["datetime_utc"]].count()
+        # if the year is divisible by 4, it is a leap year
+        if year % 4 == 0:
+            hours_in_year = 8784
+        else:
+            hours_in_year = 8760
+        test["expected_num_hours"] = hours_in_year
+        # identify any rows where the number of timestamps is not equal to the total number of hours in the year
+        test = test[test["datetime_utc"] != test["expected_num_hours"]]
+        if len(test) > 0:
+            logger.warning(
+                f"There are incomplete timeseries for the following {keys} groups in {df_name}"
+            )
+            logger.warning("\n" + test.to_string())
+    elif period == "month":
+        # count the number of timestamps in each group-month
+        test = (
+            df.groupby(keys + ["report_date"])[["datetime_utc"]]
+            .agg(["count", "min", "max"])
+            .droplevel(level=0, axis=1)
+        )
+        # identify the number of hours in a complete date range for that month
+        test["expected_num_hours"] = test.apply(
+            lambda row: len(pd.date_range(row["min"], row["max"], freq="H")), axis=1
+        )
+        # identify any rows where the number of timestamps is not equal to the total number of hours in the month
+        test = test[test["count"] != test["expected_num_hours"]]
+        if len(test) > 0:
+            logger.warning(
+                f"There are incomplete timeseries for the following {keys} groups in {df_name}"
+            )
+            logger.warning("\n" + test.to_string())
+    else:
+        raise UserWarning(
+            f"{period} is not a valid value for the `period` argument in `check_for_complete_hourly_timeseries`. Value must be 'year' or 'month'"
+        )
+
+
+def check_for_complete_monthly_timeseries(
+    df: pd.DataFrame,
+    df_name: str,
+    keys: list[str],
+    columns_to_check: list[str],
+    year: int,
+):
+    """
+    Validates that a dataset contains complete monthly data for all months.
+
+    There are two separate checks that are completed:
+    1. Ensure that there is a complete set of 12 report_date's for each group
+    2. Ensure that missing data within a month is expected based on the availability
+    of input data
+
+    Args:
+        df: dataframe containing datetime columns
+        df_name: a descriptive name for the dataframe
+        keys: list of column names that contain the groups within which datetimes should be unique
+    """
+
+    input_data_inventory = pd.read_csv(
+        outputs_folder(f"{year}/input_data_inventory_{year}.csv")
+    )
+
+    # count the number of report_dates and non-missing data in each group
+    test = df.groupby(keys)[["report_date"] + columns_to_check].count().reset_index()
+    # identify the expected number of months of data
+    expected_months = (
+        input_data_inventory.groupby("plant_id_eia")[
+            ["input_data_exists", "nonzero_input_data_exists"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    test = test.merge(
+        expected_months,
+        how="outer",
+        on="plant_id_eia",
+    )
+    test[["report_date"] + columns_to_check] = test[
+        ["report_date"] + columns_to_check
+    ].fillna(0)
+
+    # 1. Check that all 12 months exist for each group
+    # identify any rows where there are less than 12 months of data
+    missing_rd_test = test.loc[
+        (test["report_date"] < 12) & (test["nonzero_input_data_exists"] > 0),
+        (keys + ["report_date", "input_data_exists", "nonzero_input_data_exists"]),
+    ]
+    if len(missing_rd_test) > 0:
+        logger.warning(
+            f"There is less than 12 months of data for the following {keys} groups in {df_name}"
+        )
+        logger.warning("\n" + missing_rd_test.to_string())
+
+    # 2. identify any rows where there is data that is missing
+    missing_data_test = test[
+        (
+            test[columns_to_check].min(axis=1)
+            < test[["input_data_exists", "nonzero_input_data_exists"]].max(axis=1)
+        )
+        & (test["nonzero_input_data_exists"] > 0)
+    ]
+    if len(test) > 0:
+        logger.warning(
+            f"There appears to be missing data for the following {keys} groups in {df_name}"
+        )
+        logger.warning("\n" + missing_data_test.to_string())
 
 
 # DATA QUALITY METRIC FUNCTIONS
@@ -696,22 +1106,30 @@ def identify_percent_of_data_by_input_source(
     # use the generator-specific energy source code for the eia data, otherwise use the pliant primary fuel
     eia_only_data = eia_only_data.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.energy_source_code.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+            ~x.energy_source_code.isin(emissions.CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
         )
     )
     cems = cems.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+            ~x.plant_primary_fuel.isin(emissions.CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
         )
     )
     partial_cems_subplant = partial_cems_subplant.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+            ~x.plant_primary_fuel.isin(emissions.CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
         )
     )
     partial_cems_plant = partial_cems_plant.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]), x.net_generation_mwh, 0
+            ~x.plant_primary_fuel.isin(emissions.CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
         )
     )
 
@@ -834,10 +1252,9 @@ def identify_reporting_frequency(eia923_allocated, year):
     Returns input dataframe with `eia_data_resolution` column added"""
 
     # load data about the respondent frequency for each plant and merge into the EIA-923 data
-    pudl_out = load_data.initialize_pudl_out(year)
-    plant_frequency = pudl_out.plants_eia860()[
-        ["plant_id_eia", "reporting_frequency_code"]
-    ].copy()
+    plant_frequency = load_data.load_pudl_table(
+        "plants_eia860", year, columns=["plant_id_eia", "reporting_frequency_code"]
+    )
     plant_frequency["reporting_frequency_code"] = plant_frequency[
         "reporting_frequency_code"
     ].fillna("multiple")
@@ -977,9 +1394,7 @@ def summarize_cems_measurement_quality(cems):
             "so2_mass_measurement_code",
             "nox_mass_measurement_code",
         ]
-    ].astype(
-        str
-    )
+    ].astype(str)
     # replace the CEMS mass measurement codes with two categories
     measurement_code_map = {
         "Measured": "Measured",
@@ -1002,9 +1417,7 @@ def summarize_cems_measurement_quality(cems):
             "so2_mass_measurement_code",
             "nox_mass_measurement_code",
         ]
-    ].replace(
-        measurement_code_map
-    )
+    ].replace(measurement_code_map)
 
     cems_quality_summary = []
     # calculate the percent of mass for each pollutant that is measured or imputed
@@ -1154,7 +1567,6 @@ def validate_diba_imputation_method(hourly_profiles, year):
 
 
 def validate_national_imputation_method(hourly_profiles):
-
     # only keep wind and solar data
     data_to_validate = hourly_profiles[
         (hourly_profiles["fuel_category"].isin(["wind", "solar"]))
@@ -1325,12 +1737,12 @@ def test_for_missing_data(df, columns_to_test):
 
 
 def test_for_missing_incorrect_prime_movers(df, year):
-
     # cehck for incorrect PM by comparing to EIA-860 data
-    pudl_out = load_data.initialize_pudl_out(year)
-    pms_in_eia860 = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "prime_mover_code"]
-    ]
+    pms_in_eia860 = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "prime_mover_code"],
+    )
     incorrect_pm_test = df.copy()[["plant_id_eia", "generator_id", "prime_mover_code"]]
     incorrect_pm_test = incorrect_pm_test.merge(
         pms_in_eia860,
@@ -1513,21 +1925,17 @@ def load_egrid_plant_file(year):
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
     egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
+        egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
     ] = egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
+        egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
-    ].fillna(
-        0
-    )
+    ].fillna(0)
     egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
+        egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
-        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
-    ].fillna(
-        0
-    )
+        egrid_plant["plant_primary_fuel"].isin(emissions.CLEAN_FUELS), "co2_mass_lb"
+    ].fillna(0)
 
     # reorder the columns
     egrid_plant = egrid_plant[
@@ -1589,7 +1997,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
     # We need to update all of the egrid plant IDs to the EIA plant IDs
     egrid_crosswalk = pd.read_csv(
-        manual_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
+        reference_table_folder("eGRID_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
         dtype=get_dtypes(),
     )
     id_map = dict(
@@ -1841,7 +2249,6 @@ def compare_plant_level_results_to_egrid(
 def identify_plants_missing_from_our_calculations(
     egrid_plant, annual_plant_results, year
 ):
-
     # remove any plants that have no reported data in egrid
     # NOTE: it seems that egrid includes a lot of proposed projects that are not yet operating, but just has missing data for them
     plants_with_no_data_in_egrid = list(
@@ -1873,16 +2280,18 @@ def identify_plants_missing_from_our_calculations(
     ]
 
     # see if any of these plants are retired
-    generators_eia860 = load_data.load_pudl_table("generators_eia860", year=year)
+    generator_status = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=[
+            "plant_id_eia",
+            "operational_status",
+            "current_planned_generator_operating_date",
+            "generator_retirement_date",
+        ],
+    ).drop_duplicates()
     missing_from_calc.merge(
-        generators_eia860[
-            [
-                "plant_id_eia",
-                "operational_status",
-                "current_planned_operating_date",
-                "retirement_date",
-            ]
-        ].drop_duplicates(),
+        generator_status,
         how="left",
         on="plant_id_eia",
         validate="m:m",
@@ -1898,9 +2307,9 @@ def identify_plants_missing_from_egrid(egrid_plant, annual_plant_results):
         - set(egrid_plant["plant_id_egrid"].unique())
     )
 
-    plant_names = load_data.load_pudl_table(table_name="plants_entity_eia")[
-        ["plant_id_eia", "plant_name_eia"]
-    ]
+    plant_names = load_data.load_pudl_table(
+        "plants_entity_eia", columns=["plant_id_eia", "plant_name_eia"]
+    )
     missing_from_egrid = annual_plant_results[
         annual_plant_results["plant_id_egrid"].isin(PLANTS_MISSING_FROM_EGRID)
     ].merge(plant_names, how="left", on="plant_id_eia", validate="m:1")
@@ -1912,7 +2321,7 @@ def segment_plants_by_known_issues(
     annual_plant_results,
     egrid_plant,
     eia923_allocated,
-    pudl_out,
+    year,
     PLANTS_MISSING_FROM_EGRID,
 ):
     annual_plant_results_segmented = annual_plant_results.copy()
@@ -1936,7 +2345,7 @@ def segment_plants_by_known_issues(
     ] = 1
 
     # fuel cells
-    gens_eia860 = pudl_out.gens_eia860()
+    gens_eia860 = load_data.load_pudl_table("generators_eia860", year)
     PLANTS_WITH_FUEL_CELLS = list(
         gens_eia860.loc[
             gens_eia860["prime_mover_code"] == "FC", "plant_id_eia"
@@ -1977,8 +2386,16 @@ def segment_plants_by_known_issues(
     ] = 1
 
     # identify plants that report data to the bf or gen table
-    bf_reporter = list(pudl_out.bf_eia923()["plant_id_eia"].unique())
-    gen_reporter = list(pudl_out.gen_original_eia923()["plant_id_eia"].unique())
+    bf_reporter = list(
+        load_data.load_pudl_table(
+            "boiler_fuel_eia923", year, columns=["plant_id_eia"]
+        ).unique()
+    )
+    gen_reporter = list(
+        load_data.load_pudl_table(
+            "generation_eia923", year, columns=["plant_id_eia"]
+        ).unique()
+    )
     annual_plant_results_segmented["flag_bf_gen_reporter"] = 0
     annual_plant_results_segmented.loc[
         (
@@ -1989,9 +2406,11 @@ def segment_plants_by_known_issues(
     ] = 1
 
     # identify plants with proposed generators
-    status = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "operational_status"]
-    ]
+    status = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "operational_status"],
+    )
     plants_with_proposed_gens = list(
         status.loc[
             status["operational_status"] == "proposed",
@@ -2083,7 +2502,7 @@ def compare_egrid_fuel_total(plant_data, egrid_plant_df):
     return compare_fuel
 
 
-def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
+def identify_potential_missing_fuel_in_egrid(year, egrid_plant, cems):
     # load the EIA generator fuel data
     IDX_PM_ESC = [
         "report_date",
@@ -2091,19 +2510,20 @@ def identify_potential_missing_fuel_in_egrid(pudl_out, year, egrid_plant, cems):
         "energy_source_code",
         "prime_mover_code",
     ]
-    gf = pudl_out.gf_eia923().loc[
-        :,
-        IDX_PM_ESC
+    gf = load_data.load_pudl_table(
+        "denorm_generation_fuel_combined_eia923",
+        year,
+        columns=IDX_PM_ESC
         + [
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ],
-    ]
+    )
 
     # add egrid plant ids
     egrid_crosswalk = pd.read_csv(
-        manual_folder("eGRID2020_crosswalk_of_EIA_ID_to_EPA_ID.csv")
+        reference_table_folder("eGRID_crosswalk_of_EIA_ID_to_EPA_ID.csv")
     )
     eia_to_egrid_id = dict(
         zip(

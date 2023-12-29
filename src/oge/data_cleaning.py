@@ -1,19 +1,18 @@
 import pandas as pd
 import numpy as np
-import os
-import sqlalchemy as sa
+from itertools import product
 
-import pudl.analysis.allocate_net_gen as allocate_gen_fuel
-import pudl.analysis.epacamd_eia as epacamd_eia_crosswalk
-import pudl.output.pudltabl
+import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
+import pudl.analysis.epacamd_eia as epacamd_eia
+from pudl.etl.glue_assets import make_subplant_ids
 
-import load_data
-import validation
-import emissions
-from emissions import CLEAN_FUELS
-from column_checks import get_dtypes, apply_dtypes
-from filepaths import manual_folder, outputs_folder, downloads_folder
-from logging_util import get_logger
+import oge.load_data as load_data
+import oge.validation as validation
+import oge.emissions as emissions
+from oge.emissions import CLEAN_FUELS
+from oge.column_checks import get_dtypes, apply_dtypes
+from oge.filepaths import reference_table_folder, outputs_folder
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
@@ -59,7 +58,9 @@ def identify_subplants(year, number_of_years=5):
 
     # add subplant ids to the data
     logger.info("identifying unique subplants")
-    generate_subplant_ids(start_year, end_year, cems_ids)
+    subplant_crosswalk = generate_subplant_ids(start_year, end_year, cems_ids)
+
+    return subplant_crosswalk
 
 
 def generate_subplant_ids(start_year, end_year, cems_ids):
@@ -83,12 +84,10 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     crosswalk = load_data.load_epa_eia_crosswalk(end_year)
 
     # filter the crosswalk to drop any units that don't exist in CEMS
-    filtered_crosswalk = epacamd_eia_crosswalk.filter_crosswalk(crosswalk, cems_ids)
+    filtered_crosswalk = epacamd_eia.filter_crosswalk(crosswalk, cems_ids)
 
     # use graph analysis to identify subplants
-    crosswalk_with_subplant_ids = epacamd_eia_crosswalk.make_subplant_ids(
-        filtered_crosswalk
-    )
+    crosswalk_with_subplant_ids = make_subplant_ids(filtered_crosswalk)
 
     # change the eia plant id to int
     crosswalk_with_subplant_ids["plant_id_eia"] = crosswalk_with_subplant_ids[
@@ -108,10 +107,15 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
 
     # update the subplant_crosswalk to ensure completeness
     # prepare the subplant crosswalk by adding a complete list of generators and adding the unit_id_pudl column
-    pudl_out = load_data.initialize_pudl_out(year=end_year)
-    complete_generator_ids = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "unit_id_pudl"]
-    ].drop_duplicates()
+    complete_generator_ids = (
+        load_data.load_pudl_table(
+            "plant_parts_eia",
+            end_year,
+            columns=["plant_id_eia", "generator_id", "unit_id_pudl"],
+        )
+        .drop_duplicates()
+        .dropna(subset="generator_id")
+    )
     subplant_crosswalk_complete = crosswalk_with_subplant_ids.merge(
         complete_generator_ids,
         how="outer",
@@ -161,17 +165,17 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     )
 
     # add proposed operating dates and retirements to the subplant id crosswalk
-    subplant_crosswalk_complete = add_operating_and_retirement_dates(
+    subplant_crosswalk_complete = add_generator_operating_and_retirement_dates(
         subplant_crosswalk_complete, start_year, end_year
     )
-
-    os.makedirs(outputs_folder(f"{end_year}"), exist_ok=True)
-
-    # export the crosswalk to csv
-    subplant_crosswalk_complete.to_csv(
-        outputs_folder(f"{end_year}/subplant_crosswalk_{end_year}.csv"),
-        index=False,
+    # add prime mover code to the crosswalk
+    subplant_crosswalk_complete = add_prime_mover_to_subplant_crosswalk(
+        subplant_crosswalk_complete, end_year
     )
+    # validate that there are no orphaned combined cycle plant parts in a subplant
+    validation.check_for_orphaned_cc_part_in_subplant(subplant_crosswalk_complete)
+
+    return subplant_crosswalk_complete
 
 
 def manually_update_subplant_id(subplant_crosswalk):
@@ -194,7 +198,7 @@ def update_subplant_ids(subplant_crosswalk):
     Ensures a complete and accurate subplant_id mapping for all generators.
 
     NOTE:
-        1. This function is a temporary placeholder until the `pudl.analysis.epacamd_eia_crosswalk` code is updated.
+        1. This function is a temporary placeholder until the `pudl.analysis.epacamd_eia` code is updated.
         2. This function is meant to be applied using a .groupby("plant_id_eia").apply() function. This function
         will only properly work when applied to a single plant_id_eia at a time.
 
@@ -237,7 +241,7 @@ def update_subplant_ids(subplant_crosswalk):
         data, we assign these units to a single subplant.
 
         Args:
-            subplant_crosswalk: a dataframe containing the output of `epacamd_eia_crosswalk.make_subplant_ids` with
+            subplant_crosswalk: a dataframe containing the output of `pudl.etl.glue_assets.make_subplant_ids` with
     """
     # Step 1: Create corrected versions of subplant_id and unit_id_pudl
     # if multiple unit_id_pudl are connected by a single subplant_id, unit_id_pudl_connected groups these unit_id_pudl together
@@ -321,32 +325,27 @@ def connect_ids(df, id_to_update, connecting_id):
     return df
 
 
-def add_operating_and_retirement_dates(df, start_year, end_year):
+def add_generator_operating_and_retirement_dates(df, start_year, end_year):
     """Adds columns listing a generator's planned operating date or retirement date to a dataframe."""
-    pudl_db = f"sqlite:///{downloads_folder()}pudl/pudl_data/sqlite/pudl.sqlite"
-    pudl_engine = sa.create_engine(pudl_db)
-    # get values starting with the year prior to teh start year so that we can get proposed operating dates for the start year (which are reported in year -1)
-    pudl_out_status = pudl.output.pudltabl.PudlTabl(
-        pudl_engine,
-        freq="MS",
-        start_date=f"{start_year-1}-01-01",
-        end_date=f"{end_year}-12-31",
-    )
-    generator_status = pudl_out_status.gens_eia860().loc[
-        :,
-        [
+
+    generator_status = load_data.load_pudl_table(
+        "generators_eia860",
+        year=start_year,
+        columns=[
             "plant_id_eia",
             "generator_id",
             "report_date",
             "operational_status",
-            "current_planned_operating_date",
-            "retirement_date",
+            "current_planned_generator_operating_date",
+            "generator_retirement_date",
         ],
-    ]
+        end_year=end_year,
+    )
+
     # only keep values that have a planned operating date or retirement date
     generator_status = generator_status[
-        (~generator_status["current_planned_operating_date"].isna())
-        | (~generator_status["retirement_date"].isna())
+        (~generator_status["current_planned_generator_operating_date"].isna())
+        | (~generator_status["generator_retirement_date"].isna())
     ]
     # drop any duplicate entries
     generator_status = generator_status.sort_values(
@@ -355,8 +354,8 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
         subset=[
             "plant_id_eia",
             "generator_id",
-            "current_planned_operating_date",
-            "retirement_date",
+            "current_planned_generator_operating_date",
+            "generator_retirement_date",
         ],
         keep="last",
     )
@@ -371,13 +370,33 @@ def add_operating_and_retirement_dates(df, start_year, end_year):
             [
                 "plant_id_eia",
                 "generator_id",
-                "current_planned_operating_date",
-                "retirement_date",
+                "current_planned_generator_operating_date",
+                "generator_retirement_date",
             ]
         ],
         how="left",
         on=["plant_id_eia", "generator_id"],
         validate="m:1",
+    )
+
+    return df
+
+
+def add_prime_mover_to_subplant_crosswalk(df, year):
+    """Adds a column identifying each generator's prime_mover to a dataframe."""
+    generator_pm = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "prime_mover_code",
+        ],
+    )
+
+    # merge the prime movers into the crosswalk
+    df = df.merge(
+        generator_pm, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
     )
 
     return df
@@ -393,17 +412,50 @@ def clean_eia923(
     """
     This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
     """
-    # Distribute net generation and heat input data reported by the three different EIA-923 tables
+    # Allocate fuel and generation across each generator-pm-energy source
+    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
+    bf = load_data.load_pudl_table("denorm_boiler_fuel_eia923", year)
+    gen = load_data.load_pudl_table("denorm_generation_eia923", year)
+    gens = load_data.load_pudl_table("denorm_generators_eia", year)
+    bga = load_data.load_pudl_table("boiler_generator_assn_eia860", year)
 
-    pudl_out = load_data.initialize_pudl_out(year=year)
-
-    # allocate net generation and heat input to each generator-fuel grouping
+    gf, bf, gen, bga, gens = allocate_gen_fuel.select_input_data(
+        gf=gf, bf=bf, gen=gen, bga=bga, gens=gens
+    )
     gen_fuel_allocated = allocate_gen_fuel.allocate_gen_fuel_by_generator_energy_source(
-        pudl_out, drop_interim_cols=True
+        gf,
+        bf,
+        gen,
+        bga,
+        gens,
+        freq="MS",
     )
 
+    # drop bad data where there is negative fuel consumption
+    # NOTE(greg) this is in response to a specific issue with the input data for
+    # plant 10613 in May 2022, where the data is reported incorrectly in the source
+    # data from EIA. EIA has been notified to fix this as of 12/15/2023
+    for column in ["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]:
+        bad_fuel_data = gen_fuel_allocated[gen_fuel_allocated[column] < 0]
+        if len(bad_fuel_data) > 0:
+            logger.warning("Bad input fuel data detected for the following generators:")
+            logger.warning(
+                bad_fuel_data[
+                    [
+                        "report_date",
+                        "plant_id_eia",
+                        "generator_id",
+                        "energy_source_code",
+                        "prime_mover_code",
+                        column,
+                    ]
+                ]
+            )
+            logger.warning("These values will be treated as missing values")
+            gen_fuel_allocated.loc[gen_fuel_allocated[column] < 0, column] = np.NaN
+
     # test to make sure allocated totals match input totals
-    validation.check_allocated_gf_matches_input_gf(pudl_out, gen_fuel_allocated)
+    validation.check_allocated_gf_matches_input_gf(year, gen_fuel_allocated)
 
     # manually update energy source code when OTH
     gen_fuel_allocated = update_energy_source_codes(gen_fuel_allocated)
@@ -423,16 +475,14 @@ def clean_eia923(
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ],
-    ].round(
-        1
-    )
+    ].round(1)
 
     validation.test_for_missing_energy_source_code(gen_fuel_allocated)
     validation.test_for_negative_values(gen_fuel_allocated)
 
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(
-        gen_fuel_allocated, pudl_out, add_subplant_id, year
+        gen_fuel_allocated, add_subplant_id, year
     )
 
     if small:
@@ -450,11 +500,11 @@ def clean_eia923(
     # Calculate NOx and SO2 emissions
     if calculate_nox_emissions:
         gen_fuel_allocated = emissions.calculate_nox_from_fuel_consumption(
-            gen_fuel_allocated, pudl_out, year
+            gen_fuel_allocated, year
         )
     if calculate_so2_emissions:
         gen_fuel_allocated = emissions.calculate_so2_from_fuel_consumption(
-            gen_fuel_allocated, pudl_out, year
+            gen_fuel_allocated, year
         )
 
     # adjust total emissions for biomass
@@ -509,9 +559,11 @@ def clean_eia923(
         validation.test_for_missing_subplant_id(gen_fuel_allocated)
 
     # add the cleaned prime mover code to the data
-    gen_pm = pudl_out.gens_eia860()[
-        ["plant_id_eia", "generator_id", "prime_mover_code"]
-    ]
+    gen_pm = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "prime_mover_code"],
+    )
     gen_fuel_allocated = gen_fuel_allocated.merge(
         gen_pm, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
     )
@@ -530,7 +582,9 @@ def update_energy_source_codes(df):
     Manually update fuel source codes
     """
     # load the table of updated fuel types
-    updated_esc = pd.read_csv(manual_folder("updated_oth_energy_source_codes.csv"))
+    updated_esc = pd.read_csv(
+        reference_table_folder("updated_oth_energy_source_codes.csv")
+    )
 
     for index, row in updated_esc.iterrows():
         plant_id = row["plant_id_eia"]
@@ -556,7 +610,7 @@ def update_energy_source_codes(df):
     return df
 
 
-def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, year):
+def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
     """
     Identifies the primary fuel for each generator and plant
     Gen primary fuel is identified based on the "energy source code 1" identified in EIA-860
@@ -577,28 +631,39 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
         )
         validation.test_for_missing_subplant_id(gen_fuel_allocated)
 
-        # get a table of primary energy source codes
-        gen_primary_fuel = gen_fuel_allocated[
-            gen_fuel_allocated["energy_source_code_num"] == "energy_source_code_1"
-        ].drop_duplicates(subset=["plant_id_eia", "generator_id"])[
-            ["plant_id_eia", "generator_id", "subplant_id", "energy_source_code"]
-        ]
+    # get a table of primary energy source codes by generator
+    # this will be used in `calculate_aggregated_primary_fuel()` to determine the
+    # mode of energy source codes by plant
+    # sum the fuel consumption by ESC within each generator
+    gen_primary_fuel = (
+        gen_fuel_allocated.groupby(
+            ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"],
+            dropna=False,
+        )["fuel_consumed_mmbtu"]
+        .sum()
+        .reset_index()
+    )
 
-    else:
-        # get a table of primary energy source codes
-        gen_primary_fuel = gen_fuel_allocated[
-            gen_fuel_allocated["energy_source_code_num"] == "energy_source_code_1"
-        ].drop_duplicates(subset=["plant_id_eia", "generator_id"])[
-            ["plant_id_eia", "generator_id", "energy_source_code"]
-        ]
+    # only keep the ESC associated with the highest fuel consumption for each gen
+    gen_primary_fuel = gen_primary_fuel.sort_values(
+        by=["plant_id_eia", "subplant_id", "generator_id", "fuel_consumed_mmbtu"],
+        ascending=True,
+    ).drop_duplicates(
+        subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
+    )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
+
+    if not add_subplant_id:
+        gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
 
     plant_primary_fuel = calculate_aggregated_primary_fuel(
-        gen_fuel_allocated, gen_primary_fuel, ["plant_id_eia"], pudl_out, year
+        gen_fuel_allocated, gen_primary_fuel, "plant", year
     )
+
+    validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel)
 
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
-        plant_primary_fuel[["plant_id_eia", "plant_primary_fuel"]],
+        plant_primary_fuel,
         how="left",
         on="plant_id_eia",
         validate="many_to_one",
@@ -609,14 +674,11 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
         subplant_primary_fuel = calculate_aggregated_primary_fuel(
             gen_fuel_allocated,
             gen_primary_fuel,
-            ["plant_id_eia", "subplant_id"],
-            pudl_out,
+            "subplant",
             year,
         )
         primary_fuel_table = primary_fuel_table.merge(
-            subplant_primary_fuel[
-                ["plant_id_eia", "subplant_id", "subplant_primary_fuel"]
-            ],
+            subplant_primary_fuel,
             how="left",
             on=["plant_id_eia", "subplant_id"],
             validate="many_to_one",
@@ -626,7 +688,7 @@ def create_primary_fuel_table(gen_fuel_allocated, pudl_out, add_subplant_id, yea
 
 
 def calculate_aggregated_primary_fuel(
-    gen_fuel_allocated, gen_primary_fuel, agg_keys, pudl_out, year
+    gen_fuel_allocated, gen_primary_fuel, agg_level, year
 ):
     """
     Takes generator-level fuel data and calculates primary fuel for the subplant or plant level.
@@ -634,12 +696,19 @@ def calculate_aggregated_primary_fuel(
     Args:
         gen_fuel_allocated: dataframe of allocated fuel, generation, and emissions data by generator
         gen_primary_fuel: dataframe of primary fuel by generator
-        agg_keys: either ["plant_id_eia"] for plant aggregation or ["plant_id_eia", "subplant_id"] for subplant aggregation
-        pudl_out: for loading pudl output tables
+        agg_level: either "plant" or "subplant"
     """
+    if agg_level == "plant":
+        agg_keys = ["plant_id_eia"]
+    elif agg_level == "subplant":
+        agg_keys = ["plant_id_eia", "subplant_id"]
+    else:
+        raise UserWarning(
+            f"Argument agg_level must be 'plant' or 'subplant', not '{agg_level}'"
+        )
 
     primary_fuel_from_capacity = calculate_capacity_based_primary_fuel(
-        pudl_out, agg_keys, year
+        agg_level, agg_keys, year
     )
 
     # NOTE: In some rare cases, a plant will have no fuel specified by
@@ -651,7 +720,7 @@ def calculate_aggregated_primary_fuel(
         .agg(lambda x: pd.Series.mode(x)[0])
         .to_frame()
         .reset_index()
-        .rename(columns={"energy_source_code": "primary_fuel_from_mode"})
+        .rename(columns={"energy_source_code": f"{agg_level}_primary_fuel_from_mode"})
     )
 
     # create a blank dataframe with all of the plant ids to hold primary fuel data
@@ -670,14 +739,13 @@ def calculate_aggregated_primary_fuel(
     # we will calculate primary fuel based on the fuel with the most consumption,
     # generation, and capacity
     for source in ["fuel_consumed_for_electricity_mmbtu", "net_generation_mwh"]:
-
         # only keep values greater than zero so that these can be filled by other
         # methods if non-zero
         primary_fuel_calc = agg_totals_by_fuel[agg_totals_by_fuel[source] > 0]
 
         # identify the fuel type with the maximum value for each plant
         primary_fuel_calc = primary_fuel_calc[
-            primary_fuel_calc.groupby(agg_keys, dropna=False)[source].transform(max)
+            primary_fuel_calc.groupby(agg_keys, dropna=False)[source].transform("max")
             == primary_fuel_calc[source]
         ][agg_keys + ["energy_source_code"]]
 
@@ -686,7 +754,7 @@ def calculate_aggregated_primary_fuel(
             subset=agg_keys, keep=False
         )
         primary_fuel_calc = primary_fuel_calc.rename(
-            columns={"energy_source_code": f"primary_fuel_from_{source}"}
+            columns={"energy_source_code": f"{agg_level}_primary_fuel_from_{source}"}
         )
 
         # merge the primary fuel into the main table
@@ -706,53 +774,51 @@ def calculate_aggregated_primary_fuel(
     # Use the fuel consumption-based primary fuel first, then fill using capacity-based
     # primary fuel, then generation based. Finally, to break all ties, use the energy
     # source code that appears most often for generators of a plant (mode).
-    if "subplant_id" in agg_keys:
-        level = "subplant"
-    else:
-        level = "plant"
-    agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        "primary_fuel_from_fuel_consumed_for_electricity_mmbtu"
+    agg_primary_fuel[f"{agg_level}_primary_fuel"] = agg_primary_fuel[
+        f"{agg_level}_primary_fuel_from_fuel_consumed_for_electricity_mmbtu"
     ]
-    agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        f"{level}_primary_fuel"
-    ].fillna(agg_primary_fuel["primary_fuel_from_capacity_mw"])
-    agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        f"{level}_primary_fuel"
-    ].fillna(agg_primary_fuel["primary_fuel_from_net_generation_mwh"])
-    agg_primary_fuel[f"{level}_primary_fuel"] = agg_primary_fuel[
-        f"{level}_primary_fuel"
-    ].fillna(agg_primary_fuel["primary_fuel_from_mode"])
+    agg_primary_fuel[f"{agg_level}_primary_fuel"] = agg_primary_fuel[
+        f"{agg_level}_primary_fuel"
+    ].fillna(agg_primary_fuel[f"{agg_level}_primary_fuel_from_capacity_mw"])
+    agg_primary_fuel[f"{agg_level}_primary_fuel"] = agg_primary_fuel[
+        f"{agg_level}_primary_fuel"
+    ].fillna(agg_primary_fuel[f"{agg_level}_primary_fuel_from_net_generation_mwh"])
+    agg_primary_fuel[f"{agg_level}_primary_fuel"] = agg_primary_fuel[
+        f"{agg_level}_primary_fuel"
+    ].fillna(agg_primary_fuel[f"{agg_level}_primary_fuel_from_mode"])
 
     # sometimes nuclear generators report 0 fuel consumption in EIA-923.
     # To ensure that a nuclear plant does not get assigned a fuel code of
     # a backup generator, we use the nameplate capacity to assign the
     # primary fuel for any plants that contain a nuclear generator
     agg_primary_fuel.loc[
-        agg_primary_fuel["primary_fuel_from_capacity_mw"] == "NUC",
-        f"{level}_primary_fuel",
+        agg_primary_fuel[f"{agg_level}_primary_fuel_from_capacity_mw"] == "NUC",
+        f"{agg_level}_primary_fuel",
     ] = "NUC"
 
     # check that there are no missing primary fuels
-    if len(agg_primary_fuel[agg_primary_fuel[f"{level}_primary_fuel"].isna()]) > 0:
+    if len(agg_primary_fuel[agg_primary_fuel[f"{agg_level}_primary_fuel"].isna()]) > 0:
         plants_with_no_primary_fuel = agg_primary_fuel[
-            agg_primary_fuel[f"{level}_primary_fuel"].isna()
+            agg_primary_fuel[f"{agg_level}_primary_fuel"].isna()
         ]
         logger.warning(
             f"Check the following plants: {list(plants_with_no_primary_fuel.plant_id_eia.unique())}"
         )
         raise UserWarning(
-            f"{level} primary fuel table contains missing primary fuels.\
+            f"{agg_level} primary fuel table contains missing primary fuels.\
             Update method of `create_primary_fuel_table()` to fix"
         )
 
     return agg_primary_fuel
 
 
-def calculate_capacity_based_primary_fuel(pudl_out, agg_keys, year):
+def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
     # create a table of primary fuel by nameplate capacity
-    gen_capacity = pudl_out.gens_eia860().loc[
-        :, ["plant_id_eia", "generator_id", "capacity_mw", "energy_source_code_1"]
-    ]
+    gen_capacity = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "capacity_mw", "energy_source_code_1"],
+    )
 
     if "subplant_id" in agg_keys:
         subplant_crosswalk = pd.read_csv(
@@ -786,10 +852,10 @@ def calculate_capacity_based_primary_fuel(pudl_out, agg_keys, year):
 
     # find the fuel with the greatest capacity
     gen_capacity = gen_capacity[
-        gen_capacity.groupby(agg_keys, dropna=False)["capacity_mw"].transform(max)
+        gen_capacity.groupby(agg_keys, dropna=False)["capacity_mw"].transform("max")
         == gen_capacity["capacity_mw"]
     ][agg_keys + ["energy_source_code_1"]].rename(
-        columns={"energy_source_code_1": "primary_fuel_from_capacity_mw"}
+        columns={"energy_source_code_1": f"{agg_level}_primary_fuel_from_capacity_mw"}
     )
 
     # drop any duplicate entries (if two fuel types have the same nameplate capacity)
@@ -878,9 +944,9 @@ def remove_plants(
     if non_grid_connected:
         df = remove_non_grid_connected_plants(df)
     if len(remove_states) > 0:
-        plant_states = load_data.load_pudl_table("plants_entity_eia").loc[
-            :, ["plant_id_eia", "state"]
-        ]
+        plant_states = load_data.load_pudl_table(
+            "plants_entity_eia", columns=["plant_id_eia", "state"]
+        )
         plants_in_states_to_remove = list(
             plant_states[
                 plant_states["state"].isin(remove_states)
@@ -910,7 +976,7 @@ def remove_non_grid_connected_plants(df):
     # get the list of plant_id_eia from the static table
     ngc_plants = list(
         pd.read_csv(
-            manual_folder("plants_not_connected_to_grid.csv"),
+            reference_table_folder("plants_not_connected_to_grid.csv"),
             dtype=get_dtypes(),
         )["Plant ID"]
     )
@@ -952,15 +1018,15 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
         distribution_connected_plants=False,
     )
 
-    # manually remove steam-only units
-    cems = manually_remove_steam_units(cems)
-
     # add a report date
     cems = load_data.add_report_date(cems)
 
     # remove data for any unit-months where there are incomplete data reported
     # this is generally when there is a single observation reported for an entire month
     cems = remove_incomplete_unit_months(cems)
+
+    # create an inventory of which plant-months have input data from any source
+    inventory_input_data_sources(cems, year)
 
     # TODO: identify and remove any hourly values that appear to be outliers
     # See: https://github.com/singularity-energy/open-grid-emissions/issues/50
@@ -997,9 +1063,14 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
         df=cems, year=year, include_co2=False, include_ch4=True, include_n2o=True
     )
 
-    # remove any observations from cems where zero operation is reported for an entire month
-    # although this data could be considered to be accurately reported, let's remove it so that we can double check against the eia data
-    cems = remove_cems_with_zero_monthly_data(cems)
+    # remove any observations from cems where zero operation is reported for an entire
+    # month. Although this data could be considered to be accurately reported, let's
+    # remove it so that we can double check against the eia data
+    # NOTE(12/22/23): We will treat reported zeros as actual data and not attempt to
+    # fill reported zeros with EIA-923 data due to the issues that exist with the method
+    # EIA uses to allocate annual data to months. In the future, we could use monthly-
+    # reported EIA data since this is directly reported by the generator.
+    # cems = remove_cems_with_zero_monthly_data(cems)
 
     validation.test_for_negative_values(cems)
     validation.validate_unique_datetimes(
@@ -1033,7 +1104,7 @@ def manually_remove_steam_units(df):
 
     # get the list of plant_id_eia from the static table
     units_to_remove = pd.read_csv(
-        manual_folder("steam_units_to_remove.csv"),
+        reference_table_folder("steam_units_to_remove.csv"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "emissions_unit_id_epa"]]
 
@@ -1054,7 +1125,6 @@ def manually_remove_steam_units(df):
 
 
 def remove_incomplete_unit_months(cems):
-
     # get a count of how many hours are reported in each month for each unit
     unit_hours_in_month = (
         cems[["plant_id_eia", "report_date", "emissions_unit_id_epa", "datetime_utc"]]
@@ -1063,10 +1133,10 @@ def remove_incomplete_unit_months(cems):
         .reset_index()
     )
 
-    # identify months where there is not complete data
+    # identify months where there is less than a single day of data
     # The fewest number of hours in a month is 28*24 = 672
     unit_months_to_remove = unit_hours_in_month[
-        unit_hours_in_month["datetime_utc"] < 600
+        unit_hours_in_month["datetime_utc"] < 24
     ].drop(columns="datetime_utc")
 
     logger.info(
@@ -1135,9 +1205,11 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
 
     # if there are still missing fuels, the plant might be proposed and not yet in EIA-923
     # in this case, load data from EIA-860 to see if the plant exists in the proposed category
-    gen_fuel = load_data.load_pudl_table("generators_eia860", year)[
-        ["plant_id_eia", "generator_id", "energy_source_code_1"]
-    ].drop_duplicates()
+    gen_fuel = load_data.load_pudl_table(
+        "generators_eia860",
+        year,
+        columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
+    ).drop_duplicates()
     generator_unit_map = pd.read_csv(
         outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
         dtype=get_dtypes(),
@@ -1184,6 +1256,136 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
     return cems
 
 
+def inventory_input_data_sources(cems: pd.DataFrame, year: int):
+    """
+    Exports a csv that identifies for each plant-month whether input data exists from
+    CEMS or EIA-923. This will be used when checking for missing timestamps in the
+    output data.
+
+    This function expects CEMS data after it has been loaded, non-grid connected plants
+    removed, report date added, and incomplete unit-months removed.
+    """
+
+    # load EIA-923 generation and fuel data
+    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
+
+    # sum generation and fuel by plant-month
+    plant_months_in_eia = (
+        gf.groupby(["plant_id_eia", "report_date"], dropna=False)[
+            ["net_generation_mwh", "fuel_consumed_mmbtu"]
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    # add a flag if the data exists
+    plant_months_in_eia["data_in_eia"] = 1
+    # add a flag if the data is nonzero
+    plant_months_in_eia["nonzero_data_in_eia"] = 0
+    plant_months_in_eia.loc[
+        plant_months_in_eia[["net_generation_mwh", "fuel_consumed_mmbtu"]].sum(axis=1)
+        > 0,
+        "nonzero_data_in_eia",
+    ] = 1
+
+    plant_months_in_eia = plant_months_in_eia[
+        ["plant_id_eia", "report_date", "data_in_eia", "nonzero_data_in_eia"]
+    ].sort_values(by=["plant_id_eia", "report_date"])
+
+    # sum the generation and fuel data for each plant-month,
+    # if there is at least one non-na value
+    plant_months_in_cems = (
+        cems.groupby(["plant_id_eia", "report_date"], dropna=False)[
+            ["gross_generation_mwh", "fuel_consumed_mmbtu"]
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    # add an indicator column if any data exists
+    plant_months_in_cems["data_in_cems"] = 0
+    plant_months_in_cems.loc[
+        (
+            ~plant_months_in_cems[["gross_generation_mwh", "fuel_consumed_mmbtu"]]
+            .isna()
+            .all(axis=1)
+        ),
+        "data_in_cems",
+    ] = 1
+
+    # add a flag if the data is zero
+    plant_months_in_cems["nonzero_data_in_cems"] = 0
+    plant_months_in_cems.loc[
+        plant_months_in_cems[["gross_generation_mwh", "fuel_consumed_mmbtu"]].sum(
+            axis=1
+        )
+        > 0,
+        "nonzero_data_in_cems",
+    ] = 1
+
+    plant_months_in_cems = plant_months_in_cems[
+        ["plant_id_eia", "report_date", "data_in_cems", "nonzero_data_in_cems"]
+    ].sort_values(by=["plant_id_eia", "report_date"])
+
+    # outer merge cems and eia inventories together
+    input_data_exists = plant_months_in_eia.merge(
+        plant_months_in_cems,
+        how="outer",
+        on=["plant_id_eia", "report_date"],
+        validate="1:1",
+    ).sort_values(by=["plant_id_eia", "report_date"])
+
+    # create a dataframe with a complete set of plant-months in case some months
+    # are missing from the inventory
+    complete_plant_months = pd.DataFrame(
+        list(
+            product(
+                list(input_data_exists.plant_id_eia.unique()),
+                list(input_data_exists.report_date.unique()),
+            )
+        ),
+        columns=["plant_id_eia", "report_date"],
+    )
+    # make sure the datetime dtypes match before merging
+    complete_plant_months["report_date"] = complete_plant_months.report_date.astype(
+        input_data_exists.report_date.dtype
+    )
+    # complete the report dates
+    input_data_exists = input_data_exists.merge(
+        complete_plant_months,
+        how="outer",
+        on=["plant_id_eia", "report_date"],
+        validate="1:1",
+    ).sort_values(by=["plant_id_eia", "report_date"])
+
+    # fill missing values with zeros
+    input_data_exists["data_in_eia"] = input_data_exists["data_in_eia"].fillna(0)
+    input_data_exists["data_in_cems"] = input_data_exists["data_in_cems"].fillna(0)
+    input_data_exists["nonzero_data_in_eia"] = input_data_exists[
+        "nonzero_data_in_eia"
+    ].fillna(0)
+    input_data_exists["nonzero_data_in_cems"] = input_data_exists[
+        "nonzero_data_in_cems"
+    ].fillna(0)
+
+    # create a column to indicate if data exists from any source
+    input_data_exists["input_data_exists"] = 0
+    input_data_exists.loc[
+        input_data_exists[["data_in_eia", "data_in_cems"]].sum(axis=1) > 0,
+        "input_data_exists",
+    ] = 1
+    # create a column to indicate if nonzero data exists from any source
+    input_data_exists["nonzero_input_data_exists"] = 0
+    input_data_exists.loc[
+        input_data_exists[["nonzero_data_in_eia", "nonzero_data_in_cems"]].sum(axis=1)
+        > 0,
+        "nonzero_input_data_exists",
+    ] = 1
+
+    # export to csv
+    input_data_exists.to_csv(
+        outputs_folder(f"{year}/input_data_inventory_{year}.csv"), index=False
+    )
+
+
 def fillna_with_missing_strings(df, column_to_fill, filler_column):
     """
     Fills missing values in string columns using another string column with missing values.
@@ -1216,9 +1418,16 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     """
 
     # identify plant-months for which there is a single fossil fuel type reported
-    gf = load_data.load_pudl_table("generation_fuel_eia923", year=year)[
-        ["plant_id_eia", "report_date", "energy_source_code", "fuel_consumed_mmbtu"]
-    ]
+    gf = load_data.load_pudl_table(
+        "denorm_generation_fuel_combined_eia923",
+        year,
+        columns=[
+            "plant_id_eia",
+            "report_date",
+            "energy_source_code",
+            "fuel_consumed_mmbtu",
+        ],
+    )
 
     # remove any rows for clean fuels
     gf = gf[~gf["energy_source_code"].isin(CLEAN_FUELS)]
@@ -1253,7 +1462,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     gf = gf.rename(columns={"energy_source_code": "energy_source_code_single"}).drop(
         columns=["num_fuels", "fuel_consumed_mmbtu"]
     )
-    gf["report_date"] = pd.to_datetime(gf["report_date"])
+    gf["report_date"] = pd.to_datetime(gf["report_date"]).astype("datetime64[s]")
 
     # merge this data into the df
     df = df.merge(gf, how="left", on=["plant_id_eia", "report_date"], validate="m:1")
@@ -1453,15 +1662,6 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
 
     # for the remaining plants, identify the hourly data source as EIA
     all_data["hourly_data_source"] = all_data["hourly_data_source"].fillna("eia")
-
-    # remove any generator-months for which there is no data reported in either data source
-    all_data = all_data[
-        ~(
-            (all_data["reported_eia923"] == 0)
-            & (all_data["hourly_data_source"] == "eia")
-        )
-    ]
-
     all_data = all_data.drop(columns=["reported_eia923"])
 
     # identify the partial cems plants
@@ -1523,14 +1723,16 @@ def identify_partial_cems_subplants(year, cems, eia923_allocated):
     )
 
     # identify which subplant-months have complete or partial cems data
-    # we identify this as subplant months where the number of CEMS reported units is less
-    # than the total number of units in that subplant, AND the total fuel reported in CEMS
-    # is less than 95% of the fuel reported in EIA
+    # we identify this as subplant months where the number of CEMS reported units is
+    # less than the total number of units in that subplant, AND the total, non-zero fuel
+    # reported in CEMS is less than 95% of the non-zero fuel reported in EIA
     cems_status = cems_units_reported.assign(
         hourly_data_source=lambda x: np.where(
             (
                 (x.reported_units_in_subplant < x.units_in_subplant)
                 & (x.fuel_consumed_mmbtu_cems < (x.fuel_consumed_mmbtu_eia * 0.95))
+                & (x.fuel_consumed_mmbtu_cems > 0)
+                & (x.fuel_consumed_mmbtu_eia > 0)
             ),
             "partial_cems_subplant",
             "cems",
@@ -1550,15 +1752,25 @@ def count_total_units_in_subplant(year):
         pd.read_csv(
             outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
             dtype=get_dtypes(),
-            parse_dates=["current_planned_operating_date", "retirement_date"],
-        )[["plant_id_eia", "emissions_unit_id_epa", "subplant_id", "retirement_date"]]
+            parse_dates=[
+                "current_planned_generator_operating_date",
+                "generator_retirement_date",
+            ],
+        )[
+            [
+                "plant_id_eia",
+                "emissions_unit_id_epa",
+                "subplant_id",
+                "generator_retirement_date",
+            ]
+        ]
         .drop_duplicates()
         .dropna(subset="emissions_unit_id_epa")
     )
 
     # remove units that retired before the current year
     units_in_subplant = units_in_subplant[
-        ~(units_in_subplant["retirement_date"].dt.year < year)
+        ~(units_in_subplant["generator_retirement_date"].dt.year < year)
     ]
 
     # get a count of the number of CEMS units in each subplant
@@ -1596,7 +1808,8 @@ def identify_partial_cems_plants(all_data):
     Args:
         all_data: dataframe identifying the hourly data source for each subplant-month
     Returns:
-        all_data with updated hourly_data_source column indicating partial cems plants"""
+        all_data with updated hourly_data_source column indicating partial cems plants
+    """
 
     # create a column that indicates EIA-only subplant data
     all_data = all_data.assign(
@@ -1649,7 +1862,7 @@ def identify_partial_cems_plants(all_data):
         (all_data["hourly_data_source"] == "eia")
         & (all_data["partial_plant"] == "both")
         & (
-            ~all_data["energy_source_code"].isin(non_cems_fuels)
+            ~all_data["plant_primary_fuel"].isin(non_cems_fuels)
         ),  # CEMS data should only be used to shape if plant is primarilly fossil
         "hourly_data_source",
     ] = "partial_cems_plant"
@@ -1676,6 +1889,7 @@ def identify_partial_cems_plants(all_data):
         # Check for subplants with mixed hourly data sources,
         # likely resulting from mixed fuel types.
         # If subplant_id assignment is working, there shouldn't be any
+        print(mixed_method_subplants)
         raise Exception(
             f"ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
         )
@@ -1714,7 +1928,6 @@ def filter_unique_cems_data(cems, partial_cems):
 
 
 def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table):
-
     # create a table that has data for the sythetic plant attributes
     shaped_plant_attributes = (
         plant_attributes_table[["shaped_plant_id", "ba_code", "fuel_category"]]
@@ -1858,9 +2071,8 @@ def combine_plant_data(
 
 
 def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_table):
-
     # create a table with the unique plantids from both dataframes
-    eia_plants = eia923_allocated[
+    eia_plants = eia923_allocated.copy()[
         ["plant_id_eia", "plant_primary_fuel"]
     ].drop_duplicates()
     cems_plants = cems[["plant_id_eia"]].drop_duplicates()
@@ -1968,7 +2180,7 @@ def assign_ba_code_to_plant(df, year):
 
     if len(df[df["ba_code"].isna()]) > 0:
         logger.warning("the following plants are missing ba_code:")
-        logger.warning("\n" + df[df["ba_code"].isna()].tostring())
+        logger.warning("\n" + df[df["ba_code"].isna()].to_string())
 
     # replace missing ba codes with NA
     df["ba_code"] = df["ba_code"].fillna("NA")
@@ -1981,19 +2193,42 @@ def create_plant_ba_table(year):
     """
     Creates a table assigning a ba_code and physical ba code to each plant id.
     """
-    pudl_out = load_data.initialize_pudl_out(year=year)
 
-    plant_ba = pudl_out.plants_eia860().loc[
-        :,
-        [
+    plant_ba = load_data.load_pudl_table(
+        "plants_eia860",
+        columns=[
             "plant_id_eia",
+            "report_date",
             "balancing_authority_code_eia",
             "balancing_authority_name_eia",
-            "utility_name_eia",
+            "utility_id_eia",
             "transmission_distribution_owner_name",
-            "state",
         ],
-    ]
+    )
+
+    # remove report dates newer than the current year
+    plant_ba = plant_ba[plant_ba["report_date"].dt.year <= year]
+
+    # sort the data from newest to oldest
+    plant_ba = plant_ba.sort_values(by=["plant_id_eia", "report_date"], ascending=False)
+
+    # only keep the most recent row of data
+    plant_ba = plant_ba.drop_duplicates(subset=["plant_id_eia"], keep="first")
+
+    # merge utility name
+    utilities_eia = load_data.load_pudl_table(
+        "utilities_eia", columns=["utility_id_eia", "utility_name_eia"]
+    )
+    plant_ba = plant_ba.merge(
+        utilities_eia, how="left", on="utility_id_eia", validate="m:1"
+    )
+    # merge plant state
+    plant_states = load_data.load_pudl_table(
+        "plants_entity_eia", columns=["plant_id_eia", "state"]
+    )
+    plant_ba = plant_ba.merge(
+        plant_states, how="left", on="plant_id_eia", validate="m:1"
+    )
 
     # convert the dtype of the balancing authority code column from string to object
     # this will allow for missing values to be filled
@@ -2005,7 +2240,7 @@ def create_plant_ba_table(year):
     ].fillna(value=np.NaN)
 
     # load the ba name reference
-    ba_name_to_ba_code = pd.read_csv(manual_folder("ba_reference.csv"))
+    ba_name_to_ba_code = pd.read_csv(reference_table_folder("ba_reference.csv"))
     ba_name_to_ba_code = dict(
         zip(
             ba_name_to_ba_code["ba_name"],
@@ -2014,7 +2249,9 @@ def create_plant_ba_table(year):
     )
 
     # specify a ba code for certain utilities
-    utility_as_ba_code = pd.read_csv(manual_folder("utility_name_ba_code_map.csv"))
+    utility_as_ba_code = pd.read_csv(
+        reference_table_folder("utility_name_ba_code_map.csv")
+    )
     utility_as_ba_code = dict(
         zip(
             utility_as_ba_code["name"],
@@ -2061,7 +2298,9 @@ def create_plant_ba_table(year):
     )
 
     # update based on mapping table when ambiguous
-    physical_ba = pd.read_csv(manual_folder("physical_ba.csv"), dtype=get_dtypes())
+    physical_ba = pd.read_csv(
+        reference_table_folder("physical_ba.csv"), dtype=get_dtypes()
+    )
     plant_ba = plant_ba.merge(
         physical_ba,
         how="left",
@@ -2087,11 +2326,9 @@ def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
         df: with additional binary column `distribution_flag`
     """
     # load the EIA-860 data
-    pudl_out = load_data.initialize_pudl_out(year=year)
-
-    plant_voltage = pudl_out.plants_eia860().loc[
-        :, ["plant_id_eia", "grid_voltage_1_kv"]
-    ]
+    plant_voltage = load_data.load_pudl_table(
+        "plants_eia860", year, columns=["plant_id_eia", "grid_voltage_1_kv"]
+    )
 
     plant_voltage = plant_voltage.assign(
         distribution_flag=lambda x: np.where(
@@ -2125,7 +2362,7 @@ def assign_fuel_category_to_ESC(
     """
     # load the fuel category table
     energy_source_groups = pd.read_csv(
-        manual_folder("energy_source_groups.csv"), dtype=get_dtypes()
+        reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
     )[["energy_source_code"] + fuel_category_names].rename(
         columns={"energy_source_code": esc_column}
     )
@@ -2141,16 +2378,15 @@ def assign_fuel_category_to_ESC(
 
 
 def add_plant_local_timezone(df, year):
-    plant_tz = load_data.load_pudl_table("plants_entity_eia")[
-        ["plant_id_eia", "timezone"]
-    ]
+    plant_tz = load_data.load_pudl_table(
+        "plants_entity_eia", columns=["plant_id_eia", "timezone"]
+    )
     df = df.merge(plant_tz, how="left", on=["plant_id_eia"], validate="m:1")
 
     return df
 
 
 def aggregate_cems_to_subplant(cems):
-
     GROUPBY_COLUMNS = ["plant_id_eia", "subplant_id", "datetime_utc", "report_date"]
 
     cems_columns_to_aggregate = [

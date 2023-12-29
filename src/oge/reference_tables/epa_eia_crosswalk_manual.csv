@@ -95,3 +95,51 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,notes
 63259,DEPS1,63259,DEPS1,Matched based on generator ID
 63259,DEPC2,63259,DEPC2,Matched based on generator ID
 63259,DEPC3,63259,DEPC3,Matched based on generator ID
+315,CT1,62115,1A,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
+315,CT1,62115,1S,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
+315,CT2,62115,1B,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
+315,CT2,62115,1S,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
+141,7,141,AF7,Matched based on generator ID
+141,8,141,AF8,Matched based on generator ID
+335,CT1,62116,1A,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
+335,CT1,62116,1S,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
+335,CT2,62116,1B,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
+335,CT2,62116,1S,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
+613,PFL7A,65978,7GT1,"Matched based on plant address, generator id, and generation"
+613,PFL7A,65978,ST7,"Matched based on plant address, generator id, and generation"
+613,PFL7B,65978,7GT2,"Matched based on plant address, generator id, and generation"
+613,PFL7B,65978,ST7,"Matched based on plant address, generator id, and generation"
+6061,3,6061,MOR1,"Matched based on operational date, and fuel emission factor. New unit at repowered plant"
+6061,3,6061,MOR2,"Matched based on operational date, and fuel emission factor. New unit at repowered plant"
+10350,CTGA,10350,CTGA,Matched based on generator ID
+10350,CTGB,10350,CTGB,Matched based on generator ID
+10776,GTG,10776,GTG,Matched based on generator ID
+55129,DBG4,55129,CTG4,Matched based on generator ID
+55129,DBG5,55129,CTG5,Matched based on generator ID
+55460,EUCT1,55460,CT1,Matched based on generator ID and generation
+55460,EUCT1,55460,ST1,Matched based on generator ID and generation
+55460,EUCT2,55460,CT2,Matched based on generator ID and generation
+55460,EUCT2,55460,ST1,Matched based on generator ID and generation
+55699,2,56141,2,"Matched based on plant address, generator id, and generation"
+56298,CT005,56298,4,"Matched based on generator ID, fuel consumption"
+56298,CT006,56298,5,"Matched based on generator ID, fuel consumption"
+56350,CT-4A,56350,CT4A,Matched based on generator ID
+61966,CT1,61966,VP2-1,"Matched based on generator ID, fuel consumption"
+61966,CT2,61966,VP2-2,"Matched based on generator ID, fuel consumption"
+62192,11,62192,11,Matched based on generator ID
+62192,12,62192,12,Matched based on generator ID
+62548,CT1,62548,SJ-1,Matched based on generator ID
+62548,CT2,62548,SJ-2,Matched based on generator ID
+62926,CTG-01,62926,1,"Matched based on generator ID, fuel consumption"
+62926,CTG-02,62926,2,"Matched based on generator ID, fuel consumption"
+64383,CT-1,64383,CTG-1,Matched based on generator ID
+64383,CT-2,64383,CTG-2,Matched based on generator ID
+64383,CT-3,64383,CTG-3,Matched based on generator ID
+64383,CT-4,64383,CTG-4,Matched based on generator ID
+64383,CT-5,64383,CTG-5,Matched based on generator ID
+64383,CT-6,64383,CTG-6,Matched based on generator ID
+64383,CT-7,64383,CTG-7,Matched based on generator ID
+64383,CT-8,64383,CTG-8,Matched based on generator ID
+65372,CT-1,65372,CTG-1,Matched based on generator ID
+65372,CT-2,65372,CTG-2,Matched based on generator ID
+65372,CT-3,65372,CTG-3,Matched based on generator ID

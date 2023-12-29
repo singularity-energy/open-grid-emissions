@@ -26,7 +26,7 @@ stoplight-id: input_data
 
 **Public Utility Data Liberation (PUDL) Project**
 * **What is it**: an open source data processing pipeline that makes U.S. energy data easier to access and use programmatically
-* **How we use it**: To access pre-cleaned and standardized versions of CEMS, EIA-923, and EIA-860 data
+* **How we use it**: To access pre-cleaned and standardized versions of CEMS, EIA-923, and EIA-860 data, as well as the EPA-EIA Power Sector Data Crosswalk.
 * **More information**: [https://catalystcoop-pudl.readthedocs.io/en/latest/](https://catalystcoop-pudl.readthedocs.io/en/latest/)
 
 **EPA-EIA Power Sector Data Crosswalk**

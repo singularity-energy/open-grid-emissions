@@ -3,11 +3,12 @@ import pandas as pd
 import numpy as np
 import shutil
 import os
-import load_data
-import column_checks
-import validation
-from filepaths import outputs_folder, results_folder, data_folder
-from logging_util import get_logger
+
+import oge.load_data as load_data
+import oge.column_checks as column_checks
+import oge.validation as validation
+from oge.filepaths import outputs_folder, results_folder, data_folder
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
@@ -141,7 +142,6 @@ def output_to_results(
     validation.test_for_missing_values(df, small)
 
     if not skip_outputs:
-
         df.to_csv(
             results_folder(f"{path_prefix}{subfolder}us_units/{file_name}.csv"),
             index=False,
@@ -180,6 +180,9 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
             # output hourly data
             validation.validate_unique_datetimes(
                 df, "individual_plant_data", ["plant_id_eia"]
+            )
+            validation.check_for_complete_hourly_timeseries(
+                df, "individual_plant_data", ["plant_id_eia"], "year"
             )
             # Separately save real and aggregate plants
             output_to_results(
@@ -289,20 +292,21 @@ def write_generated_averages(ba_fuel_data, year, path_prefix, skip_outputs):
 
 
 def write_plant_metadata(
-    plant_static_attributes,
-    eia923_allocated,
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    shaped_eia_data,
-    path_prefix,
-    skip_outputs,
+    plant_static_attributes: pd.DataFrame,
+    eia923_allocated: pd.DataFrame,
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    shaped_eia_data: pd.DataFrame,
+    path_prefix: str,
+    skip_outputs: bool,
+    year: int,
 ):
     """
     Outputs metadata for each subplant-month.
 
-    Include rows for subplants aggregated to a synthetic plant,
-    so users can see when a plant's subplants are split across plant-level and synthetic hourly data files
+    Include rows for subplants aggregated to a synthetic plant, so users can see when a
+    plant's subplants are split across plant-level and synthetic hourly data files
     """
 
     KEY_COLUMNS = [
@@ -311,90 +315,101 @@ def write_plant_metadata(
         "report_date",
     ]
 
-    METADATA_COLUMNS = [
-        "data_source",
-        "hourly_profile_source",
-        "net_generation_method",
+    # create CEMS metadata
+    # only keep one metadata row per plant/subplant-month
+    cems_meta = cems.copy()[KEY_COLUMNS + ["gtn_method"]].drop_duplicates(
+        subset=KEY_COLUMNS
+    )
+    cems_meta["data_source"] = "CEMS"
+    cems_meta = cems_meta.rename(columns={"gtn_method": "net_generation_method"})
+    cems_meta["hourly_profile_source"] = "CEMS"
+
+    # create partial cems subplant metadata
+    partial_cems_subplant_meta = partial_cems_subplant.copy()[
+        KEY_COLUMNS
+    ].drop_duplicates(subset=KEY_COLUMNS)
+    partial_cems_subplant_meta["data_source"] = "EIA"
+    partial_cems_subplant_meta["net_generation_method"] = "scaled_partial_cems_subplant"
+    partial_cems_subplant_meta["hourly_profile_source"] = "partial CEMS subplant"
+
+    # create partial cems plant metadata
+    partial_cems_plant_meta = partial_cems_plant.copy()[KEY_COLUMNS].drop_duplicates(
+        subset=KEY_COLUMNS
+    )
+    partial_cems_plant_meta["data_source"] = "EIA"
+    partial_cems_plant_meta["net_generation_method"] = "shaped_from_partial_cems_plant"
+    partial_cems_plant_meta["hourly_profile_source"] = "partial CEMS plant"
+
+    # create EIA-only metadata
+    # From monthly EIA data, we want only the EIA-only subplants
+    # these are the ones that got shaped
+    monthly_eia_meta = (
+        eia923_allocated.copy()
+        .loc[
+            (eia923_allocated["hourly_data_source"] == "eia")
+            & ~(eia923_allocated["fuel_consumed_mmbtu"].isna()),
+            ["plant_id_eia", "subplant_id", "report_date"],
+        ]
+        .drop_duplicates(subset=["plant_id_eia", "subplant_id", "report_date"])
+    )
+
+    # For monthly only: specify which synthetic plant we were aggregated to
+    monthly_eia_meta = monthly_eia_meta.merge(
+        plant_static_attributes[["plant_id_eia", "shaped_plant_id"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",  # There can be multiple subplants for each plant
+    )
+
+    monthly_eia_meta["data_source"] = "EIA"
+
+    # merge in the net generation method and hourly profile from the shaped metadata
+    shaped_eia_data_meta = shaped_eia_data.copy()[
+        ["plant_id_eia", "report_date", "profile_method"]
+    ].drop_duplicates(subset=["plant_id_eia", "report_date"])
+    shaped_eia_data_meta = shaped_eia_data_meta.rename(
+        columns={"plant_id_eia": "shaped_plant_id"}
+    )
+    shaped_eia_data_meta["net_generation_method"] = shaped_eia_data_meta[
+        "profile_method"
     ]
+    shaped_eia_data_meta = shaped_eia_data_meta.rename(
+        columns={"profile_method": "hourly_profile_source"}
+    )
+    monthly_eia_meta = monthly_eia_meta.merge(
+        shaped_eia_data_meta,
+        how="left",
+        on=["shaped_plant_id", "report_date"],
+        validate="m:1",  # There can be multiple subplants for each plant
+    )
+
+    monthly_eia_meta = monthly_eia_meta.drop(columns=["shaped_plant_id"])
+
+    # concat the metadata into a one file and export
+    metadata = pd.concat(
+        [
+            cems_meta,
+            partial_cems_subplant_meta,
+            partial_cems_plant_meta,
+            monthly_eia_meta,
+        ],
+        axis=0,
+    ).sort_values(by=["plant_id_eia", "subplant_id", "report_date"], ascending=True)
+
+    validation.check_for_complete_monthly_timeseries(
+        df=metadata,
+        df_name="plant_metadata",
+        keys=["plant_id_eia", "subplant_id"],
+        columns_to_check=["hourly_profile_source"],
+        year=year,
+    )
+
+    column_checks.check_columns(metadata, "plant_metadata")
 
     if not skip_outputs:
-        # From monthly EIA data, we want only the EIA-only subplants -- these are the ones that got shaped
-        eia_only_subplants = eia923_allocated[
-            (eia923_allocated["hourly_data_source"] == "eia")
-            & ~(eia923_allocated["fuel_consumed_mmbtu"].isna())
-        ].copy()
-
-        # identify the source
-        cems["data_source"] = "CEMS"
-        partial_cems_subplant["data_source"] = "EIA"
-        partial_cems_plant["data_source"] = "EIA"
-        shaped_eia_data["data_source"] = "EIA"
-        eia_only_subplants["data_source"] = "EIA"
-
-        # identify net generation method
-        cems = cems.rename(columns={"gtn_method": "net_generation_method"})
-        shaped_eia_data["net_generation_method"] = shaped_eia_data["profile_method"]
-        eia_only_subplants["net_generation_method"] = "<See shaped plant ID>"
-        partial_cems_subplant["net_generation_method"] = "scaled_partial_cems_subplant"
-        partial_cems_plant["net_generation_method"] = "shaped_from_partial_cems_plant"
-
-        # identify hourly profile method
-        cems["hourly_profile_source"] = "CEMS"
-        partial_cems_subplant["hourly_profile_source"] = "partial CEMS subplant"
-        partial_cems_plant["hourly_profile_source"] = "partial CEMS plant"
-        shaped_eia_data = shaped_eia_data.rename(
-            columns={"profile_method": "hourly_profile_source"}
-        )
-        eia_only_subplants["hourly_profile_source"] = "<See shaped plant ID>"
-
-        # only keep one metadata row per plant/subplant-month
-        cems_meta = cems.copy()[KEY_COLUMNS + METADATA_COLUMNS].drop_duplicates(
-            subset=KEY_COLUMNS
-        )
-        partial_cems_subplant_meta = partial_cems_subplant.copy()[
-            KEY_COLUMNS + METADATA_COLUMNS
-        ].drop_duplicates(subset=KEY_COLUMNS)
-        partial_cems_plant_meta = partial_cems_plant.copy()[
-            KEY_COLUMNS + METADATA_COLUMNS
-        ].drop_duplicates(subset=KEY_COLUMNS)
-        shaped_eia_data_meta = shaped_eia_data.copy()[
-            ["plant_id_eia", "report_date"] + METADATA_COLUMNS
-        ].drop_duplicates(subset=["plant_id_eia", "report_date"])
-        monthly_eia_meta = eia_only_subplants.copy()[
-            ["plant_id_eia", "report_date"] + METADATA_COLUMNS
-        ].drop_duplicates(subset=["plant_id_eia", "report_date"])
-
-        # For monthly only: specify which synthetic plant we were aggregated to
-        monthly_eia_meta = monthly_eia_meta.merge(
-            plant_static_attributes[["plant_id_eia", "shaped_plant_id"]],
-            how="left",
-            on="plant_id_eia",
-            validate="m:1",  # There can be multiple subplants in monthly EIA for each plant in static attributes
-        )
-
-        # concat the metadata into a one file and export
-        metadata = pd.concat(
-            [
-                cems_meta,
-                partial_cems_subplant_meta,
-                partial_cems_plant_meta,
-                shaped_eia_data_meta,
-                monthly_eia_meta,
-            ],
-            axis=0,
-        )
-
-        column_checks.check_columns(metadata, "plant_metadata")
-
         metadata.to_csv(
             results_folder(f"{path_prefix}plant_data/plant_metadata.csv"), index=False
         )
-
-        # drop the metadata columns from each dataframe
-        cems = cems.drop(columns=METADATA_COLUMNS)
-        partial_cems_subplant = partial_cems_subplant.drop(columns=METADATA_COLUMNS)
-        partial_cems_plant = partial_cems_plant.drop(columns=METADATA_COLUMNS)
-        shaped_eia_data = shaped_eia_data.drop(columns=METADATA_COLUMNS)
 
 
 def round_table(table):
@@ -460,7 +475,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
 
     if not skip_outputs:
         for ba in list(ba_fuel_data.ba_code.unique()):
-            if type(ba) is not str:
+            if not isinstance(ba, str):
                 logger.warning(
                     f"not aggregating {sum(ba_fuel_data.ba_code.isna())} plants with numeric BA {ba}"
                 )
@@ -472,8 +487,11 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             )
 
             # convert the datetime_utc column back to a datetime
-            ba_table["datetime_utc"] = pd.to_datetime(
-                ba_table["datetime_utc"], utc=True
+            ba_table["datetime_utc"] = (
+                pd.to_datetime(ba_table["datetime_utc"])
+                .dt.tz_localize(None)
+                .astype("datetime64[s]")
+                .dt.tz_localize("UTC")
             )
 
             # calculate a total for the BA
@@ -550,6 +568,12 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
                 df=ba_table_hourly,
                 df_name="power sector hourly ba table",
                 keys=["fuel_category"],
+            )
+            validation.check_for_complete_hourly_timeseries(
+                ba_table_hourly,
+                "power sector hourly ba table",
+                ["fuel_category"],
+                "year",
             )
 
             # export to a csv

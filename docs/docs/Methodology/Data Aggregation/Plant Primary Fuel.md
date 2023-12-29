@@ -10,4 +10,4 @@ If no fuel consumption data is reported or if there are multiple fuels with the 
 
 If multiple fuels are associated with the same amount of nameplate capacity at a plant, then the primary fuel is determined based on the energy source code that is associated with the highest annual volume of net generation.
 
-In rare cases where all of the preceding methods of determining plant primary fuel fail, the plant primary fuel is determined based on the `energy_source_code_1` associated with the most number of generators at a plant.
+In rare cases where all of the preceding methods of determining plant primary fuel fail, the plant primary fuel is determined based on the primary fuel associated with the most number of generators at a plant.

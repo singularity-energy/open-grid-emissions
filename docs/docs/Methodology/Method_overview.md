@@ -18,13 +18,12 @@ stoplight-id: pipeline_overview
     9. Remove non-grid connected plants
 4. **Clean CEMS data**: Clean hourly generation, fuel, and emissions data from CEMS ([methodology](../Methodology/Data%20Cleaning/CEMS%20Data.md))
     1. Load data from pudl and crosswalk CAMD plant IDs to EIA plant IDs
-    2. Remove data for non grid-connected plants, plants in Puerto Rico, and certain units that only report steam load and do not report to EIA
+    2. Remove data for non grid-connected plants and plants in Puerto Rico
     3. Assign a monthly "report_date" to each hourly observation based on the date of the local timestamp (this allows us to match the data to EIA-923 monthly report dates)
     4. Remove data for any unit-months where there is incomplete hourly data.
     5. Assign a fuel type to each unit based on the power sector data crosswalk
     6. Fill in missing hourly emissions data using the assigned fuel type and reported hourly fuel consumption data
-    7. Remove all observations for each unit-month when no operation is reported for that unit in that month (allows us to fill this data using EIA-923 data if available).
-    8. Calculate biomass-adjusted emissions
+    7. Calculate biomass-adjusted emissions
 5. **Assign static attributes to all plants** This includes primary fuel, data sources, state, balancing authority (both commercial and physical), whether the plant is connected to the distribution grid or transmission grid, a fuel category, and local timezone
 6. **Crosswalk the EIA-923 and CEMS data**, identifying for each subplant-month whether there is complete CEMS data available, partial CEMS data available (available for some but not all units that consist a subplant), or only EIA data available.
     1. For subplant-months with complete CEMS data, we will use the hourly CEMS data directly

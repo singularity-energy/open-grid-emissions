@@ -9,7 +9,7 @@ One of the novel contributions of the Open Grid Emissions Initiative is a method
 
 ### Summary of approaches
 
-The hourly data provided by the OGEI is a combination of measured hourly data reported in CEMS and monthly data reported in EIA-923 which is assigned an imputed hourly profile.
+The hourly data provided by the OGE is a combination of measured hourly data reported in CEMS and monthly data reported in EIA-923 which is assigned an imputed hourly profile.
 
 The first step in ensuring complete data coverage is identifying the subplant-months for which complete data is available from either source. If complete CEMS data is available for all hours in a month and for all units in a subplant, the reported CEMS data is used for that subplant month. If the CEMS data for a subplant-month is incomplete or not available, the reported EIA-923 is used, and an hourly profile must be assigned to it.
 

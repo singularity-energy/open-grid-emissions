@@ -25,9 +25,9 @@ Mass<sub>CO2e</sub> = (Mass<sub>co2</sub> * GWP<sub>co2</sub>) + (Mass<sub>ch4</
 
 The Intergovernmental Panel on Climate Change (IPCC) regularly updates these values over time in published Assessment Reports (AR). The values change over time both due to improvements in our scientific understanding of global warming, and because as the atmospheric concentration of GHGs changes over time, the GWP of each gas also changes. Thus, for each year, we use the most recently-published GWP values that were available in the data year. For example, AR5 was published in 2014, and AR6 was published in 2021. Thus, emissions occuring in years 2014-2020 will be converted using the AR5 values, and emissions occuring in 2021 and later will use the AR6 values.
 
-In addition, the IPCC publishes GWPs on both a 20-year time horizon and a 100-year time horizon. The 100-year values are used as the default for all published CO2e values in the OGEI.
+In addition, the IPCC publishes GWPs on both a 20-year time horizon and a 100-year time horizon. The 100-year values are used as the default for all published CO2e values in the OGE.
 
-Finally, in AR5, the IPCC published GWPs that both included and excluded the impact of what they called the "climate-carbon feedback." As a default, all CO2e values published as part of the OGEI that use AR5 values use the GWPs with climate-carbon feedback. Starting with AR6, GWPs by default include climate carbon feedback.
+Finally, in AR5, the IPCC published GWPs that both included and excluded the impact of what they called the "climate-carbon feedback." As a default, all CO2e values published as part of the OGE that use AR5 values use the GWPs with climate-carbon feedback. Starting with AR6, GWPs by default include climate carbon feedback.
 
 ## Future Work, Known Issues, and Open Questions
 - Consider using fuel-weighted emissions factors for filling missing emissions data ([details](https://github.com/singularity-energy/open-grid-emissions/issues/163))

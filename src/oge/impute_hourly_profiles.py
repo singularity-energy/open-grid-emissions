@@ -2,12 +2,12 @@ import pandas as pd
 import numpy as np
 
 # import open-grid-emissions modules
-from column_checks import apply_dtypes
-import load_data
-from filepaths import manual_folder
-import validation
-import output_data
-from logging_util import get_logger
+from oge.column_checks import apply_dtypes
+import oge.load_data as load_data
+from oge.filepaths import reference_table_folder
+import oge.validation as validation
+import oge.output_data as output_data
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
@@ -334,7 +334,6 @@ def aggregate_for_residual(
 
 
 def aggregate_non_930_fuel_categories(cems, plant_attributes):
-
     # get a list of the fuel categories not in EIA-930
     fuel_categories_not_in_eia930 = list(
         set(plant_attributes.fuel_category.unique())
@@ -426,9 +425,7 @@ def calculate_residual(
         ~combined_data["eia930_profile"].isna(), "cems_profile"
     ] = combined_data.loc[
         ~combined_data["eia930_profile"].isna(), "cems_profile"
-    ].fillna(
-        0
-    )
+    ].fillna(0)
 
     combined_data = calculate_scaled_residual(combined_data)
     combined_data = calculate_shifted_residual(combined_data)
@@ -573,7 +570,9 @@ def create_flat_profile(report_date, ba, fuel):
 
     # create a report date column
     df_temporary["report_date"] = df_temporary["datetime_local"].str[:7]
-    df_temporary["report_date"] = pd.to_datetime(df_temporary["report_date"])
+    df_temporary["report_date"] = pd.to_datetime(df_temporary["report_date"]).astype(
+        "datetime64[s]"
+    )
 
     # only keep the report dates that match
     df_temporary = df_temporary[df_temporary["report_date"] == report_date]
@@ -662,8 +661,12 @@ def impute_missing_hourly_profiles(
 
     hourly_profiles = pd.concat([residual_profiles, hourly_profiles_to_add], axis=0)
 
-    hourly_profiles["datetime_utc"] = pd.to_datetime(
-        hourly_profiles["datetime_utc"], utc=True
+    # convert to datetime64[s] format
+    hourly_profiles["datetime_utc"] = (
+        pd.to_datetime(hourly_profiles["datetime_utc"])
+        .dt.tz_localize(None)
+        .astype("datetime64[s]")
+        .dt.tz_localize("UTC")
     )
     validation.validate_unique_datetimes(
         hourly_profiles, "hourly_profiles", ["ba_code", "fuel_category"]
@@ -712,7 +715,6 @@ def identify_missing_profiles(
 def average_diba_wind_solar_profiles(
     residual_profiles, ba, fuel, report_date, ba_dibas, validation_run=False
 ):
-
     # calculate the average generation profile for the fuel in all neighboring DIBAs
     df_temporary = residual_profiles.copy()[
         (residual_profiles["ba_code"].isin(ba_dibas))
@@ -764,11 +766,13 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
 
     # re-localize the datetime_local
     local_tz = load_data.ba_timezone(ba, "local")
-    df_temporary["datetime_local"] = pd.to_datetime(df_temporary["datetime_local"])
+    df_temporary["datetime_local"] = pd.to_datetime(
+        df_temporary["datetime_local"]
+    ).astype("datetime64[s]")
     df_temporary["datetime_local"] = (
         df_temporary["datetime_local"]
         .dt.tz_localize(local_tz, nonexistent="NaT", ambiguous="NaT")
-        .fillna(method="ffill")
+        .ffill()
     )
     df_temporary["datetime_utc"] = df_temporary["datetime_local"].dt.tz_convert("UTC")
 
@@ -892,15 +896,15 @@ def convert_profile_to_percent(hourly_profiles, group_keys, columns_to_convert):
 
 
 def combine_and_export_hourly_plant_data(
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    monthly_eia_data_to_shape,
-    plant_attributes,
-    hourly_profiles,
-    path_prefix,
-    skip_outputs,
-    region_to_group,
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    monthly_eia_data_to_shape: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    hourly_profiles: pd.DataFrame,
+    path_prefix: str,
+    skip_outputs: bool,
+    region_to_group: str = "ba_code",
 ):
     """
     Exports files with hourly data for each individual plant, split up by region.
@@ -1022,7 +1026,6 @@ def combine_and_export_hourly_plant_data(
 
     # for each region, shape the EIA-only data, combine with CEMS data, and export
     for region in list(plant_attributes[region_to_group].unique()):
-
         # filter each of the data sources to the region
         eia_region = monthly_eia_data_to_shape_agg[
             monthly_eia_data_to_shape_agg[region_to_group] == region
@@ -1082,6 +1085,14 @@ def combine_and_export_hourly_plant_data(
         # re-order columns
         combined_plant_data = combined_plant_data[all_columns]
 
+        # validate that there are complete timeseries
+        validation.check_for_complete_hourly_timeseries(
+            df=combined_plant_data,
+            df_name=f"plant_data/hourly/{region}",
+            keys=["plant_id_eia"],
+            period="year",
+        )
+
         # write data
         output_data.output_to_results(
             combined_plant_data,
@@ -1103,7 +1114,7 @@ def get_shaped_plant_id_from_ba_fuel(df):
     """
 
     # load the ba reference table with all of the ba number ids
-    ba_numbers = pd.read_csv(manual_folder("ba_reference.csv"))[
+    ba_numbers = pd.read_csv(reference_table_folder("ba_reference.csv"))[
         ["ba_code", "ba_number"]
     ]
     # reformat the number with leading zeros
@@ -1257,7 +1268,6 @@ def shape_partial_cems_plants(cems, eia923_allocated):
 
     # if there is no data in the partial cems dataframe, skip.
     if len(eia_data_to_shape) > 0:
-
         # group the eia data by subplant
         eia_data_to_shape = (
             eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)[DATA_COLUMNS]
