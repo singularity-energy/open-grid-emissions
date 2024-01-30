@@ -234,14 +234,11 @@ def download_chalendar_files():
 
 def download_egrid_files():
     """
-    Downloads the egrid excel files.
-
-    Inputs:
-        `urls_to_download`: a list of urls for the excel files that you want to download
+    Downloads the egrid excel files from 2018-2022. 
     """
     os.makedirs(downloads_folder("egrid"), exist_ok=True)
 
-    # the 2019 and 2020 data appear to be hosted on different urls
+    # the 2018 and 2019 data are on a different directory than the newer files.
     egrid_urls = {
         2018: "https://www.epa.gov/sites/default/files/2020-03/egrid2018_data_v2.xlsx",
         2019: "https://www.epa.gov/sites/default/files/2021-02/egrid2019_data.xlsx",
