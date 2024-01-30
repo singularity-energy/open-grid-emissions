@@ -2,11 +2,20 @@
 import os
 
 
-def top_folder(rel=""):
-    """
-    Returns a path relative to the top-level repo folder.
+def get_data_store():
+    """Set data location"""
+    store = os.getenv("OGE_DATA_STORE")
+    if store is None:
+        return os.path.join(os.path.expanduser("~"), "open_grid_emissions_data")
+    elif store == "1" or store.lower() == "local":
+        return os.path.join(os.path.expanduser("~"), "open_grid_emissions_data")
+    elif store == "2" or store.lower() == "s3":
+        return "s3://open-grid-emissions/open_grid_emissions_data"
 
-    This will work regardless of where the function is imported or called from.
+
+def top_folder(rel=""):
+    """Returns a path relative to the top-level repo folder. This will work regardless
+    of where the function is imported or called from.
     """
     return os.path.join(
         os.path.abspath(os.path.join(os.path.realpath(__file__), "../")), rel
@@ -19,9 +28,7 @@ def reference_table_folder(rel=""):
 
 def data_folder(rel=""):
     """Returns a path relative to the `data` folder."""
-    return os.path.join(
-        os.path.join(os.path.expanduser("~"), "open_grid_emissions_data"), rel
-    )
+    return os.path.join(get_data_store(), rel)
 
 
 def downloads_folder(rel=""):
