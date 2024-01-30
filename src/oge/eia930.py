@@ -2,7 +2,6 @@ import pandas as pd
 import re
 from datetime import timedelta
 import os
-from os.path import join
 
 import oge.load_data as load_data
 from oge.column_checks import get_dtypes
@@ -152,9 +151,7 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     # Adjust
     logger.info("Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
-    df.to_csv(
-        join(data_folder, "eia930_raw.csv")
-    )  # Will be read by gridemissions workflow
+    df.to_csv(data_folder + "eia930_raw.csv")  # Will be read by gridemissions workflow
 
     # Run cleaning
     logger.info("Running physics-based data cleaning")
