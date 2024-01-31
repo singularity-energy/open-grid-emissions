@@ -84,12 +84,25 @@ Notebooks are organized into five directories based on their purpose
 - `work_in_progress`: temporary notebooks being used for development purposes on specific branches
 
 ### Data Structure
-All manual reference tables are stored in `src/oge/reference_tables`. 
+All manual reference tables are stored in `src/oge/reference_tables`.
 
 All files downloaded/created as part of the pipeline are stored in your HOME directory (e.g. users/user.name/):
 - `HOME/open_grid_emissions_data/downloads` contains all files that are downloaded by functions in `load_data`
 - `HOME/open_grid_emissions_data/outputs` contains intermediate outputs from the data pipeline... any files created by our code that are not final results
 - `HOME/open_grid_emissions_data/results` contains all final output files that will be published
+
+## Importing OGE as a Package in your Project
+OGE is not yet available on PyPi but can be installed from GitHub. For example, this can be done by adding `oge = {git="https://github.com/singularity-energy/open-grid-emissions.git"}` to your Pipfile if you are using `pipenv` for your project.
+
+Note that you don't need to run the pipeline to generate the output data as these are available on Amazon Simple Storage Service (S3). Simply, set the `OGE_DATA_STORE` environment variable to `s3` in the **\_\_init\_\_.py** file of your project to fetch OGE data from Amazon S3. Additionally, you can tell OGE to not write logs in a file by overwriting the default configuration of the OGE logger.
+
+To summarize, your **\_\_init\_\_.py** file would then look like this:
+```python
+from oge.logging_util import configure_root_logger
+
+os.environ["OGE_DATA_STORE"] = "s3"
+configure_root_logger(logfile=None)
+```
 
 ## Development Setup
 If you would like to run the code on your own computer and/or contribute updates to the code, the following steps can help get you started.
