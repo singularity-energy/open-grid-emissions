@@ -234,7 +234,7 @@ def download_chalendar_files():
 
 def download_egrid_files():
     """
-    Downloads the egrid excel files from 2018-2022. 
+    Downloads the egrid excel files from 2018-2022.
     """
     os.makedirs(downloads_folder("egrid"), exist_ok=True)
 
