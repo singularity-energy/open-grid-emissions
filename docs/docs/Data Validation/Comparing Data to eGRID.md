@@ -98,5 +98,14 @@ Uses MSW rather than MSN or MSB.
    <td>Improves coverage of emissions data for these plants (there is no emission factor for OTH fuel, so these emissions would otherwise be zero)
    </td>
   </tr>
-  <
+  <tr>
+   <td>Global Warming Potential (GWP)
+   </td>
+   <td>Has used AR4 GWPs since eGRID2018 (still using AR4 as of eGRID2022)
+   </td>
+   <td>AR5 GWPs are used starting in 2019 (the earliest year of OGE data available, although they apply as far back as 2014). AR6 GWPs have been used since data year 2021. 
+   </td>
+   <td>CO2-eq factors from eGRID will underestimate the GWP of CH4, and overestimate the GWP of N2O relative to the currently-recognized GWPs of these gases.
+   </td>
+  </tr>
 </table>
