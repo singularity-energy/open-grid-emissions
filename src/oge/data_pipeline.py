@@ -69,6 +69,11 @@ def print_args(args: argparse.Namespace, logger):
 
 def main(args):
     """Runs the OGE data pipeline."""
+    if os.getenv("OGE_DATA_STORE") in ["s3", "2"]:
+        raise OSError(
+            "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
+        )
+
     args = get_args()
     year = args.year
 
