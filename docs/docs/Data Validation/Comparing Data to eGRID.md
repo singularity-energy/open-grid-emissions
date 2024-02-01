@@ -9,7 +9,7 @@ Although the OGE methodology is based on the EPA's eGRID methodology, there are 
    <td>
 Method/approach
    </td>
-   <td>eGRID2020
+   <td>eGRID2022
    </td>
    <td>Open Grid Emissions
    </td>
@@ -54,16 +54,6 @@ Method/approach
    <td>Applies fuel-specific emission factor for fuel cells that consume fossil fuels
    </td>
    <td>CO2 emissions for plants with a fuel cell prime mover are more than 800% higher than eGRID values.
-   </td>
-  </tr>
-  <tr>
-   <td>NOx emission factor for flared landfill gas
-   </td>
-   <td>0.02 lb NOx per MMbtu
-   </td>
-   <td>0.078 lb NOx per MMbtu
-   </td>
-   <td>Adjusted emissions from LFG will be lower than the eGRID values.
    </td>
   </tr>
   <tr>
