@@ -1050,7 +1050,7 @@ def add_egrid_plant_id(df, from_id, to_id):
     )
 
     df[f"plant_id_{to_id}"] = df[f"plant_id_{from_id}"]
-    df[f"plant_id_{to_id}"].update(df[f"plant_id_{to_id}"].map(id_map))
+    df[f"plant_id_{to_id}"] = df[f"plant_id_{to_id}"].replace(id_map)
 
     return df
 
