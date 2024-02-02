@@ -966,16 +966,12 @@ def load_egrid_plant_file(year):
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
-    ].fillna(
-        0
-    )
+    ].fillna(0)
     egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
-    ].fillna(
-        0
-    )
+    ].fillna(0)
 
     # reorder the columns
     egrid_plant = egrid_plant[

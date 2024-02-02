@@ -1862,6 +1862,7 @@ def test_gtn_results(df):
 # EGRID VALIDATION METRIC FUNCTIONS
 ########################################################################################
 
+
 def compare_plant_level_results_to_egrid(
     plant_data, egrid_plant, PLANTS_MISSING_FROM_EGRID
 ):
