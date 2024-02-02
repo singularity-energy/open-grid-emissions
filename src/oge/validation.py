@@ -5,7 +5,7 @@ import oge.load_data as load_data
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.emissions as emissions
 from oge.column_checks import get_dtypes
-from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
+from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
