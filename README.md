@@ -61,6 +61,7 @@ There are many ways that you can contribute!
 ## Repository Structure
 ### Modules
 - `column_checks`: functions that check that all data outputs have the correct column names
+- `constants`: specifies conversion factors and constants used across all modules
 - `data_pipeline`: main script for running the data pipeline from start to finish
 - `download_data`: functions that download data from the internet
 - `data_cleaning`: functions that clean loaded data

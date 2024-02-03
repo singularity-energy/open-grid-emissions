@@ -8,7 +8,7 @@ from oge.column_checks import get_dtypes
 from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
 import oge.validation as validation
 from oge.logging_util import get_logger
-from oge.constants import CLEAN_FUELS
+from oge.constants import CLEAN_FUELS, ConversionFactors
 
 from pudl.metadata.fields import apply_pudl_dtypes
 
@@ -76,7 +76,7 @@ def load_cems_data(year):
     cems["steam_load_1000_lb"] = cems["steam_load_1000_lb"].fillna(0)
 
     # convert co2 mass in tons to lb
-    cems["co2_mass_lb"] = cems["co2_mass_tons"] * 2000
+    cems["co2_mass_lb"] = cems["co2_mass_tons"] * ConversionFactors.short_ton_to_lbs
 
     # re-order columns
     cems = cems[
@@ -294,7 +294,9 @@ def load_ghg_emission_factors():
     )
 
     # convert co2 mass in short tons to lb
-    efs["co2_tons_per_mmbtu"] = efs["co2_tons_per_mmbtu"] * 2000
+    efs["co2_tons_per_mmbtu"] = (
+        efs["co2_tons_per_mmbtu"] * ConversionFactors.short_ton_to_lbs
+    )
 
     # rename the columns
     efs = efs.rename(columns={"co2_tons_per_mmbtu": "co2_lb_per_mmbtu"})
@@ -943,20 +945,30 @@ def load_egrid_plant_file(year):
     )
 
     # convert mass tons to lb
-    egrid_plant["co2_mass_lb"] = egrid_plant["co2_mass_lb"] * 2000
-    egrid_plant["nox_mass_lb"] = egrid_plant["nox_mass_lb"] * 2000
-    egrid_plant["so2_mass_lb"] = egrid_plant["so2_mass_lb"] * 2000
+    egrid_plant["co2_mass_lb"] = (
+        egrid_plant["co2_mass_lb"] * ConversionFactors.short_ton_to_lbs
+    )
+    egrid_plant["nox_mass_lb"] = (
+        egrid_plant["nox_mass_lb"] * ConversionFactors.short_ton_to_lbs
+    )
+    egrid_plant["so2_mass_lb"] = (
+        egrid_plant["so2_mass_lb"] * ConversionFactors.short_ton_to_lbs
+    )
     egrid_plant["co2_mass_lb_for_electricity_adjusted"] = (
-        egrid_plant["co2_mass_lb_for_electricity_adjusted"] * 2000
+        egrid_plant["co2_mass_lb_for_electricity_adjusted"]
+        * ConversionFactors.short_ton_to_lbs
     )
     egrid_plant["co2e_mass_lb_for_electricity_adjusted"] = (
-        egrid_plant["co2e_mass_lb_for_electricity_adjusted"] * 2000
+        egrid_plant["co2e_mass_lb_for_electricity_adjusted"]
+        * ConversionFactors.short_ton_to_lbs
     )
     egrid_plant["nox_mass_lb_for_electricity_adjusted"] = (
-        egrid_plant["nox_mass_lb_for_electricity_adjusted"] * 2000
+        egrid_plant["nox_mass_lb_for_electricity_adjusted"]
+        * ConversionFactors.short_ton_to_lbs
     )
     egrid_plant["so2_mass_lb_for_electricity_adjusted"] = (
-        egrid_plant["so2_mass_lb_for_electricity_adjusted"] * 2000
+        egrid_plant["so2_mass_lb_for_electricity_adjusted"]
+        * ConversionFactors.short_ton_to_lbs
     )
 
     # if egrid has a missing value for co2 for a clean plant, replace with zero
@@ -1029,7 +1041,9 @@ def load_egrid_ba_file(year):
         }
     )
     egrid_ba = egrid_ba.sort_values(by="ba_code", ascending=True)
-    egrid_ba["co2_mass_lb_adjusted"] = egrid_ba["co2_mass_lb_adjusted"] * 2000
+    egrid_ba["co2_mass_lb_adjusted"] = (
+        egrid_ba["co2_mass_lb_adjusted"] * ConversionFactors.short_ton_to_lbs
+    )
 
     return egrid_ba
 
