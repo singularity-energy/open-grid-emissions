@@ -9,7 +9,7 @@ from pudl.etl.glue_assets import make_subplant_ids
 import oge.load_data as load_data
 import oge.validation as validation
 import oge.emissions as emissions
-from oge.emissions import CLEAN_FUELS
+from oge.constants import CLEAN_FUELS
 from oge.column_checks import get_dtypes, apply_dtypes
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger

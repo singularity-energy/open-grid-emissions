@@ -22,6 +22,7 @@ import oge.output_data as output_data
 import oge.consumed as consumed
 from oge.filepaths import downloads_folder, outputs_folder, results_folder
 from oge.logging_util import get_logger, configure_root_logger
+from oge.constants import TIME_RESOLUTIONS
 
 
 def get_args() -> argparse.Namespace:
@@ -97,7 +98,7 @@ def main(args):
     )
     # Make results subfolders
     for unit in ["us_units", "metric_units"]:
-        for time_resolution in output_data.TIME_RESOLUTIONS.keys():
+        for time_resolution in TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
                 os.makedirs(
                     results_folder(

@@ -7,12 +7,11 @@ from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
 from oge.filepaths import outputs_folder, reference_table_folder, results_folder
 from oge.logging_util import get_logger
-
+from oge.constants import TIME_RESOLUTIONS
 from oge.output_data import (
     GENERATED_EMISSION_RATE_COLS,
     CONSUMED_EMISSION_RATE_COLS,
     output_to_results,
-    TIME_RESOLUTIONS,
 )
 
 logger = get_logger(__name__)

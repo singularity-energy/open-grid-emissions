@@ -8,7 +8,7 @@ from oge.column_checks import get_dtypes
 from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
 import oge.validation as validation
 from oge.logging_util import get_logger
-from oge.emissions import CLEAN_FUELS
+from oge.constants import CLEAN_FUELS
 
 from pudl.metadata.fields import apply_pudl_dtypes
 

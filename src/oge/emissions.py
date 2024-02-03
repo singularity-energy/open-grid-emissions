@@ -6,12 +6,12 @@ import oge.validation as validation
 from oge.column_checks import get_dtypes
 from oge.filepaths import reference_table_folder
 from oge.logging_util import get_logger
+from oge.constants import CLEAN_FUELS
 
 from pudl.analysis.allocate_gen_fuel import (
     distribute_annually_reported_data_to_months_if_annual,
 )
 
-CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
 logger = get_logger(__name__)
 
