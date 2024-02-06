@@ -95,14 +95,14 @@ All files downloaded/created as part of the pipeline are stored in your HOME dir
 ## Importing OGE as a Package in your Project
 OGE is not yet available on PyPi but can be installed from GitHub. For example, this can be done by adding `oge = {git="https://github.com/singularity-energy/open-grid-emissions.git"}` to your Pipfile if you are using `pipenv` for your project.
 
-Note that you don't need to run the pipeline to generate the output data as these are available on Amazon Simple Storage Service (S3). Simply, set the `OGE_DATA_STORE` environment variable to `s3` in the **\_\_init\_\_.py** file of your project to fetch OGE data from Amazon S3. Additionally, you can tell OGE to not write logs in a file by overwriting the default configuration of the OGE logger.
+Note that you don't need to run the pipeline to generate the output data as these are available on Amazon Simple Storage Service (S3). Simply, set the `OGE_DATA_STORE` environment variable to `s3` in the **\_\_init\_\_.py** file of your project to fetch OGE data from Amazon S3. Additionally, you can tell OGE to write logs in a file by overwriting the default configuration of the OGE logger.
 
 To summarize, your **\_\_init\_\_.py** file would then look like this:
 ```python
 from oge.logging_util import configure_root_logger
 
 os.environ["OGE_DATA_STORE"] = "s3"
-configure_root_logger(logfile=None)
+configure_root_logger(logfile="oge_log/logfile.txt")
 ```
 
 ## Development Setup
