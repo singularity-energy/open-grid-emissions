@@ -6,12 +6,19 @@ import oge.validation as validation
 from oge.column_checks import get_dtypes
 from oge.filepaths import reference_table_folder
 from oge.logging_util import get_logger
+from oge.constants import (
+    BIOMASS_FUELS,
+    CLEAN_FUELS,
+    ConversionFactors,
+    chp_gross_thermal_output_efficiency,
+    chp_useful_thermal_output_efficiency,
+    nox_lb_per_mmbtu_flared_landfill_gas,
+)
 
 from pudl.analysis.allocate_gen_fuel import (
     distribute_annually_reported_data_to_months_if_annual,
 )
 
-CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
 logger = get_logger(__name__)
 
@@ -284,21 +291,25 @@ def calculate_electric_allocation_factor(df):
     Requires a dataframe with the following columns: net_generation_mwh, fuel_consumed_mmbtu, fuel_consumed_for_electricity_mmbtu
     """
 
-    mwh_to_mmbtu = 3.412142
-
-    # calculate the useful thermal output
+    # calculate the gross thermal output
     # 0.8 is an assumed efficiency factor used by eGRID
-    df["useful_thermal_output"] = 0.8 * (
-        df["fuel_consumed_mmbtu"] - df["fuel_consumed_for_electricity_mmbtu"]
+    df["gross_thermal_output_for_heating_mmbtu"] = (
+        chp_gross_thermal_output_efficiency
+        * (df["fuel_consumed_mmbtu"] - df["fuel_consumed_for_electricity_mmbtu"])
+    )
+    # calculate the useful thermal output
+    # 0.75 is an assumed efficiency factor used by eGRID
+    df["useful_thermal_output_mmbtu"] = (
+        chp_useful_thermal_output_efficiency
+        * df["gross_thermal_output_for_heating_mmbtu"]
     )
 
     # convert generation to mmbtu
-    df["generation_mmbtu"] = df["net_generation_mwh"] * mwh_to_mmbtu
+    df["generation_mmbtu"] = df["net_generation_mwh"] * ConversionFactors.mwh_to_mmbtu
 
     # calculate the electric allocation factor
-    # 0.75 is an assumed efficiency factor used by eGRID
     df["electric_allocation_factor"] = df["generation_mmbtu"] / (
-        df["generation_mmbtu"] + (0.75 * df["useful_thermal_output"])
+        df["generation_mmbtu"] + df["useful_thermal_output_mmbtu"]
     )
 
     # if the allocation factor < 0, set to zero
@@ -318,25 +329,11 @@ def adjust_emissions_for_biomass(df):
     """Creates a new adjusted co2 emissions column that sets any biomass emissions to zero."""
 
     # create a column for adjusted biomass emissions, setting these emissions to zero
-    biomass_fuels = [
-        "AB",
-        "BG",
-        "BLQ",
-        "DG",
-        "LFG",
-        "MSB",
-        "OBG",
-        "OBL",
-        "OBS",
-        "SLW",
-        "WDL",
-        "WDS",
-    ]
 
     # CO2: adjust emissions for co2 for all biomass generators
     if "co2_mass_lb" in df.columns:
         df["co2_mass_lb_adjusted"] = df["co2_mass_lb"]
-        df.loc[df["energy_source_code"].isin(biomass_fuels), "co2_mass_lb_adjusted"] = 0
+        df.loc[df["energy_source_code"].isin(BIOMASS_FUELS), "co2_mass_lb_adjusted"] = 0
 
     # CH4: for landfill gas (LFG), all other emissions are set to zero
     # this assumes that the gas would have been flared anyway if not used for electricity generation
@@ -356,7 +353,10 @@ def adjust_emissions_for_biomass(df):
         df["nox_mass_lb_adjusted"] = df["nox_mass_lb"]
         df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = df.loc[
             df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"
-        ] - (df.loc[df["energy_source_code"] == "LFG", "fuel_consumed_mmbtu"] * 0.078)
+        ] - (
+            df.loc[df["energy_source_code"] == "LFG", "fuel_consumed_mmbtu"]
+            * nox_lb_per_mmbtu_flared_landfill_gas
+        )
         df.loc[df["nox_mass_lb_adjusted"] < 0, "nox_mass_lb_adjusted"] = 0
 
     # SO2: LFG plants set to zero
