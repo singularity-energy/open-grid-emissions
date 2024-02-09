@@ -42,7 +42,7 @@ independently of the installation method you chose.
 A more detailed walkthrough of these steps can be found below in the "Development Setup" section.
 
 ## Data Availability and Release Schedule
-The latest release includes data for year 2019-2021 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data.
+The latest release includes data for year 2019-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data.
 
 Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2022 data was published in September 2023). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
 
