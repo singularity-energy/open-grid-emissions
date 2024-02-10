@@ -320,7 +320,7 @@ def calculate_electric_allocation_factor(df):
     df["electric_allocation_factor"] = df["electric_allocation_factor"].fillna(1)
 
     # remove intermediate columns
-    df = df.drop(columns=["useful_thermal_output", "generation_mmbtu"])
+    df = df.drop(columns=["gross_thermal_output_for_heating_mmbtu","useful_thermal_output_mmbtu", "generation_mmbtu"])
 
     return df
 
