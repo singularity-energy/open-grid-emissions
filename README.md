@@ -30,11 +30,14 @@ git clone https://github.com/singularity-energy/open-grid-emissions.git
 cd open-grid-emissions
 pipenv sync
 pipenv shell
+pip install build
+python -m build
+pip install .
 ```
 
 The pipeline can be run as follows:
 ```bash
-cd src
+cd src/oge
 python data_pipeline.py --year 2022
 ```
 independently of the installation method you chose.
