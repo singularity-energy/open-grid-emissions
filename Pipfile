@@ -20,6 +20,7 @@ seaborn = "*"
 sqlalchemy = "*"
 statsmodels = "*"
 coloredlogs = "*"
+s3fs = {extras=["boto3"], versions="==2023.12.2"}
 "catalystcoop.pudl" = {git = "git+https://github.com/singularity-energy/pudl.git@oge_release"}
 gridemissions = {git = "git+https://github.com/singularity-energy/gridemissions"}
 

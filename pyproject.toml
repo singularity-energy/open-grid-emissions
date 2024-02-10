@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oge"
-version = "0.3.0"
+version = "0.3.1"
 requires-python = ">3.11"
 readme = "README.md"
 authors = [
@@ -32,6 +32,7 @@ dependencies = [
   "sqlalchemy",
   "statsmodels",
   "coloredlogs",
+  "s3fs[boto3] == 2023.12.2",
   "catalystcoop-pudl@git+https://github.com/singularity-energy/pudl.git@oge_release",
   "gridemissions@git+https://github.com/singularity-energy/gridemissions.git",
 ]

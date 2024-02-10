@@ -8,6 +8,7 @@ from oge.column_checks import get_dtypes
 from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
 import oge.validation as validation
 from oge.logging_util import get_logger
+from oge.constants import CLEAN_FUELS, ConversionFactors
 
 from pudl.metadata.fields import apply_pudl_dtypes
 
@@ -75,7 +76,7 @@ def load_cems_data(year):
     cems["steam_load_1000_lb"] = cems["steam_load_1000_lb"].fillna(0)
 
     # convert co2 mass in tons to lb
-    cems["co2_mass_lb"] = cems["co2_mass_tons"] * 2000
+    cems["co2_mass_lb"] = cems["co2_mass_tons"] * ConversionFactors.short_ton_to_lbs
 
     # re-order columns
     cems = cems[
@@ -293,7 +294,9 @@ def load_ghg_emission_factors():
     )
 
     # convert co2 mass in short tons to lb
-    efs["co2_tons_per_mmbtu"] = efs["co2_tons_per_mmbtu"] * 2000
+    efs["co2_tons_per_mmbtu"] = (
+        efs["co2_tons_per_mmbtu"] * ConversionFactors.short_ton_to_lbs
+    )
 
     # rename the columns
     efs = efs.rename(columns={"co2_tons_per_mmbtu": "co2_lb_per_mmbtu"})
@@ -871,6 +874,199 @@ def load_default_gtn_ratios():
     )[["prime_mover_code", "default_gtn_ratio"]]
 
     return default_gtn
+
+
+def load_egrid_plant_file(year):
+    egrid_columns = [
+        "BACODE",
+        "PSTATABB",
+        "PLPRMFL",
+        "ORISPL",
+        "PNAME",
+        "PLGENATN",
+        "PLGENATR",
+        "PLHTIANT",
+        "UNNOX",
+        "UNSO2",
+        "UNCO2",
+        "UNCH4",
+        "UNN2O",
+        "UNHTIT",
+        "UNHTIOZT",
+        "UNHTISRC",
+        "UNHOZSRC",
+        "PLCO2AN",
+        "PLCO2EQA",
+        "PLNOXAN",
+        "PLSO2AN",
+        "CHPFLAG",
+        "ELCALLOC",
+    ]
+
+    # load plant level data from egrid
+    egrid_plant = pd.read_excel(
+        downloads_folder(f"egrid/egrid{year}_data.xlsx"),
+        sheet_name=f"PLNT{str(year)[-2:]}",
+        header=1,
+        usecols=egrid_columns,
+    )
+
+    # calculate total net generation from reported renewable and nonrenewable generation
+    egrid_plant["net_generation_mwh"] = (
+        egrid_plant["PLGENATN"] + egrid_plant["PLGENATR"]
+    )
+    egrid_plant = egrid_plant.drop(columns=["PLGENATN", "PLGENATR"])
+
+    # rename the columns
+    egrid_plant = egrid_plant.rename(
+        columns={
+            "BACODE": "ba_code",
+            "PSTATABB": "state",
+            "PLPRMFL": "plant_primary_fuel",
+            "ORISPL": "plant_id_egrid",
+            "PNAME": "plant_name_eia",
+            "UNHTIT": "fuel_consumed_mmbtu",
+            "PLHTIANT": "fuel_consumed_for_electricity_mmbtu",
+            "UNCO2": "co2_mass_lb",  # this is actually in tons, but we are converting in the next step
+            "UNCH4": "ch4_mass_lb",
+            "UNN2O": "n2o_mass_lb",
+            "UNNOX": "nox_mass_lb",  # this is actually in tons, but we are converting in the next step
+            "UNSO2": "so2_mass_lb",  # this is actually in tons, but we are converting in the next step
+            "PLCO2AN": "co2_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
+            "PLCO2EQA": "co2e_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
+            "PLNOXAN": "nox_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
+            "PLSO2AN": "so2_mass_lb_for_electricity_adjusted",  # this is actually in tons, but we are converting in the next step
+            "CHPFLAG": "chp_flag",
+            "ELCALLOC": "chp_electric_allocation_factor",
+            "UNHTIOZT": "fuel_consumed_mmbtu_ozone_season",
+            "UNHTISRC": "fuel_data_source_annual",
+            "UNHOZSRC": "fuel_data_source_ozone",
+        }
+    )
+
+    # convert mass tons to lb
+    egrid_plant["co2_mass_lb"] = (
+        egrid_plant["co2_mass_lb"] * ConversionFactors.short_ton_to_lbs
+    )
+    egrid_plant["nox_mass_lb"] = (
+        egrid_plant["nox_mass_lb"] * ConversionFactors.short_ton_to_lbs
+    )
+    egrid_plant["so2_mass_lb"] = (
+        egrid_plant["so2_mass_lb"] * ConversionFactors.short_ton_to_lbs
+    )
+    egrid_plant["co2_mass_lb_for_electricity_adjusted"] = (
+        egrid_plant["co2_mass_lb_for_electricity_adjusted"]
+        * ConversionFactors.short_ton_to_lbs
+    )
+    egrid_plant["co2e_mass_lb_for_electricity_adjusted"] = (
+        egrid_plant["co2e_mass_lb_for_electricity_adjusted"]
+        * ConversionFactors.short_ton_to_lbs
+    )
+    egrid_plant["nox_mass_lb_for_electricity_adjusted"] = (
+        egrid_plant["nox_mass_lb_for_electricity_adjusted"]
+        * ConversionFactors.short_ton_to_lbs
+    )
+    egrid_plant["so2_mass_lb_for_electricity_adjusted"] = (
+        egrid_plant["so2_mass_lb_for_electricity_adjusted"]
+        * ConversionFactors.short_ton_to_lbs
+    )
+
+    # if egrid has a missing value for co2 for a clean plant, replace with zero
+    egrid_plant.loc[
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
+        "co2_mass_lb_for_electricity_adjusted",
+    ] = egrid_plant.loc[
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
+        "co2_mass_lb_for_electricity_adjusted",
+    ].fillna(0)
+    egrid_plant.loc[
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
+    ] = egrid_plant.loc[
+        egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
+    ].fillna(0)
+
+    # reorder the columns
+    egrid_plant = egrid_plant[
+        [
+            "ba_code",
+            "state",
+            "plant_id_egrid",
+            "plant_name_eia",
+            "plant_primary_fuel",
+            "chp_flag",
+            "chp_electric_allocation_factor",
+            "net_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "fuel_consumed_for_electricity_mmbtu",
+            "co2_mass_lb",
+            "co2_mass_lb_for_electricity_adjusted",
+            "ch4_mass_lb",
+            "n2o_mass_lb",
+            "co2e_mass_lb_for_electricity_adjusted",
+            "nox_mass_lb",
+            "nox_mass_lb_for_electricity_adjusted",
+            "so2_mass_lb",
+            "so2_mass_lb_for_electricity_adjusted",
+            "fuel_consumed_mmbtu_ozone_season",
+            "fuel_data_source_annual",
+            "fuel_data_source_ozone",
+        ]
+    ]
+
+    # We also want to remove any plants that are located in Puerto Rico
+    egrid_plant = egrid_plant[(egrid_plant["state"] != "PR")]
+
+    # create a column for eia id
+    egrid_plant = add_egrid_plant_id(egrid_plant, from_id="egrid", to_id="eia")
+
+    return egrid_plant
+
+
+def load_egrid_ba_file(year):
+    # load egrid BA totals
+    egrid_ba = pd.read_excel(
+        downloads_folder(f"egrid/egrid{year}_data.xlsx"),
+        sheet_name=f"BA{str(year)[-2:]}",
+        header=1,
+        usecols=["BANAME", "BACODE", "BAHTIANT", "BANGENAN", "BACO2AN"],
+    )
+    # rename the columns
+    egrid_ba = egrid_ba.rename(
+        columns={
+            "BANAME": "ba_name",
+            "BACODE": "ba_code",
+            "BAHTIANT": "fuel_consumed_for_electricity_mmbtu",
+            "BANGENAN": "net_generation_mwh",
+            "BACO2AN": "co2_mass_lb_adjusted",
+        }
+    )
+    egrid_ba = egrid_ba.sort_values(by="ba_code", ascending=True)
+    egrid_ba["co2_mass_lb_adjusted"] = (
+        egrid_ba["co2_mass_lb_adjusted"] * ConversionFactors.short_ton_to_lbs
+    )
+
+    return egrid_ba
+
+
+def add_egrid_plant_id(df, from_id, to_id):
+    # For plants that have different EPA and EIA plant IDs, the plant ID in eGRID is usually the EPA ID, but sometimes the EIA ID
+    # however, there are sometime 2 EIA IDs for a single eGRID ID, so we need to group the data in the EIA table by the egrid id
+    # We need to update all of the egrid plant IDs to the EIA plant IDs
+    egrid_crosswalk = pd.read_csv(
+        reference_table_folder("eGRID_crosswalk_of_EIA_ID_to_EPA_ID.csv"),
+        dtype=get_dtypes(),
+    )
+    id_map = dict(
+        zip(
+            list(egrid_crosswalk[f"plant_id_{from_id}"]),
+            list(egrid_crosswalk[f"plant_id_{to_id}"]),
+        )
+    )
+
+    df[f"plant_id_{to_id}"] = df[f"plant_id_{from_id}"]
+    df[f"plant_id_{to_id}"] = df[f"plant_id_{to_id}"].replace(id_map)
+
+    return df
 
 
 def test():

@@ -9,6 +9,7 @@ import oge.column_checks as column_checks
 import oge.validation as validation
 from oge.filepaths import outputs_folder, results_folder, data_folder
 from oge.logging_util import get_logger
+from oge.constants import ConversionFactors
 
 logger = get_logger(__name__)
 
@@ -43,9 +44,10 @@ CONSUMED_EMISSION_RATE_COLS = [
     "consumed_so2_rate_lb_per_mwh_for_electricity_adjusted",
 ]
 
-UNIT_CONVERSIONS = {"lb": ("kg", 0.453592), "mmbtu": ("GJ", 1.055056)}
-
-TIME_RESOLUTIONS = {"hourly": "H", "monthly": "M", "annual": "A"}
+UNIT_CONVERSIONS = {
+    "lb": ("kg", ConversionFactors.lb_to_kg),
+    "mmbtu": ("GJ", ConversionFactors.mmbtu_to_GJ),
+}
 
 
 def prepare_files_for_upload(years):

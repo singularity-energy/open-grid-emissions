@@ -22,6 +22,7 @@ import oge.output_data as output_data
 import oge.consumed as consumed
 from oge.filepaths import downloads_folder, outputs_folder, results_folder
 from oge.logging_util import get_logger, configure_root_logger
+from oge.constants import TIME_RESOLUTIONS
 
 
 def get_args() -> argparse.Namespace:
@@ -69,6 +70,11 @@ def print_args(args: argparse.Namespace, logger):
 
 def main(args):
     """Runs the OGE data pipeline."""
+    if os.getenv("OGE_DATA_STORE") in ["s3", "2"]:
+        raise OSError(
+            "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
+        )
+
     args = get_args()
     year = args.year
 
@@ -92,7 +98,7 @@ def main(args):
     )
     # Make results subfolders
     for unit in ["us_units", "metric_units"]:
-        for time_resolution in output_data.TIME_RESOLUTIONS.keys():
+        for time_resolution in TIME_RESOLUTIONS.keys():
             for subfolder in ["plant_data", "carbon_accounting", "power_sector_data"]:
                 os.makedirs(
                     results_folder(
@@ -118,14 +124,7 @@ def main(args):
     # PUDL
     download_data.download_pudl_data(source="aws")
     # eGRID
-    # the 2019 and 2020 data appear to be hosted on different urls
-    egrid_files_to_download = [
-        "https://www.epa.gov/sites/default/files/2020-03/egrid2018_data_v2.xlsx",
-        "https://www.epa.gov/sites/default/files/2021-02/egrid2019_data.xlsx",
-        "https://www.epa.gov/system/files/documents/2022-09/eGRID2020_Data_v2.xlsx",
-        "https://www.epa.gov/system/files/documents/2023-01/eGRID2021_data.xlsx",
-    ]
-    download_data.download_egrid_files(egrid_files_to_download)
+    download_data.download_egrid_files()
     # EIA-930
     # for `small` run, we'll only clean 1 week, so need chalander file for making profiles
     if args.small or args.flat:

@@ -30,11 +30,14 @@ git clone https://github.com/singularity-energy/open-grid-emissions.git
 cd open-grid-emissions
 pipenv sync
 pipenv shell
+pip install build
+python -m build
+pip install .
 ```
 
 The pipeline can be run as follows:
 ```bash
-cd src
+cd src/oge
 python data_pipeline.py --year 2022
 ```
 independently of the installation method you chose.
@@ -42,7 +45,7 @@ independently of the installation method you chose.
 A more detailed walkthrough of these steps can be found below in the "Development Setup" section.
 
 ## Data Availability and Release Schedule
-The latest release includes data for year 2019-2021 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data.
+The latest release includes data for year 2019-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data.
 
 Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2022 data was published in September 2023). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
 
@@ -61,6 +64,7 @@ There are many ways that you can contribute!
 ## Repository Structure
 ### Modules
 - `column_checks`: functions that check that all data outputs have the correct column names
+- `constants`: specifies conversion factors and constants used across all modules
 - `data_pipeline`: main script for running the data pipeline from start to finish
 - `download_data`: functions that download data from the internet
 - `data_cleaning`: functions that clean loaded data
@@ -84,12 +88,23 @@ Notebooks are organized into five directories based on their purpose
 - `work_in_progress`: temporary notebooks being used for development purposes on specific branches
 
 ### Data Structure
-All manual reference tables are stored in `src/oge/reference_tables`. 
+All manual reference tables are stored in `src/oge/reference_tables`.
 
 All files downloaded/created as part of the pipeline are stored in your HOME directory (e.g. users/user.name/):
 - `HOME/open_grid_emissions_data/downloads` contains all files that are downloaded by functions in `load_data`
 - `HOME/open_grid_emissions_data/outputs` contains intermediate outputs from the data pipeline... any files created by our code that are not final results
 - `HOME/open_grid_emissions_data/results` contains all final output files that will be published
+
+## Importing OGE as a Package in your Project
+OGE is not yet available on PyPi but can be installed from GitHub. For example, this can be done by adding `oge = {git="https://github.com/singularity-energy/open-grid-emissions.git"}` to your Pipfile if you are using `pipenv` for your project.
+
+Note that you don't need to run the pipeline to generate the output data as these are available on Amazon Simple Storage Service (S3). Simply, set the `OGE_DATA_STORE` environment variable to `s3` in the **\_\_init\_\_.py** file of your project to fetch OGE data from Amazon S3.
+To summarize, your **\_\_init\_\_.py** file would then look like this:
+```python
+import os
+
+os.environ["OGE_DATA_STORE"] = "s3"
+```
 
 ## Development Setup
 If you would like to run the code on your own computer and/or contribute updates to the code, the following steps can help get you started.

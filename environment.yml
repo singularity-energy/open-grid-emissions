@@ -3,11 +3,9 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - black # development: code formatting
   - blas=*=openblas # prevent mkl implementation of blas
   - cvxopt
   - cvxpy=1.2.1 # used by gridemissions, newer version not working as of 12/12/2022
-  - flake8 # development: linter
   - ipykernel
   - nomkl # prevent mkl implementation of blas
   - notebook
@@ -23,6 +21,7 @@ dependencies:
   - qdldl-python==0.1.5,!=0.1.5.post2 # used for gridemissions, newer version not working as of 12/12/2022
   - requests>=2.28.1
   - ruff
+  - s3fs
   - seaborn # used by gridemissions
   - setuptools # used for pudl
   - sqlalchemy
