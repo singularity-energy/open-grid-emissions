@@ -5,8 +5,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oge"
-version = "0.3.1"
-requires-python = ">3.11"
+version = "0.3.2"
+requires-python = ">=3.11,<3.12"
 readme = "README.md"
 authors = [
   { name="Greg Miller", email="greg.miller@singularity.energy" },
@@ -32,7 +32,7 @@ dependencies = [
   "sqlalchemy",
   "statsmodels",
   "coloredlogs",
-  "s3fs[boto3] == 2023.12.2",
+  "s3fs",
   "catalystcoop-pudl@git+https://github.com/singularity-energy/pudl.git@oge_release",
   "gridemissions@git+https://github.com/singularity-energy/gridemissions.git",
 ]
@@ -84,8 +84,8 @@ src = ["src"]
 line-length = 88
 indent-width = 4
 
-# Assume Python 3.8
-target-version = "py310"
+# Assume Python 3.11
+target-version = "py311"
 
 # Built-in for Jupyter
 extend-include = ["*.ipynb"]
