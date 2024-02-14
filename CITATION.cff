@@ -22,6 +22,6 @@ authors:
 identifiers:
   - type: doi
     value: 'https://zenodo.org/doi/10.5281/zenodo.7062459'
-version: 0.3.1
+version: 0.3.2
 license: MIT
-date-released: '2024-02-13'
+date-released: '2024-02-14'
