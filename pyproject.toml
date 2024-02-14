@@ -33,6 +33,7 @@ dependencies = [
   "statsmodels",
   "coloredlogs",
   "s3fs",
+  "catalystcoop-pudl@git+https://github.com/singularity-energy/pudl.git@oge_release",
   "gridemissions@git+https://github.com/singularity-energy/gridemissions.git",
 ]
 
