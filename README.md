@@ -145,7 +145,7 @@ The final step is to install the `oge` package itself in the conda environment. 
 conda activate open_grid_emissions
 pip install build
 python -m build
-pip install .
+pip install --editable .
 ```
 
 The open_grid_emissions conda environment should now be set up and ready to run.
