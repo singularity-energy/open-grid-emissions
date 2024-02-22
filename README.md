@@ -10,17 +10,9 @@ Please check out [our documentation](https://docs.singularity.energy/docs/open-g
 The Open Grid Emissions Dataset can be [downloaded here](https://singularity.energy/open-grid-emissions). An archive of previous versions of the dataset and intermediate data outputs (for research and validation purposes) can be found on [Zenodo](https://zenodo.org/communities/singularity-energy?page=1&size=20).
 
 ## Installing and running the data pipeline
-A couple of installation methods are available. First, navigate to the folder where you want to save the repository and run the following commands:
+To manage the code environment necessary to run the OGE data pipeline, either `pipenv` or `conda` may be used. Currently, we utilize `pipenv` as our preferred environment manager for running the pipeline that is used for data releases, but `conda` will also work if you are more familiar with `conda`. 
 
-### If you are using conda
-```bash
-conda install git
-git clone https://github.com/singularity-energy/open-grid-emissions.git
-conda update conda
-cd open-grid-emissions
-conda env create -f environment.yml
-conda activate open_grid_emissions
-```
+First, navigate to the folder where you want to save the repository and run the following commands:
 
 ### If you are using pipenv
 Note that this option requires to have Python and git installed on your machine.
@@ -30,6 +22,19 @@ git clone https://github.com/singularity-energy/open-grid-emissions.git
 cd open-grid-emissions
 pipenv sync
 pipenv shell
+pip install build
+python -m build
+pip install .
+```
+
+### If you are using conda
+```bash
+conda install git
+git clone https://github.com/singularity-energy/open-grid-emissions.git
+conda update conda
+cd open-grid-emissions
+conda env create -f environment.yml
+conda activate open_grid_emissions
 pip install build
 python -m build
 pip install .
@@ -133,11 +138,17 @@ Open anaconda prompt, use `cd` to navigate to the directory where your local fil
 conda update conda
 conda env create -f environment.yml
 ```
-and activate the environment:
+Installation requires that the conda channel-priority be set to "flexible". This is the default behavior, so if you've never manually changed this, you shouldn't have to worry about this. However, if you receive an error message like "Found conflicts!" when trying to install the environment, try setting your channel priority to flexible by running the following command:`conda config --set channel_priority flexible` and then re-running the above commands.
+
+The final step is to install the `oge` package itself in the conda environment. To do so, run:
 ```bash
 conda activate open_grid_emissions
+pip install build
+python -m build
+pip install .
 ```
-Installation requires that the conda channel-priority be set to "flexible". This is the default behavior, so if you've never manually changed this, you shouldn't have to worry about this. However, if you receive an error message like "Found conflicts!" when trying to install the environment, try setting your channel priority to flexible by running the following command:`conda config --set channel_priority flexible` and then re-running the above commands.
+
+The open_grid_emissions conda environment should now be set up and ready to run.
 
 ### Setup with pipenv
 #### Install python and git
@@ -182,9 +193,9 @@ pip install –-editable .
 If you ever need to remove and reinstall the environment, run `pipenv --rm` from the root directory then follow the directions above.
 
 ### Running the complete data pipeline
-If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src`, and run the following (replacing 2021 with whichever year you want to run):
+If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src/oge`, and run the following (replacing 2022 with whichever year you want to run):
 ```
-python data_pipeline.py --year 2021
+python data_pipeline.py --year 2022
 ```
 
 ### Keeping the code updated
