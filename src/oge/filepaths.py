@@ -23,24 +23,24 @@ def top_folder(rel=""):
 
 
 def reference_table_folder(rel=""):
-    return os.path.join(top_folder("reference_tables"), rel).replace("\\","/")
+    return os.path.join(top_folder("reference_tables"), rel).replace("\\", "/")
 
 
 def data_folder(rel=""):
     """Returns a path relative to the `data` folder."""
-    return os.path.join(get_data_store(), rel).replace("\\","/")
+    return os.path.join(get_data_store(), rel).replace("\\", "/")
 
 
 def downloads_folder(rel=""):
-    return os.path.join(data_folder("downloads"), rel).replace("\\","/")
+    return os.path.join(data_folder("downloads"), rel).replace("\\", "/")
 
 
 def outputs_folder(rel=""):
-    return os.path.join(data_folder("outputs"), rel).replace("\\","/")
+    return os.path.join(data_folder("outputs"), rel).replace("\\", "/")
 
 
 def results_folder(rel=""):
-    return os.path.join(data_folder("results"), rel).replace("\\","/")
+    return os.path.join(data_folder("results"), rel).replace("\\", "/")
 
 
 def containing_folder(filepath: str) -> str:
