@@ -15,6 +15,7 @@ import oge.download_data as download_data
 import oge.data_cleaning as data_cleaning
 import oge.emissions as emissions
 import oge.gross_to_net_generation as gross_to_net_generation
+import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.eia930 as eia930
 import oge.validation as validation
@@ -226,7 +227,7 @@ def main(args):
     # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
     ####################################################################################
     logger.info("5. Loading plant static attributes")
-    plant_attributes = data_cleaning.create_plant_attributes_table(
+    plant_attributes = helpers.create_plant_attributes_table(
         cems, eia923_allocated, year, primary_fuel_table
     )
 
@@ -263,9 +264,10 @@ def main(args):
     logger.info("8. Shaping partial CEMS data")
     # shape partial CEMS plant data
     partial_cems_plant = impute_hourly_profiles.shape_partial_cems_plants(
-        cems, eia923_allocated
+        cems, eia923_allocated, year
     )
     validation.validate_unique_datetimes(
+        year,
         df=partial_cems_plant,
         df_name="partial_cems_plant",
         keys=["plant_id_eia", "subplant_id"],
@@ -287,9 +289,12 @@ def main(args):
     (
         cems,
         partial_cems_subplant,
-    ) = impute_hourly_profiles.shape_partial_cems_subplants(cems, eia923_allocated)
+    ) = impute_hourly_profiles.shape_partial_cems_subplants(
+        cems, eia923_allocated, year
+    )
 
     validation.validate_unique_datetimes(
+        year,
         df=partial_cems_subplant,
         df_name="partial_cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
@@ -337,8 +342,9 @@ def main(args):
     cems = emissions.calculate_co2e_mass(
         cems, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
-    validation.test_emissions_adjustments(cems)
+    validation.test_emissions_adjustments(cems, year)
     validation.validate_unique_datetimes(
+        year,
         df=cems,
         df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
@@ -389,10 +395,20 @@ def main(args):
         year=year,
     )
     output_data.output_plant_data(
-        monthly_plant_data, path_prefix, "monthly", args.skip_outputs, plant_attributes
+        monthly_plant_data,
+        year,
+        path_prefix,
+        "monthly",
+        args.skip_outputs,
+        plant_attributes,
     )
     output_data.output_plant_data(
-        monthly_plant_data, path_prefix, "annual", args.skip_outputs, plant_attributes
+        monthly_plant_data,
+        year,
+        path_prefix,
+        "annual",
+        args.skip_outputs,
+        plant_attributes,
     )
     del monthly_plant_data
 
@@ -469,6 +485,7 @@ def main(args):
     logger.info("14. Exporting Hourly Plant-level data for each BA")
     if args.shape_individual_plants and not args.small:
         impute_hourly_profiles.combine_and_export_hourly_plant_data(
+            year,
             cems,
             partial_cems_subplant,
             partial_cems_plant,
@@ -503,7 +520,7 @@ def main(args):
         monthly_eia_data_to_shape, plant_attributes, path_prefix
     )
     shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
-        monthly_eia_data_to_shape, hourly_profiles
+        monthly_eia_data_to_shape, hourly_profiles, year
     )
     output_data.output_data_quality_metrics(
         validation.hourly_profile_source_metric(
@@ -519,6 +536,7 @@ def main(args):
     )
     # Export data
     validation.validate_unique_datetimes(
+        year,
         df=shaped_eia_data,
         df_name="shaped_eia_data",
         keys=["plant_id_eia"],
@@ -548,6 +566,7 @@ def main(args):
     validation.validate_shaped_totals(
         shaped_eia_data,
         monthly_eia_data_to_shape,
+        year,
         group_keys=["ba_code", "fuel_category"],
     )
 
@@ -585,6 +604,7 @@ def main(args):
     )  # free memory back to python
     # export to a csv.
     validation.validate_unique_datetimes(
+        year,
         df=combined_plant_data,
         df_name="combined_plant_data",
         keys=["plant_id_eia"],
@@ -598,6 +618,7 @@ def main(args):
     if not args.shape_individual_plants:
         output_data.output_plant_data(
             combined_plant_data,
+            year,
             path_prefix,
             "hourly",
             args.skip_outputs,
@@ -616,7 +637,9 @@ def main(args):
         ba_fuel_data, year, path_prefix, args.skip_outputs
     )
     # Output final data: per-ba hourly generation and rate
-    output_data.write_power_sector_results(ba_fuel_data, path_prefix, args.skip_outputs)
+    output_data.write_power_sector_results(
+        ba_fuel_data, year, path_prefix, args.skip_outputs
+    )
 
     # 18. Calculate consumption-based emissions and write carbon accounting results
     ####################################################################################

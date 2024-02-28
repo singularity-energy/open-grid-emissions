@@ -236,7 +236,7 @@ def select_best_available_profile(hourly_profiles):
         ] = profile
         # fill missing values with non-missing values from the filtered profile data
         hourly_profiles["profile"] = hourly_profiles["profile"].fillna(
-            hourly_profiles[profile]
+            hourly_profiles[profile].astype("float64")
         )
 
     # for imputed profiles, identify the specific imputation method
@@ -268,22 +268,17 @@ def aggregate_for_residual(
     partial_cems_subplant,
     partial_cems_plant,
     plant_attributes,
+    year,
     time_key: str = "datetime_utc",
     ba_key: str = "ba_code",
     transmission: bool = False,
 ):
-    """
-        aggregate_for_residual()
-    Inputs:
-        data: dataframe with time_key, ba_key, "fuel_category_eia930", "net_generation_mwh" and "distribution_flag" columns
-
-    Utility function for trying different BA aggregations in 930 and 923 data
-    """
+    """Utility function for trying different BA aggregations in 930 and 923 data"""
 
     # add the partial cems data
     cems = pd.concat([cems, partial_cems_subplant, partial_cems_plant], axis=0)
     validation.validate_unique_datetimes(
-        cems, "cems_for_residual", ["plant_id_eia", "subplant_id"]
+        year, cems, "cems_for_residual", ["plant_id_eia", "subplant_id"]
     )
 
     # merge in plant attributes
@@ -296,6 +291,7 @@ def aggregate_for_residual(
     missing_fuel_category = cems[
         (cems["fuel_category_eia930"].isna()) & (cems["net_generation_mwh"] != 0)
     ]
+
     if len(missing_fuel_category) > 0:
         logger.warning(
             "The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
@@ -304,6 +300,12 @@ def aggregate_for_residual(
             "\n"
             + missing_fuel_category[["plant_id_eia", "subplant_id"]]
             .drop_duplicates()
+            .merge(
+                plant_attributes[["plant_id_eia", "ba_code"]],
+                how="left",
+                on="plant_id_eia",
+                validate="m:1",
+            )
             .to_string()
         )
         raise UserWarning(
@@ -374,8 +376,10 @@ def calculate_residual(
             `net_generation_mwh_930`
         `plant_frame` dataframe of static plant data containing columns
             `plant_id_eia`, `ba_code`, `ba_code_physical`
-        transmission_only: true or false, only use plants that are connected to transmission grid?
-        ba_column_name: string, either "ba_code" or "ba_code_physical" - which BA assignment to use.
+        transmission_only: true or false, only use plants that are connected to
+        transmission grid?
+        ba_column_name: string, either "ba_code" or "ba_code_physical" - which BA
+        assignment to use.
     Returns:
         Dataframe of hourly profiles, containing columns
 
@@ -397,6 +401,7 @@ def calculate_residual(
         partial_cems_subplant,
         partial_cems_plant,
         plant_attributes,
+        year,
         "datetime_utc",
         ba_column_name,
         transmission_only,
@@ -549,7 +554,7 @@ def create_flat_profile(report_date, ba, fuel):
         index=pd.date_range(
             start=f"{year-1}-12-31 00:00:00",
             end=f"{year+1}-01-01 23:00:00",
-            freq="H",
+            freq="h",
             tz="UTC",
             name="datetime_utc",
         ),
@@ -669,7 +674,7 @@ def impute_missing_hourly_profiles(
         .dt.tz_localize("UTC")
     )
     validation.validate_unique_datetimes(
-        hourly_profiles, "hourly_profiles", ["ba_code", "fuel_category"]
+        year, hourly_profiles, "hourly_profiles", ["ba_code", "fuel_category"]
     )
 
     return hourly_profiles
@@ -896,6 +901,7 @@ def convert_profile_to_percent(hourly_profiles, group_keys, columns_to_convert):
 
 
 def combine_and_export_hourly_plant_data(
+    year: int,
     cems: pd.DataFrame,
     partial_cems_subplant: pd.DataFrame,
     partial_cems_plant: pd.DataFrame,
@@ -1040,11 +1046,12 @@ def combine_and_export_hourly_plant_data(
 
         # shape the eia data
         shaped_eia_region_data = shape_monthly_eia_data_as_hourly(
-            eia_region, hourly_profiles
+            eia_region, hourly_profiles, year
         )
 
         # validate that the shaped data contains no duplicate datetimes
         validation.validate_unique_datetimes(
+            year,
             df=shaped_eia_region_data,
             df_name="shaped_eia_data",
             keys=["plant_id_eia"],
@@ -1096,6 +1103,7 @@ def combine_and_export_hourly_plant_data(
         # write data
         output_data.output_to_results(
             combined_plant_data,
+            year,
             region,
             "plant_data/hourly/",
             path_prefix,
@@ -1184,7 +1192,7 @@ def aggregate_eia_data_to_ba_fuel(
     return eia_agg, plant_attributes
 
 
-def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles):
+def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles, year):
     """
     Uses monthly-level EIA data and assigns an hourly profile
     Intended for calling after `monthly_eia_data_to_ba`
@@ -1250,14 +1258,16 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles)
     validation.validate_shaped_totals(
         shaped_monthly_data,
         monthly_eia_data_to_shape,
+        year,
         group_keys=["ba_code", "fuel_category"],
     )
 
     return shaped_monthly_data
 
 
-def shape_partial_cems_plants(cems, eia923_allocated):
-    """Shapes the monthly data for subplants where partial plant data is available in CEMS."""
+def shape_partial_cems_plants(cems, eia923_allocated, year):
+    """Shapes the monthly data for subplants where partial plant data is available in
+    CEMS."""
 
     SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
 
@@ -1343,6 +1353,7 @@ def shape_partial_cems_plants(cems, eia923_allocated):
             shaped_partial_plants["generation_profile"].isna()
             | shaped_partial_plants["fuel_profile"].isna()
         ]
+
         if len(missing_profiles) > 0:
             logger.warning(
                 "Certain partial CEMS plants are missing hourly profile data. This will result in inaccurate results"
@@ -1359,6 +1370,7 @@ def shape_partial_cems_plants(cems, eia923_allocated):
             (~np.isclose(incorrect_profiles["generation_profile"], 1))
             | (~np.isclose(incorrect_profiles["fuel_profile"], 1))
         ]
+
         if len(incorrect_profiles) > 0:
             logger.warning(
                 "Certain partial CEMS profiles do not add to 100%. This will result in inaccurate results"
@@ -1385,6 +1397,7 @@ def shape_partial_cems_plants(cems, eia923_allocated):
         validation.validate_shaped_totals(
             shaped_partial_plants,
             eia_data_to_shape,
+            year,
             group_keys=["plant_id_eia", "subplant_id"],
         )
 
@@ -1398,12 +1411,13 @@ def shape_partial_cems_plants(cems, eia923_allocated):
     return shaped_partial_plants
 
 
-def shape_partial_cems_subplants(cems, eia923_allocated):
+def shape_partial_cems_subplants(cems, eia923_allocated, year):
     """Scales CEMS subplant data for which there is partial units reporting.
 
     Returns:
         cems_data: cems dataframe with partial_cems subplant-months removed
-        partial_cems_shaped: dataframe with hourly data from EIA scaled using partial cems data
+        partial_cems_shaped: dataframe with hourly data from EIA scaled using partial
+        cems data
     """
     SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
 
@@ -1568,6 +1582,7 @@ def shape_partial_cems_subplants(cems, eia923_allocated):
         validation.validate_shaped_totals(
             partial_cems_shaped,
             eia_data_to_shape,
+            year,
             group_keys=["plant_id_eia", "subplant_id"],
         )
 
