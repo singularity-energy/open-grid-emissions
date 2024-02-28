@@ -12,6 +12,7 @@ import oge.emissions as emissions
 from oge.constants import CLEAN_FUELS
 from oge.column_checks import get_dtypes, apply_dtypes
 from oge.filepaths import reference_table_folder, outputs_folder
+from oge.helpers import create_plant_ba_table
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -48,7 +49,8 @@ DATA_COLUMNS = [
 
 
 def identify_subplants(year, number_of_years=5):
-    """This is the coordinating function for loading and calculating subplant IDs, GTN regressions, and GTN ratios."""
+    """This is the coordinating function for loading and calculating subplant IDs,
+    GTN regressions, and GTN ratios."""
     start_year = year - (number_of_years - 1)
     end_year = year
 
@@ -106,7 +108,8 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     ]
 
     # update the subplant_crosswalk to ensure completeness
-    # prepare the subplant crosswalk by adding a complete list of generators and adding the unit_id_pudl column
+    # prepare the subplant crosswalk by adding a complete list of generators and adding
+    # the unit_id_pudl column
     complete_generator_ids = (
         load_data.load_pudl_table(
             "plant_parts_eia",
@@ -135,8 +138,8 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     ).apply(update_subplant_ids)
 
     # remove the intermediate columns created by update_subplant_ids
-    subplant_crosswalk_complete["subplant_id"].update(
-        subplant_crosswalk_complete["new_subplant"]
+    subplant_crosswalk_complete.update(
+        pd.DataFrame({"subplant_id": subplant_crosswalk_complete["new_subplant"]})
     )
     subplant_crosswalk_complete = subplant_crosswalk_complete.reset_index(drop=True)[
         [
@@ -173,16 +176,16 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
         subplant_crosswalk_complete, end_year
     )
     # validate that there are no orphaned combined cycle plant parts in a subplant
-    validation.check_for_orphaned_cc_part_in_subplant(subplant_crosswalk_complete)
+    validation.check_for_orphaned_cc_part_in_subplant(
+        subplant_crosswalk_complete, end_year
+    )
 
     return subplant_crosswalk_complete
 
 
 def manually_update_subplant_id(subplant_crosswalk):
-    """
-    This function corrects subplant mappings not caught by update_subplant_id.
-
-    This is temporary until the pudl subplant crosswalk includes boiler-generator id matches.
+    """This function corrects subplant mappings not caught by update_subplant_id. This
+    is temporary until the pudl subplant crosswalk includes boiler-generator id matches.
     """
 
     # set all generators in plant 1391 to the same subplant
@@ -194,77 +197,94 @@ def manually_update_subplant_id(subplant_crosswalk):
 
 
 def update_subplant_ids(subplant_crosswalk):
-    """
-    Ensures a complete and accurate subplant_id mapping for all generators.
+    """Ensures a complete and accurate subplant_id mapping for all generators.
 
     NOTE:
-        1. This function is a temporary placeholder until the `pudl.analysis.epacamd_eia` code is updated.
-        2. This function is meant to be applied using a .groupby("plant_id_eia").apply() function. This function
-        will only properly work when applied to a single plant_id_eia at a time.
+        1. This function is a temporary placeholder until the
+        `pudl.analysis.epacamd_eia` code is updated.
+        2. This function is meant to be applied using a .groupby("plant_id_eia").apply()
+        function. This function will only properly work when applied to a single
+        plant_id_eia at a time.
 
     Data Preparation
-        Because the existing subplant_id crosswalk was only meant to map CAMD units to EIA generators, it
-        is missing a large number of subplant_ids for generators that do not report to CEMS. Before applying this
-        function to the subplant crosswalk, the crosswalk must be completed with all generators by outer
-        merging in the complete list of generators from EIA-860 (specifically the gens_eia860 table from pudl).
-        This dataframe also contains the complete list of `unit_id_pudl` mappings that will be necessary.
+        Because the existing subplant_id crosswalk was only meant to map CAMD units to
+        EIA generators, it is missing a large number of subplant_ids for generators
+        that do not report to CEMS. Before applying this function to the subplant
+        crosswalk, the crosswalk must be completed with all generators by outer merging
+        in the complete list of generators from EIA-860 (specifically the gens_eia860
+        table from pudl). This dataframe also contains the complete list of
+        `unit_id_pudl` mappings that will be necessary.
 
     High-level overview of method:
-        1. Use the PUDL subplant_id if available. In the case where a unit_id_pudl groups several subplants,
-        we overwrite these multiple existing subplant_id with a single subplant_id.
-        2. Where there is no PUDL subplant_id, we use the unit_id_pudl to assign a unique subplant_id
-        3. Where there is neither a pudl subplant_id nor unit_id_pudl, we use the generator ID to
-        assign a unique subplant_id
+        1. Use the PUDL subplant_id if available. In the case where a unit_id_pudl
+        groups several subplants, we overwrite these multiple existing subplant_id with
+        a single subplant_id.
+        2. Where there is no PUDL subplant_id, we use the unit_id_pudl to assign a
+        unique subplant_id
+        3. Where there is neither a pudl subplant_id nor unit_id_pudl, we use the
+        generator ID to assign a unique subplant_id
         4. All of the new unique ids are renumbered in consecutive ascending order
 
 
     Detailed explanation of steps:
-        1. Because the current subplant_id code does not take boiler-generator associations into account,
-        there may be instances where the code assigns generators to different subplants when in fact, according
-        to the boiler-generator association table, these generators are grouped into a single unit based on their
-        boiler associations. The first step of this function is thus to identify if multiple subplant_id have
-        been assigned to a single unit_id_pudl. If so, we replace the existing subplant_ids with a single subplant_id.
-        For example, if a generator A was assigned subplant_id 0 and generator B was assigned subplant_id 1, but
-        both generators A and B are part of unit_id_pudl 1, we would re-assign the subplant_id to both generators to
-        0 (we always use the lowest number subplant_id in each unit_id_pudl group). This may result in some subplant_id
-        being skipped, but this is okay because we will later renumber all subplant ids (i.e. if there were also a
-        generator C with subplant_id 2, there would no be no subplant_id 1 at the plant)
-        Likewise, sometimes multiple unit_id_pudl are connected to a single subplant_id, so we also correct the
-        unit_id_pudl basedon these connections.
-        2. The second issue is that there are many NA subplant_id that we should fill. To do this, we first look at
-        unit_id_pudl. If a group of generators are assigned a unit_id_pudl but have NA subplant_ids, we assign a single
-        new subplant_id to this group of generators. If there are still generators at a plant that have both NA subplant_id
-        and NA unit_id_pudl, we for now assume that each of these generators consitutes its own subplant. We thus assign a unique
-        subplant_id to each generator that is unique from any existing subplant_id already at the plant.
-        In the case that there are multiple emissions_unit_id_epa at a plant that are not matched to any other identifiers (generator_id,
-        unit_id_pudl, or subplant_id), as is the case when there are units that report to CEMS but which do not exist in the EIA
-        data, we assign these units to a single subplant.
+        1. Because the current subplant_id code does not take boiler-generator
+        associations into account, there may be instances where the code assigns
+        generators to different subplants when in fact, according to the
+        boiler-generator association table, these generators are grouped into a single
+        unit based on their boiler associations. The first step of this function is
+        thus to identify if multiple subplant_id have been assigned to a single
+        unit_id_pudl. If so, we replace the existing subplant_ids with a single
+        subplant_id. For example, if a generator A was assigned subplant_id 0 and
+        generator B was assigned subplant_id 1, but both generators A and B are part of
+        unit_id_pudl 1, we would re-assign the subplant_id to both generators to 0 (we
+        always use the lowest number subplant_id in each unit_id_pudl group). This may
+        result in some subplant_id being skipped, but this is okay because we will
+        later renumber all subplant ids (i.e. if there were also a generator C with
+        subplant_id 2, there would no be no subplant_id 1 at the plant). Likewise,
+        sometimes multiple unit_id_pudl are connected to a single subplant_id, so we
+        also correct the unit_id_pudl basedon these connections.
+        2. The second issue is that there are many NA subplant_id that we should fill.
+        To do this, we first look at unit_id_pudl. If a group of generators are
+        assigned a unit_id_pudl but have NA subplant_ids, we assign a single new
+        subplant_id to this group of generators. If there are still generators at a
+        plant that have both NA subplant_id and NA unit_id_pudl, we for now assume that
+        each of these generators consitutes its own subplant. We thus assign a unique
+        subplant_id to each generator that is unique from any existing subplant_id
+        already at the plant. In the case that there are multiple emissions_unit_id_epa
+        at a plant that are not matched to any other identifiers (generator_id,
+        unit_id_pudl, or subplant_id), as is the case when there are units that report
+        to CEMS but which do not exist in the EIA data, we assign these units to a single subplant.
 
         Args:
-            subplant_crosswalk: a dataframe containing the output of `pudl.etl.glue_assets.make_subplant_ids` with
+            subplant_crosswalk: a dataframe containing the output of
+            `pudl.etl.glue_assets.make_subplant_ids` with
     """
     # Step 1: Create corrected versions of subplant_id and unit_id_pudl
-    # if multiple unit_id_pudl are connected by a single subplant_id, unit_id_pudl_connected groups these unit_id_pudl together
+    # if multiple unit_id_pudl are connected by a single subplant_id,
+    # unit_id_pudl_connected groups these unit_id_pudl together
     subplant_crosswalk = connect_ids(
         subplant_crosswalk, id_to_update="unit_id_pudl", connecting_id="subplant_id"
     )
-    # if multiple subplant_id are connected by a single unit_id_pudl, group these subplant_id together
+    # if multiple subplant_id are connected by a single unit_id_pudl, group these
+    # subplant_id together
     subplant_crosswalk = connect_ids(
         subplant_crosswalk, id_to_update="subplant_id", connecting_id="unit_id_pudl"
     )
 
     # Step 2: Fill missing subplant_id
-    # We will use unit_id_pudl to fill missing subplant ids, so first we need to fill any missing unit_id_pudl
-    # We do this by assigning a new unit_id_pudl to each generator that isn't already grouped into a unit
+    # We will use unit_id_pudl to fill missing subplant ids, so first we need to fill
+    # any missing unit_id_pudl. We do this by assigning a new unit_id_pudl to each
+    # generator that isn't already grouped into a unit
 
     # create a numeric version of each generator_id
     # ngroup() creates a unique number for each element in the group
     subplant_crosswalk["numeric_generator_id"] = subplant_crosswalk.groupby(
         ["plant_id_eia", "generator_id"], dropna=False
     ).ngroup()
-    # when filling in missing unit_id_pudl, we don't want these numeric_generator_id to overlap existing unit_id
-    # to ensure this, we will add 1000 to each of these numeric generator ids to ensure they are unique
-    # 1000 was chosen as an arbitrarily high number, since the largest unit_id_pudl is ~ 10.
+    # when filling in missing unit_id_pudl, we don't want these numeric_generator_id to
+    # overlap existing unit_id to ensure this, we will add 1000 to each of these numeric
+    # generator ids to ensure they are unique 1000 was chosen as an arbitrarily high
+    # number, since the largest unit_id_pudl is ~ 10.
     subplant_crosswalk["numeric_generator_id"] = (
         subplant_crosswalk["numeric_generator_id"] + 1000
     )
@@ -274,7 +294,8 @@ def update_subplant_ids(subplant_crosswalk):
         .fillna(subplant_crosswalk["subplant_id_connected"] + 100)
         .fillna(subplant_crosswalk["numeric_generator_id"])
     )
-    # create a new unique subplant_id based on the connected subplant ids and the filled unit_id
+    # create a new unique subplant_id based on the connected subplant ids and the
+    # filled unit_id
     subplant_crosswalk["new_subplant"] = subplant_crosswalk.groupby(
         ["plant_id_eia", "subplant_id_connected", "unit_id_pudl_filled"],
         dropna=False,
@@ -286,8 +307,10 @@ def update_subplant_ids(subplant_crosswalk):
 def connect_ids(df, id_to_update, connecting_id):
     """Corrects an id value if it is connected by an id value in another column.
 
-    if multiple subplant_id are connected by a single unit_id_pudl, this groups these subplant_id together
-    if multiple unit_id_pudl are connected by a single subplant_id, this groups these unit_id_pudl together
+    if multiple subplant_id are connected by a single unit_id_pudl, this groups these
+    subplant_id together
+    if multiple unit_id_pudl are connected by a single subplant_id, this groups these
+    unit_id_pudl together
 
     Args:
         df: dataframe containing columns with id_to_update and connecting_id columns
@@ -299,34 +322,43 @@ def connect_ids(df, id_to_update, connecting_id):
         ["plant_id_eia", "subplant_id", "unit_id_pudl"]
     ].drop_duplicates()
 
-    # identify if any non-NA id_to_update are duplicated, indicated that it is associated with multiple connecting_id
+    # identify if any non-NA id_to_update are duplicated, indicated that it is
+    # associated with multiple connecting_id
     duplicates = subplant_unit_pairs[
         (subplant_unit_pairs.duplicated(subset=id_to_update, keep=False))
         & (~subplant_unit_pairs[id_to_update].isna())
     ].copy()
 
-    # if there are any duplicate units, indicating an incorrect id_to_update, fix the id_to_update
+    # if there are any duplicate units, indicating an incorrect id_to_update,
+    # fix the id_to_update
     df[f"{connecting_id}_connected"] = df[connecting_id]
     if len(duplicates) > 0:
-        # find the lowest number subplant id associated with each duplicated unit_id_pudl
+        # find the lowest number subplant id associated with each duplicated
+        # unit_id_pudl
         duplicates.loc[:, f"{connecting_id}_to_replace"] = (
             duplicates.groupby(["plant_id_eia", id_to_update])[connecting_id]
             .min()
             .iloc[0]
         )
-        # merge this replacement subplant_id into the dataframe and use it to update the existing subplant id
+        # merge this replacement subplant_id into the dataframe and use it to update
+        # the existing subplant id
         df = df.merge(
             duplicates,
             how="left",
             on=["plant_id_eia", id_to_update, connecting_id],
             validate="m:1",
         )
-        df[f"{connecting_id}_connected"].update(df[f"{connecting_id}_to_replace"])
+        df.update(
+            pd.DataFrame(
+                {f"{connecting_id}_connected": df[f"{connecting_id}_to_replace"]}
+            )
+        )
     return df
 
 
 def add_generator_operating_and_retirement_dates(df, start_year, end_year):
-    """Adds columns listing a generator's planned operating date or retirement date to a dataframe."""
+    """Adds columns listing a generator's planned operating date or retirement date to
+    a dataframe."""
 
     generator_status = load_data.load_pudl_table(
         "generators_eia860",
@@ -359,7 +391,8 @@ def add_generator_operating_and_retirement_dates(df, start_year, end_year):
         ],
         keep="last",
     )
-    # for any generators that have different retirement or planned dates reported in different years, keep the most recent value
+    # for any generators that have different retirement or planned dates reported in
+    # different years, keep the most recent value
     generator_status = generator_status.sort_values(
         by=["plant_id_eia", "generator_id", "report_date"]
     ).drop_duplicates(subset=["plant_id_eia", "generator_id"], keep="last")
@@ -409,9 +442,8 @@ def clean_eia923(
     calculate_nox_emissions: bool = True,
     calculate_so2_emissions: bool = True,
 ):
-    """
-    This is the coordinating function for cleaning and allocating generation and fuel data in EIA-923.
-    """
+    """This is the coordinating function for cleaning and allocating generation and fuel
+    data in EIA-923."""
     # Allocate fuel and generation across each generator-pm-energy source
     gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
     bf = load_data.load_pudl_table("denorm_boiler_fuel_eia923", year)
@@ -450,6 +482,13 @@ def clean_eia923(
                         column,
                     ]
                 ]
+                .merge(
+                    create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+                    how="left",
+                    on="plant_id_eia",
+                    validate="m:1",
+                )
+                .to_string()
             )
             logger.warning("These values will be treated as missing values")
             gen_fuel_allocated.loc[gen_fuel_allocated[column] < 0, column] = np.NaN
@@ -458,7 +497,7 @@ def clean_eia923(
     validation.check_allocated_gf_matches_input_gf(year, gen_fuel_allocated)
 
     # manually update energy source code when OTH
-    gen_fuel_allocated = update_energy_source_codes(gen_fuel_allocated)
+    gen_fuel_allocated = update_energy_source_codes(gen_fuel_allocated, year)
 
     # round all values to the nearest tenth of a unit
     gen_fuel_allocated.loc[
@@ -478,7 +517,7 @@ def clean_eia923(
     ].round(1)
 
     validation.test_for_missing_energy_source_code(gen_fuel_allocated)
-    validation.test_for_negative_values(gen_fuel_allocated)
+    validation.test_for_negative_values(gen_fuel_allocated, year)
 
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(
@@ -488,7 +527,8 @@ def clean_eia923(
     if small:
         gen_fuel_allocated = smallerize_test_data(df=gen_fuel_allocated, random_seed=42)
 
-    # calculate co2 emissions for each generator-fuel based on allocated fuel consumption
+    # calculate co2 emissions for each generator-fuel based on allocated fuel
+    # consumption
     gen_fuel_allocated = emissions.calculate_ghg_emissions_from_fuel_consumption(
         df=gen_fuel_allocated,
         year=year,
@@ -517,7 +557,7 @@ def clean_eia923(
         gen_fuel_allocated, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
 
-    validation.test_emissions_adjustments(gen_fuel_allocated)
+    validation.test_emissions_adjustments(gen_fuel_allocated, year)
 
     # calculate weighted emission factors for each subplant-month
     subplant_emission_factors = calculate_subplant_efs(gen_fuel_allocated, year)
@@ -572,15 +612,13 @@ def clean_eia923(
     primary_fuel_table = apply_dtypes(primary_fuel_table)
 
     # run validation checks on EIA-923 data
-    validation.test_for_negative_values(gen_fuel_allocated)
+    validation.test_for_negative_values(gen_fuel_allocated, year)
 
     return gen_fuel_allocated, primary_fuel_table, subplant_emission_factors
 
 
-def update_energy_source_codes(df):
-    """
-    Manually update fuel source codes
-    """
+def update_energy_source_codes(df, year):
+    """Manually update fuel source codes."""
     # load the table of updated fuel types
     updated_esc = pd.read_csv(
         reference_table_folder("updated_oth_energy_source_codes.csv")
@@ -599,23 +637,27 @@ def update_energy_source_codes(df):
         (df["energy_source_code"] == "OTH") & (df["fuel_consumed_mmbtu"] > 0)
     ]
     if len(plants_with_other_fuel) > 0:
+        id2ba = (
+            create_plant_ba_table(year).set_index("plant_id_eia")["ba_code"].to_dict()
+        )
+        plants_to_check = {
+            i: id2ba[i] for i in plants_with_other_fuel["plant_id_eia"].unique()
+        }
         logger.warning(
             f"""
-            After cleaning energy source codes, some fuel consumption is still associated with an 'OTH' fuel type.
-            This will lead to incorrect emissions calculations.
-            Check the following plants: {list(plants_with_other_fuel.plant_id_eia.unique())}
-            Assign a fuel type in `data_cleaning.update_energy_source_codes`"""
+            After cleaning energy source codes, some fuel consumption is still 
+            associated with an 'OTH' fuel type. This will lead to incorrect emissions 
+            calculations. Check the following plants: {plants_to_check}. Assign a fuel 
+            type in `data_cleaning.update_energy_source_codes`"""
         )
 
     return df
 
 
 def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
-    """
-    Identifies the primary fuel for each generator and plant
-    Gen primary fuel is identified based on the "energy source code 1" identified in EIA-860
-    Plant primary fuel is based on the most-consumed fuel at a plant based on allocated heat input
-    """
+    """Identifies the primary fuel for each generator and plant Gen primary fuel is
+    identified based on the "energy source code 1" identified in EIA-860. Plant primary
+    fuel is based on the most-consumed fuel at a plant based on allocated heat input"""
 
     # add subplant ids so that we can create subplant-specific primary fuels
     if add_subplant_id:
@@ -659,7 +701,7 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         gen_fuel_allocated, gen_primary_fuel, "plant", year
     )
 
-    validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel)
+    validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel, year)
 
     # merge the plant primary fuel into the gen primary fuel
     primary_fuel_table = gen_primary_fuel.merge(
@@ -801,9 +843,13 @@ def calculate_aggregated_primary_fuel(
         plants_with_no_primary_fuel = agg_primary_fuel[
             agg_primary_fuel[f"{agg_level}_primary_fuel"].isna()
         ]
-        logger.warning(
-            f"Check the following plants: {list(plants_with_no_primary_fuel.plant_id_eia.unique())}"
+        id2ba = (
+            create_plant_ba_table(year).set_index("plant_id_eia")["ba_code"].to_dict()
         )
+        plants_to_check = {
+            i: id2ba[i] for i in plants_with_no_primary_fuel["plant_id_eia"].unique()
+        }
+        logger.warning(f"Check the following plants: {plants_to_check}")
         raise UserWarning(
             f"{agg_level} primary fuel table contains missing primary fuels.\
             Update method of `create_primary_fuel_table()` to fix"
@@ -937,9 +983,11 @@ def remove_plants(
     Args:
         df: dataframe containing plant_id_eia column
         non_grid_connected: if True, remove all plants that are not grid connected
-        remove_states: list of two-letter state codes for which plants should be removed if located within
-        steam_only_plants: if True, remove plants that only generate heat and no electricity (not yet implemented)
-        distribution_connected_plants: if True, remove plants that are connected to the distribution grid (not yet implemented)
+        remove_states: list of two-letter state codes for which plants should be
+        removed if located within steam_only_plants: if True, remove plants that only
+        generate heat and no electricity (not yet implemented)
+        distribution_connected_plants: if True, remove plants that are connected to the
+        distribution grid (not yet implemented)
     """
     if non_grid_connected:
         df = remove_non_grid_connected_plants(df)
@@ -952,6 +1000,7 @@ def remove_plants(
                 plant_states["state"].isin(remove_states)
             ].plant_id_eia.unique()
         )
+
         logger.info(
             f"Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
         )
@@ -992,8 +1041,8 @@ def remove_non_grid_connected_plants(df):
 
     df = df[~df["plant_id_eia"].isin(ngc_plants)]
 
-    # according to the egrid documentation, any plants that have an id of 88XXXX are not grid connected
-    # only keep plants that dont have an id of 88XXXX
+    # according to the egrid documentation, any plants that have an id of 88XXXX are
+    # not grid connected only keep plants that dont have an id of 88XXXX
     df = df[(df["plant_id_eia"] < 880000) | (df["plant_id_eia"] >= 890000)]
 
     return df
@@ -1072,9 +1121,9 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     # reported EIA data since this is directly reported by the generator.
     # cems = remove_cems_with_zero_monthly_data(cems)
 
-    validation.test_for_negative_values(cems)
+    validation.test_for_negative_values(cems, year)
     validation.validate_unique_datetimes(
-        cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
+        year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
     )
 
     cems = apply_dtypes(cems)
@@ -1119,6 +1168,7 @@ def manually_remove_steam_units(df):
         indicator="source",
         validate="m:1",
     )
+
     df = df[df["source"] == "left_only"].drop(columns=["source"])
 
     return df
@@ -1251,7 +1301,7 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
     )
 
     # update
-    cems = update_energy_source_codes(cems)
+    cems = update_energy_source_codes(cems, year)
 
     return cems
 
@@ -1514,6 +1564,7 @@ def remove_cems_with_zero_monthly_data(cems):
     logger.info(
         f"Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
     )
+
     validation.check_removed_data_is_empty(cems)
     cems = cems[cems["missing_data_flag"] != "remove"]
     # drop the missing data flag column
@@ -2068,322 +2119,6 @@ def combine_plant_data(
     combined_plant_data = combined_plant_data[ALL_COLUMNS]
 
     return combined_plant_data
-
-
-def create_plant_attributes_table(cems, eia923_allocated, year, primary_fuel_table):
-    # create a table with the unique plantids from both dataframes
-    eia_plants = eia923_allocated.copy()[
-        ["plant_id_eia", "plant_primary_fuel"]
-    ].drop_duplicates()
-    cems_plants = cems[["plant_id_eia"]].drop_duplicates()
-
-    # merge primary fuel into cems
-    cems_plants = cems_plants.merge(
-        primary_fuel_table.drop_duplicates(subset="plant_id_eia")[
-            ["plant_id_eia", "plant_primary_fuel"]
-        ],
-        how="left",
-        on="plant_id_eia",
-        validate="1:1",
-    )
-
-    # identify any CEMS-only plants that are missing a primary fuel assignment
-    plants_missing_primary_fuel = list(
-        cems_plants.loc[cems_plants["plant_primary_fuel"].isna(), "plant_id_eia"]
-    )
-
-    # calculate primary fuel for each of these missing plants
-    cems_primary_fuel = cems.loc[
-        cems["plant_id_eia"].isin(plants_missing_primary_fuel),
-        ["plant_id_eia", "energy_source_code", "fuel_consumed_mmbtu"],
-    ]
-
-    # calculate the total fuel consumption by fuel type and keep the fuel code with the largest fuel consumption
-    cems_primary_fuel = (
-        cems_primary_fuel.groupby(["plant_id_eia", "energy_source_code"], dropna=False)
-        .sum()
-        .reset_index()
-        .sort_values(by="fuel_consumed_mmbtu", ascending=False)
-        .drop_duplicates(subset="plant_id_eia", keep="first")
-        .drop(columns="fuel_consumed_mmbtu")
-    )
-
-    # merge the cems primary fuel back in and use it to fill any missing fuel codes
-    cems_plants = cems_plants.merge(
-        cems_primary_fuel,
-        how="left",
-        on="plant_id_eia",
-        validate="1:1",
-    )
-    cems_plants["plant_primary_fuel"] = cems_plants["plant_primary_fuel"].fillna(
-        cems_plants["energy_source_code"]
-    )
-    cems_plants = cems_plants.drop(columns="energy_source_code")
-
-    # concat the two lists together
-    plant_attributes = eia_plants.merge(
-        cems_plants,
-        how="outer",
-        on="plant_id_eia",
-        indicator="data_availability",
-        suffixes=(None, "_cems"),
-        validate="1:1",
-    )
-    plant_attributes["plant_primary_fuel"] = plant_attributes[
-        "plant_primary_fuel"
-    ].fillna(plant_attributes["plant_primary_fuel_cems"])
-    plant_attributes = plant_attributes.drop(columns=["plant_primary_fuel_cems"])
-    plant_attributes["data_availability"] = plant_attributes[
-        "data_availability"
-    ].replace(
-        {"left_only": "eia_only", "right_only": "cems_only", "both": "cems_and_eia"}
-    )
-
-    # assign a BA code and state code to each plant
-    plant_attributes = assign_ba_code_to_plant(plant_attributes, year)
-
-    # add a flag about whether the plant is distribution connected
-    plant_attributes = identify_distribution_connected_plants(
-        plant_attributes, year, voltage_threshold_kv=60
-    )
-
-    # assign a fuel category to each plant based on what is most likely to match with the category used in EIA-930
-    plant_attributes = assign_fuel_category_to_ESC(
-        df=plant_attributes,
-        esc_column="plant_primary_fuel",
-    )
-
-    # add tz info
-    plant_attributes = add_plant_local_timezone(plant_attributes, year)
-
-    plant_attributes = apply_dtypes(plant_attributes)
-
-    return plant_attributes
-
-
-def assign_ba_code_to_plant(df, year):
-    """
-    Assigns a balancing authority code and state to each plant based on the plant id
-    Inputs:
-        df: a pandas dataframe containing a 'plant_id_eia' column
-        year: four digit year number for the data
-    Returns:
-        df with a new column for 'ba_code' and 'state'
-    """
-
-    plant_ba = create_plant_ba_table(year)[
-        ["plant_id_eia", "ba_code", "ba_code_physical", "state"]
-    ]
-
-    # merge the ba code into the dataframe
-    df = df.merge(plant_ba, how="left", on="plant_id_eia", validate="m:1")
-
-    if len(df[df["ba_code"].isna()]) > 0:
-        logger.warning("the following plants are missing ba_code:")
-        logger.warning("\n" + df[df["ba_code"].isna()].to_string())
-
-    # replace missing ba codes with NA
-    df["ba_code"] = df["ba_code"].fillna("NA")
-    df["ba_code_physical"] = df["ba_code_physical"].fillna("NA")
-
-    return df
-
-
-def create_plant_ba_table(year):
-    """
-    Creates a table assigning a ba_code and physical ba code to each plant id.
-    """
-
-    plant_ba = load_data.load_pudl_table(
-        "plants_eia860",
-        columns=[
-            "plant_id_eia",
-            "report_date",
-            "balancing_authority_code_eia",
-            "balancing_authority_name_eia",
-            "utility_id_eia",
-            "transmission_distribution_owner_name",
-        ],
-    )
-
-    # remove report dates newer than the current year
-    plant_ba = plant_ba[plant_ba["report_date"].dt.year <= year]
-
-    # sort the data from newest to oldest
-    plant_ba = plant_ba.sort_values(by=["plant_id_eia", "report_date"], ascending=False)
-
-    # only keep the most recent row of data
-    plant_ba = plant_ba.drop_duplicates(subset=["plant_id_eia"], keep="first")
-
-    # merge utility name
-    utilities_eia = load_data.load_pudl_table(
-        "utilities_eia", columns=["utility_id_eia", "utility_name_eia"]
-    )
-    plant_ba = plant_ba.merge(
-        utilities_eia, how="left", on="utility_id_eia", validate="m:1"
-    )
-    # merge plant state
-    plant_states = load_data.load_pudl_table(
-        "plants_entity_eia", columns=["plant_id_eia", "state"]
-    )
-    plant_ba = plant_ba.merge(
-        plant_states, how="left", on="plant_id_eia", validate="m:1"
-    )
-
-    # convert the dtype of the balancing authority code column from string to object
-    # this will allow for missing values to be filled
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].astype(object)
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(value=np.NaN)
-
-    # load the ba name reference
-    ba_name_to_ba_code = pd.read_csv(reference_table_folder("ba_reference.csv"))
-    ba_name_to_ba_code = dict(
-        zip(
-            ba_name_to_ba_code["ba_name"],
-            ba_name_to_ba_code["ba_code"],
-        )
-    )
-
-    # specify a ba code for certain utilities
-    utility_as_ba_code = pd.read_csv(
-        reference_table_folder("utility_name_ba_code_map.csv")
-    )
-    utility_as_ba_code = dict(
-        zip(
-            utility_as_ba_code["name"],
-            utility_as_ba_code["ba_code"],
-        )
-    )
-
-    # fill missing BA codes first based on the BA name, then utility name, then on the transmisison owner name
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(plant_ba["balancing_authority_name_eia"].map(ba_name_to_ba_code))
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(plant_ba["balancing_authority_name_eia"].map(utility_as_ba_code))
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(plant_ba["utility_name_eia"].map(utility_as_ba_code))
-    plant_ba["balancing_authority_code_eia"] = plant_ba[
-        "balancing_authority_code_eia"
-    ].fillna(plant_ba["transmission_distribution_owner_name"].map(utility_as_ba_code))
-
-    # rename the ba column
-    plant_ba = plant_ba.rename(columns={"balancing_authority_code_eia": "ba_code"})
-
-    plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
-
-    # get a list of all of the BAs that retired prior to the current year
-    retired_bas = load_data.load_ba_reference()[["ba_code", "retirement_date"]]
-    retired_bas = list(
-        retired_bas.loc[
-            retired_bas["retirement_date"].dt.year < year, "ba_code"
-        ].unique()
-    )
-    # if there are any plants that have been assigned to a retired BA, set its BA code as missing
-    plant_ba.loc[plant_ba["ba_code"].isin(retired_bas), "ba_code"] = np.NaN
-
-    # for plants without a BA code assign the miscellaneous BA code based on the state
-    plant_ba["ba_code"] = plant_ba["ba_code"].fillna(plant_ba["state"] + "MS")
-
-    # add a physical ba code based on the owner of the transmission system
-    plant_ba["ba_code_physical"] = plant_ba["ba_code"]
-    plant_ba["ba_code_physical"].update(
-        plant_ba["transmission_distribution_owner_name"].map(utility_as_ba_code)
-    )
-
-    # update based on mapping table when ambiguous
-    physical_ba = pd.read_csv(
-        reference_table_folder("physical_ba.csv"), dtype=get_dtypes()
-    )
-    plant_ba = plant_ba.merge(
-        physical_ba,
-        how="left",
-        on=["ba_code", "transmission_distribution_owner_name"],
-        suffixes=("", "_map"),
-        validate="m:1",
-    )
-    plant_ba["ba_code_physical"].update(plant_ba["ba_code_physical_map"])
-
-    return plant_ba
-
-
-def identify_distribution_connected_plants(df, year, voltage_threshold_kv=60):
-    """
-    Identifies which plant_id_eia are "distribution grid connected" based on a voltage threshold.
-
-    The distribution grid is generally considered to operate at 60-69kV and below.
-    Thus, any plants that have a grid voltage under this threshold will be flagged as distribution connected.
-    Args:
-        df: pandas dataframe with a column for plant_id_eia
-        voltage_threshold_kv: the voltage (kV) under which a plant will be considered to be a distribution asset
-    Returns:
-        df: with additional binary column `distribution_flag`
-    """
-    # load the EIA-860 data
-    plant_voltage = load_data.load_pudl_table(
-        "plants_eia860", year, columns=["plant_id_eia", "grid_voltage_1_kv"]
-    )
-
-    plant_voltage = plant_voltage.assign(
-        distribution_flag=lambda x: np.where(
-            x.grid_voltage_1_kv <= voltage_threshold_kv, True, False
-        )
-    )
-
-    df = df.merge(
-        plant_voltage[["plant_id_eia", "distribution_flag"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
-    )
-
-    return df
-
-
-def assign_fuel_category_to_ESC(
-    df,
-    fuel_category_names=["fuel_category", "fuel_category_eia930"],
-    esc_column="energy_source_code",
-):
-    """
-    Assigns a fuel category to each energy source code in a dataframe.
-    Args:
-        df: pandas dataframe with column name that matches fuel_category_name and contains energy source codes
-        fuel_category_name: list of the columns in energy_source_groups.csv that contains the desired category mapping
-        esc_column: name of the column in df that contains the energy source codes to assign a category to
-    Returns:
-        df with additional column for fuel category
-    """
-    # load the fuel category table
-    energy_source_groups = pd.read_csv(
-        reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
-    )[["energy_source_code"] + fuel_category_names].rename(
-        columns={"energy_source_code": esc_column}
-    )
-    # assign a fuel category to the monthly eia data
-    df = df.merge(
-        energy_source_groups[[esc_column] + fuel_category_names],
-        how="left",
-        on=esc_column,
-        validate="m:1",
-    )
-
-    return df
-
-
-def add_plant_local_timezone(df, year):
-    plant_tz = load_data.load_pudl_table(
-        "plants_entity_eia", columns=["plant_id_eia", "timezone"]
-    )
-    df = df.merge(plant_tz, how="left", on=["plant_id_eia"], validate="m:1")
-
-    return df
 
 
 def aggregate_cems_to_subplant(cems):
