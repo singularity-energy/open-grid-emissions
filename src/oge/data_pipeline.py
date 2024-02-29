@@ -6,6 +6,7 @@ Run from `src` as `python data_pipeline.py` after installing conda environment
 Optional arguments are --year (default 2022), --shape_individual_plants (default True)
 Optional arguments for development are --small, --flat, and --skip_outputs
 """
+
 import argparse
 import os
 import shutil

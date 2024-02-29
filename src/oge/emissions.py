@@ -945,12 +945,12 @@ def return_monthly_plant_fuel_heat_content(year):
     ]
 
     # replace zero heat content with missing values
-    plant_specific_fuel_heat_content[
-        "fuel_mmbtu_per_unit"
-    ] = plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"].replace(0, np.NaN)
-    plant_specific_fuel_heat_content[
-        "fuel_mmbtu_per_unit"
-    ] = plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"].replace(np.inf, np.NaN)
+    plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"] = (
+        plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"].replace(0, np.NaN)
+    )
+    plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"] = (
+        plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"].replace(np.inf, np.NaN)
+    )
 
     # calculate the average monthly heat content for a fuel
     national_avg_fuel_heat_content = (
@@ -1530,10 +1530,10 @@ def return_monthly_plant_fuel_sulfur_content(year):
             validate="1:1",
             suffixes=(None, "_fill"),
         )
-        annual_avg_fuel_sulfur_content[
-            "sulfur_content_pct"
-        ] = annual_avg_fuel_sulfur_content["sulfur_content_pct"].fillna(
-            annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"]
+        annual_avg_fuel_sulfur_content["sulfur_content_pct"] = (
+            annual_avg_fuel_sulfur_content[
+                "sulfur_content_pct"
+            ].fillna(annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"])
         )
         annual_avg_fuel_sulfur_content = annual_avg_fuel_sulfur_content.drop(
             columns=["sulfur_content_pct_fill"]
