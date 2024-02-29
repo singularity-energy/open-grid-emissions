@@ -1193,9 +1193,9 @@ def hourly_profile_source_metric(
         .sum()
         .reset_index()
     )
-    profile_from_partial_cems_subplant[
-        "profile_method"
-    ] = "eia_scaled_partial_cems_subplant"
+    profile_from_partial_cems_subplant["profile_method"] = (
+        "eia_scaled_partial_cems_subplant"
+    )
 
     profile_from_partial_cems_plant = (
         partial_cems_plant.groupby(["ba_code"], dropna=False)[data_metrics]
@@ -2205,9 +2205,9 @@ def compare_plant_level_results_to_egrid(
                 & (compared_merged[f"{col}_egrid"].isna())
             ].index
         )
-        compared.loc[
-            compared.index.isin(plants_missing_egrid), f"{col}_status"
-        ] = "missing_in_egrid"
+        compared.loc[compared.index.isin(plants_missing_egrid), f"{col}_status"] = (
+            "missing_in_egrid"
+        )
         # identify plants that are missing from our calculations
         plants_missing_calc = list(
             compared_merged[
@@ -2215,9 +2215,9 @@ def compare_plant_level_results_to_egrid(
                 & (compared_merged[f"{col}_egrid"] > 0)
             ].index
         )
-        compared.loc[
-            compared.index.isin(plants_missing_calc), f"{col}_status"
-        ] = "missing_in_calc"
+        compared.loc[compared.index.isin(plants_missing_calc), f"{col}_status"] = (
+            "missing_in_calc"
+        )
         # identify where our calculations are missing a zero value
         plants_missing_zero_calc = list(
             compared_merged[
@@ -2225,9 +2225,9 @@ def compare_plant_level_results_to_egrid(
                 & (compared_merged[f"{col}_egrid"] == 0)
             ].index
         )
-        compared.loc[
-            compared.index.isin(plants_missing_zero_calc), f"{col}_status"
-        ] = "calc_missing_zero_value_from_egrid"
+        compared.loc[compared.index.isin(plants_missing_zero_calc), f"{col}_status"] = (
+            "calc_missing_zero_value_from_egrid"
+        )
         # identify where egrid has a missing value instead of a zero
         plants_missing_zero_egrid = list(
             compared_merged[

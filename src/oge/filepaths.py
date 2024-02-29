@@ -1,4 +1,5 @@
 """Convenience functions for paths."""
+
 import os
 
 
