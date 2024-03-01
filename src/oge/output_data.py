@@ -127,7 +127,7 @@ def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
 
 
 def output_to_results(
-    df, file_name, subfolder, path_prefix, skip_outputs, include_metric=True
+    df, year, file_name, subfolder, path_prefix, skip_outputs, include_metric=True
 ):
     # Always check columns that should not be negative.
     small = "small" in path_prefix
@@ -139,7 +139,7 @@ def output_to_results(
     df = round_table(df)
 
     # Check for negatives after rounding
-    validation.test_for_negative_values(df, small)
+    validation.test_for_negative_values(df, year, small)
     # check that there are no missing values
     validation.test_for_missing_values(df, small)
 
@@ -169,7 +169,9 @@ def output_data_quality_metrics(df, file_name, path_prefix, skip_outputs):
         )
 
 
-def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attributes):
+def output_plant_data(
+    df, year, path_prefix, resolution, skip_outputs, plant_attributes
+):
     """
     Helper function for plant-level output.
     Output for each time granularity, and output separately for real and shaped plants
@@ -181,7 +183,7 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
         if resolution == "hourly":
             # output hourly data
             validation.validate_unique_datetimes(
-                df, "individual_plant_data", ["plant_id_eia"]
+                year, df, "individual_plant_data", ["plant_id_eia"]
             )
             validation.check_for_complete_hourly_timeseries(
                 df, "individual_plant_data", ["plant_id_eia"], "year"
@@ -189,6 +191,7 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
             # Separately save real and aggregate plants
             output_to_results(
                 df[df.plant_id_eia > 900000],
+                year,
                 "shaped_fleet_data",
                 "plant_data/hourly/",
                 path_prefix,
@@ -196,6 +199,7 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
             )
             output_to_results(
                 df[df.plant_id_eia < 900000],
+                year,
                 "individual_plant_data",
                 "plant_data/hourly/",
                 path_prefix,
@@ -206,6 +210,7 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
             # output monthly data
             output_to_results(
                 df,
+                year,
                 "plant_data",
                 "plant_data/monthly/",
                 path_prefix,
@@ -220,11 +225,12 @@ def output_plant_data(df, path_prefix, resolution, skip_outputs, plant_attribute
             )
             # check for anomalous looking co2 rates
             validation.check_for_anomalous_co2_factors(
-                df, plant_attributes, min_threshold=10, max_threshold=15000
+                df, plant_attributes, year, min_threshold=10, max_threshold=15000
             )
             # Separately save real and aggregate plants
             output_to_results(
                 df,
+                year,
                 "plant_data",
                 "plant_data/annual/",
                 path_prefix,
@@ -440,7 +446,7 @@ def round_table(table):
     return table.round(decimals)
 
 
-def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
+def write_power_sector_results(ba_fuel_data, year, path_prefix, skip_outputs):
     """
     Helper function to write combined data by BA
     """
@@ -567,6 +573,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             ]
 
             validation.validate_unique_datetimes(
+                year,
                 df=ba_table_hourly,
                 df_name="power sector hourly ba table",
                 keys=["fuel_category"],
@@ -581,6 +588,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             # export to a csv
             output_to_results(
                 ba_table_hourly,
+                year,
                 ba,
                 "power_sector_data/hourly/",
                 path_prefix,
@@ -602,6 +610,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             ]
             output_to_results(
                 ba_table_monthly,
+                year,
                 ba,
                 "power_sector_data/monthly/",
                 path_prefix,
@@ -621,6 +630,7 @@ def write_power_sector_results(ba_fuel_data, path_prefix, skip_outputs):
             ]
             output_to_results(
                 ba_table_annual,
+                year,
                 ba,
                 "power_sector_data/annual/",
                 path_prefix,

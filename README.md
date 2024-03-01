@@ -75,8 +75,9 @@ There are many ways that you can contribute!
 - `data_cleaning`: functions that clean loaded data
 - `eia930`: functions for cleaning and formatting EIA-930 data
 - `emissions`: functions used for imputing emissions data
-- `filepaths`: Used to identify where repository files are located on the user's computer
-- `gross_to_net_generation`: Functions for identifying subplants and gross to net generation conversion factors
+- `filepaths`: used to identify where repository files are located on the user's computer
+- `gross_to_net_generation`: functions for identifying subplants and gross to net generation conversion factors
+- `helpers`: functions that are used across modules
 - `impute_hourly_profiles`: functions related to assigning an hourly profile to monthly data
 - `load_data`: functions for loading data from downloaded files
 - `output_data`: functions for writing intermediate and final data to csvs

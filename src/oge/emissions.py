@@ -5,6 +5,7 @@ import oge.load_data as load_data
 import oge.validation as validation
 from oge.column_checks import get_dtypes
 from oge.filepaths import reference_table_folder
+from oge.helpers import create_plant_ba_table
 from oge.logging_util import get_logger
 from oge.constants import (
     BIOMASS_FUELS,
@@ -28,7 +29,8 @@ def calculate_ghg_emissions_from_fuel_consumption(
 ):
     """
     Inputs:
-        df: pandas dataframe containing the following columns: ['plant_id_eia', 'report_date,'fuel_consumed_mmbtu','energy_source_code']
+        df: pandas dataframe containing the following columns:
+        ['plant_id_eia', 'report_date,'fuel_consumed_mmbtu','energy_source_code']
     """
 
     emissions_to_calc = []
@@ -332,7 +334,8 @@ def calculate_electric_allocation_factor(df):
 
 
 def adjust_emissions_for_biomass(df):
-    """Creates a new adjusted co2 emissions column that sets any biomass emissions to zero."""
+    """Creates a new adjusted co2 emissions column that sets any biomass emissions to
+    zero."""
 
     # create a column for adjusted biomass emissions, setting these emissions to zero
 
@@ -342,7 +345,8 @@ def adjust_emissions_for_biomass(df):
         df.loc[df["energy_source_code"].isin(BIOMASS_FUELS), "co2_mass_lb_adjusted"] = 0
 
     # CH4: for landfill gas (LFG), all other emissions are set to zero
-    # this assumes that the gas would have been flared anyway if not used for electricity generation
+    # this assumes that the gas would have been flared anyway if not used for
+    # electricity generation
     if "ch4_mass_lb" in df.columns:
         df["ch4_mass_lb_adjusted"] = df["ch4_mass_lb"]
         df.loc[df["energy_source_code"] == "LFG", "ch4_mass_lb_adjusted"] = 0
@@ -353,8 +357,9 @@ def adjust_emissions_for_biomass(df):
         df.loc[df["energy_source_code"] == "LFG", "n2o_mass_lb_adjusted"] = 0
 
     # NOX: assigned an adjusted value
-    # this value is based on using NOx emissions from flaring as a baseline, and subtracting this from the actual emissions
-    # to prevent negative emissions, we set the value = 0 if negative
+    # this value is based on using NOx emissions from flaring as a baseline, and
+    # subtracting this from the actual emissions to prevent negative emissions, we set
+    # the value = 0 if negative
     if "nox_mass_lb" in df.columns:
         df["nox_mass_lb_adjusted"] = df["nox_mass_lb"]
         df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = df.loc[
@@ -374,13 +379,11 @@ def adjust_emissions_for_biomass(df):
 
 
 def calculate_co2e_mass(df, year, gwp_horizon=100, ar5_climate_carbon_feedback=True):
-    """
-    Calculate CO2-equivalent emissions from CO2, CH4, and N2O. This is done
-    by choosing one of the IPCC's emission factors for CH4 and N2O.
+    """Calculate CO2-equivalent emissions from CO2, CH4, and N2O. This is done by
+    choosing one of the IPCC's emission factors for CH4 and N2O.
 
-
-    If the `fuel_consumed_for_electricity_units` column is available, we also
-    compute the adjusted emissions.
+    If the `fuel_consumed_for_electricity_units` column is available, we also compute
+    the adjusted emissions.
     """
     df_gwp = load_data.load_ipcc_gwp()
 
@@ -413,8 +416,9 @@ def calculate_co2e_mass(df, year, gwp_horizon=100, ar5_climate_carbon_feedback=T
         "gwp",
     ].item()
 
-    # fill missing ch4 and n2o with zero so that the calculation works for geothermal plants
-    # don't fill co2 so that if the data actually are misisng, a missing value is also returned
+    # fill missing ch4 and n2o with zero so that the calculation works for geothermal
+    # plants don't fill co2 so that if the data actually are misisng, a missing value
+    # is also returned
     df["co2e_mass_lb"] = (
         df["co2_mass_lb"]
         + (ch4_gwp * df["ch4_mass_lb"].fillna(0))
@@ -450,8 +454,11 @@ def calculate_nox_from_fuel_consumption(
     Calculate NOx emissions from fuel consumption data.
 
     Apply emission rates in the following order based on availability:
-       1. Month- and generator-specific uncontrolled NOx emission factors based on boiler design parameters of all associated boilers and heat content of consumed fuels
-       2. Season- and generator-specific controlled NOx emissions factors based on boiler-specific NOx control equipment in operation.
+       1. Month- and generator-specific uncontrolled NOx emission factors based on
+       boiler design parameters of all associated boilers and heat content of consumed
+       fuels
+       2. Season- and generator-specific controlled NOx emissions factors based on
+       boiler-specific NOx control equipment in operation.
 
     """
 
@@ -496,12 +503,14 @@ def calculate_nox_from_fuel_consumption(
         ],
         validate="m:1",
     )
-    # raise a warning if we are missing emission factors for any non-zero fuel consumption from non-clean fuels
+    # raise a warning if we are missing emission factors for any non-zero fuel
+    # consumption from non-clean fuels
     missing_ef = gen_fuel_allocated[
         gen_fuel_allocated["nox_ef_lb_per_mmbtu"].isna()
         & (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
         & ~gen_fuel_allocated["energy_source_code"].isin(CLEAN_FUELS)
     ]
+
     if len(missing_ef) > 0:
         logger.warning("NOx emission factors are missing for the following records")
         logger.warning("Missing factors for FC prime movers are currently expected")
@@ -517,6 +526,12 @@ def calculate_nox_from_fuel_consumption(
                 ]
             ]
             .drop_duplicates()
+            .merge(
+                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+                how="left",
+                on="plant_id_eia",
+                validate="m:1",
+            )
             .to_string()
         )
     gen_fuel_allocated["nox_mass_lb"] = (
@@ -542,7 +557,8 @@ def calculate_nox_from_fuel_consumption(
             x.fuel_consumed_mmbtu * x.controlled_non_ozone_season_nox_ef_lb_per_mmbtu,
         )
     )
-    # if there were not season-specific rates, fill in using the annual rate if available
+    # if there were not season-specific rates, fill in using the annual rate if
+    # available
     gen_fuel_allocated["controlled_nox_mass_lb"] = gen_fuel_allocated[
         "controlled_nox_mass_lb"
     ].fillna(
@@ -550,8 +566,8 @@ def calculate_nox_from_fuel_consumption(
         * gen_fuel_allocated["controlled_annual_nox_ef_lb_per_mmbtu"]
     )
     # update the emision total using the controlled mass if available
-    gen_fuel_allocated["nox_mass_lb"].update(
-        gen_fuel_allocated["controlled_nox_mass_lb"]
+    gen_fuel_allocated.update(
+        {"nox_mass_lb": gen_fuel_allocated["controlled_nox_mass_lb"]}
     )
 
     # remove intermediate columns
@@ -574,7 +590,8 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
     firing type, and associates with each generator.
     """
 
-    # get a dataframe with all unique generator-pm-esc combinations for emitting energy source types with data reported
+    # get a dataframe with all unique generator-pm-esc combinations for emitting energy
+    # source types with data reported
     gen_keys_for_nox = gen_fuel_allocated.copy()[
         (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
     ]
@@ -721,6 +738,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
             ]
         )
     )
+
     if len(missing_nox_efs) > 0:
         logger.warning(
             """
@@ -862,6 +880,7 @@ def convert_ef_to_lb_per_mmbtu(gen_emission_factors, year, pollutant):
         gen_emission_factors["fuel_mmbtu_per_unit"].isna()
         & (gen_emission_factors["emission_factor_denominator"] != "mmbtu")
     ]
+
     if len(missing_fuel_content) > 0:
         logger.warning(
             f"The heat content for the following fuels is missing and NOx emissions will not be calculated for these fuel:{list(missing_fuel_content.energy_source_code.unique())}"
@@ -926,12 +945,12 @@ def return_monthly_plant_fuel_heat_content(year):
     ]
 
     # replace zero heat content with missing values
-    plant_specific_fuel_heat_content[
-        "fuel_mmbtu_per_unit"
-    ] = plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"].replace(0, np.NaN)
-    plant_specific_fuel_heat_content[
-        "fuel_mmbtu_per_unit"
-    ] = plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"].replace(np.inf, np.NaN)
+    plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"] = (
+        plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"].replace(0, np.NaN)
+    )
+    plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"] = (
+        plant_specific_fuel_heat_content["fuel_mmbtu_per_unit"].replace(np.inf, np.NaN)
+    )
 
     # calculate the average monthly heat content for a fuel
     national_avg_fuel_heat_content = (
@@ -1247,6 +1266,7 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
         & (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
         & ~gen_fuel_allocated["energy_source_code"].isin(CLEAN_FUELS)
     ]
+
     if len(missing_ef) > 0:
         logger.warning("SO2 emission factors are missing for the above records")
         logger.warning("Missing factors for FC prime movers are currently expected")
@@ -1262,6 +1282,12 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
                 ]
             ]
             .drop_duplicates()
+            .merge(
+                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+                how="left",
+                on="plant_id_eia",
+                validate="m:1",
+            )
             .to_string()
         )
     gen_fuel_allocated["so2_mass_lb"] = (
@@ -1419,6 +1445,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
             ]
         )
     )
+
     if len(missing_so2_efs) > 0:
         logger.warning(
             "SO2 emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
@@ -1448,6 +1475,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
             ]
         )
     )
+
     if len(missing_so2_efs) > 0:
         logger.warning(
             "SO2 emission factors are missing for the following boiler types. An emission factor of zero will be used for these boilers."
@@ -1502,10 +1530,10 @@ def return_monthly_plant_fuel_sulfur_content(year):
             validate="1:1",
             suffixes=(None, "_fill"),
         )
-        annual_avg_fuel_sulfur_content[
-            "sulfur_content_pct"
-        ] = annual_avg_fuel_sulfur_content["sulfur_content_pct"].fillna(
-            annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"]
+        annual_avg_fuel_sulfur_content["sulfur_content_pct"] = (
+            annual_avg_fuel_sulfur_content[
+                "sulfur_content_pct"
+            ].fillna(annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"])
         )
         annual_avg_fuel_sulfur_content = annual_avg_fuel_sulfur_content.drop(
             columns=["sulfur_content_pct_fill"]
@@ -1616,6 +1644,7 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, year):
         uncontrolled_so2_factors["sulfur_content_pct"].isna()
         & (uncontrolled_so2_factors["multiply_by_sulfur_content"] == 1)
     ]
+
     if len(missing_sulfur_content) > 0:
         logger.warning("Sulfur content data is missing in EIA-923 for the below units.")
         logger.warning(
@@ -1629,6 +1658,12 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, year):
                 ]
             ]
             .drop_duplicates()
+            .merge(
+                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+                how="left",
+                on="plant_id_eia",
+                validate="m:1",
+            )
             .to_string()
         )
     uncontrolled_so2_factors.loc[

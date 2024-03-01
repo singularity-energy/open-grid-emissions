@@ -13,6 +13,8 @@ import oge.data_cleaning as data_cleaning
 import oge.validation as validation
 from oge.column_checks import get_dtypes
 from oge.filepaths import outputs_folder
+
+from oge.helpers import create_plant_ba_table
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -20,11 +22,12 @@ logger = get_logger(__name__)
 
 def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, year):
     """
-    Converts hourly gross generation in CEMS to hourly net generation by calculating a gross to net generation ratio
-    Inputs:
+    Converts hourly gross generation in CEMS to hourly net generation by calculating a
+    gross to net generation ratio
 
     Returns:
-        cems df with an added column for net_generation_mwh and a column indicated the method used to calculate net generation
+        cems df with an added column for net_generation_mwh and a column indicated the
+        method used to calculate net generation
     """
 
     gtn_conversions = calculate_gross_to_net_conversion_factors(
@@ -64,16 +67,16 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         cems["gross_generation_mwh"] * cems["annual_plant_ratio"]
     )
 
-    cems.loc[
-        cems["net_generation_mwh"].isna(), "gtn_method"
-    ] = "3_annual_subplant_shift_factor"
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = (
+        "3_annual_subplant_shift_factor"
+    )
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_subplant_shift_mw"]
     )
 
-    cems.loc[
-        cems["net_generation_mwh"].isna(), "gtn_method"
-    ] = "4_annual_plant_shift_factor"
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = (
+        "4_annual_plant_shift_factor"
+    )
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_plant_shift_mw"]
     )
@@ -89,6 +92,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         (cems["gtn_method"] == "6_default_eia_ratio")
         & (cems["default_gtn_ratio"].isna())
     ]
+
     if len(missing_defaults) > 0:
         logger.warning(
             "The following subplants are missing default GTN ratios. Using a default value of 0.97"
@@ -97,6 +101,12 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
             "\n"
             + missing_defaults[["plant_id_eia", "subplant_id"]]
             .drop_duplicates()
+            .merge(
+                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+                how="left",
+                on="plant_id_eia",
+                validate="m:1",
+            )
             .to_string()
         )
     # if there is a missing default gtn ratio, fill with 0.97
@@ -118,7 +128,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         ]
     )
 
-    validation.validate_gross_to_net_conversion(cems, eia923_allocated)
+    validation.validate_gross_to_net_conversion(cems, eia923_allocated, year)
 
     return cems, gtn_conversions
 
@@ -204,12 +214,17 @@ def calculate_gross_to_net_conversion_factors(
             validate="1:1",
         )
     )
-    combined_gen_data["data_source"] = combined_gen_data["data_source"].replace(
-        {"left_only": "cems_only", "right_only": "eia_only"}
+    combined_gen_data["data_source"] = combined_gen_data[
+        "data_source"
+    ].cat.rename_categories(
+        {
+            "left_only": "cems_only",
+            "right_only": "eia_only",
+        }
     )
 
     # validate the data
-    validation.check_missing_or_zero_generation_matches(combined_gen_data)
+    validation.check_missing_or_zero_generation_matches(combined_gen_data, year)
 
     # calculate other groupings at the plant and annual levels
     annual_subplant_ratio = (
@@ -258,7 +273,7 @@ def calculate_gross_to_net_conversion_factors(
     ).replace([np.inf, -np.inf], np.nan)
 
     # flag anomalous plant ratios
-    validation.identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio)
+    validation.identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio, year)
 
     # calculate a monthly and annual shift factor
     combined_gen_data["monthly_subplant_shift_mw"] = (
@@ -487,9 +502,9 @@ def filter_gtn_conversion_factors(gtn_conversions):
         # remove any factors that would scale net generation to less than 75% of gross generation
         # In general, the IQR of GTN ratios is between 0.75 and 1, with an upper bound around 1.25
         # remove any ratios that are negative to avoid flipping the shape of the profile
-        factors_to_use.loc[
-            factors_to_use[scaling_factor] < 0.75, scaling_factor
-        ] = np.NaN
+        factors_to_use.loc[factors_to_use[scaling_factor] < 0.75, scaling_factor] = (
+            np.NaN
+        )
         # remove any factors that would cause the generation in any hour to exceed 125% of nameplate capacity
         factors_to_use.loc[
             (
