@@ -237,13 +237,11 @@ def create_plant_ba_table(year):
     # add a physical ba code based on the owner of the transmission system
     plant_ba["ba_code_physical"] = plant_ba["ba_code"]
     plant_ba.update(
-        pd.DataFrame(
-            {
-                "ba_code_physical": plant_ba[
-                    "transmission_distribution_owner_name"
-                ].map(utility_as_ba_code)
-            }
-        )
+        {
+            "ba_code_physical": plant_ba["transmission_distribution_owner_name"].map(
+                utility_as_ba_code
+            )
+        }
     )
 
     # update based on mapping table when ambiguous
@@ -257,9 +255,7 @@ def create_plant_ba_table(year):
         suffixes=("", "_map"),
         validate="m:1",
     )
-    plant_ba.update(
-        pd.DataFrame({"ba_code_physical": plant_ba["ba_code_physical_map"]})
-    )
+    plant_ba.update({"ba_code_physical": plant_ba["ba_code_physical_map"]})
 
     return plant_ba
 

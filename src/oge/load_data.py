@@ -221,7 +221,7 @@ def update_epa_to_eia_map(cems_df: pd.DataFrame):
     )
 
     # update the eia plant ids
-    cems_df.update(pd.DataFrame({"plant_id_eia": cems_df["plant_id_eia_manual"]}))
+    cems_df.update({"plant_id_eia": cems_df["plant_id_eia_manual"]})
 
     # drop the intermediate column
     cems_df = cems_df.drop(columns=["plant_id_eia_manual"])
