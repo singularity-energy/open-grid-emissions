@@ -139,7 +139,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
 
     # remove the intermediate columns created by update_subplant_ids
     subplant_crosswalk_complete.update(
-        pd.DataFrame({"subplant_id": subplant_crosswalk_complete["new_subplant"]})
+        {"subplant_id": subplant_crosswalk_complete["new_subplant"]}
     )
     subplant_crosswalk_complete = subplant_crosswalk_complete.reset_index(drop=True)[
         [
@@ -348,11 +348,7 @@ def connect_ids(df, id_to_update, connecting_id):
             on=["plant_id_eia", id_to_update, connecting_id],
             validate="m:1",
         )
-        df.update(
-            pd.DataFrame(
-                {f"{connecting_id}_connected": df[f"{connecting_id}_to_replace"]}
-            )
-        )
+        df.update({f"{connecting_id}_connected": df[f"{connecting_id}_to_replace"]})
     return df
 
 

@@ -236,7 +236,7 @@ def select_best_available_profile(hourly_profiles):
         ] = profile
         # fill missing values with non-missing values from the filtered profile data
         hourly_profiles["profile"] = hourly_profiles["profile"].fillna(
-            hourly_profiles[profile].astype("float64")
+            hourly_profiles[profile]
         )
 
     # for imputed profiles, identify the specific imputation method

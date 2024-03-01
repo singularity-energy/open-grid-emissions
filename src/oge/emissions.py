@@ -567,7 +567,7 @@ def calculate_nox_from_fuel_consumption(
     )
     # update the emision total using the controlled mass if available
     gen_fuel_allocated.update(
-        pd.DataFrame({"nox_mass_lb": gen_fuel_allocated["controlled_nox_mass_lb"]})
+        {"nox_mass_lb": gen_fuel_allocated["controlled_nox_mass_lb"]}
     )
 
     # remove intermediate columns
