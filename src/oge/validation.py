@@ -52,64 +52,106 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     from the total input generation or fuel.
     """
     gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
-    plant_total_gf = gf.groupby("plant_id_eia")[
+    plant_total_gf = gf.groupby(["plant_id_eia", "energy_source_code"], dropna=False)[
         [
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ]
-    ].sum()
-    plant_total_alloc = gen_fuel_allocated.groupby("plant_id_eia")[
+    ].sum(min_count=1)
+
+    plant_total_alloc = gen_fuel_allocated.groupby(
+        ["plant_id_eia", "energy_source_code"], dropna=False
+    )[
         [
             "net_generation_mwh",
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ]
-    ].sum()
-    # calculate the percentage difference between the values
-    # replace 0s with small sentinel value to prevent missing values from divide by zero
+    ].sum(min_count=1)
+
+    id2ba = create_plant_ba_table(year).set_index("plant_id_eia")["ba_code"].to_dict()
+
+    symmetric_difference = set(plant_total_gf.index).symmetric_difference(
+        set(plant_total_alloc.index)
+    )
+    if len(symmetric_difference) > 0:
+        logger.warning(
+            f"There are {len(symmetric_difference)} plant/fuel combinations that are "
+            "either in EIA-923 Input or allocated EIA-923 but not in both"
+        )
+        input_minus_allocated = list(
+            set(plant_total_gf.index).difference(set(plant_total_alloc.index))
+        )
+        if len(input_minus_allocated) > 0:
+            non_zero_or_missing = (
+                plant_total_gf.loc[input_minus_allocated]
+                .sum(axis=1)
+                .replace(0, np.NAN)
+                .notna()
+                .sum()
+            )
+            logger.warning(
+                f"There are {len(input_minus_allocated)} plant/fuel combinations in "
+                "EIA-923 Input but not in allocated EIA-923. There are "
+                f"{non_zero_or_missing} rows with non-zero or missing values"
+            )
+        allocated_minus_input = list(
+            set(plant_total_alloc.index).difference(set(plant_total_gf.index))
+        )
+        if len(allocated_minus_input) > 0:
+            non_zero_or_missing = (
+                plant_total_alloc.loc[allocated_minus_input]
+                .sum(axis=1)
+                .replace(0, np.NAN)
+                .notna()
+                .sum()
+            )
+            logger.warning(
+                f"There are {len(allocated_minus_input)} plant/fuel combinations in "
+                "allocated EIA-923 but not in EIA-923 Input. There are "
+                f"{non_zero_or_missing} rows with non-zero or missing values"
+            )
+
+    # Align the 2 data frames.
+    plant_total_gf, plant_total_alloc = plant_total_gf.align(plant_total_alloc)
+    # Calculate the percentage difference between the values
+    # Replace 0s with small sentinel value to prevent missing values from divide by zero
     plant_total_diff = (
-        (plant_total_alloc - plant_total_gf) / plant_total_gf.replace(0, 0.00001)
-    ).dropna(how="all", axis=0)
-    # flag rows where the absolute percentage difference is greater than our threshold
+        plant_total_alloc.fillna(0) - plant_total_gf.fillna(0)
+    ) / plant_total_gf.fillna(0).replace(0, 0.00001).dropna(how="all", axis=0)
+    # Flag rows where the absolute percentage difference is greater than our threshold
     mismatched_allocation = plant_total_diff[
         (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0))
         | (~np.isclose(plant_total_diff["net_generation_mwh"], 0))
     ]
+
     if len(mismatched_allocation) > 0:
-        logger.warning("Allocated EIA-923 doesn't match input data for plants:")
+        logger.warning(
+            f"There are {len(mismatched_allocation)} plant/fuel combinations with "
+            "non-zero (missing) net generation or fuel consumed that are different "
+            "in aloocated EIA-923 and EIA-923 Input"
+        )
+        mismatched_ba_code = [
+            id2ba[i]
+            for i in mismatched_allocation.index.get_level_values("plant_id_eia")
+        ]
         logger.warning("Percentage Difference:")
         logger.warning(
-            "\n"
-            + mismatched_allocation.merge(
-                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
-                how="left",
-                on="plant_id_eia",
-                validate="m:1",
-            ).to_string()
+            "\n" + mismatched_allocation.assign(ba_code=mismatched_ba_code).to_string()
         )
         logger.warning("EIA-923 Input Totals:")
         logger.warning(
             "\n"
             + plant_total_gf.loc[mismatched_allocation.index, :]
-            .merge(
-                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
-                how="left",
-                on="plant_id_eia",
-                validate="m:1",
-            )
+            .assign(ba_code=mismatched_ba_code)
             .to_string()
         )
         logger.warning("Allocated Totals:")
         logger.warning(
             "\n"
             + plant_total_alloc.loc[mismatched_allocation.index, :]
-            .merge(
-                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
-                how="left",
-                on="plant_id_eia",
-                validate="m:1",
-            )
+            .assign(ba_code=mismatched_ba_code)
             .to_string()
         )
 
@@ -325,14 +367,7 @@ def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk, year):
                     id2ba[i]
                     for i in orphaned_cc_parts.index.get_level_values("plant_id_eia")
                 ]
-            )
-            # merge(
-            #     create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
-            #     how="left",
-            #     on="plant_id_eia",
-            #     validate="m:1",
-            # ).
-            .to_string()
+            ).to_string()
         )
 
 
