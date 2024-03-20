@@ -378,33 +378,50 @@ def adjust_emissions_for_biomass(df):
     return df
 
 
-def calculate_co2e_mass(df, year, gwp_horizon=100, ar5_climate_carbon_feedback=True):
+def calculate_co2e_mass(df, version, gwp_horizon=100, ar5_climate_carbon_feedback=True):
     """Calculate CO2-equivalent emissions from CO2, CH4, and N2O. This is done by
     choosing one of the IPCC's emission factors for CH4 and N2O.
+
+    Note that the `version` parameter controls the version of the IPCC AR that will be
+    chosen. If `version` is an int then it will be interpreted as a year and the most
+    recent AR that was available that year will be picked. If `version` is a str then
+    it will be interpreted as an IPCC Assessment Report (AR). Therefore, valid
+    `version` are: int >= 1995 and any str equals to SAR, TAR, AR4, AR5, AR5_cc, or AR6.
+    Note that when `version` is a str the `ar5_climate_carbon_feedback` has no effect
+    since the user has direct access to AR5 or AR5_cc via the `version` parameter.
+
 
     If the `fuel_consumed_for_electricity_units` column is available, we also compute
     the adjusted emissions.
     """
     df_gwp = load_data.load_ipcc_gwp()
 
-    # use the most recent AR that was available in the given year
-    ipcc_version = df_gwp.loc[df_gwp["year"] <= year, "year"].max()
+    if (
+        isinstance(version, int) and version >= df_gwp["year"].min()
+    ) or version == "latest":
+        year = version if isinstance(version, int) else df_gwp["year"].max()
 
-    # use the most recent AR that was available in the given year
-    most_recent_AR_year = df_gwp.loc[df_gwp["year"] <= year, "year"].max()
+        # use the most recent AR that was available in the given year
+        most_recent_AR_year = df_gwp.loc[df_gwp["year"] <= year, "year"].max()
 
-    # identify the AR
-    ipcc_version = list(
-        df_gwp.loc[df_gwp["year"] == most_recent_AR_year, "ipcc_version"].unique()
-    )
-    if len(ipcc_version) > 1:
-        if "AR5" in ipcc_version and ar5_climate_carbon_feedback:
-            ipcc_version = "AR5_cc"
-        elif "AR5" in ipcc_version and not ar5_climate_carbon_feedback:
-            ipcc_version = "AR5_cc"
+        # identify the AR
+        ipcc_version = list(
+            df_gwp.loc[df_gwp["year"] == most_recent_AR_year, "ipcc_version"].unique()
+        )
+        if len(ipcc_version) > 1:
+            if "AR5" in ipcc_version and ar5_climate_carbon_feedback:
+                ipcc_version = "AR5_cc"
+            elif "AR5" in ipcc_version and not ar5_climate_carbon_feedback:
+                ipcc_version = "AR5_cc"
+        else:
+            ipcc_version = ipcc_version[0]
+    elif version in df_gwp["ipcc_version"].unique():
+        ipcc_version = version
     else:
-        ipcc_version = ipcc_version[0]
-
+        raise ValueError(
+            f"version must be a year >= {df_gwp['year'].min()} or a valid AR"
+        )
+    print(ipcc_version)
     gwp_to_use = df_gwp[df_gwp.ipcc_version == ipcc_version]
 
     ch4_gwp = gwp_to_use.loc[
