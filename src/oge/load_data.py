@@ -116,21 +116,35 @@ def load_cems_data(year):
     return cems
 
 
-def load_cems_ids(start_year, end_year):
+def load_cems_ids(year):
     """Loads CEMS ids for multiple years."""
 
-    # load cems data
-    cems = pd.read_parquet(
-        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
-        filters=[["year", ">=", start_year], ["year", "<=", end_year]],
-        columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
-    ).drop_duplicates()
-    cems = apply_pudl_dtypes(cems)
+    # although we could directly load all years at once from the cems parquet file, this
+    # would lead to a memoryerror, so we load one year at a time and drop duplicates before
+    # concatting the next year to the dataframe
+    cems_ids = []
+    # use 2001 as the start year as this is the earliest year that EIA data is available
+    # in PUDL, and we would likely never use data before this year.
+    for year in range(2001, year + 1):
+        cems_id_year = pd.read_parquet(
+            downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+            filters=[["year", "==", year]],
+            columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
+        ).drop_duplicates()
+        cems_ids.append(cems_id_year)
+        cems_ids = [pd.concat(cems_ids, axis=0).drop_duplicates()]
+    cems_ids = (
+        pd.concat(cems_ids, axis=0)
+        .drop_duplicates()
+        .sort_values(by=["plant_id_eia", "emissions_unit_id_epa"])
+    )
+
+    cems_ids = apply_pudl_dtypes(cems_ids)
 
     # update the plant_id_eia column using manual matches
-    cems = update_epa_to_eia_map(cems)
+    cems_ids = update_epa_to_eia_map(cems_ids)
 
-    return cems[["plant_id_eia", "emissions_unit_id_epa"]]
+    return cems_ids[["plant_id_eia", "emissions_unit_id_epa"]]
 
 
 def load_cems_gross_generation(start_year, end_year):
@@ -978,12 +992,16 @@ def load_egrid_plant_file(year):
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS),
         "co2_mass_lb_for_electricity_adjusted",
-    ].fillna(0)
+    ].fillna(
+        0
+    )
     egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
     ] = egrid_plant.loc[
         egrid_plant["plant_primary_fuel"].isin(CLEAN_FUELS), "co2_mass_lb"
-    ].fillna(0)
+    ].fillna(
+        0
+    )
 
     # reorder the columns
     egrid_plant = egrid_plant[

@@ -48,24 +48,22 @@ DATA_COLUMNS = [
 ]
 
 
-def identify_subplants(year, number_of_years=5):
+def identify_subplants(year):
     """This is the coordinating function for loading and calculating subplant IDs,
     GTN regressions, and GTN ratios."""
-    start_year = year - (number_of_years - 1)
-    end_year = year
 
-    # load 5 years of monthly data from CEMS
+    # load all unique CEMS IDs from 2001 to present
     logger.info("loading CEMS ids")
-    cems_ids = load_data.load_cems_ids(start_year, end_year)
+    cems_ids = load_data.load_cems_ids(year)
 
     # add subplant ids to the data
     logger.info("identifying unique subplants")
-    subplant_crosswalk = generate_subplant_ids(start_year, end_year, cems_ids)
+    subplant_crosswalk = generate_subplant_ids(year, cems_ids)
 
     return subplant_crosswalk
 
 
-def generate_subplant_ids(start_year, end_year, cems_ids):
+def generate_subplant_ids(year, cems_ids):
     """
     Groups units and generators into unique subplant groups.
 
@@ -83,7 +81,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     """
 
     # load the crosswalk and filter it by the data that actually exists in cems
-    crosswalk = load_data.load_epa_eia_crosswalk(end_year)
+    crosswalk = load_data.load_epa_eia_crosswalk(year)
 
     # filter the crosswalk to drop any units that don't exist in CEMS
     filtered_crosswalk = epacamd_eia.filter_crosswalk(crosswalk, cems_ids)
@@ -113,7 +111,7 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
     complete_generator_ids = (
         load_data.load_pudl_table(
             "plant_parts_eia",
-            end_year,
+            year,
             columns=["plant_id_eia", "generator_id", "unit_id_pudl"],
         )
         .drop_duplicates()
@@ -169,15 +167,15 @@ def generate_subplant_ids(start_year, end_year, cems_ids):
 
     # add proposed operating dates and retirements to the subplant id crosswalk
     subplant_crosswalk_complete = add_generator_operating_and_retirement_dates(
-        subplant_crosswalk_complete, start_year, end_year
+        subplant_crosswalk_complete, year
     )
     # add prime mover code to the crosswalk
     subplant_crosswalk_complete = add_prime_mover_to_subplant_crosswalk(
-        subplant_crosswalk_complete, end_year
+        subplant_crosswalk_complete, year
     )
     # validate that there are no orphaned combined cycle plant parts in a subplant
     validation.check_for_orphaned_cc_part_in_subplant(
-        subplant_crosswalk_complete, end_year
+        subplant_crosswalk_complete, year
     )
 
     return subplant_crosswalk_complete
@@ -277,29 +275,40 @@ def update_subplant_ids(subplant_crosswalk):
     # generator that isn't already grouped into a unit
 
     # create a numeric version of each generator_id
-    # ngroup() creates a unique number for each element in the group
+    # pd.factorize() creates a unique value for each unique generator_id within
+    # each plant_id_eia group, starting at zero. 
+    # NOTE: if a plant has multiple NA generator_ids, it will be assigned the same
+    # numeric_generator_id. This needs to be fixed before merging
     subplant_crosswalk["numeric_generator_id"] = subplant_crosswalk.groupby(
-        ["plant_id_eia", "generator_id"], dropna=False
-    ).ngroup()
-    # when filling in missing unit_id_pudl, we don't want these numeric_generator_id to
+        ["plant_id_eia"], dropna=False, sort=False
+    )["generator_id"].transform(lambda x: pd.factorize(x, use_na_sentinel=False)[0])
+
+
+    # create a new subplant_id_filled which represents the subplant_id_connected, but
+    # with any missing ids filled first with the unit_id_connected, then with
+    # numeric_generator_id. 
+    # when filling in these values, we don't want the integers from each column to 
+    # overlap each other, so we add 1000 to all unit_id_pudl_connected, and 1000000 to 
+    # all numeric_generator_id. These are arbitrary numbers but should ensure that 
+    # max(subplant_id_connected) < min(unit_id_pudl_connected + 1000) < 
+    # max(unit_id_pudl_connected + 1000) < min(numeric_generator_id + 1000000)
     # overlap existing unit_id to ensure this, we will add 1000 to each of these numeric
     # generator ids to ensure they are unique 1000 was chosen as an arbitrarily high
     # number, since the largest unit_id_pudl is ~ 10.
-    subplant_crosswalk["numeric_generator_id"] = (
-        subplant_crosswalk["numeric_generator_id"] + 1000
+    subplant_crosswalk["subplant_id_filled"] = (
+        subplant_crosswalk["subplant_id_connected"]
+        .fillna(subplant_crosswalk["unit_id_pudl_connected"] + 1000)
+        .fillna(subplant_crosswalk["numeric_generator_id"] + 1000000)
     )
-    # fill any missing unit_id_pudl with a number for each unique generator
-    subplant_crosswalk["unit_id_pudl_filled"] = (
-        subplant_crosswalk["unit_id_pudl_connected"]
-        .fillna(subplant_crosswalk["subplant_id_connected"] + 100)
-        .fillna(subplant_crosswalk["numeric_generator_id"])
-    )
-    # create a new unique subplant_id based on the connected subplant ids and the
-    # filled unit_id
+    # create a new unique subplant_id based on the unique groups of subplant_id_filled
+    # in each plant_id_eia group. This will create subplant_ids starting at 0 and 
+    # incrementing by 1, in order of plant_id_eia, generator_operating_date, 
+    # generator_id
     subplant_crosswalk["new_subplant"] = subplant_crosswalk.groupby(
-        ["plant_id_eia", "subplant_id_connected", "unit_id_pudl_filled"],
-        dropna=False,
-    ).ngroup()
+        ["plant_id_eia"], dropna=False, sort=False
+    )["subplant_id_filled"].transform(
+        lambda x: pd.factorize(x, use_na_sentinel=False)[0]
+    )
 
     return subplant_crosswalk
 
@@ -325,18 +334,22 @@ def connect_ids(df, id_to_update, connecting_id):
     # identify if any non-NA id_to_update are duplicated, indicated that it is
     # associated with multiple connecting_id
     duplicates = subplant_unit_pairs[
-        (subplant_unit_pairs.duplicated(subset=id_to_update, keep=False))
-        & (~subplant_unit_pairs[id_to_update].isna())
+        (
+            subplant_unit_pairs.duplicated(
+                subset=["plant_id_eia", connecting_id], keep=False
+            )
+        )
+        & (~subplant_unit_pairs[connecting_id].isna())
     ].copy()
 
     # if there are any duplicate units, indicating an incorrect id_to_update,
     # fix the id_to_update
-    df[f"{connecting_id}_connected"] = df[connecting_id]
+    df[f"{id_to_update}_connected"] = df[id_to_update]
     if len(duplicates) > 0:
         # find the lowest number subplant id associated with each duplicated
         # unit_id_pudl
-        duplicates.loc[:, f"{connecting_id}_to_replace"] = (
-            duplicates.groupby(["plant_id_eia", id_to_update])[connecting_id]
+        duplicates.loc[:, f"{id_to_update}_to_replace"] = (
+            duplicates.groupby(["plant_id_eia", connecting_id])[id_to_update]
             .min()
             .iloc[0]
         )
@@ -348,17 +361,18 @@ def connect_ids(df, id_to_update, connecting_id):
             on=["plant_id_eia", id_to_update, connecting_id],
             validate="m:1",
         )
-        df.update({f"{connecting_id}_connected": df[f"{connecting_id}_to_replace"]})
+        df.update({f"{id_to_update}_connected": df[f"{id_to_update}_to_replace"]})
+        df = df.drop(columns=f"{id_to_update}_to_replace")
     return df
 
 
-def add_generator_operating_and_retirement_dates(df, start_year, end_year):
+def add_generator_operating_and_retirement_dates(df, year):
     """Adds columns listing a generator's planned operating date or retirement date to
     a dataframe."""
 
     generator_status = load_data.load_pudl_table(
         "generators_eia860",
-        year=start_year,
+        year=2001,
         columns=[
             "plant_id_eia",
             "generator_id",
@@ -367,7 +381,7 @@ def add_generator_operating_and_retirement_dates(df, start_year, end_year):
             "current_planned_generator_operating_date",
             "generator_retirement_date",
         ],
-        end_year=end_year,
+        end_year=year,
     )
 
     # only keep values that have a planned operating date or retirement date
@@ -510,7 +524,9 @@ def clean_eia923(
             "fuel_consumed_mmbtu",
             "fuel_consumed_for_electricity_mmbtu",
         ],
-    ].round(1)
+    ].round(
+        1
+    )
 
     validation.test_for_missing_energy_source_code(gen_fuel_allocated)
     validation.test_for_negative_values(gen_fuel_allocated, year)
@@ -688,7 +704,9 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         ascending=True,
     ).drop_duplicates(
         subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
-    )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
+    )[
+        ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]
+    ]
 
     if not add_subplant_id:
         gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
