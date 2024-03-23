@@ -473,13 +473,19 @@ def check_removed_data_is_empty(cems):
         logger.warning("\n" + check_that_data_is_zero.to_string())
 
 
-def test_for_missing_subplant_id(df):
+def test_for_missing_subplant_id(df, plant_part):
     """Checks if any records are missing a `subplant_id`."""
     logger.info("Checking that all data has an associated `subplant_id`...  ")
     missing_subplant_test = df[df["subplant_id"].isna()]
     if not missing_subplant_test.empty:
         logger.warning(
-            f"There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID. See `missing_subplant_test` for details"
+            f"There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID"
+        )
+        logger.warning(
+            "\n"
+            + missing_subplant_test[["plant_id_eia", plant_part, "subplant_id"]]
+            .drop_duplicates()
+            .to_string()
         )
     else:
         logger.info("OK")

@@ -424,7 +424,7 @@ def calculate_subplant_nameplate_capacity(year):
         on=["plant_id_eia", "generator_id"],
         validate="1:1",
     )
-    validation.test_for_missing_subplant_id(gen_capacity)
+    validation.test_for_missing_subplant_id(gen_capacity, "generator_id")
     subplant_capacity = (
         gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
         .sum()
