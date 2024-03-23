@@ -75,6 +75,26 @@ def generate_subplant_ids() -> pd.DataFrame:
     # filter the crosswalk to drop any units that don't exist in CEMS
     filtered_crosswalk = epacamd_eia.filter_crosswalk(crosswalk, cems_ids)
 
+    # update the subplant_crosswalk to ensure completeness
+    # prepare the subplant crosswalk by adding a complete list of generators and adding
+    # the unit_id_pudl column
+    complete_gens = load_data.load_complete_eia_generators_for_subplants(
+        earliest_data_year, latest_validated_year
+    )
+    filtered_crosswalk = filtered_crosswalk.merge(
+        complete_gens,
+        how="outer",
+        on=["plant_id_eia", "generator_id"],
+        validate="m:1",
+    )
+    # also add a complete list of cems emissions_unit_id_epa
+    filtered_crosswalk = filtered_crosswalk.merge(
+        cems_ids[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates(),
+        how="outer",
+        on=["plant_id_eia", "emissions_unit_id_epa"],
+        validate="m:1",
+    )
+
     # use graph analysis to identify subplants
     crosswalk_with_subplant_ids = make_subplant_ids(filtered_crosswalk)
 
@@ -90,36 +110,26 @@ def generate_subplant_ids() -> pd.DataFrame:
             "emissions_unit_id_epa",
             "plant_id_eia",
             "generator_id",
+            "unit_id_pudl",
+            "unit_id_eia",
+            "unit_id_eia_numeric",
             "subplant_id",
+            "operational_status_code",
+            "earliest_report_date",
+            "generator_operating_date",
+            "generator_retirement_date",
+            "original_planned_generator_operating_date",
+            "current_planned_generator_operating_date",
+            "prime_mover_code",
         ]
     ]
-
-    # update the subplant_crosswalk to ensure completeness
-    # prepare the subplant crosswalk by adding a complete list of generators and adding
-    # the unit_id_pudl column
-    complete_gens = load_data.load_complete_eia_generators_for_subplants(
-        earliest_data_year, latest_validated_year
-    )
-    subplant_crosswalk_complete = crosswalk_with_subplant_ids.merge(
-        complete_gens,
-        how="outer",
-        on=["plant_id_eia", "generator_id"],
-        validate="m:1",
-    )
-    # also add a complete list of cems emissions_unit_id_epa
-    subplant_crosswalk_complete = subplant_crosswalk_complete.merge(
-        cems_ids[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates(),
-        how="outer",
-        on=["plant_id_eia", "emissions_unit_id_epa"],
-        validate="m:1",
-    )
 
     # drop records with a missing generator_id
     # these records either do not exist in EIA, or they are not yet linked
     # NOTE: This may trigger new validation warnings with test_for_missing_subplant_id(),
     # but this is good because we want to flag where there is CEMS data that is not linked
     # to an EIA record
-    subplant_crosswalk_complete = subplant_crosswalk_complete.dropna(
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.dropna(
         subset="generator_id"
     )
 
@@ -133,15 +143,15 @@ def generate_subplant_ids() -> pd.DataFrame:
     # generator will come online in a different order than originally proposed, so there
     # is a small chance that the subplant_id will change if this is run with updated
     # EIA data.
-    subplant_crosswalk_complete["sort_date"] = (
-        subplant_crosswalk_complete["generator_operating_date"]
-        .fillna(subplant_crosswalk_complete["generator_retirement_date"])
+    crosswalk_with_subplant_ids["sort_date"] = (
+        crosswalk_with_subplant_ids["generator_operating_date"]
+        .fillna(crosswalk_with_subplant_ids["generator_retirement_date"])
         .fillna(
-            subplant_crosswalk_complete["original_planned_generator_operating_date"]
+            crosswalk_with_subplant_ids["original_planned_generator_operating_date"]
         )
     )
     # sort values to ensure static order
-    subplant_crosswalk_complete = subplant_crosswalk_complete.sort_values(
+    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.sort_values(
         by=[
             "plant_id_eia",
             "earliest_report_date",
@@ -153,7 +163,7 @@ def generate_subplant_ids() -> pd.DataFrame:
     ).copy()
 
     # update the subplant ids for each plant
-    subplant_crosswalk_complete = update_subplant_ids(subplant_crosswalk_complete)
+    subplant_crosswalk_complete = update_subplant_ids(crosswalk_with_subplant_ids)
 
     subplant_crosswalk_complete = manually_update_subplant_id(
         subplant_crosswalk_complete
@@ -188,6 +198,13 @@ def generate_subplant_ids() -> pd.DataFrame:
             "subplant_id",
         ],
         keep="last",
+    )
+
+    validation.check_for_1_to_many_subplant_mappings(
+        subplant_crosswalk_complete, "generator_id"
+    )
+    validation.check_for_1_to_many_subplant_mappings(
+        subplant_crosswalk_complete, "emissions_unit_id_epa"
     )
 
     # validate that there are no orphaned combined cycle plant parts in a subplant
@@ -272,6 +289,10 @@ def update_subplant_ids(subplant_crosswalk: pd.DataFrame) -> pd.DataFrame:
             `pudl.etl.glue_assets.make_subplant_ids` with
     """
     # Step 1: Correct unit_id_pudl using complete values loaded from the raw EIA-860
+    # update unit_id_pudl using the unit_id_eia loaded from EIA-860
+    subplant_crosswalk["unit_id_eia_numeric"] = pd.to_numeric(
+        subplant_crosswalk["unit_id_eia_numeric"]
+    )
     subplant_crosswalk = connect_ids(
         subplant_crosswalk,
         id_to_update="unit_id_pudl",
@@ -291,7 +312,9 @@ def update_subplant_ids(subplant_crosswalk: pd.DataFrame) -> pd.DataFrame:
     # if multiple subplant_id are connected by a single unit_id_pudl, group these
     # subplant_id together
     subplant_crosswalk = connect_ids(
-        subplant_crosswalk, id_to_update="subplant_id", connecting_id="unit_id_pudl"
+        subplant_crosswalk,
+        id_to_update="subplant_id",
+        connecting_id="unit_id_pudl_connected_by_subplant_id",
     )
 
     # Step 3: Fill missing subplant_id
@@ -305,7 +328,9 @@ def update_subplant_ids(subplant_crosswalk: pd.DataFrame) -> pd.DataFrame:
     # numeric_generator_id to overlap each other.
     # To ensure this, we will add 1000 to the unit_ids and 1000000 to the generator_id
     subplant_crosswalk["subplant_id_filled"] = (
-        subplant_crosswalk["subplant_id_connected_by_unit_id_pudl"]
+        subplant_crosswalk[
+            "subplant_id_connected_by_unit_id_pudl_connected_by_subplant_id"
+        ]
         .fillna(subplant_crosswalk["unit_id_pudl_connected_by_subplant_id"] + 1000)
         .fillna(subplant_crosswalk["numeric_generator_id"] + 1000000)
     )
@@ -356,17 +381,19 @@ def connect_ids(df, id_to_update, connecting_id):
     if len(duplicates) > 0:
         # find the lowest number subplant id associated with each duplicated
         # unit_id_pudl
-        duplicates.loc[:, f"{id_to_update}_to_replace"] = (
+        ids_to_replace = (
             duplicates.groupby(["plant_id_eia", connecting_id])[id_to_update]
             .min()
-            .iloc[0]
+            .reset_index()
+            .rename(columns={id_to_update: f"{id_to_update}_to_replace"})
         )
+
         # merge this replacement subplant_id into the dataframe and use it to update
         # the existing subplant id
         df = df.merge(
-            duplicates,
+            ids_to_replace,
             how="left",
-            on=["plant_id_eia", id_to_update, connecting_id],
+            on=["plant_id_eia", connecting_id],
             validate="m:1",
         )
         df.update(
