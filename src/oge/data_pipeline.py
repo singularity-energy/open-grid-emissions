@@ -146,7 +146,7 @@ def main(args):
     # 2. Identify subplants
     ####################################################################################
     logger.info("2. Identifying subplant IDs")
-    subplant_crosswalk = data_cleaning.identify_subplants(year)
+    subplant_crosswalk = data_cleaning.generate_subplant_ids()
     output_data.output_intermediate_data(
         subplant_crosswalk,
         "subplant_crosswalk",

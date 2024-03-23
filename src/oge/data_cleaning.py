@@ -48,22 +48,7 @@ DATA_COLUMNS = [
 ]
 
 
-def identify_subplants():
-    """This is the coordinating function for loading and calculating subplant IDs,
-    GTN regressions, and GTN ratios."""
-
-    # load all unique CEMS IDs from 2001 to present
-    logger.info("loading CEMS ids")
-    cems_ids = load_data.load_cems_ids()
-
-    # add subplant ids to the data
-    logger.info("identifying unique subplants")
-    subplant_crosswalk = generate_subplant_ids(latest_validated_year, cems_ids)
-
-    return subplant_crosswalk
-
-
-def generate_subplant_ids(year, cems_ids):
+def generate_subplant_ids() -> pd.DataFrame:
     """
     Groups units and generators into unique subplant groups.
 
@@ -80,8 +65,12 @@ def generate_subplant_ids(year, cems_ids):
         cems_ids and gen_fuel_allocated with subplant_id added
     """
 
+    # load all unique CEMS IDs from 2001 to present
+    logger.info("loading CEMS ids")
+    cems_ids = load_data.load_cems_ids()
+
     # load the crosswalk and filter it by the data that actually exists in cems
-    crosswalk = load_data.load_epa_eia_crosswalk(year)
+    crosswalk = load_data.load_epa_eia_crosswalk(latest_validated_year)
 
     # filter the crosswalk to drop any units that don't exist in CEMS
     filtered_crosswalk = epacamd_eia.filter_crosswalk(crosswalk, cems_ids)
@@ -109,7 +98,7 @@ def generate_subplant_ids(year, cems_ids):
     # prepare the subplant crosswalk by adding a complete list of generators and adding
     # the unit_id_pudl column
     complete_gens = load_data.load_complete_eia_generators_for_subplants(
-        earliest_data_year, year
+        earliest_data_year, latest_validated_year
     )
     subplant_crosswalk_complete = crosswalk_with_subplant_ids.merge(
         complete_gens,
@@ -202,12 +191,14 @@ def generate_subplant_ids(year, cems_ids):
     )
 
     # validate that there are no orphaned combined cycle plant parts in a subplant
-    validation.check_for_orphaned_cc_part_in_subplant(subplant_crosswalk_complete, year)
+    validation.check_for_orphaned_cc_part_in_subplant(
+        subplant_crosswalk_complete, latest_validated_year
+    )
 
     return subplant_crosswalk_complete
 
 
-def manually_update_subplant_id(subplant_crosswalk):
+def manually_update_subplant_id(subplant_crosswalk: pd.DataFrame) -> pd.DataFrame:
     """This function corrects subplant mappings not caught by update_subplant_id. This
     is temporary until the pudl subplant crosswalk includes boiler-generator id matches.
     """
@@ -220,7 +211,7 @@ def manually_update_subplant_id(subplant_crosswalk):
     return subplant_crosswalk
 
 
-def update_subplant_ids(subplant_crosswalk):
+def update_subplant_ids(subplant_crosswalk: pd.DataFrame) -> pd.DataFrame:
     """Ensures a complete and accurate subplant_id mapping for all generators.
 
     NOTE:
@@ -280,7 +271,7 @@ def update_subplant_ids(subplant_crosswalk):
             subplant_crosswalk: a dataframe containing the output of
             `pudl.etl.glue_assets.make_subplant_ids` with
     """
-    # update unit_id_pudl using the unit_id_eia loaded from EIA-860
+    # Step 1: Correct unit_id_pudl using complete values loaded from the raw EIA-860
     subplant_crosswalk = connect_ids(
         subplant_crosswalk,
         id_to_update="unit_id_pudl",
@@ -290,7 +281,7 @@ def update_subplant_ids(subplant_crosswalk):
         "unit_id_pudl_connected_by_unit_id_eia_numeric"
     ]
 
-    # Step 1: Create corrected versions of subplant_id and unit_id_pudl
+    # Step 2: Create corrected versions of subplant_id and unit_id_pudl
     # if multiple unit_id_pudl are connected by a single subplant_id,
     # unit_id_pudl_connected groups these unit_id_pudl together
     subplant_crosswalk = connect_ids(
@@ -303,23 +294,16 @@ def update_subplant_ids(subplant_crosswalk):
         subplant_crosswalk, id_to_update="subplant_id", connecting_id="unit_id_pudl"
     )
 
-    # Step 2: Fill missing subplant_id
-    # We will use unit_id_pudl to fill missing subplant ids, so first we need to fill
-    # any missing unit_id_pudl. We do this by assigning a new unit_id_pudl to each
-    # generator that isn't already grouped into a unit
+    # Step 3: Fill missing subplant_id
 
-    # since generat
     # create a numeric version of each generator_id
-    # ngroup() creates a unique number for each element in the group
-    # each unit
     subplant_crosswalk["numeric_generator_id"] = subplant_crosswalk.groupby(
         ["plant_id_eia"], dropna=False, sort=False
     )["generator_id"].transform(lambda x: pd.factorize(x, use_na_sentinel=False)[0])
 
-    # when filling in missing unit_id_pudl, we don't want these numeric_generator_id to
-    # overlap existing unit_id to ensure this, we will add 1000 to each of these numeric
-    # generator ids to ensure they are unique 1000 was chosen as an arbitrarily high
-    # number, since the largest unit_id_pudl is ~ 10.
+    # when filling in missing subplant_id, we don't want these unit_id or
+    # numeric_generator_id to overlap each other.
+    # To ensure this, we will add 1000 to the unit_ids and 1000000 to the generator_id
     subplant_crosswalk["subplant_id_filled"] = (
         subplant_crosswalk["subplant_id_connected_by_unit_id_pudl"]
         .fillna(subplant_crosswalk["unit_id_pudl_connected_by_subplant_id"] + 1000)
