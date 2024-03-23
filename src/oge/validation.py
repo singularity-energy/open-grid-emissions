@@ -7,7 +7,7 @@ from oge.column_checks import get_dtypes
 from oge.helpers import create_plant_ba_table
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
-from oge.constants import CLEAN_FUELS
+from oge.constants import CLEAN_FUELS, earliest_validated_year, latest_validated_year
 
 logger = get_logger(__name__)
 
@@ -18,9 +18,6 @@ logger = get_logger(__name__)
 
 def validate_year(year):
     """Returns a warning if the year specified is not known to work with the pipeline."""
-
-    earliest_validated_year = 2019
-    latest_validated_year = 2022
 
     if year < earliest_validated_year:
         year_warning = f"""
@@ -335,13 +332,8 @@ def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk, year):
     generator. These prime movers are allowed to be by themselves in a subplant, as are
     CC prime movers, which represent a "total unit."
     """
-    cc_pm_codes = ["CA", "CT", "CS", "CC"]
-    # keep all rows that contain a combined cycle prime mover part
-    cc_subplants = subplant_crosswalk[
-        subplant_crosswalk["prime_mover_code"].isin(cc_pm_codes)
-    ]
     # for each subplant, identify a list of all CC prime movers in that subplant
-    cc_subplants = cc_subplants.groupby(["plant_id_eia", "subplant_id"])[
+    cc_subplants = subplant_crosswalk.groupby(["plant_id_eia", "subplant_id"])[
         "prime_mover_code"
     ].agg(["unique"])
     cc_subplants["unique_cc_pms"] = [
@@ -1228,9 +1220,9 @@ def hourly_profile_source_metric(
         .sum()
         .reset_index()
     )
-    profile_from_partial_cems_subplant["profile_method"] = (
-        "eia_scaled_partial_cems_subplant"
-    )
+    profile_from_partial_cems_subplant[
+        "profile_method"
+    ] = "eia_scaled_partial_cems_subplant"
 
     profile_from_partial_cems_plant = (
         partial_cems_plant.groupby(["ba_code"], dropna=False)[data_metrics]
@@ -2240,9 +2232,9 @@ def compare_plant_level_results_to_egrid(
                 & (compared_merged[f"{col}_egrid"].isna())
             ].index
         )
-        compared.loc[compared.index.isin(plants_missing_egrid), f"{col}_status"] = (
-            "missing_in_egrid"
-        )
+        compared.loc[
+            compared.index.isin(plants_missing_egrid), f"{col}_status"
+        ] = "missing_in_egrid"
         # identify plants that are missing from our calculations
         plants_missing_calc = list(
             compared_merged[
@@ -2250,9 +2242,9 @@ def compare_plant_level_results_to_egrid(
                 & (compared_merged[f"{col}_egrid"] > 0)
             ].index
         )
-        compared.loc[compared.index.isin(plants_missing_calc), f"{col}_status"] = (
-            "missing_in_calc"
-        )
+        compared.loc[
+            compared.index.isin(plants_missing_calc), f"{col}_status"
+        ] = "missing_in_calc"
         # identify where our calculations are missing a zero value
         plants_missing_zero_calc = list(
             compared_merged[
@@ -2260,9 +2252,9 @@ def compare_plant_level_results_to_egrid(
                 & (compared_merged[f"{col}_egrid"] == 0)
             ].index
         )
-        compared.loc[compared.index.isin(plants_missing_zero_calc), f"{col}_status"] = (
-            "calc_missing_zero_value_from_egrid"
-        )
+        compared.loc[
+            compared.index.isin(plants_missing_zero_calc), f"{col}_status"
+        ] = "calc_missing_zero_value_from_egrid"
         # identify where egrid has a missing value instead of a zero
         plants_missing_zero_egrid = list(
             compared_merged[

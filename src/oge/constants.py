@@ -1,3 +1,15 @@
+# specify the date ranges for OGE data
+# earliest_data_year is the earliest year for which cleaned, standardized, and stable
+# EIA and CEMS data is available through PUDL. PUDL includes data prior to 2005, but
+# for now we do not consider pre-2005 data to be clean enough to work with
+earliest_data_year = 2005
+# earliest_validated_year is the earliest data for which OGE data is currently published
+# and validated. The pipeline could be run for data prior to this year, but it has not
+# been validated
+earliest_validated_year = 2019
+# latest_validated_year is the most recent year for which OGE data has been published
+latest_validated_year = 2022
+
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
