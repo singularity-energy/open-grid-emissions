@@ -67,16 +67,16 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         cems["gross_generation_mwh"] * cems["annual_plant_ratio"]
     )
 
-    cems.loc[
-        cems["net_generation_mwh"].isna(), "gtn_method"
-    ] = "3_annual_subplant_shift_factor"
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = (
+        "3_annual_subplant_shift_factor"
+    )
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_subplant_shift_mw"]
     )
 
-    cems.loc[
-        cems["net_generation_mwh"].isna(), "gtn_method"
-    ] = "4_annual_plant_shift_factor"
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = (
+        "4_annual_plant_shift_factor"
+    )
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_plant_shift_mw"]
     )
@@ -502,9 +502,9 @@ def filter_gtn_conversion_factors(gtn_conversions):
         # remove any factors that would scale net generation to less than 75% of gross generation
         # In general, the IQR of GTN ratios is between 0.75 and 1, with an upper bound around 1.25
         # remove any ratios that are negative to avoid flipping the shape of the profile
-        factors_to_use.loc[
-            factors_to_use[scaling_factor] < 0.75, scaling_factor
-        ] = np.NaN
+        factors_to_use.loc[factors_to_use[scaling_factor] < 0.75, scaling_factor] = (
+            np.NaN
+        )
         # remove any factors that would cause the generation in any hour to exceed 125% of nameplate capacity
         factors_to_use.loc[
             (

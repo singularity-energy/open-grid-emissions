@@ -170,10 +170,13 @@ def generate_subplant_ids(year, cems_ids):
         subplant_crosswalk_complete
     )
 
-    # remove the intermediate columns created by update_subplant_ids
-    subplant_crosswalk_complete["subplant_id"] = subplant_crosswalk_complete[
-        "new_subplant"
-    ]
+    # Update the subplant ID to use the new_subplant.
+    # we will also update the subplant_id to not use zero-indexed IDs, and instead
+    # start all subplant_id at 1
+    subplant_crosswalk_complete["subplant_id"] = (
+        subplant_crosswalk_complete["new_subplant"] + 1
+    )
+
     subplant_crosswalk_complete = subplant_crosswalk_complete.reset_index(drop=True)[
         [
             "plant_id_epa",
