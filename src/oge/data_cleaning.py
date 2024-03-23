@@ -124,15 +124,6 @@ def generate_subplant_ids() -> pd.DataFrame:
         ]
     ]
 
-    # drop records with a missing generator_id
-    # these records either do not exist in EIA, or they are not yet linked
-    # NOTE: This may trigger new validation warnings with test_for_missing_subplant_id(),
-    # but this is good because we want to flag where there is CEMS data that is not linked
-    # to an EIA record
-    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.dropna(
-        subset="generator_id"
-    )
-
     # In order to help maintain a static subplant_id order, we want to sort the generators
     # by their commercial operating date from oldest to newest (this means that the oldest
     # plant will get the first subplant_id). Sometimes the generator operating date is
@@ -569,7 +560,7 @@ def clean_eia923(
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
-        validation.test_for_missing_subplant_id(gen_fuel_allocated)
+        validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
 
     # add the cleaned prime mover code to the data
     gen_pm = load_data.load_pudl_table(
@@ -644,7 +635,7 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
-        validation.test_for_missing_subplant_id(gen_fuel_allocated)
+        validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
 
     # get a table of primary energy source codes by generator
     # this will be used in `calculate_aggregated_primary_fuel()` to determine the
@@ -850,7 +841,7 @@ def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
-        validation.test_for_missing_subplant_id(gen_capacity)
+        validation.test_for_missing_subplant_id(gen_capacity, "generator_id")
 
     gen_capacity = (
         gen_capacity.groupby(agg_keys + ["energy_source_code_1"], dropna=False)[
@@ -899,7 +890,7 @@ def calculate_subplant_efs(gen_fuel_allocated, year):
         on=["plant_id_eia", "generator_id"],
         validate="m:1",
     )
-    validation.test_for_missing_subplant_id(subplant_efs)
+    validation.test_for_missing_subplant_id(subplant_efs, "generator_id")
 
     # calculate the total emissions and fuel consumption by subplant-month
     subplant_efs = subplant_efs.groupby(
@@ -1068,7 +1059,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
         on=["plant_id_eia", "emissions_unit_id_epa"],
         validate="m:1",
     )
-    validation.test_for_missing_subplant_id(cems)
+    validation.test_for_missing_subplant_id(cems, "emissions_unit_id_epa")
 
     # add a fuel type to each observation
     cems = assign_fuel_type_to_cems(cems, year, primary_fuel_table)
