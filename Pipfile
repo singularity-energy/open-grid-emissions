@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 cvxopt = "*"
 cvxpy = "*"
+dask = "< 2024.3.0"
 osqp = "*"
 ipykernel = "*"
 notebook = "*"

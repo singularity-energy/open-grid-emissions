@@ -320,6 +320,29 @@ def test_for_missing_values(df, small: bool = False):
     return missing_test
 
 
+def check_for_1_to_many_subplant_mappings(
+    subplant_crosswalk: pd.DataFrame, plant_part: str
+):
+    """
+    Each generator_id or emissions_unit_id at a plant should only be mapped to a single
+    subplant_id. This test checks this.
+
+    plant_part is either "generator_id" or "emissions_unit_id_eia"
+    """
+    test = subplant_crosswalk[
+        ["plant_id_eia", plant_part, "subplant_id"]
+    ].drop_duplicates()
+    test = test[
+        (~test[plant_part].isna())
+        & (test.duplicated(subset=["plant_id_eia", plant_part], keep=False))
+    ]
+    if len(test) > 0:
+        print(test)
+        raise UserWarning(
+            f"The subplant crosswalk contains 1:m mappings of {plant_part} to subplant_id."
+        )
+
+
 def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk, year):
     """
     Combined cycle generators contain a steam part (CA) and turbine part (CT) that are
