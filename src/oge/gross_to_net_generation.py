@@ -410,7 +410,13 @@ def calculate_subplant_nameplate_capacity(year):
     gen_capacity = load_data.load_pudl_table(
         "generators_eia860",
         year,
-        columns=["plant_id_eia", "generator_id", "prime_mover_code", "capacity_mw"],
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "prime_mover_code",
+            "capacity_mw",
+            "operational_status_code",
+        ],
     )
     # remove generators that are proposed but not yet under construction, or cancelled
     status_codes_to_remove = ["CN", "IP", "P", "L", "T", "RE"]
