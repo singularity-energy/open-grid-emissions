@@ -835,8 +835,19 @@ def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
     gen_capacity = load_data.load_pudl_table(
         "generators_eia860",
         year,
-        columns=["plant_id_eia", "generator_id", "capacity_mw", "energy_source_code_1"],
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "capacity_mw",
+            "energy_source_code_1",
+            "operational_status_code",
+        ],
     )
+    # remove generators that are proposed but not yet under construction, or cancelled
+    status_codes_to_remove = ["CN", "IP", "P", "L", "T", "RE"]
+    gen_capacity = gen_capacity[
+        ~gen_capacity["operational_status_code"].isin(status_codes_to_remove)
+    ]
 
     if "subplant_id" in agg_keys:
         subplant_crosswalk = (
