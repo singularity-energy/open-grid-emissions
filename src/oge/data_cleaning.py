@@ -141,6 +141,7 @@ def generate_subplant_ids() -> pd.DataFrame:
             crosswalk_with_subplant_ids["original_planned_generator_operating_date"]
         )
     )
+
     # sort values to ensure static order
     crosswalk_with_subplant_ids = crosswalk_with_subplant_ids.sort_values(
         by=[
@@ -166,7 +167,6 @@ def generate_subplant_ids() -> pd.DataFrame:
     subplant_crosswalk_complete["subplant_id"] = (
         subplant_crosswalk_complete["new_subplant"] + 1
     )
-
     subplant_crosswalk_complete = subplant_crosswalk_complete.reset_index(drop=True)[
         [
             "plant_id_epa",

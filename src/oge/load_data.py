@@ -134,7 +134,7 @@ def load_cems_ids() -> pd.DataFrame:
     cems_ids = []
     # use 2001 as the start year as this is the earliest year that EIA data is available
     # in PUDL, and we would likely never use data before this year.
-    for year in range(earliest_data_year, latest_validated_year):
+    for year in range(earliest_data_year, latest_validated_year + 1):
         cems_id_year = pd.read_parquet(
             downloads_folder("pudl/hourly_emissions_epacems.parquet"),
             filters=[["year", "==", year]],
@@ -142,6 +142,7 @@ def load_cems_ids() -> pd.DataFrame:
         ).drop_duplicates()
         cems_ids.append(cems_id_year)
         cems_ids = [pd.concat(cems_ids, axis=0).drop_duplicates()]
+
     cems_ids = (
         pd.concat(cems_ids, axis=0)
         .drop_duplicates()
@@ -323,6 +324,10 @@ def load_raw_eia860_generator_dates_and_unit_ids(year):
     generator_data_from_eia860["unit_id_eia_numeric"] = generator_data_from_eia860[
         "unit_id_eia_numeric"
     ].replace(0, np.NaN)
+
+    generator_data_from_eia860["unit_id_eia_numeric"] = pd.to_numeric(
+        generator_data_from_eia860["unit_id_eia_numeric"]
+    )
 
     return generator_data_from_eia860
 
