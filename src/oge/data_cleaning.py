@@ -550,10 +550,14 @@ def clean_eia923(
     # needed for exporting standalone EIA-923 data. We allow the user to skip the merge
     # below with a flag.
     if add_subplant_id:
-        subplant_crosswalk = pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-            dtype=get_dtypes(),
-        )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+        subplant_crosswalk = (
+            pd.read_csv(
+                outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+                dtype=get_dtypes(),
+            )[["plant_id_eia", "generator_id", "subplant_id"]]
+            .drop_duplicates()
+            .dropna(subset="generator_id")
+        )
         gen_fuel_allocated = gen_fuel_allocated.merge(
             subplant_crosswalk,
             how="left",
@@ -625,10 +629,14 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
 
     # add subplant ids so that we can create subplant-specific primary fuels
     if add_subplant_id:
-        subplant_crosswalk = pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-            dtype=get_dtypes(),
-        )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+        subplant_crosswalk = (
+            pd.read_csv(
+                outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+                dtype=get_dtypes(),
+            )[["plant_id_eia", "generator_id", "subplant_id"]]
+            .drop_duplicates()
+            .dropna(subset="generator_id")
+        )
         gen_fuel_allocated = gen_fuel_allocated.merge(
             subplant_crosswalk,
             how="left",
@@ -831,10 +839,14 @@ def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
     )
 
     if "subplant_id" in agg_keys:
-        subplant_crosswalk = pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-            dtype=get_dtypes(),
-        )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+        subplant_crosswalk = (
+            pd.read_csv(
+                outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+                dtype=get_dtypes(),
+            )[["plant_id_eia", "generator_id", "subplant_id"]]
+            .drop_duplicates()
+            .dropna(subset="generator_id")
+        )
         gen_capacity = gen_capacity.merge(
             subplant_crosswalk,
             how="left",
@@ -880,10 +892,14 @@ def calculate_subplant_efs(gen_fuel_allocated, year):
     """
 
     # add subplant ids
-    subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-        dtype=get_dtypes(),
-    )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "generator_id", "subplant_id"]]
+        .drop_duplicates()
+        .dropna(subset="generator_id")
+    )
     subplant_efs = gen_fuel_allocated.merge(
         subplant_crosswalk,
         how="left",
@@ -1050,6 +1066,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
             outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
             dtype=get_dtypes(),
         )[["plant_id_eia", "emissions_unit_id_epa", "subplant_id"]]
+        .dropna(subset="emissions_unit_id_epa")
         .drop_duplicates()
         .dropna(subset="emissions_unit_id_epa")
     )
