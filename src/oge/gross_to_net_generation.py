@@ -412,6 +412,11 @@ def calculate_subplant_nameplate_capacity(year):
         year,
         columns=["plant_id_eia", "generator_id", "prime_mover_code", "capacity_mw"],
     )
+    # remove generators that are proposed but not yet under construction, or cancelled
+    status_codes_to_remove = ["CN", "IP", "P", "L", "T", "RE"]
+    gen_capacity = gen_capacity[
+        ~gen_capacity["operational_status_code"].isin(status_codes_to_remove)
+    ]
 
     # add subplant ids to the generator data
     subplant_crosswalk = (
