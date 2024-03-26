@@ -124,16 +124,15 @@ def load_cems_data(year):
 def load_cems_ids() -> pd.DataFrame:
     """
     Loads a dataframe of all unique plant_id_eia, emissions_unit_id_epa combinations
-    that exist from teh earliest_data_year to the latest_validated_year. This is used
+    that exist from the earliest_data_year to the latest_validated_year. This is used
     in the process of creating subplant_ids to ensure complete coverage.
     """
 
     # although we could directly load all years at once from the cems parquet file, this
     # would lead to a memoryerror, so we load one year at a time and drop duplicates before
-    # concatting the next year to the dataframe
+    # concatenating the next year to the dataframe
     cems_ids = []
-    # use 2001 as the start year as this is the earliest year that EIA data is available
-    # in PUDL, and we would likely never use data before this year.
+    # The `earliest_data_year` is 2005, as defined in `constants.py`
     for year in range(earliest_data_year, latest_validated_year + 1):
         cems_id_year = pd.read_parquet(
             downloads_folder("pudl/hourly_emissions_epacems.parquet"),
@@ -158,6 +157,18 @@ def load_cems_ids() -> pd.DataFrame:
 
 
 def load_complete_eia_generators_for_subplants(earliest_year, year):
+    """
+    Loads a dataframe that contains a complete list of generators, including their
+    unit ids, prime movers, operating dates, and operating status. This will be used
+    when creating subplant IDs to ensure that a complete set of generators is
+    represented. Because some of these values are incomplete or missing in the pudl data
+    we load these values from the raw downloaded EIA-860 dataset to fill in any gaps.
+
+    Inputs:
+     - `earliest_year` should be `constants.earliest_data_year`
+     - `year` is the latest year of data to load, should be
+              `constants.latest_validated_year`
+    """
     complete_gens = load_pudl_table(
         "denorm_generators_eia",
         columns=[
@@ -319,8 +330,8 @@ def load_raw_eia860_generator_dates_and_unit_ids(year):
         )["unit_id_eia"].transform(lambda x: pd.factorize(x)[0] + 1)
     )
 
-    # unit_id_numeric of 0 represents missing unit_id_eia, so we want to replace these
-    # with nan
+    # unit_id_eia_numeric of 0 represents missing unit_id_eia, so we want to replace
+    # these with nan
     generator_data_from_eia860["unit_id_eia_numeric"] = generator_data_from_eia860[
         "unit_id_eia_numeric"
     ].replace(0, np.NaN)
