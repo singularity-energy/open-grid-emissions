@@ -12,6 +12,7 @@ from oge.constants import (
     CLEAN_FUELS,
     ConversionFactors,
     earliest_data_year,
+    earliest_validated_year,
     latest_validated_year,
 )
 
@@ -156,7 +157,7 @@ def load_cems_ids() -> pd.DataFrame:
     return cems_ids[["plant_id_eia", "emissions_unit_id_epa"]]
 
 
-def load_complete_eia_generators_for_subplants(earliest_year, year):
+def load_complete_eia_generators_for_subplants():
     """
     Loads a dataframe that contains a complete list of generators, including their
     unit ids, prime movers, operating dates, and operating status. This will be used
@@ -164,10 +165,6 @@ def load_complete_eia_generators_for_subplants(earliest_year, year):
     represented. Because some of these values are incomplete or missing in the pudl data
     we load these values from the raw downloaded EIA-860 dataset to fill in any gaps.
 
-    Inputs:
-     - `earliest_year` should be `constants.earliest_data_year`
-     - `year` is the latest year of data to load, should be
-              `constants.latest_validated_year`
     """
     complete_gens = load_pudl_table(
         "denorm_generators_eia",
@@ -194,8 +191,8 @@ def load_complete_eia_generators_for_subplants(earliest_year, year):
     # only keep data for years <= the year
     # this avoids using potentially preliminary early-release data
     complete_gens = complete_gens[
-        (complete_gens["report_date"].dt.year >= earliest_year)
-        & (complete_gens["report_date"].dt.year <= year)
+        (complete_gens["report_date"].dt.year >= earliest_data_year)
+        & (complete_gens["report_date"].dt.year <= latest_validated_year)
     ]
 
     # for any retired gens, forward fill the most recently available unit_id_pudl to the
@@ -204,22 +201,38 @@ def load_complete_eia_generators_for_subplants(earliest_year, year):
         ["plant_id_eia", "generator_id"]
     )["unit_id_pudl"].ffill()
 
+    # remove generators that retired prior to the earliest year
+    complete_gens = complete_gens[
+        ~(
+            (complete_gens["operational_status_code"] == "RE")
+            & (complete_gens["generator_retirement_date"].dt.year < earliest_data_year)
+        )
+    ]
+
+    # remove generators that are proposed but not yet under construction, or cancelled
+    cancelled_or_proposed_status_codes = ["CN", "IP", "P", "L", "T"]
+    complete_gens = complete_gens[
+        ~complete_gens["operational_status_code"].isin(
+            cancelled_or_proposed_status_codes
+        )
+    ]
+
     # only keep the most recent entry for each generator
     complete_gens = complete_gens.sort_values(
         by=["plant_id_eia", "generator_id", "report_date"], ascending=True
     ).drop_duplicates(subset=["plant_id_eia", "generator_id"], keep="last")
 
-    # remove generators that are proposed but not yet under construction, or cancelled
-    status_codes_to_remove = ["CN", "IP", "P", "L", "T"]
-    complete_gens = complete_gens[
-        ~complete_gens["operational_status_code"].isin(status_codes_to_remove)
-    ]
-
-    # remove generators that retired prior to the earliest year
+    # remove any generators that were under construction sometime after earliest_data_year
+    # but were cancelled or disappeared from the data before earliest_validated_year
+    under_construction_status_codes = ["U", "V", "TS"]
     complete_gens = complete_gens[
         ~(
-            (complete_gens["operational_status_code"] == "RE")
-            & (complete_gens["generator_retirement_date"].dt.year < earliest_year)
+            (complete_gens["report_date"].dt.year < earliest_validated_year)
+            & (
+                complete_gens["operational_status_code"].isin(
+                    under_construction_status_codes
+                )
+            )
         )
     ]
 
@@ -230,13 +243,15 @@ def load_complete_eia_generators_for_subplants(earliest_year, year):
         ~(
             (complete_gens["generator_operating_date"].isna())
             & (complete_gens["generator_retirement_date"].isna())
-            & (complete_gens["report_date"].dt.year < year)
+            & (complete_gens["report_date"].dt.year < latest_validated_year)
         )
     ]
 
     ####################
     # merge into complete_gens and fill missing operating dates with the EIA-860 data
-    generator_data_from_eia860 = load_raw_eia860_generator_dates_and_unit_ids(year)
+    generator_data_from_eia860 = load_raw_eia860_generator_dates_and_unit_ids(
+        latest_validated_year
+    )
     complete_gens = complete_gens.merge(
         generator_data_from_eia860,
         how="left",
