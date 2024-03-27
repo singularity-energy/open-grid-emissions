@@ -3,8 +3,7 @@ import numpy as np
 from itertools import product
 
 import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
-import pudl.analysis.epacamd_eia as epacamd_eia
-from pudl.etl.glue_assets import make_subplant_ids
+
 
 import oge.load_data as load_data
 import oge.validation as validation
@@ -46,389 +45,6 @@ DATA_COLUMNS = [
     "nox_mass_lb_for_electricity_adjusted",
     "so2_mass_lb_for_electricity_adjusted",
 ]
-
-
-def identify_subplants(year, number_of_years=5):
-    """This is the coordinating function for loading and calculating subplant IDs,
-    GTN regressions, and GTN ratios."""
-    start_year = year - (number_of_years - 1)
-    end_year = year
-
-    # load 5 years of monthly data from CEMS
-    logger.info("loading CEMS ids")
-    cems_ids = load_data.load_cems_ids(start_year, end_year)
-
-    # add subplant ids to the data
-    logger.info("identifying unique subplants")
-    subplant_crosswalk = generate_subplant_ids(start_year, end_year, cems_ids)
-
-    return subplant_crosswalk
-
-
-def generate_subplant_ids(start_year, end_year, cems_ids):
-    """
-    Groups units and generators into unique subplant groups.
-
-    This function consists of three primary parts:
-    1. Identify a list of all unique plant-units that exist in the CEMS data
-        for the years in question. This will be used to filter the crosswalk.
-    2. Load the EPA-EIA crosswalk and filter it based on the units that exist
-        in the CEMS data for the years in question
-    3. Use graph analysis to identify distinct groupings of EPA units and EIA
-        generators based on 1:1, 1:m, m:1, or m:m relationships.
-
-    Returns:
-        exports the subplant crosswalk to a csv file
-        cems_ids and gen_fuel_allocated with subplant_id added
-    """
-
-    # load the crosswalk and filter it by the data that actually exists in cems
-    crosswalk = load_data.load_epa_eia_crosswalk(end_year)
-
-    # filter the crosswalk to drop any units that don't exist in CEMS
-    filtered_crosswalk = epacamd_eia.filter_crosswalk(crosswalk, cems_ids)
-
-    # use graph analysis to identify subplants
-    crosswalk_with_subplant_ids = make_subplant_ids(filtered_crosswalk)
-
-    # change the eia plant id to int
-    crosswalk_with_subplant_ids["plant_id_eia"] = crosswalk_with_subplant_ids[
-        "plant_id_eia"
-    ].astype(int)
-
-    # change the order of the columns
-    crosswalk_with_subplant_ids = crosswalk_with_subplant_ids[
-        [
-            "plant_id_epa",
-            "emissions_unit_id_epa",
-            "plant_id_eia",
-            "generator_id",
-            "subplant_id",
-        ]
-    ]
-
-    # update the subplant_crosswalk to ensure completeness
-    # prepare the subplant crosswalk by adding a complete list of generators and adding
-    # the unit_id_pudl column
-    complete_generator_ids = (
-        load_data.load_pudl_table(
-            "plant_parts_eia",
-            end_year,
-            columns=["plant_id_eia", "generator_id", "unit_id_pudl"],
-        )
-        .drop_duplicates()
-        .dropna(subset="generator_id")
-    )
-    subplant_crosswalk_complete = crosswalk_with_subplant_ids.merge(
-        complete_generator_ids,
-        how="outer",
-        on=["plant_id_eia", "generator_id"],
-        validate="m:1",
-    )
-    # also add a complete list of cems emissions_unit_id_epa
-    subplant_crosswalk_complete = subplant_crosswalk_complete.merge(
-        cems_ids[["plant_id_eia", "emissions_unit_id_epa"]].drop_duplicates(),
-        how="outer",
-        on=["plant_id_eia", "emissions_unit_id_epa"],
-        validate="m:1",
-    )
-    # update the subplant ids for each plant
-    subplant_crosswalk_complete = subplant_crosswalk_complete.groupby(
-        "plant_id_eia"
-    ).apply(update_subplant_ids)
-
-    # remove the intermediate columns created by update_subplant_ids
-    subplant_crosswalk_complete.update(
-        {"subplant_id": subplant_crosswalk_complete["new_subplant"]}
-    )
-    subplant_crosswalk_complete = subplant_crosswalk_complete.reset_index(drop=True)[
-        [
-            "plant_id_epa",
-            "emissions_unit_id_epa",
-            "plant_id_eia",
-            "generator_id",
-            "subplant_id",
-            "unit_id_pudl",
-        ]
-    ]
-
-    subplant_crosswalk_complete = manually_update_subplant_id(
-        subplant_crosswalk_complete
-    )
-
-    subplant_crosswalk_complete = subplant_crosswalk_complete.drop_duplicates(
-        subset=[
-            "plant_id_epa",
-            "emissions_unit_id_epa",
-            "plant_id_eia",
-            "generator_id",
-            "subplant_id",
-        ],
-        keep="last",
-    )
-
-    # add proposed operating dates and retirements to the subplant id crosswalk
-    subplant_crosswalk_complete = add_generator_operating_and_retirement_dates(
-        subplant_crosswalk_complete, start_year, end_year
-    )
-    # add prime mover code to the crosswalk
-    subplant_crosswalk_complete = add_prime_mover_to_subplant_crosswalk(
-        subplant_crosswalk_complete, end_year
-    )
-    # validate that there are no orphaned combined cycle plant parts in a subplant
-    validation.check_for_orphaned_cc_part_in_subplant(
-        subplant_crosswalk_complete, end_year
-    )
-
-    return subplant_crosswalk_complete
-
-
-def manually_update_subplant_id(subplant_crosswalk):
-    """This function corrects subplant mappings not caught by update_subplant_id. This
-    is temporary until the pudl subplant crosswalk includes boiler-generator id matches.
-    """
-
-    # set all generators in plant 1391 to the same subplant
-    subplant_crosswalk.loc[
-        subplant_crosswalk["plant_id_eia"] == 1391, "subplant_id"
-    ] = 0
-
-    return subplant_crosswalk
-
-
-def update_subplant_ids(subplant_crosswalk):
-    """Ensures a complete and accurate subplant_id mapping for all generators.
-
-    NOTE:
-        1. This function is a temporary placeholder until the
-        `pudl.analysis.epacamd_eia` code is updated.
-        2. This function is meant to be applied using a .groupby("plant_id_eia").apply()
-        function. This function will only properly work when applied to a single
-        plant_id_eia at a time.
-
-    Data Preparation
-        Because the existing subplant_id crosswalk was only meant to map CAMD units to
-        EIA generators, it is missing a large number of subplant_ids for generators
-        that do not report to CEMS. Before applying this function to the subplant
-        crosswalk, the crosswalk must be completed with all generators by outer merging
-        in the complete list of generators from EIA-860 (specifically the gens_eia860
-        table from pudl). This dataframe also contains the complete list of
-        `unit_id_pudl` mappings that will be necessary.
-
-    High-level overview of method:
-        1. Use the PUDL subplant_id if available. In the case where a unit_id_pudl
-        groups several subplants, we overwrite these multiple existing subplant_id with
-        a single subplant_id.
-        2. Where there is no PUDL subplant_id, we use the unit_id_pudl to assign a
-        unique subplant_id
-        3. Where there is neither a pudl subplant_id nor unit_id_pudl, we use the
-        generator ID to assign a unique subplant_id
-        4. All of the new unique ids are renumbered in consecutive ascending order
-
-
-    Detailed explanation of steps:
-        1. Because the current subplant_id code does not take boiler-generator
-        associations into account, there may be instances where the code assigns
-        generators to different subplants when in fact, according to the
-        boiler-generator association table, these generators are grouped into a single
-        unit based on their boiler associations. The first step of this function is
-        thus to identify if multiple subplant_id have been assigned to a single
-        unit_id_pudl. If so, we replace the existing subplant_ids with a single
-        subplant_id. For example, if a generator A was assigned subplant_id 0 and
-        generator B was assigned subplant_id 1, but both generators A and B are part of
-        unit_id_pudl 1, we would re-assign the subplant_id to both generators to 0 (we
-        always use the lowest number subplant_id in each unit_id_pudl group). This may
-        result in some subplant_id being skipped, but this is okay because we will
-        later renumber all subplant ids (i.e. if there were also a generator C with
-        subplant_id 2, there would no be no subplant_id 1 at the plant). Likewise,
-        sometimes multiple unit_id_pudl are connected to a single subplant_id, so we
-        also correct the unit_id_pudl basedon these connections.
-        2. The second issue is that there are many NA subplant_id that we should fill.
-        To do this, we first look at unit_id_pudl. If a group of generators are
-        assigned a unit_id_pudl but have NA subplant_ids, we assign a single new
-        subplant_id to this group of generators. If there are still generators at a
-        plant that have both NA subplant_id and NA unit_id_pudl, we for now assume that
-        each of these generators consitutes its own subplant. We thus assign a unique
-        subplant_id to each generator that is unique from any existing subplant_id
-        already at the plant. In the case that there are multiple emissions_unit_id_epa
-        at a plant that are not matched to any other identifiers (generator_id,
-        unit_id_pudl, or subplant_id), as is the case when there are units that report
-        to CEMS but which do not exist in the EIA data, we assign these units to a single subplant.
-
-        Args:
-            subplant_crosswalk: a dataframe containing the output of
-            `pudl.etl.glue_assets.make_subplant_ids` with
-    """
-    # Step 1: Create corrected versions of subplant_id and unit_id_pudl
-    # if multiple unit_id_pudl are connected by a single subplant_id,
-    # unit_id_pudl_connected groups these unit_id_pudl together
-    subplant_crosswalk = connect_ids(
-        subplant_crosswalk, id_to_update="unit_id_pudl", connecting_id="subplant_id"
-    )
-    # if multiple subplant_id are connected by a single unit_id_pudl, group these
-    # subplant_id together
-    subplant_crosswalk = connect_ids(
-        subplant_crosswalk, id_to_update="subplant_id", connecting_id="unit_id_pudl"
-    )
-
-    # Step 2: Fill missing subplant_id
-    # We will use unit_id_pudl to fill missing subplant ids, so first we need to fill
-    # any missing unit_id_pudl. We do this by assigning a new unit_id_pudl to each
-    # generator that isn't already grouped into a unit
-
-    # create a numeric version of each generator_id
-    # ngroup() creates a unique number for each element in the group
-    subplant_crosswalk["numeric_generator_id"] = subplant_crosswalk.groupby(
-        ["plant_id_eia", "generator_id"], dropna=False
-    ).ngroup()
-    # when filling in missing unit_id_pudl, we don't want these numeric_generator_id to
-    # overlap existing unit_id to ensure this, we will add 1000 to each of these numeric
-    # generator ids to ensure they are unique 1000 was chosen as an arbitrarily high
-    # number, since the largest unit_id_pudl is ~ 10.
-    subplant_crosswalk["numeric_generator_id"] = (
-        subplant_crosswalk["numeric_generator_id"] + 1000
-    )
-    # fill any missing unit_id_pudl with a number for each unique generator
-    subplant_crosswalk["unit_id_pudl_filled"] = (
-        subplant_crosswalk["unit_id_pudl_connected"]
-        .fillna(subplant_crosswalk["subplant_id_connected"] + 100)
-        .fillna(subplant_crosswalk["numeric_generator_id"])
-    )
-    # create a new unique subplant_id based on the connected subplant ids and the
-    # filled unit_id
-    subplant_crosswalk["new_subplant"] = subplant_crosswalk.groupby(
-        ["plant_id_eia", "subplant_id_connected", "unit_id_pudl_filled"],
-        dropna=False,
-    ).ngroup()
-
-    return subplant_crosswalk
-
-
-def connect_ids(df, id_to_update, connecting_id):
-    """Corrects an id value if it is connected by an id value in another column.
-
-    if multiple subplant_id are connected by a single unit_id_pudl, this groups these
-    subplant_id together
-    if multiple unit_id_pudl are connected by a single subplant_id, this groups these
-    unit_id_pudl together
-
-    Args:
-        df: dataframe containing columns with id_to_update and connecting_id columns
-        subplant_unit_pairs
-    """
-
-    # get a table with all unique subplant to unit pairs
-    subplant_unit_pairs = df[
-        ["plant_id_eia", "subplant_id", "unit_id_pudl"]
-    ].drop_duplicates()
-
-    # identify if any non-NA id_to_update are duplicated, indicated that it is
-    # associated with multiple connecting_id
-    duplicates = subplant_unit_pairs[
-        (subplant_unit_pairs.duplicated(subset=id_to_update, keep=False))
-        & (~subplant_unit_pairs[id_to_update].isna())
-    ].copy()
-
-    # if there are any duplicate units, indicating an incorrect id_to_update,
-    # fix the id_to_update
-    df[f"{connecting_id}_connected"] = df[connecting_id]
-    if len(duplicates) > 0:
-        # find the lowest number subplant id associated with each duplicated
-        # unit_id_pudl
-        duplicates.loc[:, f"{connecting_id}_to_replace"] = (
-            duplicates.groupby(["plant_id_eia", id_to_update])[connecting_id]
-            .min()
-            .iloc[0]
-        )
-        # merge this replacement subplant_id into the dataframe and use it to update
-        # the existing subplant id
-        df = df.merge(
-            duplicates,
-            how="left",
-            on=["plant_id_eia", id_to_update, connecting_id],
-            validate="m:1",
-        )
-        df.update({f"{connecting_id}_connected": df[f"{connecting_id}_to_replace"]})
-    return df
-
-
-def add_generator_operating_and_retirement_dates(df, start_year, end_year):
-    """Adds columns listing a generator's planned operating date or retirement date to
-    a dataframe."""
-
-    generator_status = load_data.load_pudl_table(
-        "generators_eia860",
-        year=start_year,
-        columns=[
-            "plant_id_eia",
-            "generator_id",
-            "report_date",
-            "operational_status",
-            "current_planned_generator_operating_date",
-            "generator_retirement_date",
-        ],
-        end_year=end_year,
-    )
-
-    # only keep values that have a planned operating date or retirement date
-    generator_status = generator_status[
-        (~generator_status["current_planned_generator_operating_date"].isna())
-        | (~generator_status["generator_retirement_date"].isna())
-    ]
-    # drop any duplicate entries
-    generator_status = generator_status.sort_values(
-        by=["plant_id_eia", "generator_id", "report_date"]
-    ).drop_duplicates(
-        subset=[
-            "plant_id_eia",
-            "generator_id",
-            "current_planned_generator_operating_date",
-            "generator_retirement_date",
-        ],
-        keep="last",
-    )
-    # for any generators that have different retirement or planned dates reported in
-    # different years, keep the most recent value
-    generator_status = generator_status.sort_values(
-        by=["plant_id_eia", "generator_id", "report_date"]
-    ).drop_duplicates(subset=["plant_id_eia", "generator_id"], keep="last")
-
-    # merge the dates into the crosswalk
-    df = df.merge(
-        generator_status[
-            [
-                "plant_id_eia",
-                "generator_id",
-                "current_planned_generator_operating_date",
-                "generator_retirement_date",
-            ]
-        ],
-        how="left",
-        on=["plant_id_eia", "generator_id"],
-        validate="m:1",
-    )
-
-    return df
-
-
-def add_prime_mover_to_subplant_crosswalk(df, year):
-    """Adds a column identifying each generator's prime_mover to a dataframe."""
-    generator_pm = load_data.load_pudl_table(
-        "generators_eia860",
-        year,
-        columns=[
-            "plant_id_eia",
-            "generator_id",
-            "prime_mover_code",
-        ],
-    )
-
-    # merge the prime movers into the crosswalk
-    df = df.merge(
-        generator_pm, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
-    )
-
-    return df
 
 
 def clean_eia923(
@@ -582,17 +198,21 @@ def clean_eia923(
     # needed for exporting standalone EIA-923 data. We allow the user to skip the merge
     # below with a flag.
     if add_subplant_id:
-        subplant_crosswalk = pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-            dtype=get_dtypes(),
-        )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+        subplant_crosswalk = (
+            pd.read_csv(
+                outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+                dtype=get_dtypes(),
+            )[["plant_id_eia", "generator_id", "subplant_id"]]
+            .drop_duplicates()
+            .dropna(subset="generator_id")
+        )
         gen_fuel_allocated = gen_fuel_allocated.merge(
             subplant_crosswalk,
             how="left",
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
-        validation.test_for_missing_subplant_id(gen_fuel_allocated)
+        validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
 
     # add the cleaned prime mover code to the data
     gen_pm = load_data.load_pudl_table(
@@ -657,17 +277,21 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
 
     # add subplant ids so that we can create subplant-specific primary fuels
     if add_subplant_id:
-        subplant_crosswalk = pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-            dtype=get_dtypes(),
-        )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+        subplant_crosswalk = (
+            pd.read_csv(
+                outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+                dtype=get_dtypes(),
+            )[["plant_id_eia", "generator_id", "subplant_id"]]
+            .drop_duplicates()
+            .dropna(subset="generator_id")
+        )
         gen_fuel_allocated = gen_fuel_allocated.merge(
             subplant_crosswalk,
             how="left",
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
-        validation.test_for_missing_subplant_id(gen_fuel_allocated)
+        validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
 
     # get a table of primary energy source codes by generator
     # this will be used in `calculate_aggregated_primary_fuel()` to determine the
@@ -746,7 +370,7 @@ def calculate_aggregated_primary_fuel(
         )
 
     primary_fuel_from_capacity = calculate_capacity_based_primary_fuel(
-        agg_level, agg_keys, year
+        gen_fuel_allocated, agg_level, agg_keys, year
     )
 
     # NOTE: In some rare cases, a plant will have no fuel specified by
@@ -854,26 +478,45 @@ def calculate_aggregated_primary_fuel(
     return agg_primary_fuel
 
 
-def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
+def calculate_capacity_based_primary_fuel(
+    gen_fuel_allocated, agg_level, agg_keys, year
+):
     # create a table of primary fuel by nameplate capacity
     gen_capacity = load_data.load_pudl_table(
         "generators_eia860",
         year,
-        columns=["plant_id_eia", "generator_id", "capacity_mw", "energy_source_code_1"],
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "capacity_mw",
+            "energy_source_code_1",
+            "operational_status_code",
+        ],
+    )
+    # only keep keys that exist in gen_fuel_allocated
+    gen_capacity = gen_capacity.merge(
+        gen_fuel_allocated[["plant_id_eia", "generator_id"]].drop_duplicates(),
+        how="right",
+        on=["plant_id_eia", "generator_id"],
+        validate="1:1",
     )
 
     if "subplant_id" in agg_keys:
-        subplant_crosswalk = pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-            dtype=get_dtypes(),
-        )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+        subplant_crosswalk = (
+            pd.read_csv(
+                outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+                dtype=get_dtypes(),
+            )[["plant_id_eia", "generator_id", "subplant_id"]]
+            .drop_duplicates()
+            .dropna(subset="generator_id")
+        )
         gen_capacity = gen_capacity.merge(
             subplant_crosswalk,
             how="left",
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
         )
-        validation.test_for_missing_subplant_id(gen_capacity)
+        validation.test_for_missing_subplant_id(gen_capacity, "generator_id")
 
     gen_capacity = (
         gen_capacity.groupby(agg_keys + ["energy_source_code_1"], dropna=False)[
@@ -912,17 +555,21 @@ def calculate_subplant_efs(gen_fuel_allocated, year):
     """
 
     # add subplant ids
-    subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-        dtype=get_dtypes(),
-    )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "generator_id", "subplant_id"]]
+        .drop_duplicates()
+        .dropna(subset="generator_id")
+    )
     subplant_efs = gen_fuel_allocated.merge(
         subplant_crosswalk,
         how="left",
         on=["plant_id_eia", "generator_id"],
         validate="m:1",
     )
-    validation.test_for_missing_subplant_id(subplant_efs)
+    validation.test_for_missing_subplant_id(subplant_efs, "generator_id")
 
     # calculate the total emissions and fuel consumption by subplant-month
     subplant_efs = subplant_efs.groupby(
@@ -1082,6 +729,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
             outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
             dtype=get_dtypes(),
         )[["plant_id_eia", "emissions_unit_id_epa", "subplant_id"]]
+        .dropna(subset="emissions_unit_id_epa")
         .drop_duplicates()
         .dropna(subset="emissions_unit_id_epa")
     )
@@ -1091,7 +739,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
         on=["plant_id_eia", "emissions_unit_id_epa"],
         validate="m:1",
     )
-    validation.test_for_missing_subplant_id(cems)
+    validation.test_for_missing_subplant_id(cems, "emissions_unit_id_epa")
 
     # add a fuel type to each observation
     cems = assign_fuel_type_to_cems(cems, year, primary_fuel_table)

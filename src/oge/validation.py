@@ -7,7 +7,7 @@ from oge.column_checks import get_dtypes
 from oge.helpers import create_plant_ba_table
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
-from oge.constants import CLEAN_FUELS
+from oge.constants import CLEAN_FUELS, earliest_validated_year, latest_validated_year
 
 logger = get_logger(__name__)
 
@@ -18,9 +18,6 @@ logger = get_logger(__name__)
 
 def validate_year(year):
     """Returns a warning if the year specified is not known to work with the pipeline."""
-
-    earliest_validated_year = 2019
-    latest_validated_year = 2022
 
     if year < earliest_validated_year:
         year_warning = f"""
@@ -323,6 +320,29 @@ def test_for_missing_values(df, small: bool = False):
     return missing_test
 
 
+def check_for_1_to_many_subplant_mappings(
+    subplant_crosswalk: pd.DataFrame, plant_part: str
+):
+    """
+    Each generator_id or emissions_unit_id at a plant should only be mapped to a single
+    subplant_id. This test checks this.
+
+    plant_part is either "generator_id" or "emissions_unit_id_eia"
+    """
+    test = subplant_crosswalk[
+        ["plant_id_eia", plant_part, "subplant_id"]
+    ].drop_duplicates()
+    test = test[
+        (~test[plant_part].isna())
+        & (test.duplicated(subset=["plant_id_eia", plant_part], keep=False))
+    ]
+    if len(test) > 0:
+        print(test)
+        raise UserWarning(
+            f"The subplant crosswalk contains 1:m mappings of {plant_part} to subplant_id."
+        )
+
+
 def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk, year):
     """
     Combined cycle generators contain a steam part (CA) and turbine part (CT) that are
@@ -335,13 +355,8 @@ def check_for_orphaned_cc_part_in_subplant(subplant_crosswalk, year):
     generator. These prime movers are allowed to be by themselves in a subplant, as are
     CC prime movers, which represent a "total unit."
     """
-    cc_pm_codes = ["CA", "CT", "CS", "CC"]
-    # keep all rows that contain a combined cycle prime mover part
-    cc_subplants = subplant_crosswalk[
-        subplant_crosswalk["prime_mover_code"].isin(cc_pm_codes)
-    ]
     # for each subplant, identify a list of all CC prime movers in that subplant
-    cc_subplants = cc_subplants.groupby(["plant_id_eia", "subplant_id"])[
+    cc_subplants = subplant_crosswalk.groupby(["plant_id_eia", "subplant_id"])[
         "prime_mover_code"
     ].agg(["unique"])
     cc_subplants["unique_cc_pms"] = [
@@ -458,13 +473,19 @@ def check_removed_data_is_empty(cems):
         logger.warning("\n" + check_that_data_is_zero.to_string())
 
 
-def test_for_missing_subplant_id(df):
+def test_for_missing_subplant_id(df, plant_part):
     """Checks if any records are missing a `subplant_id`."""
     logger.info("Checking that all data has an associated `subplant_id`...  ")
     missing_subplant_test = df[df["subplant_id"].isna()]
     if not missing_subplant_test.empty:
         logger.warning(
-            f"There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID. See `missing_subplant_test` for details"
+            f"There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID"
+        )
+        logger.warning(
+            "\n"
+            + missing_subplant_test[["plant_id_eia", plant_part, "subplant_id"]]
+            .drop_duplicates()
+            .to_string()
         )
     else:
         logger.info("OK")

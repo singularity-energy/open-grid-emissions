@@ -81,6 +81,7 @@ There are many ways that you can contribute!
 - `impute_hourly_profiles`: functions related to assigning an hourly profile to monthly data
 - `load_data`: functions for loading data from downloaded files
 - `output_data`: functions for writing intermediate and final data to csvs
+- `subplant_identification`: functions for identifying subplant IDs
 - `validation`: functions for testing and validating data outputs
 - `visualization`: functions for visualizing data in notebooks
 

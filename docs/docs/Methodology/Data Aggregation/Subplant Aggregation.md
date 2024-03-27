@@ -29,4 +29,4 @@ At a high level, we update and expand the `subplant_id` mapping based on the fol
 4. All of the new unique ids are renumbered in consecutive ascending order
 
 
-> Note: Subplant_id are not meant to be stable identifiers across multiple years. A generator that is assigned subplant_id 0 in one year could be assinged a different subplant_id in another year.
+> Note: `subplant_id` should be stable across all data years within a single version of OGE. However, `subplant_id` may change from one version of OGE to the next as we get better data about subplant mappings. 

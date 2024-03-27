@@ -8,7 +8,13 @@ from oge.column_checks import get_dtypes
 from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
 import oge.validation as validation
 from oge.logging_util import get_logger
-from oge.constants import CLEAN_FUELS, ConversionFactors
+from oge.constants import (
+    CLEAN_FUELS,
+    ConversionFactors,
+    earliest_data_year,
+    earliest_validated_year,
+    latest_validated_year,
+)
 
 from pudl.metadata.fields import apply_pudl_dtypes
 
@@ -116,21 +122,251 @@ def load_cems_data(year):
     return cems
 
 
-def load_cems_ids(start_year, end_year):
-    """Loads CEMS ids for multiple years."""
+def load_cems_ids() -> pd.DataFrame:
+    """
+    Loads a dataframe of all unique plant_id_eia, emissions_unit_id_epa combinations
+    that exist from the earliest_data_year to the latest_validated_year. This is used
+    in the process of creating subplant_ids to ensure complete coverage.
+    """
 
-    # load cems data
-    cems = pd.read_parquet(
-        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
-        filters=[["year", ">=", start_year], ["year", "<=", end_year]],
-        columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
-    ).drop_duplicates()
-    cems = apply_pudl_dtypes(cems)
+    # although we could directly load all years at once from the cems parquet file, this
+    # would lead to a memoryerror, so we load one year at a time and drop duplicates before
+    # concatenating the next year to the dataframe
+    cems_ids = []
+    # The `earliest_data_year` is 2005, as defined in `constants.py`
+    for year in range(earliest_data_year, latest_validated_year + 1):
+        cems_id_year = pd.read_parquet(
+            downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+            filters=[["year", "==", year]],
+            columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
+        ).drop_duplicates()
+        cems_ids.append(cems_id_year)
+        cems_ids = [pd.concat(cems_ids, axis=0).drop_duplicates()]
+
+    cems_ids = (
+        pd.concat(cems_ids, axis=0)
+        .drop_duplicates()
+        .sort_values(by=["plant_id_eia", "emissions_unit_id_epa"])
+    )
+
+    cems_ids = apply_pudl_dtypes(cems_ids)
 
     # update the plant_id_eia column using manual matches
-    cems = update_epa_to_eia_map(cems)
+    cems_ids = update_epa_to_eia_map(cems_ids)
 
-    return cems[["plant_id_eia", "emissions_unit_id_epa"]]
+    return cems_ids[["plant_id_eia", "emissions_unit_id_epa"]]
+
+
+def load_complete_eia_generators_for_subplants():
+    """
+    Loads a dataframe that contains a complete list of generators, including their
+    unit ids, prime movers, operating dates, and operating status. This will be used
+    when creating subplant IDs to ensure that a complete set of generators is
+    represented. Because some of these values are incomplete or missing in the pudl data
+    we load these values from the raw downloaded EIA-860 dataset to fill in any gaps.
+
+    """
+    complete_gens = load_pudl_table(
+        "denorm_generators_eia",
+        columns=[
+            "report_date",
+            "plant_id_eia",
+            "generator_id",
+            "unit_id_pudl",
+            "prime_mover_code",
+            "operational_status_code",
+            "generator_operating_date",
+            "generator_retirement_date",
+            "original_planned_generator_operating_date",
+            "current_planned_generator_operating_date",
+        ],
+    )
+
+    # create a column that indicates the earliest year a generator reported data to EIA
+    complete_gens["earliest_report_date"] = complete_gens.groupby(
+        ["plant_id_eia", "generator_id"]
+    )["report_date"].transform("min")
+
+    # drop any data that was reported prior to the earliest year
+    # only keep data for years <= the year
+    # this avoids using potentially preliminary early-release data
+    complete_gens = complete_gens[
+        (complete_gens["report_date"].dt.year >= earliest_data_year)
+        & (complete_gens["report_date"].dt.year <= latest_validated_year)
+    ]
+
+    # for any retired gens, forward fill the most recently available unit_id_pudl to the
+    # most recent available year
+    complete_gens["unit_id_pudl"] = complete_gens.groupby(
+        ["plant_id_eia", "generator_id"]
+    )["unit_id_pudl"].ffill()
+
+    # remove generators that retired prior to the earliest year
+    complete_gens = complete_gens[
+        ~(
+            (complete_gens["operational_status_code"] == "RE")
+            & (complete_gens["generator_retirement_date"].dt.year < earliest_data_year)
+        )
+    ]
+
+    # remove generators that are proposed but not yet under construction, or cancelled
+    cancelled_or_proposed_status_codes = ["CN", "IP", "P", "L", "T"]
+    complete_gens = complete_gens[
+        ~complete_gens["operational_status_code"].isin(
+            cancelled_or_proposed_status_codes
+        )
+    ]
+
+    # only keep the most recent entry for each generator
+    complete_gens = complete_gens.sort_values(
+        by=["plant_id_eia", "generator_id", "report_date"], ascending=True
+    ).drop_duplicates(subset=["plant_id_eia", "generator_id"], keep="last")
+
+    # remove any generators that were under construction sometime after earliest_data_year
+    # but were cancelled or disappeared from the data before earliest_validated_year
+    under_construction_status_codes = ["U", "V", "TS"]
+    complete_gens = complete_gens[
+        ~(
+            (complete_gens["report_date"].dt.year < earliest_validated_year)
+            & (
+                complete_gens["operational_status_code"].isin(
+                    under_construction_status_codes
+                )
+            )
+        )
+    ]
+
+    # remove generators that have no operating or retirement date, and the last time they
+    # reported data was prior to the earliest validated year.
+    # This is often proposed plants that are assigned a new plant_id_eia once operational
+    complete_gens = complete_gens[
+        ~(
+            (complete_gens["generator_operating_date"].isna())
+            & (complete_gens["generator_retirement_date"].isna())
+            & (complete_gens["report_date"].dt.year < earliest_validated_year)
+        )
+    ]
+
+    # remove generators that have no operating or retirement date as of the latest validated
+    # year and which did not have a status of testing.
+    complete_gens = complete_gens[
+        ~(
+            (complete_gens["generator_operating_date"].isna())
+            & (complete_gens["generator_retirement_date"].isna())
+            & (complete_gens["report_date"].dt.year < latest_validated_year)
+            & (complete_gens["operational_status_code"] != "TS")
+        )
+    ]
+
+    ####################
+    # merge into complete_gens and fill missing operating dates with the EIA-860 data
+    generator_data_from_eia860 = load_raw_eia860_generator_dates_and_unit_ids(
+        latest_validated_year
+    )
+    complete_gens = complete_gens.merge(
+        generator_data_from_eia860,
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+        validate="1:1",
+    )
+    complete_gens["generator_operating_date"] = complete_gens[
+        "generator_operating_date"
+    ].fillna(complete_gens["operating_date_eia"])
+    complete_gens = complete_gens.drop(columns="operating_date_eia")
+
+    #######################
+    # update the unit_id_eia_numeric to be one higher than the highest existing unit_id_pudl
+    # if unit_id_eia_numeric is NA, the updated value should also still be na
+    complete_gens["unit_id_eia_numeric"] = complete_gens[
+        "unit_id_eia_numeric"
+    ] + complete_gens.groupby("plant_id_eia")["unit_id_pudl"].transform("max").fillna(0)
+
+    # fill in missing unit_id_pudl with the updated values
+    complete_gens["unit_id_pudl"] = complete_gens["unit_id_pudl"].fillna(
+        complete_gens["unit_id_eia_numeric"]
+    )
+
+    return complete_gens
+
+
+def load_raw_eia860_generator_dates_and_unit_ids(year):
+    """
+    Loads generator operating dates and unit_id_eia codes from the raw EIA-860 to
+    fill in missing dates and unit ids in the pudl data. PUDL deletes data for these
+    fields if there are inconsistencies across the historical data
+    """
+    # load operating dates from the raw EIA-860 file to supplement missing operating dates
+    # from pudl
+    generator_op_dates_eia860 = pd.read_excel(
+        downloads_folder(f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"),
+        header=1,
+        sheet_name="Operable",
+        usecols=[
+            "Plant Code",
+            "Generator ID",
+            "Operating Month",
+            "Operating Year",
+            "Unit Code",
+        ],
+    ).rename(
+        columns={
+            "Plant Code": "plant_id_eia",
+            "Generator ID": "generator_id",
+            "Operating Month": "Month",
+            "Operating Year": "Year",
+            "Unit Code": "unit_id_eia",
+        }
+    )
+
+    # create a datetime column from the month and year
+    generator_op_dates_eia860["operating_date_eia"] = pd.to_datetime(
+        generator_op_dates_eia860[["Year", "Month"]].assign(Day=1)
+    )
+    generator_op_dates_eia860 = generator_op_dates_eia860.drop(
+        columns=["Month", "Year"]
+    )
+
+    # load unit codes for proposed generators
+    proposed_unit_ids_eia860 = (
+        pd.read_excel(
+            downloads_folder(f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"),
+            sheet_name="Proposed",
+            header=1,
+            usecols=["Plant Code", "Generator ID", "Unit Code"],
+        )
+        .dropna(subset="Unit Code")
+        .rename(
+            columns={
+                "Plant Code": "plant_id_eia",
+                "Generator ID": "generator_id",
+                "Unit Code": "unit_id_eia",
+            }
+        )
+    )
+
+    # concat the data together
+    generator_data_from_eia860 = pd.concat(
+        [generator_op_dates_eia860, proposed_unit_ids_eia860], axis=0
+    )
+
+    # create a numeric version of the ID, starting at 1
+    generator_data_from_eia860["unit_id_eia_numeric"] = (
+        generator_data_from_eia860.groupby(
+            ["plant_id_eia"]
+        )["unit_id_eia"].transform(lambda x: pd.factorize(x)[0] + 1)
+    )
+
+    # unit_id_eia_numeric of 0 represents missing unit_id_eia, so we want to replace
+    # these with nan
+    generator_data_from_eia860["unit_id_eia_numeric"] = generator_data_from_eia860[
+        "unit_id_eia_numeric"
+    ].replace(0, np.NaN)
+
+    generator_data_from_eia860["unit_id_eia_numeric"] = pd.to_numeric(
+        generator_data_from_eia860["unit_id_eia_numeric"]
+    )
+
+    return generator_data_from_eia860
 
 
 def load_cems_gross_generation(start_year, end_year):
