@@ -9,7 +9,7 @@ from pudl.etl.glue_assets import make_subplant_ids
 import oge.load_data as load_data
 import oge.validation as validation
 import oge.emissions as emissions
-from oge.constants import CLEAN_FUELS, earliest_data_year, latest_validated_year
+from oge.constants import CLEAN_FUELS, latest_validated_year
 from oge.column_checks import get_dtypes, apply_dtypes
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.helpers import create_plant_ba_table
@@ -78,9 +78,7 @@ def generate_subplant_ids() -> pd.DataFrame:
     # update the subplant_crosswalk to ensure completeness
     # prepare the subplant crosswalk by adding a complete list of generators and adding
     # the unit_id_pudl column
-    complete_gens = load_data.load_complete_eia_generators_for_subplants(
-        earliest_data_year, latest_validated_year
-    )
+    complete_gens = load_data.load_complete_eia_generators_for_subplants()
     filtered_crosswalk = filtered_crosswalk.merge(
         complete_gens,
         how="outer",

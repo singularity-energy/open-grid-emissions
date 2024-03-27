@@ -237,13 +237,24 @@ def load_complete_eia_generators_for_subplants():
     ]
 
     # remove generators that have no operating or retirement date, and the last time they
-    # reported data was prior to the current year. This is often proposed plants that are
-    # assigned a new plant_id_eia once operational
+    # reported data was prior to the earliest validated year.
+    # This is often proposed plants that are assigned a new plant_id_eia once operational
+    complete_gens = complete_gens[
+        ~(
+            (complete_gens["generator_operating_date"].isna())
+            & (complete_gens["generator_retirement_date"].isna())
+            & (complete_gens["report_date"].dt.year < earliest_validated_year)
+        )
+    ]
+
+    # remove generators that have no operating or retirement date as of the latest validated
+    # year and which did not have a status of testing.
     complete_gens = complete_gens[
         ~(
             (complete_gens["generator_operating_date"].isna())
             & (complete_gens["generator_retirement_date"].isna())
             & (complete_gens["report_date"].dt.year < latest_validated_year)
+            & (complete_gens["operational_status_code"] != "TS")
         )
     ]
 
