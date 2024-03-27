@@ -14,6 +14,7 @@ import shutil
 # import local modules
 import oge.download_data as download_data
 import oge.data_cleaning as data_cleaning
+import oge.subplant_identification as subplant_identification
 import oge.emissions as emissions
 import oge.gross_to_net_generation as gross_to_net_generation
 import oge.helpers as helpers
@@ -146,7 +147,7 @@ def main(args):
     # 2. Identify subplants
     ####################################################################################
     logger.info("2. Identifying subplant IDs")
-    subplant_crosswalk = data_cleaning.generate_subplant_ids()
+    subplant_crosswalk = subplant_identification.generate_subplant_ids()
     output_data.output_intermediate_data(
         subplant_crosswalk,
         "subplant_crosswalk",
