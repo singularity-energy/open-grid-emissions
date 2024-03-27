@@ -68,6 +68,7 @@ There are many ways that you can contribute!
 
 ## Repository Structure
 ### Modules
+- `anomaly_screening`: classes use to flag timeseries for anomalies as proposed in Tyler H. Ruggles et al. Developing reliable hourly electricity demand data through screening and imputation (2020)
 - `column_checks`: functions that check that all data outputs have the correct column names
 - `constants`: specifies conversion factors and constants used across all modules
 - `data_pipeline`: main script for running the data pipeline from start to finish
