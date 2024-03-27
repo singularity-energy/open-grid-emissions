@@ -175,10 +175,10 @@ def generate_subplant_ids() -> pd.DataFrame:
             "generator_id",
             "subplant_id",
             "unit_id_pudl",
-            "prime_mover_code",
             "generator_operating_date",
             "generator_retirement_date",
             "current_planned_generator_operating_date",
+            "prime_mover_code",
         ]
     ].drop_duplicates(
         subset=[
@@ -722,7 +722,7 @@ def calculate_aggregated_primary_fuel(
         )
 
     primary_fuel_from_capacity = calculate_capacity_based_primary_fuel(
-        agg_level, agg_keys, year
+        gen_fuel_allocated, agg_level, agg_keys, year
     )
 
     # NOTE: In some rare cases, a plant will have no fuel specified by
@@ -830,7 +830,9 @@ def calculate_aggregated_primary_fuel(
     return agg_primary_fuel
 
 
-def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
+def calculate_capacity_based_primary_fuel(
+    gen_fuel_allocated, agg_level, agg_keys, year
+):
     # create a table of primary fuel by nameplate capacity
     gen_capacity = load_data.load_pudl_table(
         "generators_eia860",
@@ -843,11 +845,13 @@ def calculate_capacity_based_primary_fuel(agg_level, agg_keys, year):
             "operational_status_code",
         ],
     )
-    # remove generators that are proposed but not yet under construction, or cancelled
-    status_codes_to_remove = ["CN", "IP", "P", "L", "T", "RE"]
-    gen_capacity = gen_capacity[
-        ~gen_capacity["operational_status_code"].isin(status_codes_to_remove)
-    ]
+    # only keep keys that exist in gen_fuel_allocated
+    gen_capacity = gen_capacity.merge(
+        gen_fuel_allocated[["plant_id_eia", "generator_id"]].drop_duplicates(),
+        how="right",
+        on=["plant_id_eia", "generator_id"],
+        validate="1:1",
+    )
 
     if "subplant_id" in agg_keys:
         subplant_crosswalk = (
