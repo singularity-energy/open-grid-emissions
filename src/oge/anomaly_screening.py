@@ -8,6 +8,82 @@ from oge.logging_util import get_logger
 logger = get_logger(__name__)
 
 
+def flag_cems_outliers(cems, field, global_cut_multiplier=10):
+    """Return a data frame giving for each plant amd emission unit combination in CEMS
+    data the number of missing values, global extreme and the mean deviation of the
+    global extreme relative to the median value of the time series.
+
+    Arguments
+    ---------
+    * `cems` : CEMS data as a data frame.
+    * `field` : Column to screen for global extreme in CEMS data frame.
+    * `global_cut_multiplier` : Cut above which values in the time series will be
+                                considered as global extreme. Express as multiple of
+                                median value.
+    """
+    screening = []
+    for i, ts in enumerate(cems.groupby(["plant_id_eia", "emissions_unit_id_epa"])):
+        AS = AnomalyScreeningFirstStep(
+            ts[1][["plant_id_eia", "emissions_unit_id_epa", field]],
+            field,
+            global_cut_multiplier=global_cut_multiplier,
+        )
+        AS.flag_negative_values()
+        AS.flag_zero_values()
+        if (
+            len(
+                AS.get_filtered_df().query(
+                    "category != 'MISSING' and category != 'ZERO'"
+                )
+            )
+            > 0
+        ):
+            AS.flag_global_extreme_values()
+            df = AS.get_filtered_df()
+            if len(df.query("category == 'GLOBAL_EXTREME'")) > 0:
+                global_extreme_id = df.query("category == 'GLOBAL_EXTREME'")["index"]
+                median = cems.loc[df["index"]].query(f"{field} > 0")[field].median()
+                screening.append(
+                    pd.concat(
+                        [
+                            pd.DataFrame(
+                                df.groupby("category").size().to_dict(),
+                                index=pd.MultiIndex.from_tuples([ts[0]]),
+                            ),
+                            pd.DataFrame(
+                                {
+                                    "MEAN_DEVIATION": [
+                                        (cems.loc[global_extreme_id][field] / median)
+                                        .mean()
+                                        .round(1)
+                                    ]
+                                },
+                                index=pd.MultiIndex.from_tuples([ts[0]]),
+                            ),
+                        ],
+                        axis=1,
+                    )
+                )
+
+    global_extreme = (
+        pd.concat(screening)
+        .fillna(0)
+        .astype(
+            {
+                "MISSING": "int",
+                "OKAY": "int",
+                "ZERO": "int",
+                "GLOBAL_EXTREME": "int",
+                "MEAN_DEVIATION": "float",
+            }
+        )
+    )
+    global_extreme.index.set_names(
+        ["plant_id_eia", "emissions_unit_id_epa"], inplace=True
+    )
+    return global_extreme
+
+
 class AnomalyScreeningFirstStep:
     """Screen timeseries for anomalous value following the algorithm steps described
     in Tyler H. Ruggles et al. Developing reliable hourly electricity demand data
