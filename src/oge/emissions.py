@@ -421,7 +421,7 @@ def calculate_co2e_mass(df, version, gwp_horizon=100, ar5_climate_carbon_feedbac
         raise ValueError(
             f"version must be a year >= {df_gwp['year'].min()} or a valid AR"
         )
-    print(ipcc_version)
+
     gwp_to_use = df_gwp[df_gwp.ipcc_version == ipcc_version]
 
     ch4_gwp = gwp_to_use.loc[
