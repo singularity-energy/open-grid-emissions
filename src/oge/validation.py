@@ -3,6 +3,7 @@ import numpy as np
 
 import oge.load_data as load_data
 import oge.impute_hourly_profiles as impute_hourly_profiles
+from oge.anomaly_screening import flag_cems_outliers
 from oge.column_checks import get_dtypes
 from oge.helpers import create_plant_ba_table
 from oge.filepaths import reference_table_folder, outputs_folder
@@ -1973,6 +1974,64 @@ def check_for_anomalous_co2_factors(
             )
             .sort_values(by=factor)
             .to_string()
+        )
+
+
+def check_for_outliers_in_cems_generation_fuel_and_co2_time_serie(cems):
+    """Return for each plant amd emission unit combination in CEMS' generation, fuel
+    consumption and CO2 emission data the number of global extreme and the mean
+    deviation of the global extreme relative to the median value of the time series.
+
+    Arguments
+    ---------
+    * `cems` : CEMS data as a data frame.
+    * `field` : Column to screen for global extreme in CEMS data frame.
+    * `global_cut_multiplier` : Cut above which values in the time series will be
+                                considered as global extreme. Express as multiple of
+                                median value.
+    """
+    year = cems.loc[0, "datetime_utc"].year
+    plant2ba = (
+        create_plant_ba_table(year).set_index("plant_id_eia")["ba_code"].to_dict()
+    )
+
+    def get_ba(plant):
+        try:
+            return plant2ba[plant]
+        except KeyError:
+            return np.NaN
+
+    for i, field in enumerate(
+        [
+            "gross_generation_mwh",
+            "fuel_consumed_mmbtu",
+            "co2_mass_lb",
+        ]
+    ):
+        df = flag_cems_outliers(cems, field)[["GLOBAL_EXTREME", "MEAN_DEVIATION"]]
+        df.columns = pd.MultiIndex.from_product(
+            [
+                [field],
+                df.columns,
+            ],
+        )
+        if i == 0:
+            global_extreme = df.copy()
+        else:
+            global_extreme = global_extreme.merge(
+                df, on=["plant_id_eia", "emissions_unit_id_epa"], how="outer"
+            )
+
+    if len(global_extreme) > 0:
+        logger.warning("Global extreme detected in CEMS time series")
+        logger.warning(
+            "\n"
+            + global_extreme.assign(
+                ba_code=[
+                    get_ba(i)
+                    for i in global_extreme.index.get_level_values("plant_id_eia")
+                ]
+            ).to_string()
         )
 
 
