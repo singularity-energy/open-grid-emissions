@@ -25,7 +25,7 @@ import oge.output_data as output_data
 import oge.consumed as consumed
 from oge.filepaths import downloads_folder, outputs_folder, results_folder
 from oge.logging_util import get_logger, configure_root_logger
-from oge.constants import TIME_RESOLUTIONS
+from oge.constants import TIME_RESOLUTIONS, latest_validated_year
 
 
 def get_args() -> argparse.Namespace:
@@ -142,6 +142,8 @@ def main(args):
     )
     # download the raw EIA-923 and EIA-860 files for use in NOx/SO2 calculations until integrated into pudl
     download_data.download_raw_eia860(year)
+    # download eia860 from the latest validated year for use in subplant identification
+    download_data.download_raw_eia860(latest_validated_year)
     download_data.download_raw_eia923(year)
 
     # 2. Identify subplants
