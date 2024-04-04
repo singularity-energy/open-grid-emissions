@@ -6,13 +6,17 @@ stoplight-id: using_the_data
 
 ## Data Availability
 
-The latest release includes data for year 2019-2020 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)), and to expand the historical coverage of the data.
+The latest release includes data for year 2019-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)), and to expand the historical coverage of the data.
 
-This initial release only includes 2019 and 2020 data because as of August 2022, 2020 is the most recent year of complete input data available, and 2019 is the earliest complete year for which EIA-930 data is available (which is used to assign an hourly profile to non-CEMS data). You can track progress on integrating pre-2019 data [here](https://github.com/singularity-energy/open-grid-emissions/issues/117)
+Currently, 2019 is the earliest available year because it is the first year for which complete EIA-930 data is available (which is used to assign an hourly profile to non-CEMS data). You can track progress on integrating pre-2019 data [here](https://github.com/singularity-energy/open-grid-emissions/issues/117)
 
 ## Data Release Schedule
 
-Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2021 data should be available Autumn 2022). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
+In general, annual data releases will be published in Q4 of the following year (i.e. 2023 data should be published in Q4 of 2024)
+
+Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2022 data was published in September 2023). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
+
+Updated datasets will also be published whenever a new minor version of the open-grid-emissions code is released, usually representing methdological enhancements. These releases may happen mutliple times throughout a year.
 
 ## Files
 
