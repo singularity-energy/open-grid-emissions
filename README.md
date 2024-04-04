@@ -68,6 +68,7 @@ There are many ways that you can contribute!
 
 ## Repository Structure
 ### Modules
+- `anomaly_screening`: classes use to flag timeseries for anomalies as proposed in Tyler H. Ruggles et al. Developing reliable hourly electricity demand data through screening and imputation (2020)
 - `column_checks`: functions that check that all data outputs have the correct column names
 - `constants`: specifies conversion factors and constants used across all modules
 - `data_pipeline`: main script for running the data pipeline from start to finish
@@ -75,11 +76,13 @@ There are many ways that you can contribute!
 - `data_cleaning`: functions that clean loaded data
 - `eia930`: functions for cleaning and formatting EIA-930 data
 - `emissions`: functions used for imputing emissions data
-- `filepaths`: Used to identify where repository files are located on the user's computer
-- `gross_to_net_generation`: Functions for identifying subplants and gross to net generation conversion factors
+- `filepaths`: used to identify where repository files are located on the user's computer
+- `gross_to_net_generation`: functions for identifying subplants and gross to net generation conversion factors
+- `helpers`: functions that are used across modules
 - `impute_hourly_profiles`: functions related to assigning an hourly profile to monthly data
 - `load_data`: functions for loading data from downloaded files
 - `output_data`: functions for writing intermediate and final data to csvs
+- `subplant_identification`: functions for identifying subplant IDs
 - `validation`: functions for testing and validating data outputs
 - `visualization`: functions for visualizing data in notebooks
 

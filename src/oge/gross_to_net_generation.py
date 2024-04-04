@@ -1,18 +1,15 @@
 import numpy as np
-import os
 import pandas as pd
 import statsmodels.formula.api as smf
 import warnings
 
-# import pudl packages
-import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
-
 # import other modules
 import oge.load_data as load_data
-import oge.data_cleaning as data_cleaning
 import oge.validation as validation
 from oge.column_checks import get_dtypes
 from oge.filepaths import outputs_folder
+
+from oge.helpers import create_plant_ba_table
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -20,11 +17,12 @@ logger = get_logger(__name__)
 
 def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, year):
     """
-    Converts hourly gross generation in CEMS to hourly net generation by calculating a gross to net generation ratio
-    Inputs:
+    Converts hourly gross generation in CEMS to hourly net generation by calculating a
+    gross to net generation ratio
 
     Returns:
-        cems df with an added column for net_generation_mwh and a column indicated the method used to calculate net generation
+        cems df with an added column for net_generation_mwh and a column indicated the
+        method used to calculate net generation
     """
 
     gtn_conversions = calculate_gross_to_net_conversion_factors(
@@ -64,16 +62,16 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         cems["gross_generation_mwh"] * cems["annual_plant_ratio"]
     )
 
-    cems.loc[
-        cems["net_generation_mwh"].isna(), "gtn_method"
-    ] = "3_annual_subplant_shift_factor"
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = (
+        "3_annual_subplant_shift_factor"
+    )
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_subplant_shift_mw"]
     )
 
-    cems.loc[
-        cems["net_generation_mwh"].isna(), "gtn_method"
-    ] = "4_annual_plant_shift_factor"
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = (
+        "4_annual_plant_shift_factor"
+    )
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_plant_shift_mw"]
     )
@@ -89,6 +87,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         (cems["gtn_method"] == "6_default_eia_ratio")
         & (cems["default_gtn_ratio"].isna())
     ]
+
     if len(missing_defaults) > 0:
         logger.warning(
             "The following subplants are missing default GTN ratios. Using a default value of 0.97"
@@ -97,6 +96,12 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
             "\n"
             + missing_defaults[["plant_id_eia", "subplant_id"]]
             .drop_duplicates()
+            .merge(
+                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+                how="left",
+                on="plant_id_eia",
+                validate="m:1",
+            )
             .to_string()
         )
     # if there is a missing default gtn ratio, fill with 0.97
@@ -118,7 +123,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, plant_attributes, ye
         ]
     )
 
-    validation.validate_gross_to_net_conversion(cems, eia923_allocated)
+    validation.validate_gross_to_net_conversion(cems, eia923_allocated, year)
 
     return cems, gtn_conversions
 
@@ -204,12 +209,17 @@ def calculate_gross_to_net_conversion_factors(
             validate="1:1",
         )
     )
-    combined_gen_data["data_source"] = combined_gen_data["data_source"].replace(
-        {"left_only": "cems_only", "right_only": "eia_only"}
+    combined_gen_data["data_source"] = combined_gen_data[
+        "data_source"
+    ].cat.rename_categories(
+        {
+            "left_only": "cems_only",
+            "right_only": "eia_only",
+        }
     )
 
     # validate the data
-    validation.check_missing_or_zero_generation_matches(combined_gen_data)
+    validation.check_missing_or_zero_generation_matches(combined_gen_data, year)
 
     # calculate other groupings at the plant and annual levels
     annual_subplant_ratio = (
@@ -258,7 +268,7 @@ def calculate_gross_to_net_conversion_factors(
     ).replace([np.inf, -np.inf], np.nan)
 
     # flag anomalous plant ratios
-    validation.identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio)
+    validation.identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio, year)
 
     # calculate a monthly and annual shift factor
     combined_gen_data["monthly_subplant_shift_mw"] = (
@@ -400,21 +410,30 @@ def calculate_subplant_nameplate_capacity(year):
     gen_capacity = load_data.load_pudl_table(
         "generators_eia860",
         year,
-        columns=["plant_id_eia", "generator_id", "prime_mover_code", "capacity_mw"],
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "prime_mover_code",
+            "capacity_mw",
+            "operational_status_code",
+        ],
     )
 
     # add subplant ids to the generator data
-    subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-        dtype=get_dtypes(),
-    )[["plant_id_eia", "generator_id", "subplant_id"]].drop_duplicates()
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "generator_id", "subplant_id"]]
+        .drop_duplicates()
+        .dropna(subset="generator_id")
+    )
     gen_capacity = gen_capacity.merge(
         subplant_crosswalk,
-        how="left",
+        how="inner",
         on=["plant_id_eia", "generator_id"],
         validate="1:1",
     )
-    validation.test_for_missing_subplant_id(gen_capacity)
     subplant_capacity = (
         gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
         .sum()
@@ -487,9 +506,9 @@ def filter_gtn_conversion_factors(gtn_conversions):
         # remove any factors that would scale net generation to less than 75% of gross generation
         # In general, the IQR of GTN ratios is between 0.75 and 1, with an upper bound around 1.25
         # remove any ratios that are negative to avoid flipping the shape of the profile
-        factors_to_use.loc[
-            factors_to_use[scaling_factor] < 0.75, scaling_factor
-        ] = np.NaN
+        factors_to_use.loc[factors_to_use[scaling_factor] < 0.75, scaling_factor] = (
+            np.NaN
+        )
         # remove any factors that would cause the generation in any hour to exceed 125% of nameplate capacity
         factors_to_use.loc[
             (
@@ -699,153 +718,3 @@ def model_gross_to_net(df):
 
         except ValueError:
             pass
-
-
-# Currently unused code for exploring gross to net conversions over multiple years
-########################################################################################
-
-
-def calculate_multiyear_gtn_factors(year, number_of_years):
-    """This is the coordinating function for loading and calculating subplant IDs, GTN regressions, and GTN ratios."""
-    start_year = year - (number_of_years - 1)
-    end_year = year
-
-    # load 5 years of monthly data from CEMS and EIA-923
-    cems_monthly, gen_fuel_allocated = load_monthly_gross_and_net_generation(
-        start_year, end_year
-    )
-
-    # add subplant ids to the data
-    logger.info("Creating subplant IDs")
-    cems_monthly, gen_fuel_allocated = data_cleaning.generate_subplant_ids(
-        start_year, end_year, cems_monthly, gen_fuel_allocated
-    )
-
-    logger.info("Calculating Gross to Net regressions and ratios")
-    # perform regression at subplant level
-    gross_to_net_regression(
-        gross_gen_data=cems_monthly,
-        net_gen_data=gen_fuel_allocated,
-        agg_level="subplant",
-    )
-
-    # perform regression at plant level
-    gross_to_net_regression(
-        gross_gen_data=cems_monthly, net_gen_data=gen_fuel_allocated, agg_level="plant"
-    )
-
-    # calculate monthly ratios at subplant level
-    gross_to_net_ratio(
-        gross_gen_data=cems_monthly,
-        net_gen_data=gen_fuel_allocated,
-        agg_level="subplant",
-        year=year,
-    )
-
-    # calculate monthly ratios at plant level
-    gross_to_net_ratio(
-        gross_gen_data=cems_monthly,
-        net_gen_data=gen_fuel_allocated,
-        agg_level="plant",
-        year=year,
-    )
-
-
-def load_monthly_gross_and_net_generation(start_year, end_year):
-    # load cems data
-    cems_monthly = load_data.load_cems_gross_generation(start_year, end_year)
-
-    # allocate net generation and heat input to each generator-fuel grouping
-    logger.info("Allocating EIA-923 generation data")
-    gen_fuel_allocated = load_data.load_pudl_table(
-        "generation_fuel_by_generator_energy_source_monthly_eia923",
-        year=start_year,
-        columns=None,
-        end_year=end_year,
-    )
-    # aggregate the allocated data to the generator level
-    gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
-        gen_fuel_allocated, sum_cols=["net_generation_mwh"]
-    )
-
-    return cems_monthly, gen_fuel_allocated
-
-
-def gross_to_net_ratio(gross_gen_data, net_gen_data, agg_level, year):
-    if agg_level == "plant":
-        plant_aggregation_columns = ["plant_id_eia"]
-    elif agg_level == "subplant":
-        plant_aggregation_columns = ["plant_id_eia", "subplant_id"]
-    else:
-        raise ValueError("agg_level must be either 'plant' or 'subplant'")
-
-    groupby_columns = plant_aggregation_columns + ["report_date"]
-
-    gen_data = gross_gen_data.merge(
-        net_gen_data,
-        how="outer",
-        on=["plant_id_eia", "subplant_id", "report_date"],
-        validate="m:m",
-    )
-
-    # identify any rows where gross or net generation are missing
-    incomplete_data = gen_data[
-        gen_data[["gross_generation_mwh", "net_generation_mwh"]].isnull().any(axis=1)
-    ]
-
-    # load the activation and retirement dates into the data
-    subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-        dtype=get_dtypes(),
-    ).dropna(subset="emissions_unit_id_epa")
-    incomplete_data = incomplete_data.merge(
-        subplant_crosswalk,
-        how="left",
-        on=(["plant_id_eia", "subplant_id", "emissions_unit_id_epa", "generator_id"]),
-        validate="m:1",
-    ).drop(columns="plant_id_epa")
-
-    # drop any of these rows where the retirement date is before the report date (only applies if net generation missing)
-    incomplete_data = incomplete_data[
-        ~(incomplete_data["generator_retirement_date"] < incomplete_data["report_date"])
-    ]
-
-    # drop any of these rows where the report date is before the planned operating date
-    incomplete_data = incomplete_data[
-        ~(
-            incomplete_data["report_date"]
-            < incomplete_data["current_planned_generator_operating_date"]
-        )
-    ]
-
-    # get a list of unique subplant ids and report dates - this identifies where we have missing data we shouldn't calculate a ratio for
-    incomplete_data = incomplete_data.drop_duplicates(subset=groupby_columns)[
-        groupby_columns
-    ]
-
-    # only keep gen data that is not incomplete
-    gtn_ratio = gen_data.merge(
-        incomplete_data,
-        how="outer",
-        on=groupby_columns,
-        indicator="source",
-        validate="1:1",
-    )
-    gtn_ratio = gtn_ratio[gtn_ratio["source"] == "left_only"].drop(columns="source")
-
-    # group data by aggregation columns
-    gtn_ratio = gtn_ratio.groupby(groupby_columns, dropna=False).sum().reset_index()
-
-    # calculate gross to net ratios for the remaining data
-    gtn_ratio["gtn_ratio"] = (
-        gtn_ratio["net_generation_mwh"] / gtn_ratio["gross_generation_mwh"]
-    )
-
-    gtn_ratio = gtn_ratio[groupby_columns + ["gtn_ratio"]]
-
-    os.makedirs(outputs_folder("gross_to_net"), exist_ok=True)
-
-    gtn_ratio.to_csv(
-        outputs_folder(f"gross_to_net/{agg_level}_gross_to_net_ratio.csv"),
-        index=False,
-    )

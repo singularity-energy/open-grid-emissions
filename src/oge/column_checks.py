@@ -17,6 +17,7 @@ those files or uses, then remove it here.
 After any change, re-run data_pipeline to regenerate all files and re-run these
 checks.
 """
+
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -332,8 +333,9 @@ COLUMNS = {
         "generator_id",
         "subplant_id",
         "unit_id_pudl",
-        "current_planned_generator_operating_date",
+        "generator_operating_date",
         "generator_retirement_date",
+        "current_planned_generator_operating_date",
         "prime_mover_code",
     },
     "shaped_aggregated_plants": {
