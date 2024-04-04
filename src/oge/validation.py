@@ -128,7 +128,7 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
         logger.warning(
             f"There are {len(mismatched_allocation)} plant/fuel combinations with "
             "non-zero (missing) net generation or fuel consumed that are different "
-            "in aloocated EIA-923 and EIA-923 Input"
+            "in allocated EIA-923 and EIA-923 Input"
         )
         mismatched_ba_code = [
             id2ba[i]
