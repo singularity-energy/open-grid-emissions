@@ -171,7 +171,10 @@ def clean_eia923(
     validation.test_emissions_adjustments(gen_fuel_allocated, year)
 
     # calculate weighted emission factors for each subplant-month
-    subplant_emission_factors = calculate_subplant_efs(gen_fuel_allocated, year)
+    if add_subplant_id:
+        subplant_emission_factors = calculate_subplant_efs(gen_fuel_allocated, year)
+    else:
+        subplant_emission_factors = None
 
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
@@ -292,29 +295,40 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         )
         validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
 
-    # get a table of primary energy source codes by generator
-    # this will be used in `calculate_aggregated_primary_fuel()` to determine the
-    # mode of energy source codes by plant
-    # sum the fuel consumption by ESC within each generator
-    gen_primary_fuel = (
-        gen_fuel_allocated.groupby(
-            ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"],
-            dropna=False,
-        )["fuel_consumed_mmbtu"]
-        .sum()
-        .reset_index()
-    )
-
-    # only keep the ESC associated with the highest fuel consumption for each gen
-    gen_primary_fuel = gen_primary_fuel.sort_values(
-        by=["plant_id_eia", "subplant_id", "generator_id", "fuel_consumed_mmbtu"],
-        ascending=True,
-    ).drop_duplicates(
-        subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
-    )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
-
-    if not add_subplant_id:
-        gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
+        # get a table of primary energy source codes by generator
+        # this will be used in `calculate_aggregated_primary_fuel()` to determine the
+        # mode of energy source codes by plant
+        # sum the fuel consumption by ESC within each generator
+        gen_primary_fuel = (
+            gen_fuel_allocated.groupby(
+                ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"],
+                dropna=False,
+            )["fuel_consumed_mmbtu"]
+            .sum()
+            .reset_index()
+        )
+        # only keep the ESC associated with the highest fuel consumption for each gen
+        gen_primary_fuel = gen_primary_fuel.sort_values(
+            by=["plant_id_eia", "subplant_id", "generator_id", "fuel_consumed_mmbtu"],
+            ascending=True,
+        ).drop_duplicates(
+            subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
+        )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
+    else:
+        gen_primary_fuel = (
+            gen_fuel_allocated.groupby(
+                ["plant_id_eia", "generator_id", "energy_source_code"],
+                dropna=False,
+            )["fuel_consumed_mmbtu"]
+            .sum()
+            .reset_index()
+        )
+        gen_primary_fuel = gen_primary_fuel.sort_values(
+            by=["plant_id_eia", "generator_id", "fuel_consumed_mmbtu"],
+            ascending=True,
+        ).drop_duplicates(subset=["plant_id_eia", "generator_id"], keep="last")[
+            ["plant_id_eia", "generator_id", "energy_source_code"]
+        ]
 
     plant_primary_fuel = calculate_aggregated_primary_fuel(
         gen_fuel_allocated, gen_primary_fuel, "plant", year
