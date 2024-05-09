@@ -726,6 +726,15 @@ def test_emissions_adjustments(df, year):
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
 
+    columns_to_show = [
+        "report_date",
+        "plant_id_eia",
+        "generator_id",
+        "emissions_unit_id_epa",
+        "prime_mover_code",
+        "energy_source_code",
+    ]
+
     bad_adjustment_count = 0
 
     for pollutant in pollutants:
@@ -739,14 +748,10 @@ def test_emissions_adjustments(df, year):
             )
             logger.warning(
                 bad_adjustment[
-                    [
-                        "report_date",
-                        "plant_id_eia",
-                        "generator_id",
-                        "prime_mover_code",
-                        "energy_source_code",
+                    [col for col in columns_to_show if col in bad_adjustment.columns]
+                    + [
                         f"{pollutant}_mass_lb",
-                        f"{pollutant}_mass_lb_for_electricity",
+                        f"{pollutant}_mass_lb_adjusted",
                     ]
                 ]
                 .merge(
@@ -769,12 +774,8 @@ def test_emissions_adjustments(df, year):
             )
             logger.warning(
                 bad_adjustment[
-                    [
-                        "report_date",
-                        "plant_id_eia",
-                        "generator_id",
-                        "prime_mover_code",
-                        "energy_source_code",
+                    [col for col in columns_to_show if col in bad_adjustment.columns]
+                    + [
                         f"{pollutant}_mass_lb",
                         f"{pollutant}_mass_lb_adjusted",
                     ]
@@ -802,14 +803,10 @@ def test_emissions_adjustments(df, year):
             )
             logger.warning(
                 bad_adjustment[
-                    [
-                        "report_date",
-                        "plant_id_eia",
-                        "generator_id",
-                        "prime_mover_code",
-                        "energy_source_code",
-                        f"{pollutant}_mass_lb_for_electricity",
-                        f"{pollutant}_mass_lb_for_electricity_adjusted",
+                    [col for col in columns_to_show if col in bad_adjustment.columns]
+                    + [
+                        f"{pollutant}_mass_lb",
+                        f"{pollutant}_mass_lb_adjusted",
                     ]
                 ]
                 .merge(
