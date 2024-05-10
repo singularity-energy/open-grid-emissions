@@ -697,6 +697,35 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     # load the CEMS data
     cems = load_data.load_cems_data(year)
 
+    # treat negative emissions as bad data and replace with missing values
+    for column in ["co2_mass_lb", "nox_mass_lb", "so2_mass_lb"]:
+        negative_emissions_data = cems[cems[column] < 0]
+        if len(negative_emissions_data) > 0:
+            logger.warning(
+                f"Bad input {column} data detected for the following plants:"
+            )
+            logger.warning(
+                negative_emissions_data[
+                    [
+                        "datetime_utc",
+                        "plant_id_eia",
+                        "plant_id_epa",
+                        "gross_generation_mwh",
+                        column,
+                        f"{column.split('_')[0]}_mass_measurement_code",
+                    ]
+                ]
+                .merge(
+                    create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+                    how="left",
+                    on="plant_id_eia",
+                    validate="m:1",
+                )
+                .to_string()
+            )
+            logger.warning("These values will be treated as missing values")
+            cems.loc[cems[column] < 0, column] = np.NaN
+
     if small:
         cems = smallerize_test_data(df=cems, random_seed=42)
 
