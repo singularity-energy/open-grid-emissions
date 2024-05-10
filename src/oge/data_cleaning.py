@@ -7,7 +7,7 @@ import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import oge.load_data as load_data
 import oge.validation as validation
 import oge.emissions as emissions
-from oge.constants import CLEAN_FUELS
+from oge.constants import CLEAN_FUELS, earliest_hourly_data_year
 from oge.column_checks import get_dtypes, apply_dtypes
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.helpers import create_plant_ba_table
@@ -1624,26 +1624,50 @@ def filter_unique_cems_data(cems, partial_cems):
     return filtered_cems
 
 
-def aggregate_plant_data_to_ba_fuel(combined_plant_data, plant_attributes_table):
-    # create a table that has data for the sythetic plant attributes
-    shaped_plant_attributes = (
-        plant_attributes_table[["shaped_plant_id", "ba_code", "fuel_category"]]
-        .drop_duplicates()
-        .dropna(subset="shaped_plant_id")
-        .rename(columns={"shaped_plant_id": "plant_id_eia"})
-    )
+def aggregate_plant_data_to_ba_fuel(
+    year: int, combined_plant_data: pd.DataFrame, plant_attributes_table: pd.DataFrame
+) -> pd.DataFrame:
+    """Group plant data by BA and fuel category.
 
-    combined_plant_attributes = pd.concat(
-        [
+    Args:
+        year (int): year under consideration
+        combined_plant_data (pd.DataFrame): the combined plant data.
+        plant_attributes_table (pd.DataFrame): the plant attributes table enclosing the
+            BA code and fuel category of each plant.
+
+    Raises:
+        UserWarning: if no BA or fuel category can be assigned to a plant
+
+    Returns:
+        pd.DataFrame: a data frame grouped by fuel category and BA
+    """
+    if year >= earliest_hourly_data_year:
+        # create a table that has data for the sythetic plant attributes
+        shaped_plant_attributes = (
+            plant_attributes_table[["shaped_plant_id", "ba_code", "fuel_category"]]
+            .drop_duplicates()
+            .dropna(subset="shaped_plant_id")
+            .rename(columns={"shaped_plant_id": "plant_id_eia"})
+        )
+
+        combined_plant_attributes = pd.concat(
+            [
+                plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
+                shaped_plant_attributes,
+            ],
+            axis=0,
+        )
+
+        ba_fuel_data = combined_plant_data.merge(
+            combined_plant_attributes, how="left", on=["plant_id_eia"], validate="m:1"
+        )
+    else:
+        ba_fuel_data = combined_plant_data.merge(
             plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
-            shaped_plant_attributes,
-        ],
-        axis=0,
-    )
-
-    ba_fuel_data = combined_plant_data.merge(
-        combined_plant_attributes, how="left", on=["plant_id_eia"], validate="m:1"
-    )
+            how="left",
+            on=["plant_id_eia"],
+            validate="m:1",
+        )
     # check that there is no missing ba or fuel codes
     if (
         len(

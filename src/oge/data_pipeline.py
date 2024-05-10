@@ -25,7 +25,11 @@ import oge.output_data as output_data
 import oge.consumed as consumed
 from oge.filepaths import downloads_folder, outputs_folder, results_folder
 from oge.logging_util import get_logger, configure_root_logger
-from oge.constants import TIME_RESOLUTIONS, latest_validated_year
+from oge.constants import (
+    TIME_RESOLUTIONS,
+    latest_validated_year,
+    earliest_hourly_data_year,
+)
 
 
 def get_args() -> argparse.Namespace:
@@ -417,7 +421,7 @@ def main(args):
         plant_attributes,
     )
 
-    if year >= 2019:
+    if year >= earliest_hourly_data_year:
         del monthly_plant_data
         # 12. Clean and Reconcile EIA-930 data
         ################################################################################
@@ -634,7 +638,7 @@ def main(args):
         ################################################################################
         logger.info("17. Creating and exporting BA-level power sector results")
         ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
-            combined_plant_data, plant_attributes
+            year, combined_plant_data, plant_attributes
         )
         del combined_plant_data
         # Output intermediate data: produced per-fuel annual averages
@@ -658,12 +662,12 @@ def main(args):
         )
         hourly_consumed_calc.run()
         hourly_consumed_calc.output_results()
-    elif year < 2019:
+    elif year < earliest_hourly_data_year:
         # 12. Aggregate CEMS data to BA-fuel and write power sector results
         ################################################################################
         logger.info("12. Creating and exporting BA-level power sector results")
         ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
-            monthly_plant_data, plant_attributes
+            year, monthly_plant_data, plant_attributes
         )
         # Output intermediate data: produced per-fuel annual averages
         output_data.write_generated_averages(
