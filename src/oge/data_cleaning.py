@@ -975,10 +975,79 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
         filler_column="energy_source_code_epa",
     )
 
+    # if we are still missing fuel codes, use energy_source_code_1 of generator with
+    # greatest nameplate capacity
+    plant_backstop_fuel = load_backstop_energy_source_codes_for_plant()
+    cems = cems.merge(
+        plant_backstop_fuel,
+        how="left",
+        on=["plant_id_eia"],
+        validate="m:1",
+    )
+    cems = fillna_with_missing_strings(
+        cems,
+        column_to_fill="energy_source_code",
+        filler_column="energy_source_code_plant",
+    )
+
     # update
     cems = update_energy_source_codes(cems, year)
 
     return cems
+
+
+def load_backstop_energy_source_codes_for_plant() -> pd.DataFrame:
+    """Assign an energy_source_code to plant using energy_source_code_1 of generator
+    with the greatest nameplate capacity. This backstop was primarily written to
+    address issues where a plant no longer exists in EIA due to retirement but
+    continues to report data to CEMS, and/or has an emissions_unit_id that is not
+    mapped to a generator_id that exists in EIA.
+
+    Returns:
+        pd.DataFrame: a data frame relating a plant to an energy source code.
+    """
+
+    gens = load_data.load_pudl_table(
+        "generators_eia860",
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "report_date",
+            "capacity_mw",
+            "energy_source_code_1",
+        ],
+    )
+    # keep the set of records for the most recent year for which data is available for
+    # that plant
+    plant_backstop_fuel = gens[
+        (
+            gens["report_date"].dt.year
+            == gens.groupby("plant_id_eia")["report_date"].transform("max").dt.year
+        )
+    ]
+    # calculate the total capacity associated with each ESC at each plant
+    plant_backstop_fuel = (
+        plant_backstop_fuel.groupby(["plant_id_eia", "energy_source_code_1"])[
+            "capacity_mw"
+        ]
+        .sum()
+        .reset_index()
+    )
+    # identify the ESC associated with the greatest amount of capacity
+    plant_backstop_fuel = plant_backstop_fuel[
+        plant_backstop_fuel["capacity_mw"]
+        == plant_backstop_fuel.groupby("plant_id_eia")["capacity_mw"].transform("max")
+    ]
+    # prepare the table for merging by renaming the column and dropping any duplicate
+    # primary fuels
+    plant_backstop_fuel = plant_backstop_fuel.drop_duplicates(
+        subset=["plant_id_eia"], keep=False
+    )
+    plant_backstop_fuel = plant_backstop_fuel.rename(
+        columns={"energy_source_code_1": "energy_source_code_plant"}
+    ).drop(columns="capacity_mw")
+
+    return plant_backstop_fuel
 
 
 def inventory_input_data_sources(cems: pd.DataFrame, year: int):
