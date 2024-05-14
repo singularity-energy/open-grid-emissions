@@ -56,9 +56,11 @@ def clean_eia923(
     """This is the coordinating function for cleaning and allocating generation and fuel
     data in EIA-923."""
     # Allocate fuel and generation across each generator-pm-energy source
-    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
-    bf = load_data.load_pudl_table("denorm_boiler_fuel_eia923", year)
-    gen = load_data.load_pudl_table("denorm_generation_eia923", year)
+    gf = load_data.load_pudl_table(
+        "denorm_generation_fuel_combined_monthly_eia923", year
+    )
+    bf = load_data.load_pudl_table("denorm_boiler_fuel_monthly_eia923", year)
+    gen = load_data.load_pudl_table("denorm_generation_monthly_eia923", year)
     gens = load_data.load_pudl_table("denorm_generators_eia", year)
     bga = load_data.load_pudl_table("boiler_generator_assn_eia860", year)
 
