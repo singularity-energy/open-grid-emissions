@@ -9,7 +9,9 @@ earliest_data_year = 2005
 earliest_validated_year = 2019
 # latest_validated_year is the most recent year for which OGE data has been published
 latest_validated_year = 2022
-
+# earliest_hourly_data_year is the most recent year for which OGE can produce hourly
+# profiles
+earliest_hourly_data_year = 2019
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
