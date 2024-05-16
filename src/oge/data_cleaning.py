@@ -49,12 +49,28 @@ DATA_COLUMNS = [
 def clean_eia923(
     year: int,
     small: bool,
-    add_subplant_id: bool = True,
     calculate_nox_emissions: bool = True,
     calculate_so2_emissions: bool = True,
-):
-    """This is the coordinating function for cleaning and allocating generation and fuel
-    data in EIA-923."""
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """This is the coordinating function for cleaning and allocating generation and
+    fuel data in EIA-923.
+
+    Args:
+        year (int): year to consider.
+        small (bool): should a subset of data be considered.
+        calculate_nox_emissions (bool, optional): whether or not clculate NOx emission
+            from fuel consumption. Defaults to True.
+        calculate_so2_emissions (bool, optional): whether or not clculate So2 emission
+            from fuel consumption. Defaults to True.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: the first data frame has the
+            generation, fuel alocated and GHG emissions data, and only NOX and SO2
+            emissions if requested. The second data frame is the primary fuel table.
+            Finally, the third data frame has subplant-specific emission factors, which
+            is used for filling missing emissions data in CEMS later in the pipeline.
+            All three data frames are at the subplant level.
+    """
     # Allocate fuel and generation across each generator-pm-energy source
     gf = load_data.load_pudl_table(
         "denorm_generation_fuel_combined_monthly_eia923", year
@@ -133,9 +149,7 @@ def clean_eia923(
     validation.test_for_negative_values(gen_fuel_allocated, year)
 
     # create a table that identifies the primary fuel of each generator and plant
-    primary_fuel_table = create_primary_fuel_table(
-        gen_fuel_allocated, add_subplant_id, year
-    )
+    primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated, year)
 
     if small:
         gen_fuel_allocated = smallerize_test_data(df=gen_fuel_allocated, random_seed=42)
@@ -195,25 +209,21 @@ def clean_eia923(
         :, DATA_COLUMNS
     ].round(1)
 
-    # NOTE(milo): Subplant IDs are required for the hourly emissions pipeline, but not
-    # needed for exporting standalone EIA-923 data. We allow the user to skip the merge
-    # below with a flag.
-    if add_subplant_id:
-        subplant_crosswalk = (
-            pd.read_csv(
-                outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-                dtype=get_dtypes(),
-            )[["plant_id_eia", "generator_id", "subplant_id"]]
-            .drop_duplicates()
-            .dropna(subset="generator_id")
-        )
-        gen_fuel_allocated = gen_fuel_allocated.merge(
-            subplant_crosswalk,
-            how="left",
-            on=["plant_id_eia", "generator_id"],
-            validate="m:1",
-        )
-        validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "generator_id", "subplant_id"]]
+        .drop_duplicates()
+        .dropna(subset="generator_id")
+    )
+    gen_fuel_allocated = gen_fuel_allocated.merge(
+        subplant_crosswalk,
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+        validate="m:1",
+    )
+    validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
 
     # add the cleaned prime mover code to the data
     gen_pm = load_data.load_pudl_table(
@@ -271,28 +281,37 @@ def update_energy_source_codes(df, year):
     return df
 
 
-def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
+def create_primary_fuel_table(
+    gen_fuel_allocated: pd.DataFrame, year: int
+) -> pd.DataFrame:
     """Identifies the primary fuel for each generator and plant Gen primary fuel is
     identified based on the "energy source code 1" identified in EIA-860. Plant primary
-    fuel is based on the most-consumed fuel at a plant based on allocated heat input"""
+    fuel is based on the most-consumed fuel at a plant based on allocated heat input.
+
+    Args:
+        gen_fuel_allocated (pd.DataFrame): data frame of generation and fuel allocated.
+        year (int): year under consideration.
+
+    Returns:
+        pd.DataFrame: the primary fuel table.
+    """
 
     # add subplant ids so that we can create subplant-specific primary fuels
-    if add_subplant_id:
-        subplant_crosswalk = (
-            pd.read_csv(
-                outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-                dtype=get_dtypes(),
-            )[["plant_id_eia", "generator_id", "subplant_id"]]
-            .drop_duplicates()
-            .dropna(subset="generator_id")
-        )
-        gen_fuel_allocated = gen_fuel_allocated.merge(
-            subplant_crosswalk,
-            how="left",
-            on=["plant_id_eia", "generator_id"],
-            validate="m:1",
-        )
-        validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "generator_id", "subplant_id"]]
+        .drop_duplicates()
+        .dropna(subset="generator_id")
+    )
+    gen_fuel_allocated = gen_fuel_allocated.merge(
+        subplant_crosswalk,
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+        validate="m:1",
+    )
+    validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
 
     # get a table of primary energy source codes by generator
     # this will be used in `calculate_aggregated_primary_fuel()` to determine the
@@ -315,9 +334,6 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
     )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
 
-    if not add_subplant_id:
-        gen_primary_fuel = gen_primary_fuel.drop(columns=["subplant_id"])
-
     plant_primary_fuel = calculate_aggregated_primary_fuel(
         gen_fuel_allocated, gen_primary_fuel, "plant", year
     )
@@ -332,20 +348,19 @@ def create_primary_fuel_table(gen_fuel_allocated, add_subplant_id, year):
         validate="many_to_one",
     )
 
-    if add_subplant_id:
-        # calculate the subplant primary fuel
-        subplant_primary_fuel = calculate_aggregated_primary_fuel(
-            gen_fuel_allocated,
-            gen_primary_fuel,
-            "subplant",
-            year,
-        )
-        primary_fuel_table = primary_fuel_table.merge(
-            subplant_primary_fuel,
-            how="left",
-            on=["plant_id_eia", "subplant_id"],
-            validate="many_to_one",
-        )
+    # calculate the subplant primary fuel
+    subplant_primary_fuel = calculate_aggregated_primary_fuel(
+        gen_fuel_allocated,
+        gen_primary_fuel,
+        "subplant",
+        year,
+    )
+    primary_fuel_table = primary_fuel_table.merge(
+        subplant_primary_fuel,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="many_to_one",
+    )
 
     return primary_fuel_table
 
