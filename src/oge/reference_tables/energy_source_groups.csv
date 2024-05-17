@@ -27,6 +27,7 @@ PRG,Process Gas,natural_gas,natural_gas,other,natural_gas
 PUR,Purchased Steam,other,other,other,other
 RC,Refined Coal,coal,coal,coal,coal
 RFO,Residual Fuel Oil,petroleum_products,petroleum,oil,petroleum
+SC,Coal-derived Syngas,coal,coal,coal,coal
 SGC,Coal-derived Syngas,coal,coal,coal,coal
 SGP,Petroleum Coke-derived Syngas,petroleum_products,petroleum,oil,petroleum
 SLW,Sludge Waste,other_biomass,other,biomass,biomass
