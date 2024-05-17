@@ -20,6 +20,8 @@ checks.
 
 from oge.logging_util import get_logger
 
+import pandas as pd
+
 logger = get_logger(__name__)
 
 
@@ -190,11 +192,17 @@ COLUMNS = {
         "fuel_category_eia930",
         "ba_code",
         "ba_code_physical",
-        "state",
         "distribution_flag",
         "timezone",
         "data_availability",
         "shaped_plant_id",
+        "latitude",
+        "longitude",
+        "state",
+        "county",
+        "city",
+        "plant_name_eia",
+        "capacity_mw",
     },
     "plant_metadata": {
         "plant_id_eia",
@@ -364,9 +372,17 @@ COLUMNS = {
 }
 
 
-def check_columns(df, file_name):
-    """
-    Given a file name and a dataframe to export, check that its columns are as expected.
+def check_columns(df: pd.DataFrame, file_name: str):
+    """Given a file name and a data frame to export, check that its columns are as
+    expected.
+
+    Args:
+        df (pd.DataFrame): table to check.
+        file_name (str): key name of file in `COLUMNS`.
+
+    Raises:
+        ValueError: if `file_name` cannot be found in list of files.
+        ValueError: if columns are missing in `df`.
     """
 
     cols = set(list(df.columns))
@@ -491,13 +507,26 @@ def get_dtypes():
         "subplant_primary_fuel_from_net_generation_mwh": "str",
         "timezone": "str",
         "wet_dry_bottom": "str",
+        "latitude": "float64",
+        "longitude": "float64",
+        "county": "str",
+        "city": "str",
+        "plant_name_eia": "str",
     }
 
     return dtypes_to_use
 
 
-def apply_dtypes(df):
-    """Applies specified dtypes to a dataframe and identifies if a dtype is not specified for a column."""
+def apply_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """Applies specified types to a data frame and identifies if a type is not
+    specified for a column.
+
+    Args:
+        df (pd.DataFrame): table whose columns will be converted.
+
+    Returns:
+        pd.DataFrame: original data frame with type converted columns.
+    """
     dtypes = get_dtypes()
     datetime_columns = ["datetime_utc", "datetime_local", "report_date"]
     cols_missing_dtypes = [
@@ -507,7 +536,8 @@ def apply_dtypes(df):
     ]
     if len(cols_missing_dtypes) > 0:
         logger.warning(
-            "The following columns do not have dtypes assigned in `column_checks.get_dtypes()`"
+            "The following columns do not have dtypes assigned in "
+            "`column_checks.get_dtypes()`"
         )
         logger.warning(cols_missing_dtypes)
     return df.astype({col: dtypes[col] for col in df.columns if col in dtypes})
