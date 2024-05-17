@@ -23,21 +23,31 @@ def download_helper(
     should_clean: bool = False,
     chunk_size: int = 1024,
 ) -> bool:
-    """
-    Downloads a file or archive and optionally unzips/untars/copies it to a destination.
+    """Downloads a file or archive and optionally unzips/untars/copies it to a
+    destination.
 
-    Inputs:
-        `input_url`: Where to download data from.
-        `download_path`: An absolute filepath to download to.
-        `output_path`: The final destination where the downloaded data should end up.
-        `requires_unzip`: Should we unzip the file after downloading?
-        `requires_untar`: Should we untar the file after downloading?
-        `requires_gzip`: Should we un-gzip the file after downloading?
-        `should_clean`: Should we delete the temporary downloaded file when finished?
-        `chunk_size`: The chunk size for downloading.
+    Args:
+        input_url (str): where to download data from.
+        download_path (str): an absolute filepath to download to.
+        output_path (Optional[str], optional): the final destination where the
+            downloaded data should end up. Defaults to None.
+        requires_unzip (bool, optional): should we unzip the file after downloading.
+            Defaults to False.
+        requires_untar (bool, optional): should we untar the file after downloading.
+            Defaults to False.
+        requires_gzip (bool, optional): should we un-gzip the file after downloading.
+        Defaults to False.
+        should_clean (bool, optional): should we delete the temporary downloaded file
+            when finished. Defaults to False.
+        chunk_size (int, optional): he chunk size for downloading. Defaults to 1024.
+
+    Raises:
+        ValueError: if `requires_unzip` is True and `output_path` is None.
+        ValueError: if `requires_untar` is True and `output_path` is None.
+        ValueError: if `requires_gzip` is True and `output_path` is None.
 
     Returns:
-        (bool) Whether the file was downloaded (it might be skipped if found).
+        bool: whether the file was downloaded (it might be skipped if found).
     """
     # If the file already exists, do not re-download it.
     final_destination = output_path if output_path is not None else download_path
@@ -80,24 +90,26 @@ def download_helper(
 
 
 def download_pudl_data(source: str = "aws"):
-    """
-    Downloads the pudl database. OGE currently supports two sources: zenodo and aws
+    """Downloads the pudl database. OGE currently supports two sources: zenodo and aws
     (i.e. nightly builds). For more information about data sources see:
     https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#data-access
 
     Zenodo provides stable, versioned data based on the output of the `main` branch of
-    pudl but is updated less freqently.
-    The most recent version can be found at:
+    pudl but is updated less freqently. The most recent version can be found at:
     https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#zenodo-archives
 
     As of 12/2/2023, the most recent zenodo data was PUDL Data Release v2022.11.30.
 
-    The `aws` source downloads data from the Catalyst's AWS Open Data Registry. This
+    AWS source downloads data from the Catalyst's AWS Open Data Registry. This
     data is updated nightly based on the most recent `dev` branch of pudl so is less
     stable.
 
-    Inputs:
-        `source`: where to download pudl from, either "aws" or "zenodo"
+    Args:
+        source (str, optional): where to download pudl from, either 'aws' or 'zenodo'.
+            Defaults to 'aws'.
+
+    Raises:
+        ValueError: if `source` is neither 'aws' or 'zenodo'.
     """
     os.makedirs(downloads_folder("pudl"), exist_ok=True)
 
@@ -169,12 +181,17 @@ def download_pudl_data(source: str = "aws"):
         download_pudl_from_zenodo(zenodo_url, pudl_version)
     else:
         raise ValueError(
-            f"{source} is an invalid option for `source`. Must be 'aws' \
-                         or 'zenodo'."
+            f"{source} is an invalid option for `source`. Must be 'aws' or 'zenodo'."
         )
 
 
-def download_pudl_from_zenodo(zenodo_url, pudl_version):
+def download_pudl_from_zenodo(zenodo_url: str, pudl_version: str):
+    """Downloads pudl from zenodo.
+
+    Args:
+        zenodo_url (str): the zenodo url.
+        pudl_version (str): pudl version to download.
+    """
     r = requests.get(zenodo_url, params={"download": "1"}, stream=True)
     # specify parameters for progress bar
     total_size_in_bytes = int(r.headers.get("content-length", 0))
@@ -208,10 +225,9 @@ def download_pudl_from_zenodo(zenodo_url, pudl_version):
 
 
 def download_chalendar_files():
-    """
-    Download raw and cleaned files. Eventually we'll do our own processing to get our
-    own version of chalendar, but still will be useful to use this raw file and compare
-    to this cleaned file.
+    """Downloads raw and cleaned files. Eventually we'll do our own processing to get
+    our own version of chalendar, but still will be useful to use this raw file and
+    compare to this cleaned file.
     """
     os.makedirs(downloads_folder("eia930/chalendar"), exist_ok=True)
 
@@ -233,9 +249,7 @@ def download_chalendar_files():
 
 
 def download_egrid_files():
-    """
-    Downloads the egrid excel files from 2018-2022.
-    """
+    """Downloads the egrid excel files from 2018-2022."""
     os.makedirs(downloads_folder("egrid"), exist_ok=True)
 
     # the 2018 and 2019 data are on a different directory than the newer files.
@@ -253,11 +267,10 @@ def download_egrid_files():
 
 
 def download_eia930_data(years_to_download: list[int]):
-    """
-    Downloads the six month csv files from the EIA-930 website.
+    """Downloads the six month csv files from the EIA-930 website.
 
-    Inputs:
-        `years_to_download`: list of four-digit year numbers to download from EIA-930.
+    Args:
+        years_to_download (list[int]): list of four-digit year numbers to download.
     """
     os.makedirs(downloads_folder("eia930"), exist_ok=True)
 
@@ -277,13 +290,12 @@ def download_eia930_data(years_to_download: list[int]):
 
 
 def download_epa_psdc(psdc_url: str):
-    """
-    Downloads the EPA's Power Sector Data Crosswalk.
+    """Downloads the EPA's Power Sector Data Crosswalk.
 
     Check for new releases at https://github.com/USEPA/camd-eia-crosswalk.
 
-    Inputs:
-        `psdc_url`: the url to the csv file hosted on github
+    Args:
+        psdc_url (str): the url to the csv file hosted on github
     """
     os.makedirs(downloads_folder("epa"), exist_ok=True)
     filename = psdc_url.split("/")[-1]
@@ -292,46 +304,53 @@ def download_epa_psdc(psdc_url: str):
 
 
 def download_raw_eia923(year: int):
-    """
-    Downloads raw EIA-923 data (zip files), and unzips them to the downloads folder.
+    """Downloads raw EIA-923 data (zip files), and unzips them to the downloads folder.
 
-    Inputs:
-        `year`: A four-digit year.
+    Args:
+        year (int): a four-digit year.
     """
     if year < 2008:
-        raise NotImplementedError(f"EIA-923 data is unavailable for '{year}'.")
-    os.makedirs(downloads_folder("eia923"), exist_ok=True)
-    url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
-    archive_url = (
-        f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
-    )
-    filename = url.split("/")[-1].split(".")[0]
-    download_filepath = downloads_folder(f"eia923/{filename}.zip")
-    output_filepath = downloads_folder(f"eia923/{filename}")
-    try:
-        download_helper(
-            url,
-            download_filepath,
-            output_filepath,
-            requires_unzip=True,
-            should_clean=True,
+        logger.warning(
+            "EIA-923 data is not available before 2008. "
+            "Downloading EIA-906/920 files instead"
         )
-    except Exception:
-        download_helper(
-            archive_url,
-            download_filepath,
-            output_filepath,
-            requires_unzip=True,
-            should_clean=True,
+        download_raw_eia_906_920(year)
+    else:
+        os.makedirs(downloads_folder("eia923"), exist_ok=True)
+        url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
+        archive_url = (
+            f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
         )
+        filename = url.split("/")[-1].split(".")[0]
+        download_filepath = downloads_folder(f"eia923/{filename}.zip")
+        output_filepath = downloads_folder(f"eia923/{filename}")
+        try:
+            download_helper(
+                url,
+                download_filepath,
+                output_filepath,
+                requires_unzip=True,
+                should_clean=True,
+            )
+        except Exception:
+            download_helper(
+                archive_url,
+                download_filepath,
+                output_filepath,
+                requires_unzip=True,
+                should_clean=True,
+            )
 
 
-def download_raw_eia_906_920(year):
-    """
+def download_raw_eia_906_920(year: int):
+    """Doenloads EIA-906 and EIA-920 forms.
     For years before 2008, the EIA releases Form 906 and 920 instead of 923.
 
-    Inputs:
-        `year`: A four-digit year.
+    Args:
+        year (int): a four-digit year.
+
+    Raises:
+        NotImplementedError: if `year` < 2005 or `year` > 2007.
     """
     if year < 2005 or year > 2007:
         raise NotImplementedError(f"EIA-906/920 data is unavailable for '{year}'.")
@@ -345,9 +364,14 @@ def download_raw_eia_906_920(year):
     )
 
 
-def download_raw_eia860(year):
-    """
-    Downloads raw EIA-860 data (zip files), and unzips them to the downloads folder.
+def download_raw_eia860(year: int):
+    """Downloads raw EIA-860 data (zip files), and unzips them to the downloads folder.
+
+    Args:
+        year (int): a four-digit year.
+
+    Raises:
+        NotImplementedError: if `year` < 2005.
     """
     if year < 2005:
         raise NotImplementedError(f"We haven't tested EIA-860 for '{year}'.")
@@ -374,8 +398,7 @@ def download_raw_eia860(year):
 
 
 def download_eia_electric_power_annual():
-    """
-    Downloads EIA Electric Power Annual uncontrolled emission factors.
+    """Downloads EIA Electric Power Annual uncontrolled emission factors.
 
     See: https://www.eia.gov/electricity/annual/
     """
