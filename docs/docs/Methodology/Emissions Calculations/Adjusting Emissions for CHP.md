@@ -7,6 +7,10 @@ Combined Heat and Power (CHP) plants produce both electricity and useful thermal
 
 The formula and assumptions used for calculating the electric allocation factor are copied directly from the [eGRID2020 methodology](https://www.epa.gov/system/files/documents/2022-01/egrid2020_technical_guide.pdf) and is summarized below (track progress on updates to this methodology [here](https://github.com/singularity-energy/open-grid-emissions/issues/23)).
 
+Although both total `fuel_consumed_mmbtu` and `fuel_consumed_mmbtu_for_electricity` are reported in EIA-923, the eGRID methodology does not directly use these values to calculate an electric allocation factor. Although this is not explicitly explained in the eGRID methodology, this is ostensibly because they are trying to allocate fuel based on the the proportion of energy outputs, not energy inputs. This means that the `fuel_consumed_mmbtu_for_electricity` values calculated using this method will not match the reported `fuel_consumed_mmbtu_for_electricity` values from EIA-923.
+
+When performing the below calculations, all calculations are performed at the subplant level, rather than at the generator or unit level. This is due to the fact that in some CHP systems, all of the reported fuel consumption at the subplant may be associated with one of the subplant's generators, while all of the reported generation data may be associated with another of the subplant's generators. 
+
 ### Calculating useful thermal output
 In form EIA-923, generators report both the total quantity of each fuel consumed, and the quantity consumed for electric generation. By subtracting these two values, we can calculate the total fuel consumed for heating purposes:
 
