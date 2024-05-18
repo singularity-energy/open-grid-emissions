@@ -223,8 +223,18 @@ def identify_geothermal_generator_geotype(year):
     return geothermal_geotype
 
 
-def adjust_fuel_and_emissions_for_CHP(df):
-    """Allocates total emissions for electricity generation."""
+def adjust_fuel_and_emissions_for_CHP(df: pd.DataFrame) -> pd.DataFrame:
+    """Allocates total emissions for electricity generation.
+
+    Args:
+        df (pd.DataFrame): dataframe containing fuel and emissions columns mapped to
+        subplant_id. Must contain fuel_consumed_mmbtu,
+        fuel_consumed_mmbtu_for_electricity, and net_generation_mwh columns
+
+    Returns:
+        pd.DataFrame: the input dataframe with _for_electricity columns added for all
+        fuel and emissions columns
+    """
 
     # calculate the electric allocation factor
     df = calculate_electric_allocation_factor(df)
@@ -286,48 +296,94 @@ def adjust_fuel_and_emissions_for_CHP(df):
     return df
 
 
-def calculate_electric_allocation_factor(df):
-    """
-    Calculates an electric allocation factor for CHP plants based on the formula in the eGRID2020 technical guide.
+def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculates an electric allocation factor for CHP subplants.
 
-    Requires a dataframe with the following columns: net_generation_mwh, fuel_consumed_mmbtu, fuel_consumed_for_electricity_mmbtu
+    The methodology is based on the formula in the eGRID2020 technical guide.
+
+    We calculate the electric allocation factor for each subplant, rather than for each
+    generator_id or emissions_unit_id_epa since fuel consumption and generation data are
+    not always assigned to the same generator within a subplant.
+
+    Calculates a unique EAF for each subplant-month-fuel.
+
+
+    Args:
+        df (pd.DataFrame): dataframe fuel_consumed_mmbtu,
+        fuel_consumed_mmbtu_for_electricity, and net_generation_mwh columns, mapped to
+        subplant_id
+
+    Returns:
+        pd.DataFrame: the input dataframe with an `electric_allocation_factor` column added
     """
+
+    df_subplant = (
+        df.groupby(
+            ["plant_id_eia", "subplant_id", "report_date", "energy_source_code"]
+        )[
+            [
+                "fuel_consumed_mmbtu",
+                "fuel_consumed_for_electricity_mmbtu",
+                "net_generation_mwh",
+            ]
+        ]
+        .sum()
+        .reset_index()
+    )
 
     # calculate the gross thermal output
     # 0.8 is an assumed efficiency factor used by eGRID
-    df["gross_thermal_output_for_heating_mmbtu"] = (
+    df_subplant["gross_thermal_output_for_heating_mmbtu"] = (
         chp_gross_thermal_output_efficiency
-        * (df["fuel_consumed_mmbtu"] - df["fuel_consumed_for_electricity_mmbtu"])
+        * (
+            df_subplant["fuel_consumed_mmbtu"]
+            - df_subplant["fuel_consumed_for_electricity_mmbtu"]
+        )
     )
     # calculate the useful thermal output
     # 0.75 is an assumed efficiency factor used by eGRID
-    df["useful_thermal_output_mmbtu"] = (
+    df_subplant["useful_thermal_output_mmbtu"] = (
         chp_useful_thermal_output_efficiency
-        * df["gross_thermal_output_for_heating_mmbtu"]
+        * df_subplant["gross_thermal_output_for_heating_mmbtu"]
     )
 
     # convert generation to mmbtu
-    df["generation_mmbtu"] = df["net_generation_mwh"] * ConversionFactors.mwh_to_mmbtu
+    df_subplant["generation_mmbtu"] = (
+        df_subplant["net_generation_mwh"] * ConversionFactors.mwh_to_mmbtu
+    )
 
     # calculate the electric allocation factor
-    df["electric_allocation_factor"] = df["generation_mmbtu"] / (
-        df["generation_mmbtu"] + df["useful_thermal_output_mmbtu"]
+    df_subplant["electric_allocation_factor"] = df_subplant["generation_mmbtu"] / (
+        df_subplant["generation_mmbtu"] + df_subplant["useful_thermal_output_mmbtu"]
     )
 
     # if the allocation factor < 0, set to zero
-    df.loc[df["electric_allocation_factor"] < 0, "electric_allocation_factor"] = 0
+    df_subplant.loc[
+        df_subplant["electric_allocation_factor"] < 0, "electric_allocation_factor"
+    ] = 0
     # if the allocation factor > 1, set to one
-    df.loc[df["electric_allocation_factor"] > 1, "electric_allocation_factor"] = 1
+    df_subplant.loc[
+        df_subplant["electric_allocation_factor"] > 1, "electric_allocation_factor"
+    ] = 1
     # fill any missing factors with 1
-    df["electric_allocation_factor"] = df["electric_allocation_factor"].fillna(1)
+    df_subplant["electric_allocation_factor"] = df_subplant[
+        "electric_allocation_factor"
+    ].fillna(1)
 
-    # remove intermediate columns
-    df = df.drop(
-        columns=[
-            "gross_thermal_output_for_heating_mmbtu",
-            "useful_thermal_output_mmbtu",
-            "generation_mmbtu",
-        ]
+    # merge the allocation factors back into the original dataframe
+    df = df.merge(
+        df_subplant[
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "report_date",
+                "energy_source_code",
+                "electric_allocation_factor",
+            ]
+        ],
+        how="left",
+        on=["plant_id_eia", "subplant_id", "report_date", "energy_source_code"],
+        validate="m:1",
     )
 
     return df

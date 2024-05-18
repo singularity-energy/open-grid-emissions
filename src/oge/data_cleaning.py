@@ -174,6 +174,23 @@ def clean_eia923(
             gen_fuel_allocated, year
         )
 
+    # map subplant ids to the data
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "generator_id", "subplant_id"]]
+        .drop_duplicates()
+        .dropna(subset="generator_id")
+    )
+    gen_fuel_allocated = gen_fuel_allocated.merge(
+        subplant_crosswalk,
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+        validate="m:1",
+    )
+    validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
+
     # adjust total emissions for biomass
     gen_fuel_allocated = emissions.adjust_emissions_for_biomass(gen_fuel_allocated)
 
@@ -208,22 +225,6 @@ def clean_eia923(
     gen_fuel_allocated.loc[:, DATA_COLUMNS] = gen_fuel_allocated.loc[
         :, DATA_COLUMNS
     ].round(1)
-
-    subplant_crosswalk = (
-        pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-            dtype=get_dtypes(),
-        )[["plant_id_eia", "generator_id", "subplant_id"]]
-        .drop_duplicates()
-        .dropna(subset="generator_id")
-    )
-    gen_fuel_allocated = gen_fuel_allocated.merge(
-        subplant_crosswalk,
-        how="left",
-        on=["plant_id_eia", "generator_id"],
-        validate="m:1",
-    )
-    validation.test_for_missing_subplant_id(gen_fuel_allocated, "generator_id")
 
     # add the cleaned prime mover code to the data
     gen_pm = load_data.load_pudl_table(
