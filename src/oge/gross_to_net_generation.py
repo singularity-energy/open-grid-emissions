@@ -6,10 +6,8 @@ import warnings
 # import other modules
 import oge.load_data as load_data
 import oge.validation as validation
-from oge.column_checks import get_dtypes
-from oge.filepaths import outputs_folder
 
-from oge.helpers import create_plant_ba_table
+from oge.helpers import create_plant_ba_table, add_subplant_ids_to_df
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -420,19 +418,12 @@ def calculate_subplant_nameplate_capacity(year):
     )
 
     # add subplant ids to the generator data
-    subplant_crosswalk = (
-        pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
-            dtype=get_dtypes(),
-        )[["plant_id_eia", "generator_id", "subplant_id"]]
-        .drop_duplicates()
-        .dropna(subset="generator_id")
-    )
-    gen_capacity = gen_capacity.merge(
-        subplant_crosswalk,
-        how="inner",
-        on=["plant_id_eia", "generator_id"],
-        validate="1:1",
+    gen_capacity = add_subplant_ids_to_df(
+        gen_capacity,
+        year,
+        plant_part_to_map="generator_id",
+        how_merge="inner",
+        validate_merge="1:1",
     )
     subplant_capacity = (
         gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
@@ -599,13 +590,6 @@ def gross_to_net_regression(combined_gen_data, agg_level):
             index=gtn_regression.index,
             columns=["slope", "intercept", "rsquared", "rsquared_adj", "observations"],
         ).reset_index()
-    """if not os.path.exists(outputs_folder(f"gross_to_net"):
-        os.mkdir(outputs_folder(f"gross_to_net")
-
-    gtn_regression.to_csv(
-        outputs_folder(f"gross_to_net/{agg_level}_gross_to_net_regression.csv",
-        index=False,
-    )"""
 
     return gtn_regression
 

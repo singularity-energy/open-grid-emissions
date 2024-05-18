@@ -7,11 +7,12 @@ earliest_data_year = 2005
 # and validated. The pipeline could be run for data prior to this year, but it has not
 # been validated
 earliest_validated_year = 2019
-# latest_validated_year is the most recent year for which OGE data has been published
-latest_validated_year = 2022
 # earliest_hourly_data_year is the most recent year for which OGE can produce hourly
 # profiles
 earliest_hourly_data_year = 2019
+# latest_validated_year is the most recent year for which OGE data has been published
+latest_validated_year = 2022
+
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
