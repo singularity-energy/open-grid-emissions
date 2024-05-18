@@ -316,11 +316,14 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: the input dataframe with an `electric_allocation_factor` column added
     """
+    groupby_cols = ["plant_id_eia", "subplant_id", "report_date"]
+    # for EIA-923 we want to group on energy_source_code as well, but this does not
+    # exist in CEMS
+    if "energy_source_code" in df.columns:
+        groupby_cols += ["energy_source_code"]
 
     df_subplant = (
-        df.groupby(
-            ["plant_id_eia", "subplant_id", "report_date", "energy_source_code"]
-        )[
+        df.groupby(groupby_cols)[
             [
                 "fuel_consumed_mmbtu",
                 "fuel_consumed_for_electricity_mmbtu",
@@ -372,17 +375,9 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
 
     # merge the allocation factors back into the original dataframe
     df = df.merge(
-        df_subplant[
-            [
-                "plant_id_eia",
-                "subplant_id",
-                "report_date",
-                "energy_source_code",
-                "electric_allocation_factor",
-            ]
-        ],
+        df_subplant[groupby_cols + ["electric_allocation_factor"]],
         how="left",
-        on=["plant_id_eia", "subplant_id", "report_date", "energy_source_code"],
+        on=groupby_cols,
         validate="m:1",
     )
 
