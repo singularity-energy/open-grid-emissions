@@ -349,13 +349,13 @@ def add_subplant_ids_to_df(
         df (pd.DataFrame): Dataframe to add subplant_id's to
         year (int): the data year
         plant_part_to_map (str): one of the plant parts in the subplant crosswalk that
-        exists in df to use to map the subplant ids. Acceptable options include:
-        "generator_id", "boiler_id", or "emissions_unit_id_epa"
+            exists in df to use to map the subplant ids. Acceptable options include:
+            "generator_id", "boiler_id", or "emissions_unit_id_epa"
         how_merge (str): used for `how=` argument of pd.merge(): e.g. "left", "right",
-        "inner", "outer"
+            "inner", "outer"
         validate_merge (str): used for `validate=` argument of pd.merge(): eg. "1:1",
-        "1:m","m:1","m:m". Depends on the merge key specified in plant_part_to_map and
-        the structure of `df`
+            "1:m","m:1","m:m". Depends on the merge key specified in plant_part_to_map
+            and the structure of `df`
 
     Returns:
         pd.DataFrame: df with subplant_id column added

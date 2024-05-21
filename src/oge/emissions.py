@@ -223,17 +223,17 @@ def identify_geothermal_generator_geotype(year):
     return geothermal_geotype
 
 
-def adjust_fuel_and_emissions_for_CHP(df: pd.DataFrame) -> pd.DataFrame:
+def adjust_fuel_and_emissions_for_chp(df: pd.DataFrame) -> pd.DataFrame:
     """Allocates total emissions for electricity generation.
 
     Args:
         df (pd.DataFrame): dataframe containing fuel and emissions columns mapped to
-        subplant_id. Must contain fuel_consumed_mmbtu,
-        fuel_consumed_mmbtu_for_electricity, and net_generation_mwh columns
+            subplant_id. Must contain fuel_consumed_mmbtu,
+            fuel_consumed_mmbtu_for_electricity, and net_generation_mwh columns
 
     Returns:
         pd.DataFrame: the input dataframe with _for_electricity columns added for all
-        fuel and emissions columns
+            fuel and emissions columns
     """
 
     # calculate the electric allocation factor
@@ -310,8 +310,8 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         df (pd.DataFrame): dataframe fuel_consumed_mmbtu,
-        fuel_consumed_mmbtu_for_electricity, and net_generation_mwh columns, mapped to
-        subplant_id
+            fuel_consumed_mmbtu_for_electricity, and net_generation_mwh columns, mapped
+            to subplant_id
 
     Returns:
         pd.DataFrame: the input dataframe with an `electric_allocation_factor` column added
@@ -361,13 +361,11 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # if the allocation factor < 0, set to zero
-    df_subplant.loc[
-        df_subplant["electric_allocation_factor"] < 0, "electric_allocation_factor"
-    ] = 0
     # if the allocation factor > 1, set to one
-    df_subplant.loc[
-        df_subplant["electric_allocation_factor"] > 1, "electric_allocation_factor"
-    ] = 1
+    df_subplant["electric_allocation_factor"] = df_subplant[
+        "electric_allocation_factor"
+    ].clip(0, 1)
+
     # fill any missing factors with 1
     df_subplant["electric_allocation_factor"] = df_subplant[
         "electric_allocation_factor"

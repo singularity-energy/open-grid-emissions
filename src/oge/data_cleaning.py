@@ -185,7 +185,7 @@ def clean_eia923(
         how_merge="left",
         validate_merge="m:1",
     )
-    gen_fuel_allocated = emissions.adjust_fuel_and_emissions_for_CHP(gen_fuel_allocated)
+    gen_fuel_allocated = emissions.adjust_fuel_and_emissions_for_chp(gen_fuel_allocated)
 
     gen_fuel_allocated = emissions.calculate_co2e_mass(
         gen_fuel_allocated, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
@@ -1373,7 +1373,7 @@ def adjust_cems_for_chp(cems, eia923_allocated):
     cems = cems.drop(columns=["subplant_fuel_ratio", "plant_fuel_ratio"])
 
     # add adjusted emissions columns
-    cems = emissions.adjust_fuel_and_emissions_for_CHP(cems)
+    cems = emissions.adjust_fuel_and_emissions_for_chp(cems)
 
     return cems
 
