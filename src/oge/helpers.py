@@ -363,7 +363,7 @@ def add_subplant_ids_to_df(
     # add subplant id, dropping duplicate entries for the relevant plant part
     subplant_crosswalk = (
         pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
             dtype=get_dtypes(),
         )[["plant_id_eia", plant_part_to_map, "subplant_id"]]
         .drop_duplicates()

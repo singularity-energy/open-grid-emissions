@@ -894,7 +894,7 @@ def load_gross_to_net_data(
         >>> load_gross_to_net_data('plant', 'regression', 'rsqaured_adjusted', None)
     """
     gtn_data = pd.read_csv(
-        outputs_folder(f"gross_to_net/{level}_gross_to_net_{conversion_type}.csv"),
+        outputs_folder(f"gross_to_net/{level}_gross_to_net_{conversion_type}.csv.zip"),
         dtype=get_dtypes(),
     )
 
@@ -909,7 +909,7 @@ def load_gross_to_net_data(
     # regression results
     if conversion_type == "regression":
         subplant_crosswalk = pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
             dtype=get_dtypes(),
         )
         subplant_crosswalk = subplant_crosswalk[
@@ -1208,7 +1208,7 @@ def load_unit_to_boiler_associations(year: int) -> pd.DataFrame:
         pd.DataFrame: table relating EPA emission unit IDs to EIA boiler IDs.
     """
     subplant_crosswalk = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
         dtype=get_dtypes(),
     )
     boiler_generator_assn = load_pudl_table("boiler_generator_assn_eia860", year)

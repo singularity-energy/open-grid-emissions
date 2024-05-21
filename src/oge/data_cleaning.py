@@ -913,7 +913,7 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
         columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
     ).drop_duplicates()
     generator_unit_map = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
         dtype=get_dtypes(),
     )[["plant_id_eia", "generator_id", "emissions_unit_id_epa"]]
     gen_fuel = gen_fuel.merge(
@@ -1153,7 +1153,9 @@ def inventory_input_data_sources(cems: pd.DataFrame, year: int):
 
     # export to csv
     input_data_exists.to_csv(
-        outputs_folder(f"{year}/input_data_inventory_{year}.csv"), index=False
+        outputs_folder(f"{year}/input_data_inventory_{year}.csv.zip"),
+        index=False,
+        compression="zip",
     )
 
 
@@ -1522,7 +1524,7 @@ def count_total_units_in_subplant(year):
     # load the subplant crosswalk and identify unique emissions_unit_id_epas in each subplant
     units_in_subplant = (
         pd.read_csv(
-            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
             dtype=get_dtypes(),
             parse_dates=[
                 "current_planned_generator_operating_date",
