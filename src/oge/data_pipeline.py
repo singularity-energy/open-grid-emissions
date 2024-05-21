@@ -11,6 +11,8 @@ import argparse
 import os
 import shutil
 
+import pandas as pd
+
 # import local modules
 import oge.download_data as download_data
 import oge.data_cleaning as data_cleaning
@@ -41,13 +43,19 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--year", help="Year for analysis", default=2022, type=int)
     parser.add_argument(
         "--shape_individual_plants",
-        help="Assign an hourly profile to each individual plant with EIA-only data, instead of aggregating to the fleet level before shaping.",
+        help=(
+            "Assign an hourly profile to each individual plant with EIA-only data, "
+            "instead of aggregating to the fleet level before shaping."
+        ),
         default=True,
         action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
         "--small",
-        help="Run on subset of data for quicker testing, outputs to outputs/small and results to results/small.",
+        help=(
+            "Run on subset of data for quicker testing, outputs to outputs/small and "
+            "results to results/small."
+        ),
         default=False,
         action=argparse.BooleanOptionalAction,
     )
@@ -93,11 +101,14 @@ def main(args):
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}/eia930"), exist_ok=True)
     if not args.skip_outputs:
-        # If we are outputing, wipe results dir so we can be confident there are no old result files (eg because of a file name change)
+        # If we are outputing, wipe results dir so we can be confident there are no old
+        # result files (eg because of a file name change)
         if os.path.exists(results_folder(f"{path_prefix}")):
             shutil.rmtree(results_folder(f"{path_prefix}"))
         os.makedirs(results_folder(f"{path_prefix}"), exist_ok=False)
-    else:  # still make sure results dir exists, but exist is ok and we won't be writing to it
+    else:
+        # still make sure results dir exists, but exist is ok and we won't be writing
+        # to it
         os.makedirs(results_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(
         results_folder(f"{path_prefix}data_quality_metrics"),
@@ -438,7 +449,8 @@ def main(args):
             eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
         else:
             logger.info(
-                f"Not re-running 930 cleaning. If you'd like to re-run, please delete data/outputs/{path_prefix}/eia930/"
+                "Not re-running 930 cleaning. If you'd like to re-run, "
+                f"please delete data/outputs/{path_prefix}/eia930/"
             )
 
         # If running small, we didn't clean the whole year, so need to use the
@@ -517,10 +529,12 @@ def main(args):
             )
         else:
             logger.info(
-                "Not shaping and exporting individual plant data since `shape_individual_plants` is False."
+                "Not shaping and exporting individual plant data since "
+                "`shape_individual_plants` is False."
             )
             logger.info(
-                "Plants that only report to EIA will be aggregated to the fleet level before shaping."
+                "Plants that only report to EIA will be aggregated to the fleet level "
+                "before shaping."
             )
 
         # 15. Shape fleet-level data
@@ -676,6 +690,15 @@ def main(args):
         # Output final data: per-ba hourly generation and rate
         output_data.write_power_sector_results(
             ba_fuel_data, year, path_prefix, args.skip_outputs, include_hourly=False
+        )
+
+        # export plant static attributes to csv
+        output_data.output_intermediate_data(
+            plant_attributes.assign(shaped_plant_id=pd.NA),
+            "plant_static_attributes",
+            path_prefix,
+            year,
+            args.skip_outputs,
         )
 
 
