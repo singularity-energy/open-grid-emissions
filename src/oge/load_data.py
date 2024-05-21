@@ -490,19 +490,26 @@ def update_epa_to_eia_map(cems_df: pd.DataFrame) -> pd.DataFrame:
     return cems_df
 
 
-def add_report_date(df: pd.DataFrame) -> pd.DataFrame:
-    """Add a report date column to the CEMS data frame based on the plant's local
-    timezone
+def add_report_date(
+    df: pd.DataFrame, plant_timezone: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Add a report_date column to the a dataframe based on the plant's local timezone.
 
     Args:
         df (pd.DataFrame): data frame containing plant_id_eia and datetime_utc columns.
+        plant_timezone: (pd.DataFrame | None), by default, if None, this function will
+            load timezone data from the pudl plants entity table. However, in order to
+            use this function where pudl cannot be read from s3, this provides the
+            option to pass in your own plant timezone dataframe, for example loaded from
+            outputs/plant_static_attributes
 
     Returns:
         pd.DataFrame: original data frame with a report_date column added.
     """
-    plant_timezone = load_pudl_table(
-        "plants_entity_eia", columns=["plant_id_eia", "timezone"]
-    )
+    if plant_timezone is None:
+        plant_timezone = load_pudl_table(
+            "plants_entity_eia", columns=["plant_id_eia", "timezone"]
+        )
 
     # get timezone
     df = df.merge(

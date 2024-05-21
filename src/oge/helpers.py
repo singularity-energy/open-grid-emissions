@@ -2,9 +2,10 @@ import numpy as np
 import pandas as pd
 
 from oge.column_checks import get_dtypes, apply_dtypes
-from oge.filepaths import reference_table_folder
+from oge.filepaths import reference_table_folder, outputs_folder
 import oge.load_data as load_data
 from oge.logging_util import get_logger
+import oge.validation as validation
 
 logger = get_logger(__name__)
 
@@ -329,5 +330,51 @@ def add_plant_local_timezone(df, year):
         "plants_entity_eia", columns=["plant_id_eia", "timezone"]
     )
     df = df.merge(plant_tz, how="left", on=["plant_id_eia"], validate="m:1")
+
+    return df
+
+
+def add_subplant_ids_to_df(
+    df: pd.DataFrame,
+    year: int,
+    plant_part_to_map: str,
+    how_merge: str,
+    validate_merge: str,
+) -> pd.DataFrame:
+    """Helper function for adding subplant_id's to a dataframe based on the `plant_part_to_map`.
+
+    Validates that all rows have non-missing subplant_id's assigned.
+
+    Args:
+        df (pd.DataFrame): Dataframe to add subplant_id's to
+        year (int): the data year
+        plant_part_to_map (str): one of the plant parts in the subplant crosswalk that
+            exists in df to use to map the subplant ids. Acceptable options include:
+            "generator_id", "boiler_id", or "emissions_unit_id_epa"
+        how_merge (str): used for `how=` argument of pd.merge(): e.g. "left", "right",
+            "inner", "outer"
+        validate_merge (str): used for `validate=` argument of pd.merge(): eg. "1:1",
+            "1:m","m:1","m:m". Depends on the merge key specified in plant_part_to_map
+            and the structure of `df`
+
+    Returns:
+        pd.DataFrame: df with subplant_id column added
+    """
+    # add subplant id, dropping duplicate entries for the relevant plant part
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", plant_part_to_map, "subplant_id"]]
+        .drop_duplicates()
+        .dropna(subset=plant_part_to_map)
+    )
+    df = df.merge(
+        subplant_crosswalk,
+        how=how_merge,
+        on=["plant_id_eia", plant_part_to_map],
+        validate=validate_merge,
+    )
+    validation.test_for_missing_subplant_id(df, plant_part_to_map)
 
     return df
