@@ -276,20 +276,28 @@ def aggregate_for_residual(
     """Utility function for trying different BA aggregations in 930 and 923 data"""
 
     # add the partial cems data
-    cems = pd.concat([cems, partial_cems_subplant, partial_cems_plant], axis=0)
+    cems_agg = pd.concat([cems, partial_cems_subplant, partial_cems_plant], axis=0)
     validation.validate_unique_datetimes(
-        year, cems, "cems_for_residual", ["plant_id_eia", "subplant_id"]
+        year, cems_agg, "cems_for_residual", ["plant_id_eia", "subplant_id"]
     )
 
     # merge in plant attributes
-    cems = cems.merge(plant_attributes, how="left", on="plant_id_eia", validate="m:1")
+    cems_agg = cems_agg.merge(
+        plant_attributes[
+            ["plant_id_eia", "distribution_flag", "fuel_category_eia930", ba_key]
+        ],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
 
     if transmission:
-        cems = cems[cems["distribution_flag"] is False]
+        cems_agg = cems_agg[cems_agg["distribution_flag"] is False]
 
     # ensure that there are no missing fuel categories in the cems data associated with nonzero generation data
-    missing_fuel_category = cems[
-        (cems["fuel_category_eia930"].isna()) & (cems["net_generation_mwh"] != 0)
+    missing_fuel_category = cems_agg[
+        (cems_agg["fuel_category_eia930"].isna())
+        & (cems_agg["net_generation_mwh"] != 0)
     ]
 
     if len(missing_fuel_category) > 0:
@@ -298,22 +306,16 @@ def aggregate_for_residual(
         )
         logger.warning(
             "\n"
-            + missing_fuel_category[["plant_id_eia", "subplant_id"]]
+            + missing_fuel_category[["plant_id_eia", "subplant_id", ba_key]]
             .drop_duplicates()
-            .merge(
-                plant_attributes[["plant_id_eia", "ba_code"]],
-                how="left",
-                on="plant_id_eia",
-                validate="m:1",
-            )
             .to_string()
         )
         raise UserWarning(
             "The missing fuel categories must be fixed before proceeding."
         )
 
-    cems = (
-        cems.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)[
+    cems_agg = (
+        cems_agg.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)[
             "net_generation_mwh"
         ]
         .sum()
@@ -321,18 +323,18 @@ def aggregate_for_residual(
     )
 
     if ba_key == "ba_code_physical":
-        cems = cems.rename(columns={"ba_code_physical": "ba_code"})
+        cems_agg = cems_agg.rename(columns={"ba_code_physical": "ba_code"})
 
     # clean up the eia930 data before merging
-    cems = cems.rename(columns={"fuel_category_eia930": "fuel_category"})
+    cems_agg = cems_agg.rename(columns={"fuel_category_eia930": "fuel_category"})
 
     # concatenate the data for the different fuel categories together
     # cems = pd.concat([cems, cems_profiles_for_non_930_fuels], axis=0, ignore_index=True)
 
     # rename the net generation column to cems profile
-    cems = cems.rename(columns={"net_generation_mwh": "cems_profile"})
+    cems_agg = cems_agg.rename(columns={"net_generation_mwh": "cems_profile"})
 
-    return cems
+    return cems_agg
 
 
 def aggregate_non_930_fuel_categories(cems, plant_attributes):

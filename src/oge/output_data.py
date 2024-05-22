@@ -123,7 +123,11 @@ def output_intermediate_data(df, file_name, path_prefix, year, skip_outputs):
     column_checks.check_columns(df, file_name)
     if not skip_outputs:
         logger.info(f"Exporting {file_name} to data/outputs")
-        df.to_csv(outputs_folder(f"{path_prefix}{file_name}_{year}.csv"), index=False)
+        df.to_csv(
+            outputs_folder(f"{path_prefix}{file_name}_{year}.csv.zip"),
+            index=False,
+            compression="zip",
+        )
 
 
 def output_to_results(

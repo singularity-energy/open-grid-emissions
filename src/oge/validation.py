@@ -1132,7 +1132,7 @@ def check_for_complete_monthly_timeseries(
     """
 
     input_data_inventory = pd.read_csv(
-        outputs_folder(f"{year}/input_data_inventory_{year}.csv")
+        outputs_folder(f"{year}/input_data_inventory_{year}.csv.zip")
     )
 
     # count the number of report_dates and non-missing data in each group
