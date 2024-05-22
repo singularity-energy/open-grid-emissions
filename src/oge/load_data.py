@@ -294,6 +294,55 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     return complete_gens
 
 
+def load_raw_eia860_plant_geographical_info(year: int) -> pd.DataFrame:
+    """Loads plant geographical information from the raw EIA-860 to fill in missing
+    information in the pudl data. PUDL deletes data for these fields if there are
+    inconsistencies across the historical data.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: list of plants from EIA-860 with their geographical information.
+    """
+    # load geographic information from the raw EIA-860 file to supplement missing
+    # information from pudl
+    plant_geographical_eia860 = pd.read_excel(
+        downloads_folder(f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"),
+        header=1,
+        usecols=[
+            "Plant Code",
+            "Plant Name",
+            "City",
+            "State",
+            "County",
+            "Latitude",
+            "Longitude",
+        ],
+    ).rename(
+        columns={
+            "Plant Code": "plant_id_eia",
+            "Plant Name": "plant_name_eia",
+            "City": "city",
+            "State": "state",
+            "County": "county",
+            "Latitude": "latitude",
+            "Longitude": "longitude",
+        }
+    )
+
+    for c, t in [
+        ["latitude", "Float64"],
+        ["longitude", "Float64"],
+    ]:
+        if plant_geographical_eia860[c].apply(lambda x: x == " ").sum() > 0:
+            plant_geographical_eia860[c] = (
+                plant_geographical_eia860[c].replace(" ", pd.NA).astype(t)
+            )
+
+    return plant_geographical_eia860
+
+
 def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     """Loads generator operating dates and unit_id_eia codes from the raw EIA-860 to
     fill in missing dates and unit ids in the pudl data. PUDL deletes data for these
