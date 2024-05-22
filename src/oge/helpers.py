@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from oge.column_checks import get_dtypes, apply_dtypes
-from oge.constants import latest_validated_year
+from oge.constants import earliest_data_year, latest_validated_year
 from oge.filepaths import reference_table_folder, outputs_folder
 import oge.load_data as load_data
 from oge.logging_util import get_logger
@@ -122,6 +122,9 @@ def create_plant_attributes_table(
 
     # add nameplate capacity
     plant_attributes = add_plant_nameplate_capacity(plant_attributes)
+
+    # add operating and retirement dates
+    plant_attributes = add_plant_operating_and_retirement_dates(plant_attributes)
 
     plant_attributes = apply_dtypes(plant_attributes)
 
@@ -285,6 +288,76 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
     plant_ba.drop(columns="state")
 
     return plant_ba
+
+
+def add_plant_operating_and_retirement_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds the operating and retirement dates of a plant to input data frame. The
+    operating date of a plant is taken as the earliest date among all generators'
+    operating date over all report dates. Likewise, the retirement date of a plant is
+    taken as the latest date among all generators' retirement date over all report
+    dates.
+
+    Note that the operating date is the date the generator began commercial operation.
+    The retirement date is the date of the scheduled or effected retirement of the
+    generator.
+
+    Args:
+        df (pd.DataFrame): table with a 'plant_id_eia' column.
+
+    Returns:
+        pd.DataFrame: original data frame with additional 'plant_operating_date' and
+            'plant_retirement_date' column.
+    """
+    generator_dates = load_data.load_pudl_table(
+        "denorm_generators_eia",
+        year=earliest_data_year,
+        end_year=latest_validated_year,
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "report_date",
+            "generator_operating_date",
+            "generator_retirement_date",
+        ],
+    ).sort_values(by=["plant_id_eia", "generator_id", "report_date"], ascending=True)
+
+    # fill missing dates
+    date_columns = ["generator_operating_date", "generator_retirement_date"]
+
+    for col in date_columns:
+        generator_dates[col] = generator_dates.groupby(
+            ["plant_id_eia", "generator_id"]
+        )[col].bfill()
+        generator_dates[col] = generator_dates.groupby(
+            ["plant_id_eia", "generator_id"]
+        )[col].ffill()
+
+    # keep only the most recent year of data
+    generator_dates = generator_dates.drop_duplicates(
+        subset=["plant_id_eia", "generator_id"], keep="last"
+    )
+
+    plant_dates = (
+        generator_dates.groupby("plant_id_eia")[
+            ["generator_operating_date", "generator_retirement_date"]
+        ]
+        .agg(
+            {
+                "generator_operating_date": "min",
+                "generator_retirement_date": lambda x: x.max(skipna=False),
+            }
+        )
+        .rename(
+            columns={
+                "generator_operating_date": "plant_operating_date",
+                "generator_retirement_date": "plant_retirement_date",
+            }
+        )
+    )
+
+    df = df.merge(plant_dates, how="left", on=["plant_id_eia"], validate="1:1")
+
+    return df
 
 
 def add_plant_nameplate_capacity(df: pd.DataFrame) -> pd.DataFrame:

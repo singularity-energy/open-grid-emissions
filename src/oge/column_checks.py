@@ -203,6 +203,8 @@ COLUMNS = {
         "city",
         "plant_name_eia",
         "capacity_mw",
+        "plant_operating_date",
+        "plant_retirement_date",
     },
     "plant_metadata": {
         "plant_id_eia",
@@ -422,6 +424,7 @@ def get_dtypes():
         "ch4_mass_lb_adjusted": "float64",
         "ch4_mass_lb_for_electricity": "float64",
         "ch4_mass_lb_for_electricity_adjusted": "float64",
+        "city": "str",
         "co2_mass_lb": "float64",
         "co2_mass_lb_adjusted": "float64",
         "co2_mass_lb_for_electricity": "float64",
@@ -431,6 +434,7 @@ def get_dtypes():
         "co2e_mass_lb_adjusted": "float64",
         "co2e_mass_lb_for_electricity": "float64",
         "co2e_mass_lb_for_electricity_adjusted": "float64",
+        "county": "str",
         "data_availability": "category",
         "distribution_flag": "bool",
         "eia930_profile": "float64",
@@ -455,6 +459,8 @@ def get_dtypes():
         "hourly_data_source": "category",
         "hours_in_service": "float64",
         "imputed_profile": "float64",
+        "latitude": "float64",
+        "longitude": "float64",
         "mercury_control_id_eia": "str",
         "mercury_emission_rate_lb_per_trillion_btu": "float64",
         "mercury_removal_efficiency": "float64",
@@ -478,6 +484,7 @@ def get_dtypes():
         "particulate_removal_efficiency_at_full_load": "float64",
         "plant_id_eia": "Int32",
         "plant_id_epa": "Int32",
+        "plant_name_eia": "str",
         "plant_primary_fuel": "str",
         "plant_primary_fuel_from_capacity_mw": "str",
         "plant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu": "str",
@@ -507,11 +514,6 @@ def get_dtypes():
         "subplant_primary_fuel_from_net_generation_mwh": "str",
         "timezone": "str",
         "wet_dry_bottom": "str",
-        "latitude": "float64",
-        "longitude": "float64",
-        "county": "str",
-        "city": "str",
-        "plant_name_eia": "str",
     }
 
     return dtypes_to_use
@@ -528,7 +530,16 @@ def apply_dtypes(df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: original data frame with type converted columns.
     """
     dtypes = get_dtypes()
-    datetime_columns = ["datetime_utc", "datetime_local", "report_date"]
+    datetime_columns = [
+        "datetime_utc",
+        "datetime_local",
+        "report_date",
+        "generator_operating_date",
+        "generator_retirement_date",
+        "current_planned_generator_operating_date",
+        "plant_operating_date",
+        "plant_retirement_date",
+    ]
     cols_missing_dtypes = [
         col
         for col in df.columns
