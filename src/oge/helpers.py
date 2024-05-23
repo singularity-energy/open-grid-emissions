@@ -126,7 +126,31 @@ def create_plant_attributes_table(
     # add operating and retirement dates
     plant_attributes = add_plant_operating_and_retirement_dates(plant_attributes)
 
+    # convert types
     plant_attributes = apply_dtypes(plant_attributes)
+
+    # change order of columns
+    new_column_ordering = [
+        "plant_id_eia",
+        "plant_name_eia",
+        "capacity_mw",
+        "plant_primary_fuel",
+        "fuel_category",
+        "fuel_category_eia930",
+        "state",
+        "county",
+        "city",
+        "ba_code",
+        "ba_code_physical",
+        "latitude",
+        "longitude",
+        "plant_operating_date",
+        "plant_retirement_date",
+        "distribution_flag",
+        "timezone",
+        "data_availability",
+    ]
+    plant_attributes = plant_attributes[new_column_ordering]
 
     return plant_attributes
 
