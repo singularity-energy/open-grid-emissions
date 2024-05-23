@@ -121,7 +121,7 @@ def create_plant_attributes_table(
     plant_attributes = add_plant_entity(plant_attributes)
 
     # add nameplate capacity
-    plant_attributes = add_plant_nameplate_capacity(plant_attributes)
+    plant_attributes = add_plant_nameplate_capacity(year, plant_attributes)
 
     # add operating and retirement dates
     plant_attributes = add_plant_operating_and_retirement_dates(plant_attributes)
@@ -384,30 +384,43 @@ def add_plant_operating_and_retirement_dates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def add_plant_nameplate_capacity(df: pd.DataFrame) -> pd.DataFrame:
+def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
     """Adds nameplate capacity to input data frame.
 
     Args:
+        year (int): a four-digit year.
         df (pd.DataFrame): table with a 'plant_id_eia' column.
 
     Returns:
         pd.DataFrame: original data frame with additional 'capacity_mw' column.
     """
-    generators_capacity = load_data.load_pudl_table(
+    generator_capacity = load_data.load_pudl_table(
         "generators_eia860",
+        year=earliest_data_year,
+        end_year=latest_validated_year,
         columns=["plant_id_eia", "generator_id", "report_date", "capacity_mw"],
-    )
-    generators_capacity[
-        generators_capacity["report_date"] == generators_capacity["report_date"].max()
+    ).sort_values(by=["plant_id_eia", "generator_id", "report_date"], ascending=True)
+
+    generator_capacity["capacity_mw"] = generator_capacity.groupby(
+        ["plant_id_eia", "generator_id"]
+    )["capacity_mw"].bfill()
+    generator_capacity["capacity_mw"] = generator_capacity.groupby(
+        ["plant_id_eia", "generator_id"]
+    )["capacity_mw"].ffill()
+
+    # keep only the specified year of data
+    generator_capacity = generator_capacity[
+        generator_capacity["report_date"].dt.year == year
     ]
-    plants_capacity = (
-        generators_capacity.groupby(["plant_id_eia"])["capacity_mw"]
+
+    plant_capacity = (
+        generator_capacity.groupby(["plant_id_eia"])["capacity_mw"]
         .sum()
         .round(2)
         .reset_index()
     )
 
-    df = df.merge(plants_capacity, how="left", on=["plant_id_eia"], validate="1:1")
+    df = df.merge(plant_capacity, how="left", on=["plant_id_eia"], validate="1:1")
 
     return df
 
