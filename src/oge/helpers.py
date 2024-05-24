@@ -217,11 +217,32 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
         plant_ba[col] = plant_ba.groupby(["plant_id_eia"])[col].bfill()
         plant_ba[col] = plant_ba.groupby(["plant_id_eia"])[col].ffill()
 
+    # some plants only have a record for years after the current year. To help ensure
+    # that we have complete BA codes, create a dataframe containing only those plants
+    # whose first record is after the current year, so that we can add these plants back
+    # to plant_ba after filtering
+    plant_ba_only_data_after_year = plant_ba[
+        plant_ba.groupby(["plant_id_eia"])["report_date"].transform("min").dt.year
+        > year
+    ]
+    # only keep the oldest record
+    plant_ba_only_data_after_year = plant_ba_only_data_after_year[
+        plant_ba_only_data_after_year["report_date"]
+        == plant_ba_only_data_after_year.groupby(["plant_id_eia"])[
+            "report_date"
+        ].transform("min")
+    ]
+
     # remove report dates newer than the current year
     plant_ba = plant_ba[plant_ba["report_date"].dt.year <= year]
 
     # sort the data from newest to oldest
     plant_ba = plant_ba.sort_values(by=["plant_id_eia", "report_date"], ascending=False)
+
+    # add back plants that only have records after the current year
+    # if for some reason this adds a duplicate plant, this will be dropped in the next
+    # step since these records will be added to the end of the dataframe
+    plant_ba = pd.concat([plant_ba, plant_ba_only_data_after_year], axis=0)
 
     # only keep the most recent row of data
     plant_ba = plant_ba.drop_duplicates(subset=["plant_id_eia"], keep="first")
