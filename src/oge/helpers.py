@@ -205,7 +205,7 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
         ],
     )
 
-    # for some earlier years, the plants data is missing BA codes. 
+    # for some earlier years, the plants data is missing BA codes.
     # backfill and forwardfill to make sure that we have complete data for all years, if
     # data is available for any year
     for col in [
