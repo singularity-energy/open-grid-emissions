@@ -205,6 +205,18 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
         ],
     )
 
+    # for some earlier years, the plants data is missing BA codes. 
+    # backfill and forwardfill to make sure that we have complete data for all years, if
+    # data is available for any year
+    for col in [
+        "balancing_authority_code_eia",
+        "utility_id_eia",
+        "balancing_authority_name_eia",
+        "transmission_distribution_owner_name",
+    ]:
+        plant_ba[col] = plant_ba.groupby(["plant_id_eia"])[col].bfill()
+        plant_ba[col] = plant_ba.groupby(["plant_id_eia"])[col].ffill()
+
     # remove report dates newer than the current year
     plant_ba = plant_ba[plant_ba["report_date"].dt.year <= year]
 
