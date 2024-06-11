@@ -263,7 +263,7 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
         "core_eia__entity_plants", columns=["plant_id_eia", "state"]
     )
     plant_ba = plant_ba.merge(
-        plant_states, how="left", on="plant_id_eia", validate="m:1"
+        plant_states, how="outer", on="plant_id_eia", validate="m:1"
     )
 
     # load the ba name reference
