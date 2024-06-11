@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+from timezonefinder import TimezoneFinder
+
 from oge.column_checks import get_dtypes, apply_dtypes
 from oge.constants import earliest_data_year, latest_validated_year
 from oge.filepaths import reference_table_folder, outputs_folder
@@ -9,6 +11,8 @@ from oge.logging_util import get_logger
 import oge.validation as validation
 
 logger = get_logger(__name__)
+
+tf = TimezoneFinder()
 
 
 def create_plant_attributes_table(
@@ -568,11 +572,35 @@ def add_plant_entity(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     for c in eia860_info:
+        # Handle NAs
         if complete_plants_entity[c].isna().sum() > 0:
             complete_plants_entity[c] = complete_plants_entity[c].fillna(
                 complete_plants_entity[f"{c}_eia"]
             )
-        complete_plants_entity = complete_plants_entity.drop(columns=f"{c}_eia")
+        # Handle positive longitude
+        if c == "longitude" and (complete_plants_entity[c] > 0).any():
+            # Replace if EIA-860 longitude is negative, otherwise flip the sign.
+            for i in complete_plants_entity[complete_plants_entity[c] > 0].index:
+                lat_eia = complete_plants_entity.loc[i, "latitude_eia"]
+                lon_eia = complete_plants_entity.loc[i, "longitude_eia"]
+                if lon_eia < 0:
+                    complete_plants_entity.loc[i, "latitude"] = lat_eia
+                    complete_plants_entity.loc[i, "longitude"] = lon_eia
+                # Otherwise flip the sign of longitude and keep PUDL latitude
+                else:
+                    complete_plants_entity.loc[
+                        i, "longitude"
+                    ] = -complete_plants_entity.loc[i, "longitude"]
+                # Get new timezone
+                complete_plants_entity.loc[i, "timezone"] = tf.timezone_at(
+                    lng=complete_plants_entity.loc[i, "longitude"],
+                    lat=complete_plants_entity.loc[i, "latitude"],
+                )
+
+    # Clean data frame
+    complete_plants_entity = complete_plants_entity.drop(
+        columns=[f"{c}_eia" for c in eia860_info]
+    )
 
     df = df.merge(
         complete_plants_entity, how="left", on=["plant_id_eia"], validate="m:1"
