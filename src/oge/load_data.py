@@ -53,7 +53,7 @@ def load_cems_data(year: int) -> pd.DataFrame:
 
     # load the CEMS data
     cems = pd.read_parquet(
-        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+        downloads_folder("pudl/core_epacems__hourly_emissions.parquet"),
         filters=[["year", "==", year]],
         columns=cems_columns,
     )
@@ -137,7 +137,7 @@ def load_cems_ids() -> pd.DataFrame:
     # The `constants.earliest_data_year` is 2005
     for year in range(earliest_data_year, latest_validated_year + 1):
         cems_id_year = pd.read_parquet(
-            downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+            downloads_folder("pudl/core_epacems__hourly_emissions.parquet"),
             filters=[["year", "==", year]],
             columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
         ).drop_duplicates()
@@ -170,7 +170,7 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
             prime movers, operating dates, and operating status.
     """
     complete_gens = load_pudl_table(
-        "denorm_generators_eia",
+        "out_eia__yearly_generators",
         columns=[
             "report_date",
             "plant_id_eia",
@@ -453,7 +453,7 @@ def load_cems_gross_generation(start_year: int, end_year: int) -> pd.DataFrame:
 
     # load cems data
     cems = pd.read_parquet(
-        downloads_folder("pudl/hourly_emissions_epacems.parquet"),
+        downloads_folder("pudl/core_epacems__hourly_emissions.parquet"),
         filters=[["year", ">=", start_year], ["year", "<=", end_year]],
         columns=cems_columns,
     )
@@ -557,7 +557,7 @@ def add_report_date(
     """
     if plant_timezone is None:
         plant_timezone = load_pudl_table(
-            "plants_entity_eia", columns=["plant_id_eia", "timezone"]
+            "core_eia__entity_plants", columns=["plant_id_eia", "timezone"]
         )
 
     # get timezone
@@ -811,7 +811,7 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
 
     # load EIA-860 data
     gen_esc_860 = load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
     )
@@ -855,7 +855,7 @@ def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
         pd.DataFrame: manual EIA-EPA crosswalk table.
     """
 
-    crosswalk = load_pudl_table("epacamd_eia")
+    crosswalk = load_pudl_table("core_epa__assn_eia_epacamd")
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
@@ -898,7 +898,7 @@ def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
 
     # load EIA-860 data
     gen_ids = load_pudl_table(
-        "generators_eia860", year, columns=["plant_id_eia", "generator_id"]
+        "core_eia860__scd_generators", year, columns=["plant_id_eia", "generator_id"]
     )
 
     # merge in any plants that are missing from the EPA crosswalk but appear in EIA-860
@@ -1260,7 +1260,7 @@ def load_unit_to_boiler_associations(year: int) -> pd.DataFrame:
         outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
         dtype=get_dtypes(),
     )
-    boiler_generator_assn = load_pudl_table("boiler_generator_assn_eia860", year)
+    boiler_generator_assn = load_pudl_table("core_eia860__assn_boiler_generator", year)
     unit_boiler_assn = subplant_crosswalk.merge(
         boiler_generator_assn, how="left", on=["plant_id_eia", "generator_id"]
     )

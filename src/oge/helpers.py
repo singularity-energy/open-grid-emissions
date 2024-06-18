@@ -194,7 +194,7 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
     """
 
     plant_ba = load_data.load_pudl_table(
-        "plants_eia860",
+        "out_eia__yearly_plants",
         columns=[
             "plant_id_eia",
             "report_date",
@@ -249,14 +249,14 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
 
     # merge utility name
     utilities_eia = load_data.load_pudl_table(
-        "utilities_eia", columns=["utility_id_eia", "utility_name_eia"]
+        "core_eia__entity_utilities", columns=["utility_id_eia", "utility_name_eia"]
     )
     plant_ba = plant_ba.merge(
         utilities_eia, how="left", on="utility_id_eia", validate="m:1"
     )
     # merge plant state
     plant_states = load_data.load_pudl_table(
-        "plants_entity_eia", columns=["plant_id_eia", "state"]
+        "core_eia__entity_plants", columns=["plant_id_eia", "state"]
     )
     plant_ba = plant_ba.merge(
         plant_states, how="left", on="plant_id_eia", validate="m:1"
@@ -366,7 +366,7 @@ def add_plant_operating_and_retirement_dates(df: pd.DataFrame) -> pd.DataFrame:
             'plant_retirement_date' column.
     """
     generator_dates = load_data.load_pudl_table(
-        "denorm_generators_eia",
+        "out_eia__yearly_generators",
         year=earliest_data_year,
         end_year=latest_validated_year,
         columns=[
@@ -428,7 +428,7 @@ def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: original data frame with additional 'capacity_mw' column.
     """
     generator_capacity = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year=earliest_data_year,
         end_year=latest_validated_year,
         columns=["plant_id_eia", "generator_id", "report_date", "capacity_mw"],
@@ -476,7 +476,7 @@ def identify_distribution_connected_plants(
 
     # load the EIA-860 data
     plant_voltage = load_data.load_pudl_table(
-        "plants_eia860", year, columns=["plant_id_eia", "grid_voltage_1_kv"]
+        "out_eia__yearly_plants", year, columns=["plant_id_eia", "grid_voltage_1_kv"]
     )
 
     plant_voltage = plant_voltage.assign(
@@ -551,7 +551,7 @@ def add_plant_entity(df: pd.DataFrame) -> pd.DataFrame:
         "plant_name_eia",
     ]
     plants_entity = load_data.load_pudl_table(
-        "plants_entity_eia",
+        "core_eia__entity_plants",
         columns=["plant_id_eia", "timezone"] + eia860_info,
     )
     plants_entity_from_eia860 = load_data.load_raw_eia860_plant_geographical_info(
