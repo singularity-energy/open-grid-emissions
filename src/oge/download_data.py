@@ -115,8 +115,8 @@ def download_pudl_data(source: str = "aws"):
 
     if source == "aws":
         # define the urls
-        pudl_db_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2023.12.01/pudl.sqlite.gz"
-        epacems_parquet_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2023.12.01/hourly_emissions_epacems.parquet"
+        pudl_db_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/stable/pudl.sqlite.gz"
+        epacems_parquet_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/stable/core_epacems__hourly_emissions.parquet"
 
         # download the pudl sqlite database
         if not os.path.exists(downloads_folder("pudl/pudl.sqlite")):
