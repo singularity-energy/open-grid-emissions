@@ -89,6 +89,13 @@ def clean_eia923(
         gens,
         freq="MS",
     )
+    # NOTE: instead of running this in pudl, we can load the data directly from pudl.
+    # however, we have some changes to this code in the oge_dev
+    """
+    gen_fuel_allocated = load_data.load_pudl_table(
+        "out_eia923__monthly_generation_fuel_by_generator_energy_source", year
+    )
+    """
 
     # drop bad data where there is negative fuel consumption
     # NOTE(greg) this is in response to a specific issue with the input data for
@@ -195,9 +202,13 @@ def clean_eia923(
     subplant_emission_factors = calculate_subplant_efs(gen_fuel_allocated)
 
     # aggregate the allocated data to the generator level
-    gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
-        gen_fuel_allocated,
-        sum_cols=DATA_COLUMNS,
+    gen_fuel_allocated = (
+        gen_fuel_allocated.groupby(by=["report_date", "plant_id_eia", "generator_id"])[
+            DATA_COLUMNS
+        ]
+        .sum(min_count=1)
+        .reset_index()
+        .pipe(apply_dtypes)
     )
 
     # remove any plants that we don't want in the data

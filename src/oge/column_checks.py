@@ -551,4 +551,9 @@ def apply_dtypes(df: pd.DataFrame) -> pd.DataFrame:
             "`column_checks.get_dtypes()`"
         )
         logger.warning(cols_missing_dtypes)
-    return df.astype({col: dtypes[col] for col in df.columns if col in dtypes})
+
+    df = df.astype({col: dtypes[col] for col in df.columns if col in dtypes})
+    for col in datetime_columns:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col]).astype("datetime64[s]")
+    return df
