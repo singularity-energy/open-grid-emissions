@@ -136,7 +136,7 @@ def download_pudl_data(source: str = "aws"):
             with open(downloads_folder("pudl/pudl_sqlite_version.txt"), "r") as f:
                 existing_version = f.readlines()[0].replace("\n", "")
             logger.info(
-                f"Using nightly build version of PUDL sqlite database downloaded {existing_version}"
+                f"Using stable build version of PUDL sqlite database downloaded {existing_version}"
             )
 
         if not os.path.exists(
@@ -159,7 +159,7 @@ def download_pudl_data(source: str = "aws"):
             with open(downloads_folder("pudl/epacems_parquet_version.txt"), "r") as f:
                 existing_version = f.readlines()[0].replace("\n", "")
             logger.info(
-                f"Using nightly build version of PUDL epacems parquet file downloaded {existing_version}"
+                f"Using stable build version of PUDL epacems parquet file downloaded {existing_version}"
             )
     elif source == "zenodo":
         # NOTE: This is the most recent available version as of 12/2/2023
