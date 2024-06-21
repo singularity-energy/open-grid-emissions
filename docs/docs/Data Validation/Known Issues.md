@@ -185,11 +185,11 @@ Currently, we trust CEMS gross generation data more than EIA-923 net generation 
 2024-04-03 12:59:48,418 [WARNING] oge.oge.validation:704 There are 5 plants where calculated annual net generation does not match EIA annual net generation.
 2024-04-03 12:59:49,106 [WARNING] oge.oge.validation:707 
    plant_id_eia  net_generation_mwh_eia  net_generation_mwh_calc  pct_error                                                               gtn_method ba_code
-0          1391               2979899.1              3494770.869   0.172782                               [6_default_eia_ratio, 5_annual_fuel_ratio]    MISO
-1          3406                845833.6              1229468.715   0.453559  [5_annual_fuel_ratio, 6_default_eia_ratio, 4_annual_plant_shift_factor]     TVA
-2          8906                828822.0              1737494.717   1.096342                               [5_annual_fuel_ratio, 6_default_eia_ratio]    NYIS
-3         55075               1276484.0              1819931.568   0.425738                                                    [5_annual_fuel_ratio]    MISO
-4         57865                 41887.8               753792.480  16.995514                               [5_annual_fuel_ratio, 6_default_eia_ratio]    SWPP
+0          1391               2979899.1              3494770.869   0.172782                               [6_default_eia_ratio, 5_annual_fleet_ratio]    MISO
+1          3406                845833.6              1229468.715   0.453559  [5_annual_fleet_ratio, 6_default_eia_ratio, 4_annual_plant_shift_factor]     TVA
+2          8906                828822.0              1737494.717   1.096342                               [5_annual_fleet_ratio, 6_default_eia_ratio]    NYIS
+3         55075               1276484.0              1819931.568   0.425738                                                    [5_annual_fleet_ratio]    MISO
+4         57865                 41887.8               753792.480  16.995514                               [5_annual_fleet_ratio, 6_default_eia_ratio]    SWPP
 ```
 
 ### Some data outputs are missing complete monthly or hourly values

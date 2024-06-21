@@ -44,7 +44,7 @@ Following the approach primarily used in previous academic literature, the OGE d
 
 **Resolution for conversion factors**
 
-Ratios and shift factors are calculated both at the subplant and plant level and both at the monthly and annual resolutions. Monthly-resolution conversion factors are not currently used in the data pipeline because we are not always confident that the monthly values reported in EIA-923 are accurate. For example, in some cases, generators report annual totals and EIA distributes the data to each month. The use of annual-resolution conversion factors means that the annual total calculated net generation will match the annual total reported net generation, but monthly total calculated net generation will not always match monthly total reported net generation.
+Ratios are calculated both at the subplant and plant level and both at the monthly and annual resolutions. Monthly-resolution conversion factors are not currently used in the data pipeline because we are not always confident that the monthly values reported in EIA-923 are accurate. For example, in some cases, generators report annual totals and EIA distributes the data to each month. The use of annual-resolution conversion factors means that the annual total calculated net generation will match the annual total reported net generation, but monthly total calculated net generation will not always match monthly total reported net generation.
 
 **Hierarchy for applying gross to net conversion factors**
 
@@ -54,12 +54,11 @@ The conversion factors are applied in the following hierarchical order:
 
 1. Subplant gross-to-net ratio
 2. Plant gross-to-net ratio
-3. Subplant shift factor
-4. Plant shift factor
-5. Fuel-specific ratio
-6. Set net generation equal to net generation
+3. Fleet-specific ratio
+4. Default GTN ratios from EIA 
+5. Set net generation equal to net generation
 
-If no plant-specific factors are available (methods 1-4), the pipeline uses a fuel-specific ratio that represents the average gross-to-net ratio for all plants (nationally) that consume the same primary fuel. If even a fuel-specific factor is not available, the pipeline sets net generation equal to gross generation.
+If no plant-specific factors are available (methods 1 and 2), the pipeline uses a fleet-specific ratio that represents the average gross-to-net ratio for all subplant (nationally) that consume the same fuel category (natural gas, coal, etc). Otherwise, we use default gross to net ratios published in the EIA Electric Power Monthly Technical Notes (Appendix C). As a final backstop, we set net generation equal to gross generation.
 
 The following table shows what percent of gross generation reported in CEMS was converted to net generation using each method.
 
@@ -128,7 +127,7 @@ The following table shows what percent of gross generation reported in CEMS was 
 
 Before calculating net generation, the conversion factors are filtered to remove any factors that would lead to anomalous net generation values being calculated.
 
-The first filter removes factors that would lead to net generation values that significantly exceed the subplant’s nameplate capacity. In this case, the factor is filtered out if the 98th percentile of calculated hourly net generation values in a month exceed 150% of the subplant’s nameplate capacity. We use the 98th percentile instead of the maximum value to allow for a small handful of hours (approximately 14 hours in a 30-day month) to exceed the value. The use of the 150% exceedance threshold allows for the fact that a plant’s nameplate capacity can vary throughout the year and sometimes be exceeded, and the use of the 98th percentile prevents a small number of anomalous hours from causing the factor to be filtered out.
+The first filter removes factors that would lead to net generation values that significantly exceed the subplant’s nameplate capacity. In this case, the factor is filtered out if the 98th percentile of calculated hourly net generation values in a month exceed 125% of the subplant’s nameplate capacity. We use the 98th percentile instead of the maximum value to allow for a small handful of hours (approximately 14 hours in a 30-day month) to exceed the value. The use of the 125% exceedance threshold allows for the fact that a plant’s nameplate capacity can vary throughout the year and sometimes be exceeded, and the use of the 98th percentile prevents a small number of anomalous hours from causing the factor to be filtered out.
 
 The second filter removes factors that would lead to net generation values that are large negative numbers. Based on reported EIA-923 net generation data for 2020, the largest negative generation for a single generator in a month is about -19,000 MWh, which works out to about -25MW on average in each hour. Thus, we set our lower threshold value to -50MW, so that a factor is filtered out if the 2nd percentile of calculated hourly net generation values in a month is lower than -50MW. Negative 50MW is double the lowest average net generation value reported, and using the 2nd percentile instead of the minimum allows for a small number of hours to be anomalous.
 

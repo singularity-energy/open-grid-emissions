@@ -324,7 +324,7 @@ COLUMNS = {
         "annual_plant_shift_mw",
         "annual_plant_ratio",
         "plant_primary_fuel",
-        "annual_fuel_ratio",
+        "annual_fleet_ratio",
         "default_gtn_ratio",
         "monthly_subplant_shift_mw",
         "monthly_subplant_ratio",

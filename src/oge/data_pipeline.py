@@ -338,7 +338,7 @@ def main(args):
     ####################################################################################
     logger.info("9. Converting CEMS gross generation to net generation")
     cems, gtn_conversions = gross_to_net_generation.convert_gross_to_net_generation(
-        cems, eia923_allocated, plant_attributes, year
+        cems, eia923_allocated, primary_fuel_table, year
     )
     # calculate the percent of gross generation converted using each method
     output_data.output_data_quality_metrics(
