@@ -622,7 +622,7 @@ def calculate_nox_from_fuel_consumption(
     # available
     gen_fuel_allocated["controlled_nox_mass_lb"] = (
         gen_fuel_allocated["controlled_nox_mass_lb"]
-        .astype(get_dtypes()["nox_mass_lb"])
+        .astype(get_dtypes()["controlled_nox_mass_lb"])
         .fillna(
             gen_fuel_allocated["fuel_consumed_mmbtu"]
             * gen_fuel_allocated["controlled_annual_nox_ef_lb_per_mmbtu"]
