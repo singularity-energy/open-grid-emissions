@@ -635,9 +635,7 @@ def add_missing_location(df: pd.DataFrame) -> pd.DataFrame:
             state = df.loc[i, "state"]
             county = df.loc[i, "county"]
             city = df.loc[i, "city"]
-            # if county == "NOT IN FILE" or city == "unsited":
-            #     continue
-            # else:
+
             lat, lon = get_coordinates_of_location(state, county, city)
             df.loc[i, "latitude"] = lat
             df.loc[i, "longitude"] = lon
@@ -683,12 +681,14 @@ def search_location_from_coordinates(latitude: float, longitude: float) -> tuple
         longitude (float): longitude of the location.
 
     Returns:
-        tuple[str] | None: state, county and city of the location.
+        tuple[str]: state, county and city of the location.
     """
     try:
         address = geolocator.reverse(f"{latitude}, {longitude}").raw["address"]
+        if address["country_code"] != "us":
+            return pd.NA, pd.NA, pd.NA
     except ReadTimeoutError:
-        return
+        return pd.NA, pd.NA, pd.NA
 
     # Check for State
     state = (
@@ -724,7 +724,6 @@ def get_coordinates_of_location(state: str, county: str, city: str) -> tuple[flo
         Returns:
             tuple[float]: the latitude and longitude.
     """
-
     if pd.isna(state):
         return np.NaN, np.NaN
     if pd.isna(city):
@@ -736,14 +735,13 @@ def get_coordinates_of_location(state: str, county: str, city: str) -> tuple[flo
         query = f"{city}, {state}, USA"
 
     try:
-        location = geolocator.geocode(query)
-        print(location)
+        location = geolocator.geocode(query, country_codes="us")
         if location is None:
             return np.NaN, np.NaN
         else:
             return float(location.raw["lat"]), float(location.raw["lon"])
     except ReadTimeoutError:
-        return
+        return np.NaN, np.NaN
 
 
 def add_subplant_ids_to_df(
