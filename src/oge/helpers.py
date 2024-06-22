@@ -332,7 +332,8 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
 
     # update based on mapping table when ambiguous
     physical_ba = pd.read_csv(
-        reference_table_folder("physical_ba.csv"), dtype=get_dtypes()
+        reference_table_folder("physical_ba.csv"),
+        dtype=get_dtypes(),
     )
     plant_ba = plant_ba.merge(
         physical_ba,
@@ -517,7 +518,8 @@ def assign_fuel_category_to_ESC(
     """
     # load the fuel category table
     energy_source_groups = pd.read_csv(
-        reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
+        reference_table_folder("energy_source_groups.csv"),
+        dtype=get_dtypes(),
     )[["energy_source_code"] + fuel_category_names].rename(
         columns={"energy_source_code": esc_column}
     )

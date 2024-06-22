@@ -178,7 +178,8 @@ def flag_possible_primary_fuel_mismatches(plant_primary_fuel, year):
     for esc_column in ["plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]:
         # load the fuel category table
         energy_source_groups = pd.read_csv(
-            reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
+            reference_table_folder("energy_source_groups.csv"),
+            dtype=get_dtypes(),
         )[["energy_source_code", "fuel_category_eia930"]].rename(
             columns={
                 "energy_source_code": esc_column,

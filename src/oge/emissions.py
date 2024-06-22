@@ -16,11 +16,6 @@ from oge.constants import (
     nox_lb_per_mmbtu_flared_landfill_gas,
 )
 
-from pudl.analysis.allocate_gen_fuel import (
-    distribute_annually_reported_data_to_months_if_annual,
-)
-
-
 logger = get_logger(__name__)
 
 
@@ -1000,11 +995,6 @@ def return_monthly_plant_fuel_heat_content(year):
             "report_date",
             "fuel_mmbtu_per_unit",
         ],
-    ).pipe(
-        distribute_annually_reported_data_to_months_if_annual,
-        key_columns=["plant_id_eia", "energy_source_code", "prime_mover_code"],
-        data_column_name="fuel_mmbtu_per_unit",
-        freq="MS",
     )
     plant_specific_fuel_heat_content = plant_specific_fuel_heat_content[
         ~plant_specific_fuel_heat_content["energy_source_code"].isin(CLEAN_FUELS)

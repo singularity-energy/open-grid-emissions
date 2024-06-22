@@ -4,7 +4,7 @@ import sqlalchemy as sa
 import warnings
 from pathlib import Path
 
-from oge.column_checks import get_dtypes
+from oge.column_checks import get_dtypes, apply_dtypes
 from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
 import oge.validation as validation
 from oge.logging_util import get_logger
@@ -15,8 +15,6 @@ from oge.constants import (
     earliest_validated_year,
     latest_validated_year,
 )
-
-from pudl.metadata.fields import apply_pudl_dtypes
 
 logger = get_logger(__name__)
 
@@ -59,7 +57,7 @@ def load_cems_data(year: int) -> pd.DataFrame:
     )
     # convert to tz-naive datetime to allow for dtype application
     cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(None)
-    cems = apply_pudl_dtypes(cems)
+    cems = apply_dtypes(cems)
     cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
         "UTC"
     )
@@ -150,7 +148,7 @@ def load_cems_ids() -> pd.DataFrame:
         .sort_values(by=["plant_id_eia", "emissions_unit_id_epa"])
     )
 
-    cems_ids = apply_pudl_dtypes(cems_ids)
+    cems_ids = apply_dtypes(cems_ids)
 
     # update the plant_id_eia column using manual matches
     cems_ids = update_epa_to_eia_map(cems_ids)
@@ -459,7 +457,7 @@ def load_cems_gross_generation(start_year: int, end_year: int) -> pd.DataFrame:
     )
     # convert to tz-naive datetime to allow for dtype application
     cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(None)
-    cems = apply_pudl_dtypes(cems)
+    cems = apply_dtypes(cems)
     cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
         "UTC"
     )
@@ -720,7 +718,7 @@ def load_pudl_table(
             PUDL_ENGINE,
         )
 
-    table = apply_pudl_dtypes(table)
+    table = apply_dtypes(table)
 
     if table.empty:
         logger.warning(f"{table_name} is empty")
@@ -1001,7 +999,10 @@ def load_ipcc_gwp() -> pd.DataFrame:
     Returns:
         pd.DataFrame: table containing the global warming potential for GHG.
     """
-    return pd.read_csv(reference_table_folder("ipcc_gwp.csv"), dtype=get_dtypes())
+    return pd.read_csv(
+        reference_table_folder("ipcc_gwp.csv"),
+        dtype=get_dtypes(),
+    )
 
 
 def load_raw_eia930_data(year: int, description: str) -> pd.DataFrame:
@@ -1156,9 +1157,9 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
         "nox_control_id_eia",
         "mercury_control_id_eia",
         "operational_status",
-        "hours_in_service",
+        "hours_in_service",  # not yet in pudl
         "annual_nox_emission_rate_lb_per_mmbtu",
-        "ozone_season_nox_emission_rate_lb_per_mmbtu",
+        "ozone_season_nox_emission_rate_lb_per_mmbtu",  # not yet in pudl
         "particulate_emission_rate_lb_per_mmbtu",
         "particulate_removal_efficiency_annual",
         "particulate_removal_efficiency_at_full_load",
@@ -1172,8 +1173,6 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
         "mercury_emission_rate_lb_per_trillion_btu",
         "acid_gas_removal_efficiency",
     ]
-
-    datetime_columns = ["report_date", "particulate_test_date", "so2_test_date"]
 
     # For 2012-2015 and earlier, mercury emission rate is not reported in EIA923, so we
     # need to remove that column to avoid an error.
@@ -1227,7 +1226,7 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
             names=emissions_controls_eia923_names,
             dtype=get_dtypes(),
             na_values=".",
-            parse_dates=datetime_columns,
+            parse_dates=["report_date"],
             date_format={"particulate_test_date": "%m-%Y", "so2_test_date": "%m-%Y"},
         )
         emissions_controls_eia923["report_date"] = emissions_controls_eia923[
