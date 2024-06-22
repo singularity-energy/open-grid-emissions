@@ -882,99 +882,105 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
     cems = cems.rename(columns={"subplant_primary_fuel": "energy_source_code"})
 
     # fill missing fuel codes for plants that only have a single fuel type
-    single_fuel_plants = (
-        primary_fuel_table.drop_duplicates(
-            subset=["plant_id_eia", "energy_source_code"]
-        ).drop_duplicates(subset=["plant_id_eia"], keep=False)
-    )[["plant_id_eia", "energy_source_code"]]
-    cems = cems.merge(
-        single_fuel_plants,
-        how="left",
-        on=["plant_id_eia"],
-        suffixes=(None, "_plant"),
-        validate="m:1",
-    )
-    cems = fillna_with_missing_strings(
-        cems,
-        column_to_fill="energy_source_code",
-        filler_column="energy_source_code_plant",
-    )
+    if len(cems[cems["energy_source_code"].isna()]) > 0:
+        single_fuel_plants = (
+            primary_fuel_table.drop_duplicates(
+                subset=["plant_id_eia", "energy_source_code"]
+            ).drop_duplicates(subset=["plant_id_eia"], keep=False)
+        )[["plant_id_eia", "energy_source_code"]]
+        cems = cems.merge(
+            single_fuel_plants,
+            how="left",
+            on=["plant_id_eia"],
+            suffixes=(None, "_plant"),
+            validate="m:1",
+        )
+        cems = fillna_with_missing_strings(
+            cems,
+            column_to_fill="energy_source_code",
+            filler_column="energy_source_code_plant",
+        )
 
     # Fill fuel codes for plants that only have a single fossil type identified in EIA
-    cems = fill_missing_fuel_for_single_fuel_plant_months(cems, year)
+    if len(cems[cems["energy_source_code"].isna()]) > 0:
+        cems = fill_missing_fuel_for_single_fuel_plant_months(cems, year)
 
     # fill any remaining missing fuel codes with the plant primary fuel identified from EIA-923
-    cems = cems.merge(
-        primary_fuel_table[["plant_id_eia", "plant_primary_fuel"]].drop_duplicates(),
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
-    )
-    cems = fillna_with_missing_strings(
-        cems, column_to_fill="energy_source_code", filler_column="plant_primary_fuel"
-    )
+    if len(cems[cems["energy_source_code"].isna()]) > 0:
+        cems = cems.merge(
+            primary_fuel_table[
+                ["plant_id_eia", "plant_primary_fuel"]
+            ].drop_duplicates(),
+            how="left",
+            on="plant_id_eia",
+            validate="m:1",
+        )
+        cems = fillna_with_missing_strings(
+            cems,
+            column_to_fill="energy_source_code",
+            filler_column="plant_primary_fuel",
+        )
 
     # if there are still missing fuels, the plant might be proposed and not yet in EIA-923
     # in this case, load data from EIA-860 to see if the plant exists in the proposed category
-    gen_fuel = load_data.load_pudl_table(
-        "core_eia860__scd_generators",
-        year,
-        columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
-    ).drop_duplicates()
-    generator_unit_map = pd.read_csv(
-        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
-        dtype=get_dtypes(),
-    )[["plant_id_eia", "generator_id", "emissions_unit_id_epa"]]
-    gen_fuel = gen_fuel.merge(
-        generator_unit_map,
-        how="left",
-        on=["plant_id_eia", "generator_id"],
-        validate="1:m",
-    )
-    # make sure there are no duplicate unit entries
-    gen_fuel = gen_fuel.drop_duplicates(
-        subset=["plant_id_eia", "emissions_unit_id_epa"]
-    )
-    cems = cems.merge(
-        gen_fuel[["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_1"]],
-        how="left",
-        on=["plant_id_eia", "emissions_unit_id_epa"],
-        validate="m:1",
-    )
-    cems = fillna_with_missing_strings(
-        cems, column_to_fill="energy_source_code", filler_column="energy_source_code_1"
-    )
+    if len(cems[cems["energy_source_code"].isna()]) > 0:
+        gen_fuel = load_data.load_pudl_table(
+            "core_eia860__scd_generators",
+            year,
+            columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
+        ).drop_duplicates()
+        gen_fuel = add_subplant_ids_to_df(
+            gen_fuel, year, "generator_id", how_merge="left", validate_merge="1:1"
+        )
+
+        # make sure there are no duplicate unit entries
+        gen_fuel = gen_fuel.drop_duplicates(subset=["plant_id_eia", "subplant_id"])
+        cems = cems.merge(
+            gen_fuel[["plant_id_eia", "subplant_id", "energy_source_code_1"]],
+            how="left",
+            on=["plant_id_eia", "subplant_id"],
+            validate="m:1",
+        )
+        cems = fillna_with_missing_strings(
+            cems,
+            column_to_fill="energy_source_code",
+            filler_column="energy_source_code_1",
+        )
 
     # if we are still missing fuel codes, merge in from the epa-assigned fuel code
-    crosswalk = load_data.load_epa_eia_crosswalk_from_raw(year)[
-        ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
-    ].drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
-    cems = cems.merge(
-        crosswalk,
-        how="left",
-        on=["plant_id_eia", "emissions_unit_id_epa"],
-        validate="m:1",
-    )
-    cems = fillna_with_missing_strings(
-        cems,
-        column_to_fill="energy_source_code",
-        filler_column="energy_source_code_epa",
-    )
+    if (len(cems[cems["energy_source_code"].isna()]) > 0) and (
+        "emissions_unit_id_epa" in cems.columns
+    ):
+        crosswalk = load_data.load_epa_eia_crosswalk_from_raw(year)[
+            ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
+        ].drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
+        cems = cems.merge(
+            crosswalk,
+            how="left",
+            on=["plant_id_eia", "emissions_unit_id_epa"],
+            validate="m:1",
+        )
+        cems = fillna_with_missing_strings(
+            cems,
+            column_to_fill="energy_source_code",
+            filler_column="energy_source_code_epa",
+        )
 
     # if we are still missing fuel codes, use energy_source_code_1 of generator with
     # greatest nameplate capacity
-    plant_backstop_fuel = load_backstop_energy_source_codes_for_plant()
-    cems = cems.merge(
-        plant_backstop_fuel,
-        how="left",
-        on=["plant_id_eia"],
-        validate="m:1",
-    )
-    cems = fillna_with_missing_strings(
-        cems,
-        column_to_fill="energy_source_code",
-        filler_column="energy_source_code_plant",
-    )
+    if len(cems[cems["energy_source_code"].isna()]) > 0:
+        plant_backstop_fuel = load_backstop_energy_source_codes_for_plant()
+        cems = cems.merge(
+            plant_backstop_fuel,
+            how="left",
+            on=["plant_id_eia"],
+            validate="m:1",
+        )
+        cems = fillna_with_missing_strings(
+            cems,
+            column_to_fill="energy_source_code",
+            filler_column="energy_source_code_plant",
+        )
 
     # update
     cems = update_energy_source_codes(cems, year)

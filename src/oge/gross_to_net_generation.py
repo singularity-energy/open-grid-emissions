@@ -8,20 +8,38 @@ import oge.load_data as load_data
 import oge.helpers as helpers
 import oge.validation as validation
 
+from oge.data_cleaning import assign_fuel_type_to_cems
 from oge.helpers import create_plant_ba_table, add_subplant_ids_to_df
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
 
 
-def convert_gross_to_net_generation(cems, eia923_allocated, primary_fuel_table, year):
-    """
-    Converts hourly gross generation in CEMS to hourly net generation by calculating a
-    gross to net generation ratio
+def convert_gross_to_net_generation(
+    cems: pd.DataFrame,
+    eia923_allocated: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+) -> pd.DataFrame:
+    """Converts hourly gross generation in CEMS to hourly net generation.
+
+    This function first calculates various types of gross to net conversion factors,
+    filters them for quality, and them applies them according to a method hierarchy:
+        1. Annual GTN ratio at the subplant level
+        2. Annual GTN ratio at the plant level
+        3. Annual GTN ratio at the national fleet (fuel category-prime mover) level
+        4. Default GTN ratio published by EIA based on prime mover
+        5. Assumed GTN ratio of 0.97
+
+    Args:
+        cems (pd.DataFrame): hourly CEMS data aggregated to the subplant level
+        eia923_allocated (pd.DataFrame): Cleaned EIA-923 data at the subplant level
+        primary_fuel_table (pd.DataFrame): Table indicating subplant primary fuel
+        year (int): data year
 
     Returns:
-        cems df with an added column for net_generation_mwh and a column indicated the
-        method used to calculate net generation
+        pd.DataFrame: cems df with an added column for net_generation_mwh and a column
+            indicating the method used to calculate net generation
     """
 
     gtn_conversions = calculate_gross_to_net_conversion_factors(
@@ -65,12 +83,15 @@ def convert_gross_to_net_generation(cems, eia923_allocated, primary_fuel_table, 
     )
 
     cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "4_default_eia_ratio"
+    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
+        cems["gross_generation_mwh"] * cems["default_gtn_ratio"]
+    )
+
     # warn if there are any missing default gtn ratios for plants that would use them.
     missing_defaults = cems.loc[
-        (cems["gtn_method"] == "6_default_eia_ratio")
+        (cems["gtn_method"] == "4_default_eia_ratio")
         & (cems["default_gtn_ratio"].isna())
     ]
-
     if len(missing_defaults) > 0:
         logger.warning(
             "The following subplants are missing default GTN ratios. Using a default value of 0.97"
@@ -88,6 +109,7 @@ def convert_gross_to_net_generation(cems, eia923_allocated, primary_fuel_table, 
             .to_string()
         )
     # if there is a missing default gtn ratio, fill with 0.97
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "5_assumed_gtn_ratio"
     cems["default_gtn_ratio"] = cems["default_gtn_ratio"].fillna(0.97)
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] * cems["default_gtn_ratio"]
@@ -110,11 +132,29 @@ def convert_gross_to_net_generation(cems, eia923_allocated, primary_fuel_table, 
 
 
 def calculate_gross_to_net_conversion_factors(
-    cems, eia923_allocated, primary_fuel_table, year
-):
+    cems: pd.DataFrame,
+    eia923_allocated: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+) -> pd.DataFrame:
+    """Calculates gross to net ratios based on gross generation data reported in CEMS
+    and net generation data reported in EIA-923.
+
+    Calculates ratios for specific subplants, plants, and fleets (fuel-PM).
+    When calculating ratios, we ensure to only keep data where there is data both for
+    CEMS and EIA.
+
+    Args:
+        cems (pd.DataFrame): hourly CEMS data aggregated to the subplant level
+        eia923_allocated (pd.DataFrame): Cleaned EIA-923 data at the subplant level
+        primary_fuel_table (pd.DataFrame): Table indicating subplant primary fuel
+        year (int): data year
+
+    Returns:
+        pd.DataFrame: table containing monthly and annual subplant and plant ratios,
+            and annual fleet ratios for each subplant.
     """
-    Calculates gross to net ratios
-    """
+
     # aggregate the hourly cems data by subplant
     gross_gen_data = cems[
         [
@@ -122,10 +162,12 @@ def calculate_gross_to_net_conversion_factors(
             "subplant_id",
             "report_date",
             "datetime_utc",
-            "energy_source_code",
             "gross_generation_mwh",
+            "fuel_consumed_mmbtu",
         ]
     ].copy()
+    # add energy source codes to teh data
+    gross_gen_data = assign_fuel_type_to_cems(gross_gen_data, year, primary_fuel_table)
     # identify the 2nd percentile lowest hourly gross generation value in a month
     min_gross = (
         gross_gen_data.groupby(
@@ -299,7 +341,8 @@ def calculate_gross_to_net_conversion_factors(
     # flag anomalous plant ratios
     validation.identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio, year)
 
-    # drop the gross and net generation data from the dataframes at the other aggregation levels
+    # drop the gross and net generation data from the dataframes at the other
+    # aggregation levels
     annual_subplant_ratio = annual_subplant_ratio.drop(
         columns=["gross_generation_mwh", "net_generation_mwh", "hours_in_month"]
     )
@@ -350,7 +393,8 @@ def calculate_gross_to_net_conversion_factors(
         validate="m:1",
     )
 
-    # where gross or net generation data was missing in a month, change the monthly ratios to missing
+    # where gross or net generation data was missing in a month, change the monthly
+    # ratios to missing
     gtn_conversions.loc[
         gtn_conversions[["gross_generation_mwh", "net_generation_mwh"]]
         .isna()
@@ -470,7 +514,22 @@ def calculate_subplant_nameplate_capacity(year):
     return subplant_capacity
 
 
-def filter_gtn_conversion_factors(gtn_conversions):
+def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame:
+    """Filters the calculated GTN ratios to remove anomalous or incomplete factors.
+
+    First, we remove any ratios that are less than 0.75 or greater than 1.25.
+    We also want to ensure that at each plant, we either use all annual_subplant_ratio
+    or all annual_plant_ratio so that the annual plant total net generation matches. We
+    remove any annual_subplant_ratios if they are not available for all subplants at a
+    plant.
+
+    Args:
+        gtn_conversions (pd.DataFrame): output of
+            calculate_gross_to_net_conversion_factors()
+
+    Returns:
+        pd.DataFrame: filtered gtn_conversions
+    """
     factors_to_use = gtn_conversions[
         [
             "plant_id_eia",
@@ -494,13 +553,15 @@ def filter_gtn_conversion_factors(gtn_conversions):
         "annual_plant_ratio",
         "annual_fleet_ratio",
     ]:
-        # remove any factors that would scale net generation to less than 75% of gross generation
-        # In general, the IQR of GTN ratios is between 0.75 and 1, with an upper bound around 1.25
-        # remove any ratios that are negative to avoid flipping the shape of the profile
+        # remove any factors that would scale net generation to less than 75% of gross
+        # generation. In general, the IQR of GTN ratios is between 0.75 and 1, with an
+        # upper bound around 1.25. Remove any ratios that are negative to avoid flipping
+        # the shape of the profile
         factors_to_use.loc[factors_to_use[scaling_factor] < 0.75, scaling_factor] = (
             np.NaN
         )
-        # remove any factors that would cause the generation in any hour to exceed 125% of nameplate capacity
+        # remove any factors that would cause the generation in any hour to exceed 125%
+        # of nameplate capacity
         factors_to_use.loc[
             (
                 factors_to_use[scaling_factor]
@@ -511,14 +572,16 @@ def filter_gtn_conversion_factors(gtn_conversions):
         ] = np.NaN
 
     # All subplant-months at each plant should use the same method
-    # if any annual_subplant_ratio are missing at a plant, revert to using annual_plant_ratio for the entire plant
+    # if any annual_subplant_ratio are missing at a plant, revert to using
+    # annual_plant_ratio for the entire plant
     method_hierarchy = [
         "annual_subplant_ratio",
         "annual_plant_ratio",
     ]
 
     for method in method_hierarchy:
-        # get a count of the number of non-na factor values and non-na net generation values for each plant
+        # get a count of the number of non-na factor values and non-na net generation
+        # values for each plant
         incomplete_factors = (
             factors_to_use.groupby(
                 ["plant_id_eia", "data_source"], dropna=False, observed=False
@@ -531,7 +594,8 @@ def filter_gtn_conversion_factors(gtn_conversions):
             (incomplete_factors[method] < incomplete_factors["net_generation_mwh"])
         ]
 
-        # merge this list into factors_to_use, and set the factor to na for any plants that exist in the right df
+        # merge this list into factors_to_use, and set the factor to na for any plants
+        # that exist in the right df
         factors_to_use = factors_to_use.merge(
             incomplete_factors[["plant_id_eia", "data_source"]],
             how="outer",
