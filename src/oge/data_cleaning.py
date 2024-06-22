@@ -75,7 +75,7 @@ def clean_eia923(
     gf = load_data.load_pudl_table("out_eia923__monthly_generation_fuel_combined", year)
     bf = load_data.load_pudl_table("out_eia923__monthly_boiler_fuel", year)
     gen = load_data.load_pudl_table("out_eia923__monthly_generation", year)
-    gens = load_data.load_pudl_table("_out_eia__yearly_generators", year)
+    gens = load_data.load_pudl_table("out_eia__yearly_generators", year)
     bga = load_data.load_pudl_table("core_eia860__assn_boiler_generator", year)
 
     gf, bf, gen, bga, gens = allocate_gen_fuel.select_input_data(
