@@ -819,5 +819,7 @@ def apply_dtypes(df: pd.DataFrame) -> pd.DataFrame:
                 df[col] = df[col].astype("datetime64[s]")
             except TypeError:
                 df[col] = df[col].dt.tz_localize(None).astype("datetime64[s]")
+            if "_utc" in col:
+                df[col] = df[col].dt.tz_localize("UTC")
 
     return df

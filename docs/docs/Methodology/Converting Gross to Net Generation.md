@@ -67,57 +67,49 @@ The following table shows what percent of gross generation reported in CEMS was 
   <tr>
    <td>Method
    </td>
-   <td>2019
+   <td>2021
    </td>
-   <td>2020
+   <td>2022
    </td>
   </tr>
   <tr>
    <td>1. Subplant ratio
    </td>
-   <td>91.46%
+   <td>87.2%
    </td>
-   <td>97.49%
+   <td>87.4%
    </td>
   </tr>
   <tr>
    <td>2. Plant ratio
    </td>
-   <td>8.12%
+   <td>9.6%
    </td>
-   <td>1.92%
-   </td>
-  </tr>
-  <tr>
-   <td>3. Subplant shift factor
-   </td>
-   <td>0.15%
-   </td>
-   <td>0.27%
+   <td>9.0%
    </td>
   </tr>
   <tr>
-   <td>4. Plant shift factor
+   <td>3. Fleet-specific ratio
    </td>
-   <td>0.04%
+   <td>2.6%
    </td>
-   <td>0.00%
-   </td>
-  </tr>
-  <tr>
-   <td>5. Fuel-specific ratio
-   </td>
-   <td>0.14%
-   </td>
-   <td>0.16%
+   <td>2.9%
    </td>
   </tr>
   <tr>
-   <td>6. Net = Gross
+   <td>4. Default EIA ratio
    </td>
-   <td>0.08%
+   <td>0.6%
    </td>
-   <td>0.17%
+   <td>0.6%
+   </td>
+  </tr>
+  <tr>
+   <td>5. Assumed 97% ratio
+   </td>
+   <td>0.1%
+   </td>
+   <td>0.1%
    </td>
   </tr>
 </table>

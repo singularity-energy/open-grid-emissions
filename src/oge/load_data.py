@@ -56,11 +56,7 @@ def load_cems_data(year: int) -> pd.DataFrame:
         columns=cems_columns,
     )
     # convert to tz-naive datetime to allow for dtype application
-    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(None)
     cems = apply_dtypes(cems)
-    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
-        "UTC"
-    )
 
     # update the plant_id_eia column using manual matches
     cems = update_epa_to_eia_map(cems)
@@ -456,11 +452,7 @@ def load_cems_gross_generation(start_year: int, end_year: int) -> pd.DataFrame:
         columns=cems_columns,
     )
     # convert to tz-naive datetime to allow for dtype application
-    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(None)
     cems = apply_dtypes(cems)
-    cems["operating_datetime_utc"] = cems["operating_datetime_utc"].dt.tz_localize(
-        "UTC"
-    )
 
     # update the plant_id_eia column using manual matches
     cems = update_epa_to_eia_map(cems)

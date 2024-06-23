@@ -604,7 +604,9 @@ def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame
             validate="m:1",
         )
         factors_to_use.loc[factors_to_use["incomplete_flag"] == "both", method] = np.NaN
-        factors_to_use = factors_to_use.drop(columns=["incomplete_flag"])
+        factors_to_use = factors_to_use.drop(
+            columns=["incomplete_flag", "energy_source_code"]
+        )
 
     return factors_to_use
 
