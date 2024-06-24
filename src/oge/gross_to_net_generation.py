@@ -456,6 +456,7 @@ def calculate_gross_to_net_conversion_factors(
         columns=[
             "prime_mover_code",
             "subplant_primary_fuel",
+            "energy_source_code",
             "fuel_category",
             "fuel_category_eia930",
         ]
@@ -604,9 +605,7 @@ def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame
             validate="m:1",
         )
         factors_to_use.loc[factors_to_use["incomplete_flag"] == "both", method] = np.NaN
-        factors_to_use = factors_to_use.drop(
-            columns=["incomplete_flag", "energy_source_code"]
-        )
+        factors_to_use = factors_to_use.drop(columns=["incomplete_flag"])
 
     return factors_to_use
 
