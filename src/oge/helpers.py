@@ -112,7 +112,7 @@ def create_plant_attributes_table(
 
     # assign a fuel category to each plant based on what is most likely to match with
     # the category used in EIA-930
-    plant_attributes = assign_fuel_category_to_ESC(
+    plant_attributes = assign_fuel_category_to_esc(
         df=plant_attributes,
         esc_column="plant_primary_fuel",
     )
@@ -496,7 +496,7 @@ def identify_distribution_connected_plants(
     return df
 
 
-def assign_fuel_category_to_ESC(
+def assign_fuel_category_to_esc(
     df: pd.DataFrame,
     fuel_category_names: list = ["fuel_category", "fuel_category_eia930"],
     esc_column: str = "energy_source_code",

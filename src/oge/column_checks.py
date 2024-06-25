@@ -319,14 +319,10 @@ COLUMNS = {
         "data_source",
         "hours_in_month_subplant",
         "hours_in_month_plant",
-        "annual_subplant_shift_mw",
         "annual_subplant_ratio",
-        "annual_plant_shift_mw",
         "annual_plant_ratio",
-        "plant_primary_fuel",
-        "annual_fuel_ratio",
+        "annual_fleet_ratio",
         "default_gtn_ratio",
-        "monthly_subplant_shift_mw",
         "monthly_subplant_ratio",
         "monthly_plant_ratio",
         "subplant_regression_ratio",
@@ -823,5 +819,7 @@ def apply_dtypes(df: pd.DataFrame) -> pd.DataFrame:
                 df[col] = df[col].astype("datetime64[s]")
             except TypeError:
                 df[col] = df[col].dt.tz_localize(None).astype("datetime64[s]")
+            if "_utc" in col:
+                df[col] = df[col].dt.tz_localize("UTC")
 
     return df

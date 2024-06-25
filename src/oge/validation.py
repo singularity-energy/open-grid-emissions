@@ -612,10 +612,13 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
 
 
 def identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio, year):
-    """Identifies when net generation for a plant is substantially higher than gross
-    generation."""
+    """Identifies when net generation for a plant is substantially higher or lower
+    than gross generation."""
 
-    anomalous_gtn = annual_plant_ratio[annual_plant_ratio["annual_plant_ratio"] > 1.25]
+    anomalous_gtn = annual_plant_ratio[
+        (annual_plant_ratio["annual_plant_ratio"] > 1.25)
+        | (annual_plant_ratio["annual_plant_ratio"] < 0.75)
+    ]
 
     if len(anomalous_gtn) > 0:
         logger.warning(
