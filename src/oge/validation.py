@@ -49,7 +49,7 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     We use np.isclose() to identify any values that are off by more than 1e-9% different
     from the total input generation or fuel.
     """
-    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
+    gf = load_data.load_pudl_table("out_eia923__generation_fuel_combined", year)
     plant_total_gf = gf.groupby(["plant_id_eia", "energy_source_code"], dropna=False)[
         [
             "net_generation_mwh",
@@ -178,7 +178,8 @@ def flag_possible_primary_fuel_mismatches(plant_primary_fuel, year):
     for esc_column in ["plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]:
         # load the fuel category table
         energy_source_groups = pd.read_csv(
-            reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
+            reference_table_folder("energy_source_groups.csv"),
+            dtype=get_dtypes(),
         )[["energy_source_code", "fuel_category_eia930"]].rename(
             columns={
                 "energy_source_code": esc_column,
@@ -1523,7 +1524,9 @@ def identify_reporting_frequency(eia923_allocated, year):
 
     # load data about the respondent frequency for each plant and merge into the EIA-923 data
     plant_frequency = load_data.load_pudl_table(
-        "plants_eia860", year, columns=["plant_id_eia", "reporting_frequency_code"]
+        "out_eia__yearly_plants",
+        year,
+        columns=["plant_id_eia", "reporting_frequency_code"],
     )
     plant_frequency["reporting_frequency_code"] = plant_frequency[
         "reporting_frequency_code"
@@ -2073,7 +2076,7 @@ def test_for_missing_data(df, columns_to_test):
 def test_for_missing_incorrect_prime_movers(df, year):
     # cehck for incorrect PM by comparing to EIA-860 data
     pms_in_eia860 = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=["plant_id_eia", "generator_id", "prime_mover_code"],
     )
@@ -2465,7 +2468,7 @@ def identify_plants_missing_from_our_calculations(
 
     # see if any of these plants are retired
     generator_status = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=[
             "plant_id_eia",
@@ -2492,7 +2495,7 @@ def identify_plants_missing_from_egrid(egrid_plant, annual_plant_results):
     )
 
     plant_names = load_data.load_pudl_table(
-        "plants_entity_eia", columns=["plant_id_eia", "plant_name_eia"]
+        "core_eia__entity_plants", columns=["plant_id_eia", "plant_name_eia"]
     )
     missing_from_egrid = annual_plant_results[
         annual_plant_results["plant_id_egrid"].isin(PLANTS_MISSING_FROM_EGRID)
@@ -2529,7 +2532,7 @@ def segment_plants_by_known_issues(
     ] = 1
 
     # fuel cells
-    gens_eia860 = load_data.load_pudl_table("generators_eia860", year)
+    gens_eia860 = load_data.load_pudl_table("core_eia860__scd_generators", year)
     PLANTS_WITH_FUEL_CELLS = list(
         gens_eia860.loc[
             gens_eia860["prime_mover_code"] == "FC", "plant_id_eia"
@@ -2572,12 +2575,12 @@ def segment_plants_by_known_issues(
     # identify plants that report data to the bf or gen table
     bf_reporter = list(
         load_data.load_pudl_table(
-            "boiler_fuel_eia923", year, columns=["plant_id_eia"]
+            "out_eia923__boiler_fuel", year, columns=["plant_id_eia"]
         ).unique()
     )
     gen_reporter = list(
         load_data.load_pudl_table(
-            "generation_eia923", year, columns=["plant_id_eia"]
+            "out_eia923__generation", year, columns=["plant_id_eia"]
         ).unique()
     )
     annual_plant_results_segmented["flag_bf_gen_reporter"] = 0
@@ -2591,7 +2594,7 @@ def segment_plants_by_known_issues(
 
     # identify plants with proposed generators
     status = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=["plant_id_eia", "generator_id", "operational_status"],
     )
@@ -2695,7 +2698,7 @@ def identify_potential_missing_fuel_in_egrid(year, egrid_plant, cems):
         "prime_mover_code",
     ]
     gf = load_data.load_pudl_table(
-        "denorm_generation_fuel_combined_eia923",
+        "out_eia923__generation_fuel_combined",
         year,
         columns=IDX_PM_ESC
         + [

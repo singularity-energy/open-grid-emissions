@@ -205,7 +205,10 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     """
     # read the data, only keeping net generation columns
     data = pd.read_csv(
-        cleaned_data_filepath, index_col=0, parse_dates=True, dtype=get_dtypes()
+        cleaned_data_filepath,
+        index_col=0,
+        parse_dates=True,
+        dtype=get_dtypes(),
     ).filter(like="-ALL.NG.")
 
     # name the index

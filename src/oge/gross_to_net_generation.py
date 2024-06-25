@@ -406,7 +406,7 @@ def calculate_subplant_nameplate_capacity(year):
     """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
     # load generator data
     gen_capacity = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=[
             "plant_id_eia",

@@ -16,11 +16,6 @@ from oge.constants import (
     nox_lb_per_mmbtu_flared_landfill_gas,
 )
 
-from pudl.analysis.allocate_gen_fuel import (
-    distribute_annually_reported_data_to_months_if_annual,
-)
-
-
 logger = get_logger(__name__)
 
 
@@ -155,7 +150,7 @@ def calculate_geothermal_emission_factors(year):
 
 def identify_geothermal_generator_geotype(year):
     """Identifies whether each geothermal generator is binary, flash, or dry steam"""
-    geothermal_geotype = load_data.load_pudl_table("generators_eia860", year)
+    geothermal_geotype = load_data.load_pudl_table("core_eia860__scd_generators", year)
     geothermal_geotype = geothermal_geotype.loc[
         geothermal_geotype["energy_source_code_1"] == "GEO",
         [
@@ -691,7 +686,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
 
     # identify the boiler firing type for each generator
     boiler_generator_assn = load_data.load_pudl_table(
-        "boiler_generator_assn_eia860",
+        "core_eia860__assn_boiler_generator",
         year,
         columns=["plant_id_eia", "boiler_id", "generator_id"],
     )
@@ -821,7 +816,7 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
 
 def load_boiler_firing_type(year):
     boiler_firing_type = load_data.load_pudl_table(
-        "boilers_eia860",
+        "core_eia860__scd_boilers",
         year,
         columns=[
             "plant_id_eia",
@@ -831,7 +826,7 @@ def load_boiler_firing_type(year):
         ],
     )
 
-    firing_types_eia = load_data.load_pudl_table("firing_types_eia")
+    firing_types_eia = load_data.load_pudl_table("core_eia__codes_firing_types")
 
     boiler_firing_type["boiler_firing_type"] = (
         boiler_firing_type["firing_type_1"]
@@ -991,7 +986,7 @@ def convert_ef_to_lb_per_mmbtu(gen_emission_factors, year, pollutant):
 def return_monthly_plant_fuel_heat_content(year):
     # load information about the monthly heat input of fuels
     plant_specific_fuel_heat_content = load_data.load_pudl_table(
-        "denorm_generation_fuel_combined_eia923",
+        "out_eia923__generation_fuel_combined",
         year,
         columns=[
             "plant_id_eia",
@@ -1000,11 +995,6 @@ def return_monthly_plant_fuel_heat_content(year):
             "report_date",
             "fuel_mmbtu_per_unit",
         ],
-    ).pipe(
-        distribute_annually_reported_data_to_months_if_annual,
-        key_columns=["plant_id_eia", "energy_source_code", "prime_mover_code"],
-        data_column_name="fuel_mmbtu_per_unit",
-        freq="MS",
     )
     plant_specific_fuel_heat_content = plant_specific_fuel_heat_content[
         ~plant_specific_fuel_heat_content["energy_source_code"].isin(CLEAN_FUELS)
@@ -1120,7 +1110,7 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
 
     if aggregation_level == "generator_id":
         boiler_generator_assn = load_data.load_pudl_table(
-            "boiler_generator_assn_eia860",
+            "core_eia860__assn_boiler_generator",
             year,
             columns=["plant_id_eia", "boiler_id", "generator_id"],
         )
@@ -1170,7 +1160,7 @@ def associate_control_ids_with_boiler_id(df, year, pollutant):
     pollutant_order = [pollutant] + all_pollutants
 
     boiler_association_eia860 = load_data.load_pudl_table(
-        "boiler_emissions_control_equipment_assn_eia860", year
+        "core_eia860__assn_yearly_boiler_emissions_control_equipment", year
     )
 
     counter = 1
@@ -1430,7 +1420,7 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
 
     # identify the boiler firing type for each generator
     boiler_generator_assn = load_data.load_pudl_table(
-        "boiler_generator_assn_eia860",
+        "core_eia860__assn_boiler_generator",
         year,
         columns=["plant_id_eia", "boiler_id", "generator_id"],
     )
@@ -1627,7 +1617,7 @@ def load_plant_specific_fuel_sulfur_content(year: int) -> pd.DataFrame:
     Calculates the weighted average sulfur content of each fuel by the fuel consumption
     """
     plant_specific_fuel_sulfur_content = load_data.load_pudl_table(
-        "boiler_fuel_eia923",
+        "out_eia923__boiler_fuel",
         year,
         columns=[
             "plant_id_eia",
@@ -1812,7 +1802,7 @@ def calculate_weighted_so2_control_efficiency(
 
     if aggregation_level == "generator_id":
         boiler_generator_assn = load_data.load_pudl_table(
-            "boiler_generator_assn_eia860",
+            "core_eia860__assn_boiler_generator",
             year,
             columns=["plant_id_eia", "boiler_id", "generator_id"],
         )

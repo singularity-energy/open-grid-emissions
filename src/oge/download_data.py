@@ -115,8 +115,8 @@ def download_pudl_data(source: str = "aws"):
 
     if source == "aws":
         # define the urls
-        pudl_db_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2023.12.01/pudl.sqlite.gz"
-        epacems_parquet_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/v2023.12.01/hourly_emissions_epacems.parquet"
+        pudl_db_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/stable/pudl.sqlite.gz"
+        epacems_parquet_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/stable/core_epacems__hourly_emissions.parquet"
 
         # download the pudl sqlite database
         if not os.path.exists(downloads_folder("pudl/pudl.sqlite")):
@@ -136,14 +136,16 @@ def download_pudl_data(source: str = "aws"):
             with open(downloads_folder("pudl/pudl_sqlite_version.txt"), "r") as f:
                 existing_version = f.readlines()[0].replace("\n", "")
             logger.info(
-                f"Using nightly build version of PUDL sqlite database downloaded {existing_version}"
+                f"Using stable build version of PUDL sqlite database downloaded {existing_version}"
             )
 
         if not os.path.exists(
-            downloads_folder("pudl/hourly_emissions_epacems.parquet")
+            downloads_folder("pudl/core_epacems__hourly_emissions.parquet")
         ):
             # download the epacems parquet
-            output_filepath = downloads_folder("pudl/hourly_emissions_epacems.parquet")
+            output_filepath = downloads_folder(
+                "pudl/core_epacems__hourly_emissions.parquet"
+            )
             download_helper(
                 epacems_parquet_url,
                 download_path=output_filepath,
@@ -157,7 +159,7 @@ def download_pudl_data(source: str = "aws"):
             with open(downloads_folder("pudl/epacems_parquet_version.txt"), "r") as f:
                 existing_version = f.readlines()[0].replace("\n", "")
             logger.info(
-                f"Using nightly build version of PUDL epacems parquet file downloaded {existing_version}"
+                f"Using stable build version of PUDL epacems parquet file downloaded {existing_version}"
             )
     elif source == "zenodo":
         # NOTE: This is the most recent available version as of 12/2/2023

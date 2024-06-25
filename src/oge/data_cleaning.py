@@ -72,13 +72,11 @@ def clean_eia923(
             All three data frames are at the subplant level.
     """
     # Allocate fuel and generation across each generator-pm-energy source
-    gf = load_data.load_pudl_table(
-        "denorm_generation_fuel_combined_monthly_eia923", year
-    )
-    bf = load_data.load_pudl_table("denorm_boiler_fuel_monthly_eia923", year)
-    gen = load_data.load_pudl_table("denorm_generation_monthly_eia923", year)
-    gens = load_data.load_pudl_table("denorm_generators_eia", year)
-    bga = load_data.load_pudl_table("boiler_generator_assn_eia860", year)
+    gf = load_data.load_pudl_table("out_eia923__monthly_generation_fuel_combined", year)
+    bf = load_data.load_pudl_table("out_eia923__monthly_boiler_fuel", year)
+    gen = load_data.load_pudl_table("out_eia923__monthly_generation", year)
+    gens = load_data.load_pudl_table("out_eia__yearly_generators", year)
+    bga = load_data.load_pudl_table("core_eia860__assn_boiler_generator", year)
 
     gf, bf, gen, bga, gens = allocate_gen_fuel.select_input_data(
         gf=gf, bf=bf, gen=gen, bga=bga, gens=gens
@@ -91,6 +89,13 @@ def clean_eia923(
         gens,
         freq="MS",
     )
+    # NOTE: instead of running this in pudl, we can load the data directly from pudl.
+    # however, we have some changes to this code in the oge_dev
+    """
+    gen_fuel_allocated = load_data.load_pudl_table(
+        "out_eia923__monthly_generation_fuel_by_generator_energy_source", year
+    )
+    """
 
     # drop bad data where there is negative fuel consumption
     # NOTE(greg) this is in response to a specific issue with the input data for
@@ -197,9 +202,13 @@ def clean_eia923(
     subplant_emission_factors = calculate_subplant_efs(gen_fuel_allocated)
 
     # aggregate the allocated data to the generator level
-    gen_fuel_allocated = allocate_gen_fuel.agg_by_generator(
-        gen_fuel_allocated,
-        sum_cols=DATA_COLUMNS,
+    gen_fuel_allocated = (
+        gen_fuel_allocated.groupby(by=["report_date", "plant_id_eia", "generator_id"])[
+            DATA_COLUMNS
+        ]
+        .sum(min_count=1)
+        .reset_index()
+        .pipe(apply_dtypes)
     )
 
     # remove any plants that we don't want in the data
@@ -227,7 +236,7 @@ def clean_eia923(
 
     # add the cleaned prime mover code to the data
     gen_pm = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=["plant_id_eia", "generator_id", "prime_mover_code"],
     )
@@ -491,7 +500,7 @@ def calculate_capacity_based_primary_fuel(
 ):
     # create a table of primary fuel by nameplate capacity
     gen_capacity = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=[
             "plant_id_eia",
@@ -621,7 +630,7 @@ def remove_plants(
         df = remove_non_grid_connected_plants(df)
     if len(remove_states) > 0:
         plant_states = load_data.load_pudl_table(
-            "plants_entity_eia", columns=["plant_id_eia", "state"]
+            "core_eia__entity_plants", columns=["plant_id_eia", "state"]
         )
         plants_in_states_to_remove = list(
             plant_states[
@@ -908,7 +917,7 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
     # if there are still missing fuels, the plant might be proposed and not yet in EIA-923
     # in this case, load data from EIA-860 to see if the plant exists in the proposed category
     gen_fuel = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
     ).drop_duplicates()
@@ -985,7 +994,7 @@ def load_backstop_energy_source_codes_for_plant() -> pd.DataFrame:
     """
 
     gens = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         columns=[
             "plant_id_eia",
             "generator_id",
@@ -1038,7 +1047,7 @@ def inventory_input_data_sources(cems: pd.DataFrame, year: int):
     """
 
     # load EIA-923 generation and fuel data
-    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
+    gf = load_data.load_pudl_table("out_eia923__generation_fuel_combined", year)
 
     # sum generation and fuel by plant-month
     plant_months_in_eia = (
@@ -1192,7 +1201,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
 
     # identify plant-months for which there is a single fossil fuel type reported
     gf = load_data.load_pudl_table(
-        "denorm_generation_fuel_combined_eia923",
+        "out_eia923__generation_fuel_combined",
         year,
         columns=[
             "plant_id_eia",
