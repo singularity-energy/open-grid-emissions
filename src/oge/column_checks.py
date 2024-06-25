@@ -456,6 +456,7 @@ def get_dtypes() -> dict:
         "n2o_mass_lb_for_electricity": "float64",
         "n2o_mass_lb_for_electricity_adjusted": "float64",
         "nox_mass_lb": "float64",
+        "controlled_nox_mass_lb": "float64",
         "nox_mass_lb_adjusted": "float64",
         "nox_mass_lb_for_electricity": "float64",
         "nox_mass_lb_for_electricity_adjusted": "float64",

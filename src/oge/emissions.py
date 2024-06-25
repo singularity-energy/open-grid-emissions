@@ -620,11 +620,13 @@ def calculate_nox_from_fuel_consumption(
     )
     # if there were not season-specific rates, fill in using the annual rate if
     # available
-    gen_fuel_allocated["controlled_nox_mass_lb"] = gen_fuel_allocated[
-        "controlled_nox_mass_lb"
-    ].fillna(
-        gen_fuel_allocated["fuel_consumed_mmbtu"]
-        * gen_fuel_allocated["controlled_annual_nox_ef_lb_per_mmbtu"]
+    gen_fuel_allocated["controlled_nox_mass_lb"] = (
+        gen_fuel_allocated["controlled_nox_mass_lb"]
+        .astype(get_dtypes()["controlled_nox_mass_lb"])
+        .fillna(
+            gen_fuel_allocated["fuel_consumed_mmbtu"]
+            * gen_fuel_allocated["controlled_annual_nox_ef_lb_per_mmbtu"]
+        )
     )
     # update the emision total using the controlled mass if available
     gen_fuel_allocated.update(
@@ -1365,9 +1367,11 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
         validate="m:1",
     )
     # assume all other generators have uncontrolled emissions
-    gen_fuel_allocated["so2_removal_efficiency_annual"] = gen_fuel_allocated[
-        "so2_removal_efficiency_annual"
-    ].fillna(0)
+    gen_fuel_allocated["so2_removal_efficiency_annual"] = (
+        gen_fuel_allocated["so2_removal_efficiency_annual"]
+        .astype(get_dtypes()["so2_removal_efficiency_annual"])
+        .fillna(0)
+    )
 
     # calculate controlled so2 emissions
     gen_fuel_allocated["so2_mass_lb"] = gen_fuel_allocated["so2_mass_lb"] * (

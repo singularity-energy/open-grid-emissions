@@ -700,6 +700,11 @@ def main(args):
             year,
             args.skip_outputs,
         )
+        if not args.skip_outputs:
+            plant_attributes.assign(shaped_plant_id=pd.NA).to_csv(
+                results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
+                index=False,
+            )
 
 
 if __name__ == "__main__":

@@ -1,14 +1,22 @@
 import numpy as np
 import pandas as pd
 
+from geopy.geocoders import Nominatim
+from timezonefinder import TimezoneFinder
+from urllib3.exceptions import ReadTimeoutError
+
 from oge.column_checks import get_dtypes, apply_dtypes
 from oge.constants import earliest_data_year, latest_validated_year
 from oge.filepaths import reference_table_folder, outputs_folder
+
 import oge.load_data as load_data
 from oge.logging_util import get_logger
 import oge.validation as validation
 
 logger = get_logger(__name__)
+
+tf = TimezoneFinder()
+geolocator = Nominatim(user_agent="oge")
 
 
 def create_plant_attributes_table(
@@ -119,6 +127,9 @@ def create_plant_attributes_table(
 
     # add geographical info
     plant_attributes = add_plant_entity(plant_attributes)
+
+    # fill out missing location/coordinates
+    plant_attributes = add_missing_location(plant_attributes)
 
     # add nameplate capacity
     plant_attributes = add_plant_nameplate_capacity(year, plant_attributes)
@@ -259,7 +270,7 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
         "core_eia__entity_plants", columns=["plant_id_eia", "state"]
     )
     plant_ba = plant_ba.merge(
-        plant_states, how="left", on="plant_id_eia", validate="m:1"
+        plant_states, how="outer", on="plant_id_eia", validate="m:1"
     )
 
     # load the ba name reference
@@ -568,17 +579,169 @@ def add_plant_entity(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     for c in eia860_info:
+        # Handle NAs
         if complete_plants_entity[c].isna().sum() > 0:
             complete_plants_entity[c] = complete_plants_entity[c].fillna(
                 complete_plants_entity[f"{c}_eia"]
             )
-        complete_plants_entity = complete_plants_entity.drop(columns=f"{c}_eia")
+        # Handle positive longitude
+        if c == "longitude" and (complete_plants_entity[c] > 0).any():
+            # Replace if EIA-860 longitude is negative, otherwise flip the sign.
+            for i in complete_plants_entity[complete_plants_entity[c] > 0].index:
+                lat_eia = complete_plants_entity.loc[i, "latitude_eia"]
+                lon_eia = complete_plants_entity.loc[i, "longitude_eia"]
+                if lon_eia < 0:
+                    complete_plants_entity.loc[i, "latitude"] = lat_eia
+                    complete_plants_entity.loc[i, "longitude"] = lon_eia
+                # Otherwise flip the sign of longitude and keep PUDL latitude
+                else:
+                    complete_plants_entity.loc[
+                        i, "longitude"
+                    ] = -complete_plants_entity.loc[i, "longitude"]
+                # Get new timezone
+                complete_plants_entity.loc[i, "timezone"] = tf.timezone_at(
+                    lng=complete_plants_entity.loc[i, "longitude"],
+                    lat=complete_plants_entity.loc[i, "latitude"],
+                )
+
+    # Clean data frame
+    complete_plants_entity = complete_plants_entity.drop(
+        columns=[f"{c}_eia" for c in eia860_info]
+    )
 
     df = df.merge(
         complete_plants_entity, how="left", on=["plant_id_eia"], validate="m:1"
     )
 
     return df
+
+
+def add_missing_location(df: pd.DataFrame) -> pd.DataFrame:
+    """Add missing latitude, longitude, state, county and city when possible.
+
+    Args:
+        df (pd.DataFrame): table with 'latitude', 'longitude', 'state', 'county' and
+            'city' columns
+
+    Returns:
+        pd.DataFrame: original data frame with missing 'latitude', 'longitude',
+            'state', 'county' and 'city' filled out when possible.
+    """
+    # get lat/lon
+    missing_coord = df[df["longitude"].isna() | df["latitude"].isna()]
+    if len(missing_coord) > 0:
+        # only get coordinates when state, county and city are available
+        for i in missing_coord.index:
+            state = df.loc[i, "state"]
+            county = df.loc[i, "county"]
+            city = df.loc[i, "city"]
+
+            lat, lon = get_coordinates_of_location(state, county, city)
+            df.loc[i, "latitude"] = lat
+            df.loc[i, "longitude"] = lon
+
+    # get missing state, county and city from coordinates
+    missing_location = df[df["state"].isna() | df["county"].isna() | df["city"].isna()]
+    if len(missing_location) > 0:
+        for i in missing_location.index:
+            if df.loc[i, ["latitude", "longitude"]].isna().sum() == 0:
+                state, county, city = search_location_from_coordinates(
+                    df.loc[i, "latitude"],
+                    df.loc[i, "longitude"],
+                )
+                if pd.isna(df.loc[i, "state"]):
+                    df.loc[i, "state"] = state
+                if pd.isna(df.loc[i, "county"]):
+                    df.loc[i, "county"] = county
+                if pd.isna(df.loc[i, "city"]):
+                    df.loc[i, "city"] = city
+
+    return df
+
+
+def search_location_from_coordinates(latitude: float, longitude: float) -> tuple[str]:
+    """Get state, county, city at latitude/longitude.
+
+    Example:
+        >>> latitude = 33.458665
+        >>> longitude = -87.35682
+        >>> location = geolocator.reverse(f"{latitude}, {longitude}").raw
+        >>> location
+        {'place_id': 149439, 'licence': 'Data © OpenStreetMap contributors,
+        ODbL 1.0. http://osm.org/copyright', 'osm_type': 'way', 'osm_id': 8885591,
+        'lat': '33.460586', 'lon': '-87.359444', 'class': 'highway',
+        'type': 'unclassified', 'place_rank': 26, 'importance': 0.10000999999999993,
+        'addresstype': 'road', 'name': 'County Road 38', 'display_name':
+        'County Road 38, Tuscaloosa County, Alabama, United States', 'address':
+        {'road': 'County Road 38', 'county': 'Tuscaloosa County', 'state': 'Alabama',
+        'ISO3166-2-lvl4': 'US-AL', 'country': 'United States', 'country_code': 'us'},
+        'boundingbox': ['33.4552300', '33.4758370', '-87.3873120', '-87.3589650']}
+    Args:
+        latitude (float): latitude of the location.
+        longitude (float): longitude of the location.
+
+    Returns:
+        tuple[str]: state, county and city of the location.
+    """
+    try:
+        address = geolocator.reverse(f"{latitude}, {longitude}").raw["address"]
+        if address["country_code"] != "us":
+            return pd.NA, pd.NA, pd.NA
+    except ReadTimeoutError:
+        return pd.NA, pd.NA, pd.NA
+
+    # Check for State
+    state = (
+        address["ISO3166-2-lvl4"].split("-")[1]
+        if "ISO3166-2-lvl4" in address.keys()
+        else pd.NA
+    )
+    county = address["county"].split(" ")[0] if "county" in address.keys() else pd.NA
+    city = address["city"] if "city" in address.keys() else pd.NA
+    return state, county, city
+
+
+def get_coordinates_of_location(state: str, county: str, city: str) -> tuple[float]:
+    """Use state, county and city information to get coordinates.
+
+    Example:
+            >>> location = geolocator.geocode("Bucks, Mobile county, AL").raw
+            >>> location
+            {'place_id': 379392554, 'licence': 'Data © OpenStreetMap contributors,
+            ODbL 1.0. http://osm.org/copyright', 'osm_type': 'relation',
+            'osm_id': 17019769, 'lat': '31.01630685', 'lon': '-88.02448016014876',
+            'class': 'boundary', 'type': 'census', 'place_rank': 25,
+            'importance': 0.4106648553911631, 'addresstype': 'census', 'name': 'Bucks',
+            'display_name': 'Bucks, Mobile County, Alabama, United States',
+            'boundingbox': ['31.0072629', '31.0244919', '-88.0286929', '-88.0198599']}
+
+        Args:
+            state (str): state of the location.
+            county (str): county of the location.
+            city (str): city of the location.
+
+
+        Returns:
+            tuple[float]: the latitude and longitude.
+    """
+    if pd.isna(state):
+        return np.NaN, np.NaN
+    if pd.isna(city):
+        if not pd.isna(county):
+            query = f"{county} county, {state}, USA"
+        else:
+            query = f"{state}, USA"
+    else:
+        query = f"{city}, {state}, USA"
+
+    try:
+        location = geolocator.geocode(query, country_codes="us")
+        if location is None:
+            return np.NaN, np.NaN
+        else:
+            return float(location.raw["lat"]), float(location.raw["lon"])
+    except ReadTimeoutError:
+        return np.NaN, np.NaN
 
 
 def add_subplant_ids_to_df(

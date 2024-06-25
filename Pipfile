@@ -22,6 +22,8 @@ sqlalchemy = "*"
 statsmodels = "*"
 coloredlogs = "*"
 s3fs = "*"
+timezonefinder = "*"
+geopy = "*"
 "catalystcoop.pudl" = {git = "git+https://github.com/singularity-energy/pudl.git@oge_release"}
 gridemissions = {git = "git+https://github.com/singularity-energy/gridemissions"}
 
