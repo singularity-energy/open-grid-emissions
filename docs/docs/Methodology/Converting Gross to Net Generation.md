@@ -44,7 +44,7 @@ Following the approach primarily used in previous academic literature, the OGE d
 
 **Resolution for conversion factors**
 
-Ratios are calculated both at the subplant and plant level and both at the monthly and annual resolutions. Monthly-resolution conversion factors are not currently used in the data pipeline because we are not always confident that the monthly values reported in EIA-923 are accurate. For example, in some cases, generators report annual totals and EIA distributes the data to each month. The use of annual-resolution conversion factors means that the annual total calculated net generation will match the annual total reported net generation, but monthly total calculated net generation will not always match monthly total reported net generation.
+Ratios are calculated both at the subplant and plant level and both at the monthly and annual resolution. Monthly-resolution conversion factors are not currently used in the data pipeline because we are not always confident that the monthly values reported in EIA-923 are accurate. For example, in some cases, generators report annual totals and EIA distributes the data to each month. The use of annual-resolution conversion factors means that the annual total calculated net generation will match the annual total reported net generation, but monthly total calculated net generation will not always match monthly total reported net generation.
 
 **Hierarchy for applying gross to net conversion factors**
 
