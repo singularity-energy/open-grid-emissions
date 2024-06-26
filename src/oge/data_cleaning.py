@@ -930,7 +930,7 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
             columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
         ).drop_duplicates()
         gen_fuel = add_subplant_ids_to_df(
-            gen_fuel, year, "generator_id", how_merge="left", validate_merge="1:1"
+            gen_fuel, year, "generator_id", how_merge="inner", validate_merge="1:1"
         )
 
         # make sure there are no duplicate unit entries
