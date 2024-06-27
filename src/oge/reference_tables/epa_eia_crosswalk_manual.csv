@@ -143,3 +143,9 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,notes
 65372,CT-1,65372,CTG-1,Matched based on generator ID
 65372,CT-2,65372,CTG-2,Matched based on generator ID
 65372,CT-3,65372,CTG-3,Matched based on generator ID
+13213,AA-001, 55080,1,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-002, 55080,2,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-003, 55080,3,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-004, 55080,4,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-005, 55080,5,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-006, 55080,6,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
