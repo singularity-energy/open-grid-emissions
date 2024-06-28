@@ -46,6 +46,7 @@ class ConversionFactors(float):
     """Defines conversion factors between common units."""
 
     lb_to_kg = 0.453592
+    kgal_to_barrel = 23.8095
     mmbtu_to_GJ = 1.055056
     mwh_to_mmbtu = 3.412142
     short_ton_to_lbs = 2000

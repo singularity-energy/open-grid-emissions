@@ -615,7 +615,7 @@ def load_ghg_emission_factors() -> pd.DataFrame:
 
 
 def load_nox_emission_factors() -> pd.DataFrame:
-    """Read in the NOx emission factors from eGRID Table C2.
+    """Read in the NOx emission factors.
 
     Returns:
         pd.DataFrame: NOx emission factors table.
@@ -625,19 +625,11 @@ def load_nox_emission_factors() -> pd.DataFrame:
         dtype=get_dtypes(),
     )
 
-    # standardize units as lower case
-    emission_factors["emission_factor_denominator"] = emission_factors[
-        "emission_factor_denominator"
-    ].str.lower()
-
     return emission_factors
 
 
 def load_so2_emission_factors() -> pd.DataFrame:
-    """Read in the SO2 emission factors from eGRID Table C3.
-
-    The SO2 emission rate depends on the sulfur content of fuel, so it is
-    reported in Table C3 as a formula like `123*S`.
+    """Read in the SO2 emission factors.
 
     Returns:
         pd.DataFrame: SO2 emission factors table.
@@ -646,20 +638,6 @@ def load_so2_emission_factors() -> pd.DataFrame:
         reference_table_folder("emission_factors_for_so2.csv"),
         dtype=get_dtypes(),
     )
-
-    # Add a boolean column that reports whether the emission factor is a formula or
-    # value.
-    df["multiply_by_sulfur_content"] = (
-        df["emission_factor"].str.contains("*", regex=False).astype(int)
-    )
-
-    # Extract the numeric coefficient from the emission factor.
-    df["emission_factor"] = (
-        df["emission_factor"].str.replace("*S", "", regex=False).astype(float)
-    )
-
-    # standardize units as lower case
-    df["emission_factor_denominator"] = df["emission_factor_denominator"].str.lower()
 
     return df
 
@@ -1224,6 +1202,9 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
         emissions_controls_eia923["report_date"] = emissions_controls_eia923[
             "report_date"
         ].astype("datetime64[s]")
+        emissions_controls_eia923["equipment_tech_description"] = (
+            emissions_controls_eia923["equipment_tech_description"].str.lower()
+        )
     else:
         logger.warning(
             "Emissions control data prior to 2012 has not been integrated into the data pipeline."
