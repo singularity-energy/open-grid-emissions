@@ -1758,6 +1758,15 @@ def load_so2_control_efficiencies(year):
     # load the emissions control data
     emissions_controls_eia923 = load_data.load_emissions_controls_eia923(year)
 
+    # remove control efficiencies for fluidized bed combustion since this is already
+    # incorporated into the uncontrolled so2 rates
+    emissions_controls_eia923.loc[
+        emissions_controls_eia923["equipment_tech_description"].str.contains(
+            "fluidized bed"
+        ),
+        ["so2_removal_efficiency_annual", "so2_removal_efficiency_at_full_load"],
+    ] = np.NaN
+
     # create a dataframe that contains only so2 emission data for operating control equipment
     so2_efficiency = emissions_controls_eia923.dropna(
         axis="index",

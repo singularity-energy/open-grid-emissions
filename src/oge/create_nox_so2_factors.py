@@ -8,7 +8,25 @@ from oge.constants import ConversionFactors
 logger = get_logger(__name__)
 
 
-def generate_nox_emission_factor_reference_table():
+def generate_nox_emission_factor_reference_table() -> pd.DataFrame:
+    """Coordinating function for creating the reference table for NOx uncontrolled
+    emission factors. This is run in notebooks/manual_data/
+    create_nox_so2_factor_tables.ipynb.
+
+    We download "Table A.2. Nitrogen Oxides Uncontrolled Emission Factors" from the EIA,
+    standardize units, and fill in specific boiler configurations that are not
+    explicitly enumerated in the EIA table.
+
+    This table from the EIA has a row for earch energy_source_code, and the columns
+    represent factors specific to a certain boiler firing type (BFT) or prime-mover (PM)
+    PM-specific factors are provided only for combustion turbine and internal combustion
+    engines. For certain BFTs (tangential boilers and all other boilers), this table
+    additionally differentiates between dry-bottom boilers and wet-bottom boilers.
+
+    Returns:
+        pd.DataFrame: Uncontrolled NOx emission factors for all combinations of
+            energy_source_code, prime_mover, boiler_firing_type, and wet_dry_bottom.
+    """
     # download the nox data from EIA
     download_helper(
         "https://www.eia.gov/electricity/annual/xls/epa_a_02.xlsx",
@@ -48,11 +66,13 @@ def generate_nox_emission_factor_reference_table():
         "IC",
     ]
     nox_factors_eia = standardize_emission_factor_units(nox_factors_eia, factor_columns)
-
     nox_factors_eia = fill_out_missing_nox_so2_factor_combinations(
         nox_factors_eia, pollutant="nox"
     )
 
+    # split the table into separate tables for BFT-specific factors and PM-specific
+    # factors so that we can handle these differently. They will be recombined later.
+    # create a long version of the BFT-specific factors
     bft_columns = [
         "cyclone_firing",
         "cyclone_firing_dry",
@@ -83,13 +103,15 @@ def generate_nox_emission_factor_reference_table():
         "wall_fired_none",
         "none_dry",
         "none_wet",
+        "none_none",
     ]
+
     nox_factors_eia_bft = create_long_bft_specific_df(
         nox_factors_eia, bft_columns, pollutant="nox"
     )
 
+    # create a long version of the prime-mover specific factors
     pm_columns = ["GT", "IC", "CA", "CC", "CS", "CT", "CE"]
-
     nox_factors_eia_pm = create_long_pm_specific_df(
         nox_factors_eia, pm_columns, pollutant="nox"
     )
@@ -111,10 +133,31 @@ def generate_nox_emission_factor_reference_table():
         ]
     ].sort_values(by=["energy_source_code", "prime_mover_code", "boiler_firing_type"])
 
+    nox_factors_eia_combined["emission_factor"] = nox_factors_eia_combined[
+        "emission_factor"
+    ].round(5)
+
     return nox_factors_eia_combined
 
 
-def generate_so2_emission_factor_reference_table():
+def generate_so2_emission_factor_reference_table() -> pd.DataFrame:
+    """Coordinating function for creating the reference table for SO2 uncontrolled
+    emission factors. This is run in notebooks/manual_data/
+    create_nox_so2_factor_tables.ipynb.
+
+    We download "Table A.1. Sulfur Dioxide Uncontrolled Emission Factors" from the EIA,
+    standardize units, and fill in specific boiler configurations that are not
+    explicitly enumerated in the EIA table.
+
+    This table from the EIA has a row for earch energy_source_code, and the columns
+    represent factors specific to a certain boiler firing type (BFT) or prime-mover (PM)
+    PM-specific factors are provided only for combustion turbine and internal combustion
+    engines.
+
+    Returns:
+        pd.DataFrame: Uncontrolled SO2 emission factors for all combinations of
+            energy_source_code, prime_mover, and boiler_firing_type.
+    """
     # download the nox data from EIA
     download_helper(
         "https://www.eia.gov/electricity/annual/xls/epa_a_01.xlsx",
@@ -123,7 +166,7 @@ def generate_so2_emission_factor_reference_table():
 
     so2_factors_eia = pd.read_excel(
         downloads_folder("eia/table_a1_so2_uncontrolled_emission_factors.xlsx"),
-        header=3,
+        header=2,
         names=[
             "fuel",
             "energy_source_code",
@@ -150,11 +193,18 @@ def generate_so2_emission_factor_reference_table():
         "IC",
     ]
     so2_factors_eia = standardize_emission_factor_units(so2_factors_eia, factor_columns)
-
     so2_factors_eia = fill_out_missing_nox_so2_factor_combinations(
         so2_factors_eia, pollutant="so2"
     )
 
+    so2_factors_eia["multiply_by_sulfur_content"] = 0
+    so2_factors_eia.loc[
+        so2_factors_eia["fuel"].str.contains("\*"), "multiply_by_sulfur_content"
+    ] = 1
+
+    # split the table into separate tables for BFT-specific factors and PM-specific
+    # factors so that we can handle these differently. They will be recombined later.
+    # create a long version of the BFT-specific factors
     bft_columns = [
         "cyclone_firing",
         "fluidized_bed_firing",
@@ -171,6 +221,7 @@ def generate_so2_emission_factor_reference_table():
         so2_factors_eia, bft_columns, pollutant="so2"
     )
 
+    # create a long version of the PM-specific factors
     pm_columns = ["GT", "IC", "CA", "CC", "CS", "CT", "CE"]
     so2_factors_eia_pm = create_long_pm_specific_df(
         so2_factors_eia, pm_columns, pollutant="so2"
@@ -188,9 +239,14 @@ def generate_so2_emission_factor_reference_table():
             "emission_factor",
             "emission_factor_numerator",
             "emission_factor_denominator",
+            "multiply_by_sulfur_content",
             # "data_source",
         ]
     ].sort_values(by=["energy_source_code", "prime_mover_code", "boiler_firing_type"])
+
+    so2_factors_eia_combined["emission_factor"] = so2_factors_eia_combined[
+        "emission_factor"
+    ].round(5)
 
     return so2_factors_eia_combined
 
@@ -239,8 +295,10 @@ def standardize_emission_factor_units(
     return df
 
 
-def fill_out_missing_nox_so2_factor_combinations(df, pollutant):
-    """Fills in Nox or SO2 factors that are not explicitly specified by the EIA table,
+def fill_out_missing_nox_so2_factor_combinations(
+    df: pd.DataFrame, pollutant: str
+) -> pd.DataFrame:
+    """Fills in NOx or SO2 factors that are not explicitly specified by the EIA table,
     applying a set of assumptions about how the data should be filled.
 
     There are several filling steps:
@@ -255,12 +313,14 @@ def fill_out_missing_nox_so2_factor_combinations(df, pollutant):
     missing BFT and WDB data (in the case of NOx), they apply they assume it is a dry-
     bottom boiler with an "other" BFT. We apply the same assumption, creating a "none"
     BFT.
-    3. Missing GT-specific factors: The EIA tables do not report GT-specific factors for
-    certain solid fuels (like coal), which cannot be combusted in a combustion turbine.
+    3. Missing GT- and IC-specific factors: The EIA tables do not report GT-specific
+    factors for certain solid fuels (like coal), which cannot be combusted in a
+    combustion turbine or internal combustion engine.
     However, these fuel-GT combinations do occasionally show up in the data. Rather than
-    leave these missing (and thus calculate no emissions), we fill missing GT factors
-    using the "other" boiler firing type (BFT), or in the case of NOx, the "other" BFT
-    with a dry bottom.
+    leave these missing (and thus calculate no emissions), we assume that the prime
+    mover is incorrect and fill missing GT factors with the "other" boiler firing type
+    (BFT), or in the case of NOx, the "other" BFT with a dry bottom, consistent with EIA
+    assumptions.
     4. The provided combustion-turbine specific factors apply to a range of prime movers
     that use combustion turbines, including GT, CA, CC, CS, and CT. This also applies to
     the CE prime mover code, which applies to a specific plant (7063) which is a gas
@@ -276,12 +336,12 @@ def fill_out_missing_nox_so2_factor_combinations(df, pollutant):
     wall_fired, vertical_firing. Since these are literally "other" BFTs, we apply the
     appropriate "other" factor to each of these BFTs.
 
-    The EIA-provided factors are listed for a combination of boiler firing types (BFT) and prime movers.
-    Of the several dozen prime movers, only four types are associated with thermal generators that combust fuel:
-    steam turbines (ST), combustion turbines (GT), combined cycle turbines (CS, CT, CA, CC), internal combustion engines (IC), and possibly other (OT).
-    Prime-mover specific factors are provided for GT and IC prime movers, and are assumed to apply to all boiler firing types, if provided.
-    Because combined cycle plants combust fuel in the combustion turbine part, GT factors are applied to all combined cycle prime mover components.
-    The BFT-specific factors are used only for ST and OT prime movers
+    Args:
+        df (pd.DataFrame): a dataframe of SO2 or NOx factors loaded from the EIA table
+        pollutant (str): Either "nox" or "so2"
+
+    Returns:
+        pd.DataFrame: The factor table with the above steps applied
     """
     if pollutant == "nox":
         default_value = "other_dry"
@@ -301,6 +361,7 @@ def fill_out_missing_nox_so2_factor_combinations(df, pollutant):
 
     # Fill missing GT factors using the default value
     df["GT"] = df["GT"].fillna(df[default_value])
+    df["IC"] = df["IC"].fillna(df[default_value])
 
     # apply the combustion turbine factor to all combustion-turbine-type prime movers,
     # including those at combined cycle plants, and CAES plants
@@ -348,12 +409,31 @@ def fill_out_missing_nox_so2_factor_combinations(df, pollutant):
     if pollutant == "nox":
         df["none_wet"] = df["other_wet"]
         df["none_dry"] = df["other_dry"]
+        df["none_none"] = df["other_none"]
 
     return df
 
 
-def create_long_bft_specific_df(df, bft_columns, pollutant):
+def create_long_bft_specific_df(
+    df: pd.DataFrame, bft_columns: list[str], pollutant: str
+) -> pd.DataFrame:
+    """Transforms the BFT-specific factors from wide to long format, applies a prime
+    mover code to each BFT-specific factor (for PMs not covered by the PM-specific
+    factors), and for NOx factors we create a "wet_dry_bottom" column.
+
+    Args:
+        df (pd.DataFrame): Table of standardized NOx or SO2 factors
+        bft_columns (list[str]): List of BFT-specific columns to include
+        pollutant (str): either "nox" or "so2"
+
+    Returns:
+        pd.DataFrame: Long version of the table.
+    """
     # separate the data by boiler-specific and PM-specific factors
+    if pollutant == "so2":
+        sulfur_column = ["multiply_by_sulfur_content"]
+    elif pollutant == "nox":
+        sulfur_column = []
     df_bft = df[
         [
             "energy_source_code",
@@ -361,6 +441,7 @@ def create_long_bft_specific_df(df, bft_columns, pollutant):
             "emission_factor_numerator",
             "emission_factor_denominator",
         ]
+        + sulfur_column
         + bft_columns
     ].copy()
 
@@ -371,7 +452,8 @@ def create_long_bft_specific_df(df, bft_columns, pollutant):
             # "data_source",
             "emission_factor_numerator",
             "emission_factor_denominator",
-        ],
+        ]
+        + sulfur_column,
         var_name="boiler_firing_type",
         value_name="emission_factor",
     ).dropna()
@@ -398,11 +480,11 @@ def create_long_bft_specific_df(df, bft_columns, pollutant):
 
     # add prime mover columns to this data
     # these BFT-specific factors generally only apply to ST and OT prime movers.
-    # However, sometimes combined cycle units can have duct burners or other boilers as part
-    # of a HRSG (https://www.eia.gov/todayinenergy/detail.php?id=52778). Thus, we will also
-    # add factors for these prime movers as well,
-    # To add all at the same time we will create a dataframe with both and merge it in to
-    # easily duplicate for each row
+    # However, sometimes combined cycle units can have duct burners or other boilers as
+    # part of a HRSG (https://www.eia.gov/todayinenergy/detail.php?id=52778). Thus, we
+    # will also add factors for these prime movers as well. To add all at the same time
+    # we will create a dataframe with both and merge it in to easily duplicate for each
+    # row
     df_bft = df_bft.merge(
         pd.DataFrame(
             columns=["emission_factor_numerator", "prime_mover_code"],
@@ -411,6 +493,7 @@ def create_long_bft_specific_df(df, bft_columns, pollutant):
                 ["lb", "OT"],
                 ["lb", "GT"],
                 ["lb", "CA"],
+                ["lb", "CC"],
                 ["lb", "CS"],
                 ["lb", "CT"],
             ],
@@ -419,11 +502,47 @@ def create_long_bft_specific_df(df, bft_columns, pollutant):
         on="emission_factor_numerator",
     )
 
+    # drop none boiler firing types for GT-type PMs. These will be covered by the
+    # PM-specific table
+    if pollutant == "so2":
+        df_bft = df_bft[
+            ~(
+                (df_bft["boiler_firing_type"] == "none")
+                & (df_bft["prime_mover_code"].isin(["GT", "CA", "CC", "CS", "CT"]))
+            )
+        ]
+    elif pollutant == "nox":
+        df_bft = df_bft[
+            ~(
+                (df_bft["boiler_firing_type"] == "none")
+                & (df_bft["wet_dry_bottom"] == "none")
+                & (df_bft["prime_mover_code"].isin(["GT", "CA", "CC", "CS", "CT"]))
+            )
+        ]
+
     return df_bft
 
 
-def create_long_pm_specific_df(df, pm_columns, pollutant):
+def create_long_pm_specific_df(
+    df: pd.DataFrame, pm_columns: list[str], pollutant: str
+) -> pd.DataFrame:
+    """Transforms the PM-specific factors from wide to long format, applies a "none"
+    boiler firing type, and a "none" wet_dry_bottom (for NOX).
+
+    Args:
+        df (pd.DataFrame): Table of standardized NOx or SO2 factors
+        pm_columns (list[str]): List of PM-specific columns to include
+        pollutant (str): either "nox" or "so2"
+
+    Returns:
+        pd.DataFrame: A long version of the dataframe
+    """
     # create a prime-mover specific table
+    if pollutant == "so2":
+        sulfur_column = ["multiply_by_sulfur_content"]
+    elif pollutant == "nox":
+        sulfur_column = []
+
     df_pm = df[
         [
             "energy_source_code",
@@ -431,6 +550,7 @@ def create_long_pm_specific_df(df, pm_columns, pollutant):
             "emission_factor_numerator",
             "emission_factor_denominator",
         ]
+        + sulfur_column
         + pm_columns
     ].copy()
 
@@ -440,14 +560,15 @@ def create_long_pm_specific_df(df, pm_columns, pollutant):
             "data_source",
             "emission_factor_numerator",
             "emission_factor_denominator",
-        ],
+        ]
+        + sulfur_column,
         var_name="prime_mover_code",
         value_name="emission_factor",
     ).dropna()
 
+    # add a column for the boiler firing type and set as "none"
+    df_pm["boiler_firing_type"] = "none"
     if pollutant == "nox":
-        # add a column for the boiler firing type and set as "none"
-        df_pm["boiler_firing_type"] = "none"
         df_pm["wet_dry_bottom"] = "none"
 
     return df_pm
