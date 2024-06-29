@@ -1,23 +1,29 @@
 name,ba_code
+Alabama Power Co,SOCO
+Alcoa Power Generating Inc Yadkin Div,YAD
 Anchorage Municipal Light and Power,AMPL
 Arizona Public Service Co,AZPS
 "Associated Electric Coop, Inc",AECI
+Associated Electric Coop Inc,AECI
 Avangrid Renewables Inc,AVRN
 Avista Corp,AVA
 Bonneville Power Admin,BPAT
 Bonneville Power Administration,BPAT
 Chugach Electric Assn Inc,CEA
 City of Homestead - (FL),HST
+City of Homestead,HST
 "Duke Energy Carolinas, LLC",DUK
 "Duke Energy Florida, Inc",FPC
 "Duke Energy Florida, LLC",FPC
 "Duke Energy Indiana, LLC",MISO
 Duke Energy Progress - (NC),CPLE
 El Paso Electric Co,EPE
+Florida Municipal Power Agency,FMPP
 Florida Power & Light Co,FPL
 Florida Power &amp; Light Co,FPL
 Gainesville Regional Utilities,GVL
 Georgia Power Co,SOCO
+Griffith Energy LLC,GRIF
 Hawaii Electric Light Co Inc,HECO
 Hawaiian Electric Co Inc,HECO
 Imperial Irrigation District,IID
@@ -28,6 +34,7 @@ Louisville Gas & Electric Co,LGEE
 Mississippi Power Co,SOCO
 Nevada Power Co,NEVP
 New Smyrna Beach City of,NSB
+New Smyrna Beach Utilities Commission,NSB
 Northern States Power Co,MISO
 Northern States Power Co - Minnesota,MISO
 NorthWestern Corporation,NWMT
@@ -48,6 +55,7 @@ Puget Sound Energy Inc,PSEI
 Sacramento Municipal Util Dist,BANC
 Salt River Project,SRP
 Seminole Electric Cooperative Inc,SEC
+South Carolina Electric&Gas Co,SCEG
 South Carolina Electric & Gas Co,SCEG
 South Carolina Electric &amp; Gas Co,SCEG
 South Carolina Electric&amp;Gas Company,SCEG
@@ -60,3 +68,4 @@ Tampa Electric Co,TEC
 Tennessee Valley Authority,TVA
 Tucson Electric Power Co,TEPC
 Turlock Irrigation District,TIDC
+Western Area Power Administration - Rock,WACM
