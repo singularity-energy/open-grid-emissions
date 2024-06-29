@@ -55,10 +55,14 @@ The conversion factors are applied in the following hierarchical order:
 1. Subplant-specific, annual gross-to-net ratio
 2. Plant-specific, annual gross-to-net ratio
 3. Fleet-specific, annual gross-to-net ratio
-4. Prime mover-specific, default gross-to-net ratios from EIA 
-5. Apply an assumed gross to net ratio of 0.97
+4. Subplant-specific, annual gross-to-net shift factor
+5. Plant-specific, annual gross-to-net shift factor
+6. Prime mover-specific, default gross-to-net ratios from EIA 
+7. Apply an assumed gross to net ratio of 0.97
 
 If no plant-specific factors are available (methods 1 and 2), the pipeline uses a fleet-specific ratio that represents the average gross-to-net ratio for all subplant (nationally) that consume the same fuel category (natural gas, coal, etc). Otherwise, we use default gross to net ratios published in the EIA Electric Power Monthly Technical Notes (Appendix C). As a final backstop, we use an assumed gross to net ratio of 0.97
+
+Shift factors are used instead of ratios in cases where the reported gross generation data in CEMS is zero, but EIA reports non-zero net generation data. In these cases, multiplying by a ratio would result in 0 calculated net generation. Applying a shift factor (which is added to the gross generation) effectively applies a flat generation profile to the data, but ensures that the annual total net mwh will match the data in EIA. 
 
 The following table shows what percent of gross generation reported in CEMS was converted to net generation using each method.
 
@@ -119,10 +123,10 @@ The following table shows what percent of gross generation reported in CEMS was 
 
 Before calculating net generation, the conversion factors are filtered to remove any factors that would lead to anomalous net generation values being calculated.
 
-Based on analysis of historical data, the interquartile range of gross to net generation values is between 0.75 and 1.0, with an upper bound of approximately 1.25. 
+Based on analysis of historical data, about 90% of the gross to net generation values fall between approximately 0.5 and 1.25.
 
 The first filter removes factors that would lead to net generation values that significantly exceed the subplant’s nameplate capacity. In this case, the factor is filtered out if the 98th percentile of calculated hourly net generation values in a month exceed 125% of the subplant’s nameplate capacity. We use the 98th percentile instead of the maximum value to allow for a small handful of hours (approximately 14 hours in a 30-day month) to exceed the value. The use of the 125% exceedance threshold allows for the fact that a plant’s nameplate capacity can vary throughout the year and sometimes be exceeded, and the use of the 98th percentile prevents a small number of anomalous hours from causing the factor to be filtered out.
 
-The second filter removes any ratios that are less than 0.75 (including negative ratios), since multiplying a negative ratio by gross generation would invert the shape of the hourly gross generation data.
+The second filter removes any ratios that are less than 0.5 (including negative ratios), since multiplying a negative ratio by gross generation would invert the shape of the hourly gross generation data.
 
 After these filters have been applied for individual factors for each subplant-month, the pipeline removes all factors of a certain type for an entire plant if there are any missing factors for any subplant-month. For example, if a subplant ratio for a single month at a single subplant is filtered out, all subplant ratios for all other months and subplants at the same plant will also be removed.

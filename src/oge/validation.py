@@ -1715,7 +1715,7 @@ def summarize_cems_measurement_quality(cems):
 
 def identify_cems_gtn_method(cems):
     method_summary = cems.groupby("gtn_method", dropna=False)[
-        "gross_generation_mwh"
+        "net_generation_mwh"
     ].sum()
     method_summary = method_summary / method_summary.sum(axis=0)
     method_summary = method_summary.reset_index()

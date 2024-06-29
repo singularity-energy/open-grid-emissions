@@ -461,7 +461,7 @@ def get_dtypes() -> dict:
         "nox_mass_lb_for_electricity": "float64",
         "nox_mass_lb_for_electricity_adjusted": "float64",
         "nox_mass_measurement_code": "category",
-        "operating_time_hours": "float16",
+        "operating_time_hours": "float32",
         "ozone_season_nox_emission_rate_lb_per_mmbtu": "float64",
         "particulate_emission_rate_lb_per_mmbtu": "float64",
         "particulate_removal_efficiency_annual": "float64",
