@@ -617,12 +617,12 @@ def identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio, year):
 
     anomalous_gtn = annual_plant_ratio[
         (annual_plant_ratio["annual_plant_ratio"] > 1.25)
-        | (annual_plant_ratio["annual_plant_ratio"] < 0.75)
+        | (annual_plant_ratio["annual_plant_ratio"] < 0.5)
     ]
 
     if len(anomalous_gtn) > 0:
         logger.warning(
-            "The following plants have annual net generation that is >125% of annual gross generation:"
+            "The following plants have annual net generation that is >125% or <50% of annual gross generation:"
         )
         logger.warning(
             "\n"
@@ -1715,7 +1715,7 @@ def summarize_cems_measurement_quality(cems):
 
 def identify_cems_gtn_method(cems):
     method_summary = cems.groupby("gtn_method", dropna=False)[
-        "gross_generation_mwh"
+        "net_generation_mwh"
     ].sum()
     method_summary = method_summary / method_summary.sum(axis=0)
     method_summary = method_summary.reset_index()
