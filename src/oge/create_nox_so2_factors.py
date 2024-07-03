@@ -310,9 +310,8 @@ def fill_out_missing_nox_so2_factor_combinations(
     2. Factors for units missing boiler_firing_type (BFT) and wet_dry_bottom (WDB) data:
     According to the technical appendix for the EIA's Electric Power Annual (see:
     https://www.eia.gov/electricity/annual/pdf/tech_notes.pdf), whenever a unit is
-    missing BFT and WDB data (in the case of NOx), they apply they assume it is a dry-
-    bottom boiler with an "other" BFT. We apply the same assumption, creating a "none"
-    BFT.
+    missing BFT and WDB data (in the case of NOx), they assume it is a dry-bottom boiler
+    with an "other" BFT. We apply the same assumption, creating a "none" BFT.
     3. Missing GT- and IC-specific factors: The EIA tables do not report GT-specific
     factors for certain solid fuels (like coal), which cannot be combusted in a
     combustion turbine or internal combustion engine.
