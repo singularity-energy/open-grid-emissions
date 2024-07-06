@@ -27,7 +27,8 @@ Process Gas,PRG,0.05844,0.0022,0.00022,Use NG EF
 Purchased Steam,PUR,0,0,0,No EF
 Refined Coal,RC,0.10529,0.02425,0.00353,"(EPA, 2009)"
 Residual Fuel Oil (avg),RFO,0.08159,0.00661,0.00132,"(EPA, 2009)"
-Synthetic Gas - Coal-derived,SC,0.05844,0.0022,0.00022,Use NG EF
+Coal Synfuel,SC,0.05844,0.0022,0.00022,Use NG EF
+Other Syngas,SG,0.05844,0.0022,0.00022,Use NG EF
 Synthetic Gas - Coal-derived,SGC,0.05844,0.0022,0.00022,Use NG EF
 Synthetic Gas - Petroleum Coke,SGP,0.05844,0.0022,0.00022,Use NG EF
 Sludge Waste,SLW,0.09257,0.00698,0.0014,Use OBL EF
