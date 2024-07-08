@@ -1778,10 +1778,8 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
     return gen_so2_factors
 
 
-def return_monthly_plant_fuel_sulfur_content(
-    year: int,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Returns sulfur content percentage at different spatial/temporal resolution.
+def return_monthly_plant_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """Returns the monthly plant-level sulfur content percentage.
 
     Note:
         Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
@@ -1790,19 +1788,125 @@ def return_monthly_plant_fuel_sulfur_content(
         year (int): a four-digit year.
 
     Returns:
-        tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: the plant/monthly sulfur
-            content percentage, the national/monthly average sulfur content percentage
-            and the national/annual average sulfur content percentage.
+        pd.DataFrame: table giving sulfur content percentage for each plant, energy
+            source code and report date in `year`.
     """
     plant_specific_fuel_sulfur_content = load_plant_specific_fuel_sulfur_content(year)
+    # drop unnecessary column
+    plant_specific_fuel_sulfur_content = plant_specific_fuel_sulfur_content.drop(
+        columns="state"
+    )
+    return apply_dtypes(plant_specific_fuel_sulfur_content)
 
-    # calculate the average monthly heat content for a fuel
-    national_avg_fuel_sulfur_content = (
+
+def return_multiyear_plant_fuel_sulfur_content(years: list[int]) -> pd.DataFrame:
+    """Returns a multiyear averaged plant-level sulfur content percentage.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        years (list[int]): list of four-digit years.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each plant and energy
+            source code averaged over `years`.
+    """
+    multiyear_avg_plant_specific_fuel_sulfur_content = (
+        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        .groupby(["plant_id_eia", "energy_source_code"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
+    return apply_dtypes(multiyear_avg_plant_specific_fuel_sulfur_content)
+
+
+def return_multiyear_state_fuel_sulfur_content(years: list[int]) -> pd.DataFrame:
+    """Returns a multiyear averaged state-level sulfur content percentage.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        years (list[int]): list of four-digit years.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each energy source
+            code and state averaged over `years`.
+    """
+    multiyear_avg_state_fuel_sulfur_content = (
+        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        .drop(columns=["plant_id_eia"])
+        .groupby(["energy_source_code", "state"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
+    return apply_dtypes(multiyear_avg_state_fuel_sulfur_content)
+
+
+def return_monthly_state_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """Returns the monthy state-level sulfur content percentage for each fuel.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each energy source
+            code and state.
+    """
+    plant_specific_fuel_sulfur_content = load_plant_specific_fuel_sulfur_content(year)
+    state_avg_fuel_sulfur_content = (
         plant_specific_fuel_sulfur_content.drop(columns=["plant_id_eia"])
+        .groupby(["energy_source_code", "report_date", "state"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
+    return apply_dtypes(state_avg_fuel_sulfur_content)
+
+
+def return_monthly_national_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """Returns the monthly national-level sulfur content percentage for each fuel.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each energy source
+            code and report date in `year`.
+    """
+    plant_specific_fuel_sulfur_content = load_plant_specific_fuel_sulfur_content(year)
+    national_avg_fuel_sulfur_content = (
+        plant_specific_fuel_sulfur_content.drop(columns=["plant_id_eia", "state"])
         .groupby(["energy_source_code", "report_date"], dropna=False)
         .mean(numeric_only=True)
         .reset_index()
     )
+    return apply_dtypes(national_avg_fuel_sulfur_content)
+
+
+def return_annual_national_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """Returns the annual national-level sulfur content percentage for each fuel.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table giving the annual sulfur content percentage for each energy
+            source code.
+    """
+    national_avg_fuel_sulfur_content = return_monthly_national_fuel_sulfur_content(year)
 
     annual_avg_fuel_sulfur_content = (
         national_avg_fuel_sulfur_content.groupby(["energy_source_code"], dropna=False)
@@ -1837,11 +1941,31 @@ def return_monthly_plant_fuel_sulfur_content(
             columns=["sulfur_content_pct_fill"]
         )
 
-    return (
-        apply_dtypes(plant_specific_fuel_sulfur_content),
-        apply_dtypes(national_avg_fuel_sulfur_content),
-        apply_dtypes(annual_avg_fuel_sulfur_content),
+    return apply_dtypes(annual_avg_fuel_sulfur_content)
+
+
+def return_multiyear_national_fuel_sulfur_content(years: list[int]) -> pd.DataFrame:
+    """Returns a multiyear averaged national-level sulfur content percentage.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        years (list[int]): list of four-digit years.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each energy source
+            code averaged over `years`.
+    """
+    multiyear_avg_national_fuel_sulfur_content = (
+        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        .drop(columns=["plant_id_eia", "state"])
+        .groupby(["energy_source_code"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
     )
+
+    return apply_dtypes(multiyear_avg_national_fuel_sulfur_content)
 
 
 def load_plant_specific_fuel_sulfur_content(year: int) -> pd.DataFrame:
@@ -1886,6 +2010,14 @@ def load_plant_specific_fuel_sulfur_content(year: int) -> pd.DataFrame:
         weight_col="fuel_consumed_units",
     )
 
+    # Add state
+    plant_state = load_data.load_pudl_table(
+        "core_eia__entity_plants", columns=["plant_id_eia", "state"]
+    )
+    plant_specific_fuel_sulfur_content = plant_specific_fuel_sulfur_content.merge(
+        plant_state, on="plant_id_eia", how="left", validate="m:1"
+    )
+
     return plant_specific_fuel_sulfur_content
 
 
@@ -1903,27 +2035,81 @@ def adjust_so2_efs_for_fuel_sulfur_content(
         pd.DataFrame: table enclosing the uncotrolled SO2 emission factors adjusted for
             sulfur content
     """
-    # multiply factors by sulfur content
-    (
-        plant_specific_fuel_sulfur_content,
-        national_avg_fuel_sulfur_content,
-        annual_avg_fuel_sulfur_content,
-    ) = return_monthly_plant_fuel_sulfur_content(year)
-
-    # merge in plant pm specific fuel sulfur content values
-    uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
-        plant_specific_fuel_sulfur_content,
-        how="left",
-        on=["report_date", "plant_id_eia", "energy_source_code", "prime_mover_code"],
-        validate="m:1",
+    plant_state = load_data.load_pudl_table(
+        "core_eia__entity_plants", columns=["plant_id_eia", "state"]
     )
-    # merge in national monthly average fuel sulfur content values and use to fill
-    # missing values
+    uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+        plant_state, on="plant_id_eia", how="left", validate="m:1"
+    )
+
+    if year >= 2008:
+        # merge in monthly/plant level
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            return_monthly_plant_fuel_sulfur_content(year),
+            how="left",
+            on=[
+                "report_date",
+                "plant_id_eia",
+                "energy_source_code",
+                "prime_mover_code",
+            ],
+            validate="m:1",
+        )
+        # merge in monthly/state level
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            return_monthly_state_fuel_sulfur_content(year),
+            how="left",
+            on=["report_date", "energy_source_code", "state"],
+            validate="m:1",
+            suffixes=(None, "_state"),
+        )
+        # use to fill missing values
+        uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
+            "sulfur_content_pct"
+        ].fillna(uncontrolled_so2_factors["sulfur_content_pct_state"])
+
+        # annual/national level
+        national_avg_fuel_sulfur_content = return_annual_national_fuel_sulfur_content(
+            year
+        )
+    else:
+        logger.info(
+            f"Fuel sulfur content is not available for {year}. Using 2008-2012 "
+            "data to derive a plant, state and national fuel sulfur content average"
+        )
+        # merge in multiyear/plant level
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            return_multiyear_plant_fuel_sulfur_content(range(2008, 2013)),
+            how="left",
+            on=[
+                "plant_id_eia",
+                "energy_source_code",
+            ],
+            validate="m:1",
+        )
+        # multiyear/state level
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            return_multiyear_state_fuel_sulfur_content(range(2008, 2013)),
+            how="left",
+            on=["energy_source_code", "state"],
+            validate="m:1",
+            suffixes=(None, "_state"),
+        )
+        # use to fill missing values
+        uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
+            "sulfur_content_pct"
+        ].fillna(uncontrolled_so2_factors["sulfur_content_pct_state"])
+
+        # multiyear/national level
+        national_avg_fuel_sulfur_content = (
+            return_multiyear_national_fuel_sulfur_content(range(2008, 2013))
+        )
+
+    # merge in annual average fuel sulfur content and use to fill missing values
     uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
         national_avg_fuel_sulfur_content,
         how="left",
         on=[
-            "report_date",
             "energy_source_code",
         ],
         validate="m:1",
@@ -1932,19 +2118,6 @@ def adjust_so2_efs_for_fuel_sulfur_content(
     uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
         "sulfur_content_pct"
     ].fillna(uncontrolled_so2_factors["sulfur_content_pct_national"])
-    # merge in annual average fuel sulfur content and use to fill missing values
-    uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
-        annual_avg_fuel_sulfur_content,
-        how="left",
-        on=[
-            "energy_source_code",
-        ],
-        validate="m:1",
-        suffixes=(None, "_annual"),
-    )
-    uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
-        "sulfur_content_pct"
-    ].fillna(uncontrolled_so2_factors["sulfur_content_pct_annual"])
 
     # check that we are not missing sulfur content for any generators that need it
     missing_sulfur_content = uncontrolled_so2_factors[
@@ -1993,8 +2166,9 @@ def adjust_so2_efs_for_fuel_sulfur_content(
         columns=[
             "multiply_by_sulfur_content",
             "sulfur_content_pct",
+            "sulfur_content_pct_state",
             "sulfur_content_pct_national",
-            "sulfur_content_pct_annual",
+            "state",
         ]
     )
 
