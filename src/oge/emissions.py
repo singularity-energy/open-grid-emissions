@@ -3,7 +3,7 @@ import numpy as np
 
 import oge.load_data as load_data
 import oge.validation as validation
-from oge.column_checks import get_dtypes
+from oge.column_checks import apply_dtypes, get_dtypes
 from oge.filepaths import reference_table_folder
 from oge.helpers import create_plant_ba_table
 from oge.logging_util import get_logger
@@ -20,12 +20,23 @@ logger = get_logger(__name__)
 
 
 def calculate_ghg_emissions_from_fuel_consumption(
-    df, year, include_co2=True, include_ch4=True, include_n2o=True
-):
-    """
-    Inputs:
-        df: pandas dataframe containing the following columns:
-        ['plant_id_eia', 'report_date,'fuel_consumed_mmbtu','energy_source_code']
+    df: pd.DataFrame,
+    year: int,
+    include_co2: bool = True,
+    include_ch4: bool = True,
+    include_n2o: bool = True,
+) -> pd.DataFrame:
+    """Calculates GHG emissions from fuel consumption.
+
+    Args:
+        df (pd.DataFrame): data frame to operate on.
+        year (int): a four-digit year.
+        include_co2 (bool, optional): whether to include CO2 or not. Defaults to True.
+        include_ch4 (bool, optional): whether to include CH4 or not. Defaults to True.
+        include_n2o (bool, optional): whether to include N2O or not. Defaults to True.
+
+    Returns:
+        pd.DataFrame: original data frame with additional emission columns.
     """
 
     emissions_to_calc = []
@@ -63,10 +74,24 @@ def calculate_ghg_emissions_from_fuel_consumption(
 
 
 def add_geothermal_emission_factors(
-    df, year, include_co2=True, include_nox=True, include_so2=True
-):
-    """"""
+    df: pd.DataFrame,
+    year: int,
+    include_co2: bool = True,
+    include_nox: bool = True,
+    include_so2: bool = True,
+) -> pd.DataFrame:
+    """Adds geothermal emission factors to a data frame.
 
+    Args:
+        df (pd.DataFrame): data frame to operate on.
+        year (int): a four-digit year.
+        include_co2 (bool, optional): whether to include CO2 or not. Defaults to True.
+        include_nox (bool, optional): whether to include NOx or not. Defaults to True.
+        include_so2 (bool, optional): whether to include SO2 or not. Defaults to True.
+
+    Returns:
+        pd.DataFrame: original data frame with additional geothermal emission columns.
+    """
     emissions_to_calc = []
     if include_co2 is True:
         emissions_to_calc.append("co2")
@@ -86,7 +111,8 @@ def add_geothermal_emission_factors(
             columns={f"{e}_lb_per_mmbtu": f"{e}_lb_per_mmbtu_geo"}
         )
 
-    # if there is a merge key for generator id, merge in the geothermal EFs on generator id
+    # if there is a merge key for generator id, merge in the geothermal EFs on
+    # generator id
     if "generator_id" in list(df.columns):
         # add geothermal emission factor to df
         df = df.merge(
@@ -124,11 +150,16 @@ def add_geothermal_emission_factors(
     return df
 
 
-def calculate_geothermal_emission_factors(year):
-    """
-    Updates the list of geothermal plants provided by EPA using EIA data
-    Calculates a weighted average EF for each plant-month based on the fraction
-    of fuel consumed from each type of prime mover (steam, binary, flash)
+def calculate_geothermal_emission_factors(year: int) -> pd.DataFrame:
+    """Updates the list of geothermal plants provided by EPA using EIA data. Calculates
+    a weighted average EF for each plant-month based on the fraction of fuel consumed
+    from each type of prime mover (steam, binary, flash).
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table enclosing the geothermal emission factors
     """
     # load geothermal efs
     geothermal_efs = pd.read_csv(
@@ -148,8 +179,16 @@ def calculate_geothermal_emission_factors(year):
     return geo_efs
 
 
-def identify_geothermal_generator_geotype(year):
-    """Identifies whether each geothermal generator is binary, flash, or dry steam"""
+def identify_geothermal_generator_geotype(year: int) -> pd.DataFrame:
+    """Identifies whether each geothermal generator is binary, flash, or dry steam.
+
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table indicating the type of each geothermal generator.
+    """
     geothermal_geotype = load_data.load_pudl_table("core_eia860__scd_generators", year)
     geothermal_geotype = geothermal_geotype.loc[
         geothermal_geotype["energy_source_code_1"] == "GEO",
@@ -163,24 +202,26 @@ def identify_geothermal_generator_geotype(year):
         ],
     ]
 
-    # default steam turbines to flash steam b/c flash is more common than steam according to EIA
+    # default steam turbines to flash steam b/c flash is more common than steam
+    # according to EIA.
     # Source: https://www.eia.gov/energyexplained/geothermal/geothermal-power-plants.php
     geo_map = {"BT": "B", "ST": "F"}
     geothermal_geotype["geotype_code"] = geothermal_geotype["prime_mover_code"].map(
         geo_map
     )
 
-    # According to the NREL Geothermal report (https://www.nrel.gov/docs/fy21osti/78291.pdf)
-    # The Geysers Complex in California contains the only "Dry Steam" (geotype S) plants in the country
-    # The Geysers has utility_id_eia = 7160
+    # According to the NREL Geothermal report:
+    #  (https://www.nrel.gov/docs/fy21osti/78291.pdf)
+    # The Geysers Complex in California contains the only "Dry Steam" (geotype S)
+    # plants in the country. The Geysers has utility_id_eia = 7160
     geothermal_geotype.loc[
         (geothermal_geotype["utility_id_eia"] == 7160)
         & (geothermal_geotype["geotype_code"] == "F"),
         "geotype_code",
     ] = "S"
 
-    # calculate what fraction of the plant's nameplate capcity each generator is responsible for
-    # assume that missing power factor is 100%
+    # calculate what fraction of the plant's nameplate capcity each generator is
+    # responsible for assume that missing power factor is 100%
     geothermal_geotype["nameplate_power_factor"] = geothermal_geotype[
         "nameplate_power_factor"
     ].fillna(1)
@@ -223,11 +264,11 @@ def adjust_fuel_and_emissions_for_chp(df: pd.DataFrame) -> pd.DataFrame:
 
     Args:
         df (pd.DataFrame): dataframe containing fuel and emissions columns mapped to
-            subplant_id. Must contain fuel_consumed_mmbtu,
-            fuel_consumed_mmbtu_for_electricity, and net_generation_mwh columns
+            'subplant_id'. Must contain fuel_consumed_mmbtu, 'net_generation_mwh',
+            and 'fuel_consumed_mmbtu_for_electricity' columns
 
     Returns:
-        pd.DataFrame: the input dataframe with _for_electricity columns added for all
+        pd.DataFrame: the input dataframe with '_for_electricity' columns added for all
             fuel and emissions columns
     """
 
@@ -304,12 +345,12 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
 
 
     Args:
-        df (pd.DataFrame): dataframe fuel_consumed_mmbtu,
-            fuel_consumed_mmbtu_for_electricity, and net_generation_mwh columns, mapped
-            to subplant_id
+        df (pd.DataFrame): dataframe with 'fuel_consumed_mmbtu', 'net_generation_mwh',
+            and fuel_consumed_mmbtu_for_electricity columns, mapped to 'subplant_id'
 
     Returns:
-        pd.DataFrame: the input dataframe with an `electric_allocation_factor` column added
+        pd.DataFrame: the input dataframe with an 'electric_allocation_factor' column
+            added
     """
     groupby_cols = ["plant_id_eia", "subplant_id", "report_date"]
     # for EIA-923 we want to group on energy_source_code as well, but this does not
@@ -377,12 +418,18 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def adjust_emissions_for_biomass(df):
-    """Creates a new adjusted co2 emissions column that sets any biomass emissions to
-    zero."""
+def adjust_emissions_for_biomass(df: pd.DataFrame) -> pd.DataFrame:
+    """Adds emission in data frame where biomass emissions have been removed.
+
+    Args:
+        df (pd.DataFrame): original data frame.
+
+    Returns:
+        pd.DataFrame: original data frame with new adjusted emissions column that
+            sets any biomass emissions to zero.
+    """
 
     # create a column for adjusted biomass emissions, setting these emissions to zero
-
     # CO2: adjust emissions for co2 for all biomass generators
     if "co2_mass_lb" in df.columns:
         df["co2_mass_lb_adjusted"] = df["co2_mass_lb"]
@@ -400,7 +447,7 @@ def adjust_emissions_for_biomass(df):
         df["n2o_mass_lb_adjusted"] = df["n2o_mass_lb"]
         df.loc[df["energy_source_code"] == "LFG", "n2o_mass_lb_adjusted"] = 0
 
-    # NOX: assigned an adjusted value
+    # NOx: assigned an adjusted value
     # this value is based on using NOx emissions from flaring as a baseline, and
     # subtracting this from the actual emissions to prevent negative emissions, we set
     # the value = 0 if negative
@@ -422,7 +469,12 @@ def adjust_emissions_for_biomass(df):
     return df
 
 
-def calculate_co2e_mass(df, version, gwp_horizon=100, ar5_climate_carbon_feedback=True):
+def calculate_co2e_mass(
+    df: pd.DataFrame,
+    version: int | str,
+    gwp_horizon: int = 100,
+    ar5_climate_carbon_feedback: bool = True,
+) -> pd.DataFrame:
     """Calculate CO2-equivalent emissions from CO2, CH4, and N2O. This is done by
     choosing one of the IPCC's emission factors for CH4 and N2O.
 
@@ -437,6 +489,20 @@ def calculate_co2e_mass(df, version, gwp_horizon=100, ar5_climate_carbon_feedbac
 
     If the `fuel_consumed_for_electricity_units` column is available, we also compute
     the adjusted emissions.
+
+    Args:
+        df (pd.DataFrame): data frame with CO2, CH4 and N2O emissions.
+        version (int | str): version of the IPCC to consider.
+        gwp_horizon (int, optional): the GWP horizon to consider. Defaults to 100.
+        ar5_climate_carbon_feedback (bool, optional): When vversion is is a year, this
+            parameter allows to select the climate carbon feedback of the fifth version
+            of the assessment report. Defaults to True.
+
+    Raises:
+        ValueError: if `version` is invalid.
+
+    Returns:
+        pd.DataFrame: original data frame with the CO2e columns.
     """
     df_gwp = load_data.load_ipcc_gwp()
 
@@ -509,21 +575,28 @@ def calculate_co2e_mass(df, version, gwp_horizon=100, ar5_climate_carbon_feedbac
 
 
 def calculate_nox_from_fuel_consumption(
-    gen_fuel_allocated: pd.DataFrame, year
+    gen_fuel_allocated: pd.DataFrame, year: int
 ) -> pd.DataFrame:
+    """Calculates NOx emissions from fuel consumption data.
+
+    Note:
+        Apply emission rates in the following order based on availability:
+        1. Month- and generator-specific uncontrolled NOx emission factors based on
+        boiler design parameters of all associated boilers and heat content of consumed
+        fuels
+        2. Season- and generator-specific controlled NOx emissions factors based on
+        boiler-specific NOx control equipment in operation.
+
+    Args:
+        gen_fuel_allocated (pd.DataFrame): table enclosing generation and fuel
+            consumption at generator level.
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: original data frame with NOx emissions.
     """
-    Calculate NOx emissions from fuel consumption data.
 
-    Apply emission rates in the following order based on availability:
-       1. Month- and generator-specific uncontrolled NOx emission factors based on
-       boiler design parameters of all associated boilers and heat content of consumed
-       fuels
-       2. Season- and generator-specific controlled NOx emissions factors based on
-       boiler-specific NOx control equipment in operation.
-
-    """
-
-    # calculate uncontrolled nox emission factors based on boiler design parameters
+    # calculate uncontrolled NOx emission factors based on boiler design parameters
     uncontrolled_nox_factors = calculate_generator_nox_ef_per_unit_from_boiler_type(
         gen_fuel_allocated, year
     )
@@ -532,7 +605,7 @@ def calculate_nox_from_fuel_consumption(
         uncontrolled_nox_factors, year, "nox"
     )
 
-    # For generators associated with multiple boilers, average all nox factors together
+    # For generators associated with multiple boilers, average all NOx factors together
     # to have a single factor per generator
     # TODO: In the future, these factors should be weighed by the boiler fuel allocation
     # factors, and not just a straight average.
@@ -600,17 +673,17 @@ def calculate_nox_from_fuel_consumption(
         * gen_fuel_allocated["nox_ef_lb_per_mmbtu"]
     )
 
-    # calculate the controlled nox rates
+    # calculate the controlled NOx rates
     controlled_nox_factors = calculate_generator_specific_controlled_nox_rates(year)
 
-    # merge the controlled nox rates into gen_fuel_allocated
+    # merge the controlled NOx rates into gen_fuel_allocated
     gen_fuel_allocated = gen_fuel_allocated.merge(
         controlled_nox_factors,
         how="left",
         on=["plant_id_eia", "generator_id"],
         validate="m:1",
     )
-    # calculate the controlled nox emissions based on the month
+    # calculate the controlled NOx emissions based on the month
     gen_fuel_allocated = gen_fuel_allocated.assign(
         controlled_nox_mass_lb=lambda x: np.where(
             ((x.report_date.dt.month >= 5) & (x.report_date.dt.month <= 9)),
@@ -647,10 +720,21 @@ def calculate_nox_from_fuel_consumption(
     return gen_fuel_allocated
 
 
-def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, year):
-    """
-    Calculates a boiler-specific NOx emission factor per unit fuel based on boiler
+def calculate_generator_nox_ef_per_unit_from_boiler_type(
+    gen_fuel_allocated: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Calculates a boiler-specific NOx emission factor per unit fuel based on boiler
     firing type, and associates with each generator.
+
+    Args:
+        gen_fuel_allocated (pd.DataFrame): table enclosing generation and fuel
+            consumption at generator level.
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: original data frame with additional information regarding the
+            generator's boiler type design and the associated uncotrolled NOx emission
+            factor.
     """
 
     # get a dataframe with all unique generator-pm-esc combinations for emitting energy
@@ -772,7 +856,8 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
     )
     if len(missing_nox_efs) > 0:
         logger.warning(
-            "NOx emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
+            "NOx emission factors are missing for the following boiler types. "
+            "A prime mover-fuel level factor will be used if available."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
         logger.warning("\n" + missing_nox_efs.to_string())
@@ -805,9 +890,10 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
     if len(missing_nox_efs) > 0:
         logger.warning(
             """
-            After filling with PM-fuel factors, NOx emission factors are still missing for the following boiler types.
-            An emission factor of zero will be used for these boilers.
-            Missing factors for FC prime movers are currently expected."""
+            After filling with PM-fuel factors, NOx emission factors are still missing 
+            for the following boiler types. An emission factor of zero will be used for 
+            these boilers. Missing factors for FC prime movers are currently expected.
+            """
         )
         logger.warning("\n" + missing_nox_efs.to_string())
 
@@ -816,7 +902,15 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
     return gen_nox_factors
 
 
-def load_boiler_firing_type(year):
+def load_boiler_firing_type(year: int) -> pd.DataFrame:
+    """Loads boiler firing type.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table enclosing the boiler design parameters.
+    """
     boiler_firing_type = load_data.load_pudl_table(
         "core_eia860__scd_boilers",
         year,
@@ -851,16 +945,23 @@ def load_boiler_firing_type(year):
     return boiler_firing_type
 
 
-def fill_missing_factors_based_on_pm_fuel(emission_factors, gen_factors):
-    """If boiler firing type information is not available, fill emission factors based on the PM-fuel minimum factor.
-
-    The minimum factor for a PM-fuel grouping is used to be conservative, and is consistent with eGRID methodology,
+def fill_missing_factors_based_on_pm_fuel(
+    emission_factors: pd.DataFrame, gen_factors: pd.DataFrame
+) -> pd.DataFrame:
+    """Fills emission factors based on the PM-fuel minimum factor if boiler firing type
+    information is not available. The minimum factor for a PM-fuel grouping is used to
+    be conservative, and is consistent with the eGRID methodology,
 
     Args:
-        emissions_factors: dataframe containing boiler-firing type specific NOx or SO2 emission factors.
-        gen_factors: gen_fuel_allocated into which boiler-specific factors have already been merged
+        emission_factors (pd.DataFrame): data frame containing boiler-firing type
+            specific NOx or SO2 emission factors.
+        gen_factors (pd.DataFrame): generation and fuel consumption data frame with
+            boiler-specific factors.
+
     Returns:
-        gen_factors with missing factors filled if available PM-fuel available"""
+        pd.DataFrame: original data frame with missing factors filled out with
+            available PM-fuel.
+    """
     # identify the most conservative  emission factor for each PM-fuel combo
     pm_fuel_factors = (
         emission_factors[emission_factors["emission_factor_denominator"] != "mmbtu"]
@@ -876,7 +977,8 @@ def fill_missing_factors_based_on_pm_fuel(emission_factors, gen_factors):
         .reset_index()
     )
 
-    # merge the pm_fuel factors in and use them to fill any missing boiler-specific factors
+    # merge the pm_fuel factors in and use them to fill any missing boiler-specific
+    # factors
     gen_factors = gen_factors.merge(
         pm_fuel_factors,
         how="left",
@@ -910,7 +1012,8 @@ def convert_ef_to_lb_per_mmbtu(gen_emission_factors, year, pollutant):
         on=["report_date", "plant_id_eia", "energy_source_code", "prime_mover_code"],
         validate="m:1",
     )
-    # merge in national monthly average fuel heat content values and use to fill missing values
+    # merge in national monthly average fuel heat content values and use to fill
+    # missing values
     gen_emission_factors = gen_emission_factors.merge(
         national_avg_fuel_heat_content,
         how="left",
@@ -946,10 +1049,13 @@ def convert_ef_to_lb_per_mmbtu(gen_emission_factors, year, pollutant):
 
     if len(missing_fuel_content) > 0:
         logger.warning(
-            f"The heat content for the following fuels is missing and NOx emissions will not be calculated for these fuel:{list(missing_fuel_content.energy_source_code.unique())}"
+            "The heat content for the following fuels is missing and NOx emissions "
+            "will not be calculated for these fuel: "
+            f"{list(missing_fuel_content.energy_source_code.unique())}"
         )
 
-    # convert emission factors from lb per unit to lb per mmbtu if the factor is not already in units of lb/mmbtu
+    # convert emission factors from lb per unit to lb per mmbtu if the factor is not
+    # already in units of lb/mmbtu
     if pollutant == "nox":
         gen_emission_factors = gen_emission_factors.assign(
             nox_ef_lb_per_mmbtu=lambda x: np.where(
@@ -985,7 +1091,19 @@ def convert_ef_to_lb_per_mmbtu(gen_emission_factors, year, pollutant):
     return gen_emission_factors
 
 
-def return_monthly_plant_fuel_heat_content(year):
+def return_monthly_plant_fuel_heat_content(
+    year: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Calculates the heat content of fuels at different spatial/temporal resolution.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]: the plant/monthly heat content
+            of fuels, the national/monthly average heat content of fuels and the
+            national/annual average of fuels.
+    """
     # load information about the monthly heat input of fuels
     plant_specific_fuel_heat_content = load_data.load_pudl_table(
         "out_eia923__generation_fuel_combined",
@@ -1024,22 +1142,22 @@ def return_monthly_plant_fuel_heat_content(year):
         .reset_index()
     )
 
-    # change the report date columns back to datetimes
-    plant_specific_fuel_heat_content["report_date"] = pd.to_datetime(
-        plant_specific_fuel_heat_content["report_date"]
-    ).astype("datetime64[s]")
-    national_avg_fuel_heat_content["report_date"] = pd.to_datetime(
-        national_avg_fuel_heat_content["report_date"]
-    ).astype("datetime64[s]")
-
     return (
-        plant_specific_fuel_heat_content,
-        national_avg_fuel_heat_content,
-        annual_avg_fuel_heat_content,
+        apply_dtypes(plant_specific_fuel_heat_content),
+        apply_dtypes(national_avg_fuel_heat_content),
+        apply_dtypes(annual_avg_fuel_heat_content),
     )
 
 
-def calculate_unit_specific_controlled_nox_rates(year):
+def calculate_unit_specific_controlled_nox_rates(year: int) -> pd.DataFrame:
+    """Calculates controlled NOx emission rates at unit level.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table enclosing controlled NOx emission rates at unit level.
+    """
     nox_rates = load_controlled_nox_emission_rates(year)
     nox_rates = calculate_non_ozone_season_nox_rate(nox_rates)
     weighted_nox_rates = calculate_weighted_nox_rates(
@@ -1049,7 +1167,15 @@ def calculate_unit_specific_controlled_nox_rates(year):
     return weighted_nox_rates
 
 
-def calculate_boiler_specific_controlled_nox_rates(year):
+def calculate_boiler_specific_controlled_nox_rates(year: int) -> pd.DataFrame:
+    """Calculates controlled NOx emission rates at boiler level.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table enclosing controlled NOx emission rates at boiler level.
+    """
     nox_rates = load_controlled_nox_emission_rates(year)
     nox_rates = calculate_non_ozone_season_nox_rate(nox_rates)
     weighted_nox_rates = calculate_weighted_nox_rates(year, nox_rates, "boiler_id")
@@ -1057,7 +1183,15 @@ def calculate_boiler_specific_controlled_nox_rates(year):
     return weighted_nox_rates
 
 
-def calculate_generator_specific_controlled_nox_rates(year):
+def calculate_generator_specific_controlled_nox_rates(year: int) -> pd.DataFrame:
+    """Calculates controlled NOx emission rates at generator level.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table enclosing controlled NOx emission rates at generator level.
+    """
     nox_rates = load_controlled_nox_emission_rates(year)
     nox_rates = calculate_non_ozone_season_nox_rate(nox_rates)
     weighted_nox_rates = calculate_weighted_nox_rates(year, nox_rates, "generator_id")
@@ -1065,11 +1199,21 @@ def calculate_generator_specific_controlled_nox_rates(year):
     return weighted_nox_rates
 
 
-def load_controlled_nox_emission_rates(year):
+def load_controlled_nox_emission_rates(year: int) -> pd.DataFrame:
+    """Loads contrilled NOx emission rates data.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table enclosing controlled annual NOx emission rates and the
+            controlled NOx emission rates for the ozone season.
+    """
     # load the emissions control data
     emissions_controls_eia923 = load_data.load_emissions_controls_eia923(year)
 
-    # create a dataframe that contains only NOx emission data for operating control equipment
+    # create a dataframe that contains only NOx emission data for operating control
+    # equipment
     nox_rates = emissions_controls_eia923.dropna(
         axis="index",
         how="all",
@@ -1101,8 +1245,21 @@ def load_controlled_nox_emission_rates(year):
     return nox_rates
 
 
-def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
-    """Aggregates nox rate data from nox_control_id to boiler_id, generator_id, or unitid"""
+def calculate_weighted_nox_rates(
+    year: int, nox_rates: pd.DataFrame, aggregation_level: str
+) -> pd.DataFrame:
+    """Aggregates NOx rates data for a given aggregation level.
+
+    Args:
+        year (int): a four-digit year
+        nox_rates (pd.DataFrame): table enclosing the controlled NOx emission rates.
+        aggregation_level (str): aggregation level to consider. Can be either
+        'generator_id' or 'emissions_unit_id_epa'.
+
+    Returns:
+        pd.DataFrame: table enclosing NOx rates for a given aggregation level weighted
+            by the number of hours the control equipment has been in service.
+    """
 
     nox_rates = associate_control_ids_with_boiler_id(
         nox_rates,
@@ -1148,14 +1305,25 @@ def calculate_weighted_nox_rates(year, nox_rates, aggregation_level):
     return weighted_nox_rates
 
 
-def associate_control_ids_with_boiler_id(df, year, pollutant):
-    """Associates emission control ids with boiler_id.
+def associate_control_ids_with_boiler_id(
+    df: pd.DataFrame, year: int, pollutant: str
+) -> pd.DataFrame:
+    """Maps emission control id with boiler id.
 
-    Because some emission control data is missing a corresponding control id for that pollutant,
-    this function attempts to use all control ids to associate each obervation with a boiler id,
-    in the order specified by `id_order`
+    Because some emission control data is missing a corresponding control id for some
+    pollutant, this function attempts to use all control ids to associate each
+    obervation with a boiler id, in a specific order.
+
+    Args:
+        df (pd.DataFrame): original data frame with boiler id.
+        year (int): a four-digit year.
+        pollutant (str): pollutant to consider. Either 'particulate', 'so2', 'nox' or
+        'mercury'
+
+    Returns:
+        pd.DataFrame: original data frame with additional column indicating the
+            control id for pollutant.
     """
-
     all_pollutants = ["particulate", "so2", "nox", "mercury"]
     # reorder the pollutant list to make the primary pollutant first
     all_pollutants.remove(pollutant)
@@ -1178,7 +1346,8 @@ def associate_control_ids_with_boiler_id(df, year, pollutant):
 
         # if this is the first time through the loop
         if counter == 1:
-            # load the association table and rename the boiler id column to specify which table it came from
+            # load the association table and rename the boiler id column to specify
+            # which table it came from
 
             df = df.merge(
                 pol_control_id_assn[
@@ -1216,14 +1385,29 @@ def associate_control_ids_with_boiler_id(df, year, pollutant):
             # add this data back to the original dataframe
             df = pd.concat([df, missing_boiler_id], axis=0)
 
-    # if there are any missing boiler_ids, fill using the nox_control_id, which is likely to match a boiler
+    # if there are any missing boiler_ids, fill using the nox_control_id, which is
+    # likely to match a boiler
     df["boiler_id"] = df["boiler_id"].fillna(df[f"{pollutant}_control_id_eia"])
 
     return df
 
 
-def calculate_weighted_averages(df, groupby_columns, data_cols, weight_col):
-    """helper function for calculating weighted averages of one or more columns in a dataframe."""
+def calculate_weighted_averages(
+    df: pd.DataFrame, groupby_columns: list[str], data_cols: list[str], weight_col: str
+) -> pd.DataFrame:
+    """Calculates weighted averages of one or more columns in a dataframe.
+
+    Args:
+        df (pd.DataFrame): original data frame.
+        groupby_columns (list[str]): column(s) used to group the data frame before
+            calculating the weighted average
+        data_cols (list[str]): column(s) for which the weighted average will be
+            calculated.
+        weight_col (str): column to use as weight.
+
+    Returns:
+        pd.DataFrame: data frame with `groupby_columns` and weighted average column(s).
+    """
     wa = df.copy()
     for data_col in data_cols:
         wa[f"{data_col}_data_times_weight"] = wa[data_col] * wa[weight_col]
@@ -1246,13 +1430,26 @@ def calculate_weighted_averages(df, groupby_columns, data_cols, weight_col):
     return result
 
 
-def calculate_non_ozone_season_nox_rate(weighted_nox_rates):
+def calculate_non_ozone_season_nox_rate(
+    weighted_nox_rates: pd.DataFrame,
+) -> pd.DataFrame:
+    """Calculates NOx emission rates for non-ozone season.
+
+    Args:
+        weighted_nox_rates (pd.DataFrame): original data frame with the annual and
+            ozone-season Nox emission rates.
+
+    Returns:
+        pd.DataFrame: original data frame with an additional non-ozone season NOx
+            emission rates column.
+    """
     annual_col = "controlled_annual_nox_ef_lb_per_mmbtu"
     oz_col = "controlled_ozone_season_nox_ef_lb_per_mmbtu"
     non_oz_col = "controlled_non_ozone_season_nox_ef_lb_per_mmbtu"
 
     # ozone season is May - Sept (5 months).
-    # To get the average emission rate for the 7 non-ozone season months, we assume similar operation across all months
+    # To get the average emission rate for the 7 non-ozone season months, we assume
+    # similar operation across all months
     # annual_avg = [(5* oz_avg) + (7 * non_oz_avg)] / 12
     weighted_nox_rates[non_oz_col] = (
         (12 * weighted_nox_rates[annual_col]) - (5 * weighted_nox_rates[oz_col])
@@ -1264,14 +1461,26 @@ def calculate_non_ozone_season_nox_rate(weighted_nox_rates):
     return weighted_nox_rates
 
 
-def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
-    """
-    Calculate SO2 emissions from fuel consumption data.
+def calculate_so2_from_fuel_consumption(
+    gen_fuel_allocated: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Calculates SO2 emissions from fuel consumption data.
 
-    Apply emission rates in the following order based on availability:
-       1. Month- and generator-specific uncontrolled SO2 emission factors based on boiler design parameters of all associated boilers and heat content of consumed fuels
-       2. Adjust SO2 emissions using boiler-specific SO2 removal efficiencies if available. Otherwise, assume SO2 emissions are uncontrolled.
+    Note:
+        Apply emission rates in the following order based on availability:
+        1. Month- and generator-specific uncontrolled SO2 emission factors based on
+        boiler design parameters of all associated boilers and heat content of consumed
+        fuels
+        2. Adjust SO2 emissions using boiler-specific SO2 removal efficiencies if
+        available. Otherwise, assume SO2 emissions are uncontrolled.
 
+    Args:
+        gen_fuel_allocated (pd.DataFrame): table enclosing generation and fuel
+            consumption at generator level.
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: original data frame with SO2 emissions
     """
 
     # load uncontrolled emission factors
@@ -1318,7 +1527,8 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
         ],
         validate="m:1",
     )
-    # raise a warning if we are missing emission factors for any non-zero fuel consumption from non-clean fuels
+    # raise a warning if we are missing emission factors for any non-zero fuel
+    # consumption from non-clean fuels
     missing_ef = gen_fuel_allocated[
         gen_fuel_allocated["so2_ef_lb_per_mmbtu"].isna()
         & (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
@@ -1390,13 +1600,28 @@ def calculate_so2_from_fuel_consumption(gen_fuel_allocated, year):
     return gen_fuel_allocated
 
 
-def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, year):
-    """Calculates a generator-specific Nox emission factor per unit fuel based on boiler firing type
+def calculate_generator_so2_ef_per_unit_from_boiler_type(
+    gen_fuel_allocated: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Calculates a generator-specific SO2 emission factor per unit fuel based on
+    boiler firing type
 
-    If a generator has multiple boilers, average the emission factor of all boilers
+    Note:
+        If a generator has multiple boilers, average the emission factor of all boilers.
+
+    Args:
+        gen_fuel_allocated (pd.DataFrame): table enclosing generation and fuel
+            consumption at generator level.
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: original data frame with additional information regarding the
+            generator's boiler type design and the associated uncotrolled SO2 emission
+            factor.
     """
 
-    # get a dataframe with all unique generator-pm-esc combinations for emitting energy source types with data reported
+    # get a dataframe with all unique generator-pm-esc combinations for emitting
+    # energy source types with data reported
     gen_keys_for_so2 = gen_fuel_allocated.copy()[
         (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
     ]
@@ -1486,7 +1711,8 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
         ] = 0
         gen_so2_factors = gen_so2_factors.drop(columns="so2_lb_per_mmbtu")
 
-    # identify missing emission factors and replace with PM-fuel specific factors if available
+    # identify missing emission factors and replace with PM-fuel specific factors if
+    # available
     missing_so2_efs = (
         gen_so2_factors.loc[
             gen_so2_factors["emission_factor"].isna(),
@@ -1508,7 +1734,8 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
 
     if len(missing_so2_efs) > 0:
         logger.warning(
-            "SO2 emission factors are missing for the following boiler types. A prime mover-fuel level factor will be used if available."
+            "SO2 emission factors are missing for the following boiler types. "
+            "A prime mover-fuel level factor will be used if available."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
         logger.warning("\n" + missing_so2_efs.to_string())
@@ -1538,7 +1765,8 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
 
     if len(missing_so2_efs) > 0:
         logger.warning(
-            "SO2 emission factors are missing for the following boiler types. An emission factor of zero will be used for these boilers."
+            "SO2 emission factors are missing for the following boiler types. "
+            "An emission factor of zero will be used for these boilers."
         )
         logger.warning("Missing factors for FC prime movers are currently expected")
         logger.warning("\n" + missing_so2_efs.to_string())
@@ -1550,21 +1778,135 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(gen_fuel_allocated, yea
     return gen_so2_factors
 
 
-def return_monthly_plant_fuel_sulfur_content(year):
-    """
-    Returns the month specific, plant average sulfur content.
+def return_monthly_plant_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """Returns the monthly plant-level sulfur content percentage.
 
-    Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each plant, energy
+            source code and report date in `year`.
     """
     plant_specific_fuel_sulfur_content = load_plant_specific_fuel_sulfur_content(year)
+    # drop unnecessary column
+    plant_specific_fuel_sulfur_content = plant_specific_fuel_sulfur_content.drop(
+        columns="state"
+    )
+    return apply_dtypes(plant_specific_fuel_sulfur_content)
 
-    # calculate the average monthly heat content for a fuel
-    national_avg_fuel_sulfur_content = (
+
+def return_multiyear_plant_fuel_sulfur_content(years: list[int]) -> pd.DataFrame:
+    """Returns a multiyear averaged plant-level sulfur content percentage.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        years (list[int]): list of four-digit years.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each plant and energy
+            source code averaged over `years`.
+    """
+    multiyear_avg_plant_specific_fuel_sulfur_content = (
+        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        .groupby(["plant_id_eia", "energy_source_code"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
+    return apply_dtypes(multiyear_avg_plant_specific_fuel_sulfur_content)
+
+
+def return_multiyear_state_fuel_sulfur_content(years: list[int]) -> pd.DataFrame:
+    """Returns a multiyear averaged state-level sulfur content percentage.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        years (list[int]): list of four-digit years.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each energy source
+            code and state averaged over `years`.
+    """
+    multiyear_avg_state_fuel_sulfur_content = (
+        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        .drop(columns=["plant_id_eia"])
+        .groupby(["energy_source_code", "state"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
+    return apply_dtypes(multiyear_avg_state_fuel_sulfur_content)
+
+
+def return_monthly_state_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """Returns the monthy state-level sulfur content percentage for each fuel.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each energy source
+            code and state.
+    """
+    plant_specific_fuel_sulfur_content = load_plant_specific_fuel_sulfur_content(year)
+    state_avg_fuel_sulfur_content = (
         plant_specific_fuel_sulfur_content.drop(columns=["plant_id_eia"])
+        .groupby(["energy_source_code", "report_date", "state"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
+    )
+
+    return apply_dtypes(state_avg_fuel_sulfur_content)
+
+
+def return_monthly_national_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """Returns the monthly national-level sulfur content percentage for each fuel.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each energy source
+            code and report date in `year`.
+    """
+    plant_specific_fuel_sulfur_content = load_plant_specific_fuel_sulfur_content(year)
+    national_avg_fuel_sulfur_content = (
+        plant_specific_fuel_sulfur_content.drop(columns=["plant_id_eia", "state"])
         .groupby(["energy_source_code", "report_date"], dropna=False)
         .mean(numeric_only=True)
         .reset_index()
     )
+    return apply_dtypes(national_avg_fuel_sulfur_content)
+
+
+def return_annual_national_fuel_sulfur_content(year: int) -> pd.DataFrame:
+    """Returns the annual national-level sulfur content percentage for each fuel.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table giving the annual sulfur content percentage for each energy
+            source code.
+    """
+    national_avg_fuel_sulfur_content = return_monthly_national_fuel_sulfur_content(year)
 
     annual_avg_fuel_sulfur_content = (
         national_avg_fuel_sulfur_content.groupby(["energy_source_code"], dropna=False)
@@ -1599,33 +1941,48 @@ def return_monthly_plant_fuel_sulfur_content(year):
             columns=["sulfur_content_pct_fill"]
         )
 
-    # change the report date columns back to datetimes
-    plant_specific_fuel_sulfur_content["report_date"] = pd.to_datetime(
-        plant_specific_fuel_sulfur_content["report_date"]
-    ).astype("datetime64[s]")
-    national_avg_fuel_sulfur_content["report_date"] = pd.to_datetime(
-        national_avg_fuel_sulfur_content["report_date"]
-    ).astype("datetime64[s]")
+    return apply_dtypes(annual_avg_fuel_sulfur_content)
 
-    plant_specific_fuel_sulfur_content
 
-    return (
-        plant_specific_fuel_sulfur_content,
-        national_avg_fuel_sulfur_content,
-        annual_avg_fuel_sulfur_content,
+def return_multiyear_national_fuel_sulfur_content(years: list[int]) -> pd.DataFrame:
+    """Returns a multiyear averaged national-level sulfur content percentage.
+
+    Note:
+        Sulfur content values are on a 0-100 scale (e.g. 5.2% = 5.2)
+
+    Args:
+        years (list[int]): list of four-digit years.
+
+    Returns:
+        pd.DataFrame: table giving sulfur content percentage for each energy source
+            code averaged over `years`.
+    """
+    multiyear_avg_national_fuel_sulfur_content = (
+        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        .drop(columns=["plant_id_eia", "state"])
+        .groupby(["energy_source_code"], dropna=False)
+        .mean(numeric_only=True)
+        .reset_index()
     )
+
+    return apply_dtypes(multiyear_avg_national_fuel_sulfur_content)
 
 
 def load_plant_specific_fuel_sulfur_content(year: int) -> pd.DataFrame:
-    """
-    Calculates the weighted average sulfur content of each fuel by the fuel consumption
+    """Calculates the weighted average sulfur content of each fuel by the fuel
+    consumption.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: the weighted average sulfur content percentage.
     """
     plant_specific_fuel_sulfur_content = load_data.load_pudl_table(
         "out_eia923__boiler_fuel",
         year,
         columns=[
             "plant_id_eia",
-            "boiler_id",
             "prime_mover_code",
             "energy_source_code",
             "report_date",
@@ -1638,7 +1995,7 @@ def load_plant_specific_fuel_sulfur_content(year: int) -> pd.DataFrame:
         ~plant_specific_fuel_sulfur_content["energy_source_code"].isin(CLEAN_FUELS)
     ]
 
-    # calculate a weighted average for each  generator
+    # calculate a weighted average for each generator
     plant_specific_fuel_sulfur_content = calculate_weighted_averages(
         plant_specific_fuel_sulfur_content,
         groupby_columns=[
@@ -1653,30 +2010,106 @@ def load_plant_specific_fuel_sulfur_content(year: int) -> pd.DataFrame:
         weight_col="fuel_consumed_units",
     )
 
+    # Add state
+    plant_state = load_data.load_pudl_table(
+        "core_eia__entity_plants", columns=["plant_id_eia", "state"]
+    )
+    plant_specific_fuel_sulfur_content = plant_specific_fuel_sulfur_content.merge(
+        plant_state, on="plant_id_eia", how="left", validate="m:1"
+    )
+
     return plant_specific_fuel_sulfur_content
 
 
-def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, year):
-    # multiply factors by sulfur content
-    (
-        plant_specific_fuel_sulfur_content,
-        national_avg_fuel_sulfur_content,
-        annual_avg_fuel_sulfur_content,
-    ) = return_monthly_plant_fuel_sulfur_content(year)
+def adjust_so2_efs_for_fuel_sulfur_content(
+    uncontrolled_so2_factors: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Adjusts SO2 emission factors for fuel sulfur content.
 
-    # merge in plant pm specific fuel sulfur content values
-    uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
-        plant_specific_fuel_sulfur_content,
-        how="left",
-        on=["report_date", "plant_id_eia", "energy_source_code", "prime_mover_code"],
-        validate="m:1",
+    Args:
+        uncontrolled_so2_factors (pd.DataFrame): table enclosing the uncontrolled SO2
+            emission factors.
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table enclosing the uncotrolled SO2 emission factors adjusted for
+            sulfur content
+    """
+    plant_state = load_data.load_pudl_table(
+        "core_eia__entity_plants", columns=["plant_id_eia", "state"]
     )
-    # merge in national monthly average fuel sulfur content values and use to fill missing values
+    uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+        plant_state, on="plant_id_eia", how="left", validate="m:1"
+    )
+
+    if year >= 2008:
+        # merge in monthly/plant level
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            return_monthly_plant_fuel_sulfur_content(year),
+            how="left",
+            on=[
+                "report_date",
+                "plant_id_eia",
+                "energy_source_code",
+                "prime_mover_code",
+            ],
+            validate="m:1",
+        )
+        # merge in monthly/state level
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            return_monthly_state_fuel_sulfur_content(year),
+            how="left",
+            on=["report_date", "energy_source_code", "state"],
+            validate="m:1",
+            suffixes=(None, "_state"),
+        )
+        # use to fill missing values
+        uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
+            "sulfur_content_pct"
+        ].fillna(uncontrolled_so2_factors["sulfur_content_pct_state"])
+
+        # annual/national level
+        national_avg_fuel_sulfur_content = return_annual_national_fuel_sulfur_content(
+            year
+        )
+    else:
+        logger.info(
+            f"Fuel sulfur content is not available for {year}. Using 2008-2012 "
+            "data to derive a plant, state and national fuel sulfur content average"
+        )
+        # merge in multiyear/plant level
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            return_multiyear_plant_fuel_sulfur_content(range(2008, 2013)),
+            how="left",
+            on=[
+                "plant_id_eia",
+                "energy_source_code",
+            ],
+            validate="m:1",
+        )
+        # multiyear/state level
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            return_multiyear_state_fuel_sulfur_content(range(2008, 2013)),
+            how="left",
+            on=["energy_source_code", "state"],
+            validate="m:1",
+            suffixes=(None, "_state"),
+        )
+        # use to fill missing values
+        uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
+            "sulfur_content_pct"
+        ].fillna(uncontrolled_so2_factors["sulfur_content_pct_state"])
+
+        # multiyear/national level
+        national_avg_fuel_sulfur_content = (
+            return_multiyear_national_fuel_sulfur_content(range(2008, 2013))
+        )
+
+    # merge in annual average fuel sulfur content and use to fill missing values
     uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
         national_avg_fuel_sulfur_content,
         how="left",
         on=[
-            "report_date",
             "energy_source_code",
         ],
         validate="m:1",
@@ -1685,19 +2118,6 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, year):
     uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
         "sulfur_content_pct"
     ].fillna(uncontrolled_so2_factors["sulfur_content_pct_national"])
-    # merge in annual average fuel sulfur content and use to fill missing values
-    uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
-        annual_avg_fuel_sulfur_content,
-        how="left",
-        on=[
-            "energy_source_code",
-        ],
-        validate="m:1",
-        suffixes=(None, "_annual"),
-    )
-    uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
-        "sulfur_content_pct"
-    ].fillna(uncontrolled_so2_factors["sulfur_content_pct_annual"])
 
     # check that we are not missing sulfur content for any generators that need it
     missing_sulfur_content = uncontrolled_so2_factors[
@@ -1746,15 +2166,27 @@ def adjust_so2_efs_for_fuel_sulfur_content(uncontrolled_so2_factors, year):
         columns=[
             "multiply_by_sulfur_content",
             "sulfur_content_pct",
+            "sulfur_content_pct_state",
             "sulfur_content_pct_national",
-            "sulfur_content_pct_annual",
+            "state",
         ]
     )
 
     return uncontrolled_so2_factors
 
 
-def load_so2_control_efficiencies(year):
+def load_so2_control_efficiencies(year: int) -> pd.DataFrame:
+    """Loads SO2 control efficiencies data.
+
+    Args:
+        year (int): a four-digit year.
+
+    Raises:
+        UserWarning: if one or more annual SO2 remoaval efficiencies are not in [0, 1].
+
+    Returns:
+        pd.DataFrame: table enclosing SO2 emission data for operating control equipment.
+    """
     # load the emissions control data
     emissions_controls_eia923 = load_data.load_emissions_controls_eia923(year)
 
@@ -1767,7 +2199,17 @@ def load_so2_control_efficiencies(year):
         ["so2_removal_efficiency_annual", "so2_removal_efficiency_at_full_load"],
     ] = np.NaN
 
-    # create a dataframe that contains only so2 emission data for operating control equipment
+    # remove control efficiencies for fluidized bed combustion since this is already
+    # incorporated into the uncontrolled so2 rates
+    emissions_controls_eia923.loc[
+        emissions_controls_eia923["equipment_tech_description"].str.contains(
+            "fluidized bed"
+        ),
+        ["so2_removal_efficiency_annual", "so2_removal_efficiency_at_full_load"],
+    ] = np.NaN
+
+    # create a dataframe that contains only SO2 emission data for operating control
+    # equipment
     so2_efficiency = emissions_controls_eia923.dropna(
         axis="index",
         how="all",
@@ -1804,9 +2246,20 @@ def load_so2_control_efficiencies(year):
 
 
 def calculate_weighted_so2_control_efficiency(
-    year, so2_control_efficiency, aggregation_level
-):
-    """Aggregates so2 rate data from so2_control_id to generator_id"""
+    year: int, so2_control_efficiency: pd.DataFrame, aggregation_level: str
+) -> pd.DataFrame:
+    """Aggregates SO2 rates data for a given aggregation level.
+
+    Args:
+        year (int): a four-digit year.
+        so2_control_efficiency (pd.DataFrame): table enclosing the SO2 control
+            efficiencies.
+        aggregation_level (str): aggregation level.
+
+    Returns:
+        pd.DataFrame: table enclosing SO2 control efficiency at generator level weighted
+            by the number of hours the control equipment has been in service.
+    """
     so2_control_efficiency = associate_control_ids_with_boiler_id(
         so2_control_efficiency,
         year,
@@ -1840,16 +2293,33 @@ def calculate_weighted_so2_control_efficiency(
     return weighted_so2_control_efficiency
 
 
-def fill_cems_missing_co2(cems, year, subplant_emission_factors):
-    """
-    Fills missing hourly CO2 data in CEMS based on a three-tiered approach.
+def fill_cems_missing_co2(
+    cems: pd.DataFrame, year: int, subplant_emission_factors: pd.DataFrame
+) -> pd.DataFrame:
+    """Fills missing hourly CO2 data in CEMS based on a three-tiered approach.
 
-    CO2 data is considered missing if reported CO2 is zero and fuel consumption is positive.
-    1. If a unit has non-missing emissions data for other hours in the same month, calculate a unit-month
-        specific EF from the CEMS-reported fuel consumption and emissions
-    2. For all remaining missing values, use the subplant and month-specific weighted average emission factor
-        from subplant_emission_factors calculated from the EIA-923 data
-    3. For any remaining missing values, calculate emissions based on the subplant primary fuel and fuel consumption
+    Note:
+        CO2 data is considered missing if reported CO2 is zero and fuel consumption
+        is positive.
+        1. If a unit has non-missing emissions data for other hours in the same month,
+        calculate a unit-month specific emission factor from the CEMS-reported fuel
+        consumption and emissions
+        2. For all remaining missing values, use the subplant and month-specific
+        weighted average emission factor from `subplant_emission_factors` calculated
+        from the EIA-923 data
+        3. For any remaining missing values, calculate emissions based on the subplant
+        primary fuel and fuel consumption
+
+    Args:
+        cems (pd.DataFrame): CEMS data frame.
+        year (int): a four-digit year.
+        subplant_emission_factors (pd.DataFrame): subplant emission factors data frame.
+
+    Raises:
+        UserWarning: if there are missing CO2 values
+
+    Returns:
+        pd.DataFrame: CEMS data frame with filled CO2 data.
     """
 
     # make a copy of the cems data so that we can validate the outputs
@@ -1862,7 +2332,8 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
     # replace all "missing" CO2 values with zero
     cems["co2_mass_lb"] = cems["co2_mass_lb"].fillna(0)
 
-    # replace 0 reported CO2 values with missing values, if there was reported heat input
+    # replace 0 reported CO2 values with missing values, if there was reported heat
+    # input
     cems.loc[
         (cems["co2_mass_lb"] == 0) & (cems["fuel_consumed_mmbtu"] > 0),
         "co2_mass_lb",
@@ -1871,8 +2342,9 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
     # create a new df with all observations with missing co2 data
     missing_co2 = cems[cems["co2_mass_lb"].isnull()]
 
-    # First round of filling covers small gaps using non-missing emission data from the same month
-    ##############################################################################################
+    # First round of filling covers small gaps using non-missing emission data from
+    # the same month
+    ####################################################################################
 
     unit_months_missing_co2 = missing_co2[
         ["plant_id_eia", "emissions_unit_id_epa", "report_date"]
@@ -1893,7 +2365,8 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
         on=["plant_id_eia", "emissions_unit_id_epa", "report_date"],
         validate="1:m",
     )
-    # only keep observations with non-missing, non-zero co2 emissions and fuel consumption
+    # only keep observations with non-missing, non-zero co2 emissions and fuel
+    # consumption
     unit_months_missing_co2 = unit_months_missing_co2[
         (unit_months_missing_co2["co2_mass_lb"] > 0)
         & (unit_months_missing_co2["fuel_consumed_mmbtu"] > 0)
@@ -1938,8 +2411,9 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
     # identify all observations that are still missing co2 data
     missing_co2 = cems[cems["co2_mass_lb"].isnull()]
 
-    # Second round of data filling using weighted average EF based on EIA-923 heat input data
-    #########################################################################################
+    # Second round of data filling using weighted average emission factors based on
+    # EIA-923 heat input data
+    ####################################################################################
 
     # merge the weighted ef into the missing data
     missing_co2 = missing_co2.merge(
@@ -1971,7 +2445,8 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
     # Third round of filling using subplant fuel codes
     ##################################################
 
-    # for rows that have a successful fuel code match, move to a temporary dataframe to hold the data
+    # for rows that have a successful fuel code match, move to a temporary dataframe
+    # to hold the data
     co2_to_fill = missing_co2.copy()[~missing_co2["energy_source_code"].isna()]
     fill_index = co2_to_fill.index
 
@@ -1994,7 +2469,8 @@ def fill_cems_missing_co2(cems, year, subplant_emission_factors):
     still_missing_co2 = cems[cems["co2_mass_lb"].isna()]
     if len(still_missing_co2) > 0:
         raise UserWarning(
-            "There are still misssing CO2 values remaining after filling missing CO2 values in CEMS"
+            "There are still misssing CO2 values remaining after filling missing CO2 "
+            "values in CEMS"
         )
 
     # check that no non-missing co2 values were modified during filling
