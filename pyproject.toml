@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
   "cvxopt",
   "cvxpy",
+  "geopy",
   "osqp",
   "numpy",
   "openpyxl",
