@@ -46,4 +46,4 @@ If you plan on contributing edits to the codebase that will be merged into the m
 - All pandas groupby operations should include the `dropna=False` parameter so that data with missing groupby keys are not unintentionally dropped from the data.
 - All code should be formatted using `ruff`
 - Clear all outputs from notebooks before committing your work.
-- Any manual changes to reported categorical data, conversion factors, or manual data mappings should be loaded from a .csv file `data/manual` rather than stored in a dictionary or variable in the code.
+- Any manual changes to reported categorical data, conversion factors, or manual data mappings should be loaded from a .csv file located in `src/oge/reference_tables` rather than stored in a dictionary or variable in the code.
