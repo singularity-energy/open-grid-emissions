@@ -443,7 +443,13 @@ def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
         "core_eia860__scd_generators",
         year=earliest_data_year,
         end_year=latest_validated_year,
-        columns=["plant_id_eia", "generator_id", "report_date", "capacity_mw"],
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "report_date",
+            "capacity_mw",
+            "operational_status",
+        ],
     ).sort_values(by=["plant_id_eia", "generator_id", "report_date"], ascending=True)
 
     generator_capacity["capacity_mw"] = generator_capacity.groupby(
@@ -452,6 +458,11 @@ def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
     generator_capacity["capacity_mw"] = generator_capacity.groupby(
         ["plant_id_eia", "generator_id"]
     )["capacity_mw"].ffill()
+
+    # Only consider generators that are existing (operating, standby, etc.)
+    generator_capacity = generator_capacity[
+        generator_capacity["operational_status"] == "existing"
+    ]
 
     # keep only the specified year of data
     generator_capacity = generator_capacity[
