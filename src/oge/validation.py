@@ -8,7 +8,11 @@ from oge.column_checks import get_dtypes
 from oge.helpers import create_plant_ba_table
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
-from oge.constants import CLEAN_FUELS, earliest_validated_year, latest_validated_year
+from oge.constants import (
+    CLEAN_FUELS,
+    earliest_data_year,
+    latest_validated_year,
+)
 
 logger = get_logger(__name__)
 
@@ -18,27 +22,27 @@ logger = get_logger(__name__)
 
 
 def validate_year(year):
-    """Returns a warning if the year specified is not known to work with the pipeline."""
+    """Raises a warning if the year specified is not known to work with the pipeline.
 
-    if year < earliest_validated_year:
-        year_warning = f"""
-        ################################################################################
-        The data pipeline has only been validated to work for years {earliest_validated_year}-{latest_validated_year}.
-        Running the pipeline for {year} may cause it to fail or may lead to poor-quality
-        or anomalous results. To check on the progress of validating additional years of
-        data, see: https://github.com/singularity-energy/open-grid-emissions/issues/117
-        ################################################################################
-        """
-        logger.warning(year_warning)
-    elif year > latest_validated_year:
-        year_warning = f"""
-        ################################################################################
-        The most recent available year of input data is currently {latest_validated_year}.
-        Input data for {year} should be available from the EIA in Fall {year+1} and we will
-        work to validate that the pipeline works with {year} data as soon as possible
-        after the data is released.
-        ################################################################################
-        """
+    Args:
+        year (_type_): a four-digit year.
+
+    Raises:
+        UserWarning: if `year` is not supported.
+    """
+    start = earliest_data_year
+    end = latest_validated_year
+    year_warning = f"""
+    #########################################################################
+    Invalid year. The data pipeline has only been validated to work for years 
+    {start}-{end}. 
+    
+    Input data for {end+1} should be available from the EIA in Fall {end+2} and we 
+    will work to validate that the pipeline works with {end+1} data as soon as 
+    possible after the data is released.
+    #########################################################################
+    """
+    if year < earliest_data_year or year > latest_validated_year:
         raise UserWarning(year_warning)
 
 

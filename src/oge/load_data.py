@@ -225,7 +225,7 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     under_construction_status_codes = ["U", "V", "TS"]
     complete_gens = complete_gens[
         ~(
-            (complete_gens["report_date"].dt.year < earliest_validated_year)
+            (complete_gens["report_date"].dt.year < latest_validated_year)
             & (
                 complete_gens["operational_status_code"].isin(
                     under_construction_status_codes
