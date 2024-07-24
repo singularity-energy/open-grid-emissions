@@ -85,13 +85,15 @@ def print_args(args: argparse.Namespace, logger):
 
 def main(args):
     """Runs the OGE data pipeline."""
+    args = get_args()
+    year = args.year
+
+    validation.validate_year(year)
+
     if os.getenv("OGE_DATA_STORE") in ["s3", "2"]:
         raise OSError(
             "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
         )
-
-    args = get_args()
-    year = args.year
 
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
@@ -134,7 +136,6 @@ def main(args):
     print_args(args, logger)
 
     logger.info(f"Running data pipeline for year {year}")
-    validation.validate_year(year)
 
     # 1. Download data
     ####################################################################################
