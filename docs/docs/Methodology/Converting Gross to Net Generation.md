@@ -54,15 +54,15 @@ The conversion factors are applied in the following hierarchical order:
 
 1. Subplant-specific, annual gross-to-net ratio
 2. Plant-specific, annual gross-to-net ratio
-3. Fleet-specific, annual gross-to-net ratio
-4. Subplant-specific, annual gross-to-net shift factor
-5. Plant-specific, annual gross-to-net shift factor
+3. Subplant-specific, annual gross-to-net shift factor
+4. Plant-specific, annual gross-to-net shift factor
+5. Fleet-specific, annual gross-to-net ratio
 6. Prime mover-specific, default gross-to-net ratios from EIA 
 7. Apply an assumed gross to net ratio of 0.97
 
-If no plant-specific factors are available (methods 1 and 2), the pipeline uses a fleet-specific ratio that represents the average gross-to-net ratio for all subplant (nationally) that consume the same fuel category (natural gas, coal, etc). Otherwise, we use default gross to net ratios published in the EIA Electric Power Monthly Technical Notes (Appendix C). As a final backstop, we use an assumed gross to net ratio of 0.97
+If no plant-specific factors are available (methods 1-4), the pipeline uses a fleet-specific ratio that represents the average gross-to-net ratio for all subplant (nationally) that consume the same fuel category (natural gas, coal, etc). Otherwise, we use default gross to net ratios published in the EIA Electric Power Monthly Technical Notes (Appendix C). As a final backstop, we use an assumed gross to net ratio of 0.97
 
-Shift factors are used instead of ratios in cases where the reported gross generation data in CEMS is zero, but EIA reports non-zero net generation data. In these cases, multiplying by a ratio would result in 0 calculated net generation. Applying a shift factor (which is added to the gross generation) effectively applies a flat generation profile to the data, but ensures that the annual total net mwh will match the data in EIA. 
+Shift factors are used explicitly instead of ratios in cases where the reported gross generation data in CEMS is zero, but EIA reports non-zero net generation data. In these cases, multiplying by a ratio would result in 0 calculated net generation. Applying a shift factor (which is added to the gross generation) effectively applies a flat generation profile to the data, but ensures that the annual total net mwh will match the data in EIA. 
 
 The following table shows what percent of gross generation reported in CEMS was converted to net generation using each method.
 

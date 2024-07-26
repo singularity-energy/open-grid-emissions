@@ -27,9 +27,9 @@ def convert_gross_to_net_generation(
     filters them for quality, and them applies them according to a method hierarchy:
         1. Annual GTN ratio at the subplant level
         2. Annual GTN ratio at the plant level
-        3. Annual GTN ratio at the national fleet (fuel category-prime mover) level
-        4. Annual GTN shift factor at the subplant level (used where gross = 0)
-        5. Annual GTN shift factor at the plant level (used where gross = 0)
+        3. Annual GTN shift factor at the subplant level (used where gross = 0)
+        4. Annual GTN shift factor at the plant level (used where gross = 0)
+        5. Annual GTN ratio at the national fleet (fuel category-prime mover) level
         6. Default GTN ratio published by EIA based on prime mover
         7. Assumed GTN ratio of 0.97
 
@@ -81,23 +81,23 @@ def convert_gross_to_net_generation(
         cems["gross_generation_mwh"] * cems["annual_plant_ratio"]
     )
 
-    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "3_annual_fleet_ratio"
-    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
-        cems["gross_generation_mwh"] * cems["annual_fleet_ratio"]
-    )
-
     cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = (
-        "4_annual_subplant_shift_factor"
+        "3_annual_subplant_shift_factor"
     )
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_subplant_shift_mw"]
     )
 
     cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = (
-        "5_annual_plant_shift_factor"
+        "4_annual_plant_shift_factor"
     )
     cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
         cems["gross_generation_mwh"] + cems["annual_plant_shift_mw"]
+    )
+
+    cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "5_annual_fleet_ratio"
+    cems["net_generation_mwh"] = cems["net_generation_mwh"].fillna(
+        cems["gross_generation_mwh"] * cems["annual_fleet_ratio"]
     )
 
     cems.loc[cems["net_generation_mwh"].isna(), "gtn_method"] = "6_default_eia_ratio"
@@ -628,7 +628,7 @@ def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame
             "gross_generation_mwh"
         ].transform("sum")
         == 0,
-        ["annual_subplant_ratio", "annual_plant_ratio", "annual_fleet_ratio"],
+        ["annual_subplant_ratio", "annual_plant_ratio"],
     ] = np.NaN
 
     # All subplant-months at each plant should use the same method
