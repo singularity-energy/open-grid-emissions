@@ -1,6 +1,7 @@
 """Convenience functions for paths."""
 
 import os
+from importlib.metadata import version
 
 
 def get_data_store():
@@ -11,7 +12,12 @@ def get_data_store():
     elif store == "1" or store.lower() == "local":
         return os.path.join(os.path.expanduser("~"), "open_grid_emissions_data")
     elif store == "2" or store.lower() == "s3":
-        return "s3://open-grid-emissions/open_grid_emissions_data"
+        # get the data version based on the current OGE code version.
+        # data versions are only published as X.X.0 versions
+        oge_data_version = (
+            f"{version('oge').split('.')[0]}.{version('oge').split('.')[1]}.0"
+        )
+        return f"s3://open-grid-emissions/{oge_data_version}/open_grid_emissions_data"
 
 
 def top_folder(rel=""):
