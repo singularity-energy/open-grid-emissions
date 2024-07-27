@@ -17,7 +17,7 @@ def get_data_store():
         oge_data_version = (
             f"{version('oge').split('.')[0]}.{version('oge').split('.')[1]}.0"
         )
-        return f"s3://open-grid-emissions/v{oge_data_version}/open_grid_emissions_data"
+        return f"s3://open-grid-emissions/open_grid_emissions_data/v{oge_data_version}"
 
 
 def top_folder(rel=""):
