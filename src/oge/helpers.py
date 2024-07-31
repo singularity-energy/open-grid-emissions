@@ -163,6 +163,11 @@ def create_plant_attributes_table(
     ]
     plant_attributes = plant_attributes[new_column_ordering]
 
+    # test for missing values
+    validation.test_for_missing_values(
+        plant_attributes, skip_cols=["plant_retirement_date"]
+    )
+
     return plant_attributes
 
 
@@ -432,6 +437,15 @@ def add_plant_operating_and_retirement_dates(df: pd.DataFrame) -> pd.DataFrame:
 def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
     """Adds nameplate capacity to input data frame.
 
+    Includes multiple steps for ensuring complete data for capacity. These values will
+    only be used if there is no "existing" capcity reported for a year.
+    1. Some plants report data before reporting to EIA-860. In this case, find the
+        earliest reported capacity for the plant and fill missing capacity values.
+    2. Sometimes plants report data before they are operational. Find the capacity of
+        any proposed generators and use this to fill missing capacity values.
+    3. Sometimes plants report data after they have retired. In this case, find the
+        capacity of all generators in the latest year in which the plant was operating.
+
     Args:
         year (int): a four-digit year.
         df (pd.DataFrame): table with a 'plant_id_eia' column.
@@ -449,6 +463,7 @@ def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
             "report_date",
             "capacity_mw",
             "operational_status",
+            "generator_retirement_date",
         ],
     ).sort_values(by=["plant_id_eia", "generator_id", "report_date"], ascending=True)
 
@@ -459,10 +474,70 @@ def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
         ["plant_id_eia", "generator_id"]
     )["capacity_mw"].ffill()
 
+    # fill missing operational status with the last known status
+    generator_capacity["operational_status"] = generator_capacity.groupby(
+        ["plant_id_eia", "generator_id"]
+    )["operational_status"].ffill()
+
+    # if a generator retires in a year, change the status to existing for that year
+    generator_capacity.loc[
+        generator_capacity["generator_retirement_date"]
+        >= generator_capacity["report_date"],
+        "operational_status",
+    ] = "existing"
+
+    # find the earliest reported plant capacity - used for filling missing values later
+    # only keep the earliest year of reported data
+    earliest_plant_capacity = generator_capacity.drop_duplicates(
+        subset=["plant_id_eia", "generator_id"], keep="first"
+    )
+    # only keep capacities for generators reported in the earliest year
+    earliest_plant_capacity = earliest_plant_capacity[
+        earliest_plant_capacity["report_date"]
+        == earliest_plant_capacity.groupby(["plant_id_eia", "generator_id"])[
+            "report_date"
+        ].transform("min")
+    ].reset_index()
+    # calculate the plant capacity
+    earliest_plant_capacity = (
+        earliest_plant_capacity.groupby("plant_id_eia")["capacity_mw"]
+        .sum()
+        .reset_index()
+    )
+
+    # remove any years after the current year
+    generator_capacity = generator_capacity[
+        generator_capacity["report_date"].dt.year <= year
+    ]
+
+    # get all proposed generators in the current year
+    proposed_plant_capacity = (
+        generator_capacity[
+            (generator_capacity["operational_status"] == "proposed")
+            & (generator_capacity["report_date"].dt.year == year)
+        ]
+        .groupby(["plant_id_eia"])["capacity_mw"]
+        .sum()
+        .reset_index()
+    )
+
     # Only consider generators that are existing (operating, standby, etc.)
     generator_capacity = generator_capacity[
         generator_capacity["operational_status"] == "existing"
     ]
+
+    # get the total plant capacity in the year when the plant was most recently operating
+    latest_plant_capacity = (
+        generator_capacity[
+            generator_capacity["report_date"]
+            == generator_capacity.groupby(["plant_id_eia", "generator_id"])[
+                "report_date"
+            ].transform("max")
+        ]
+        .groupby(["plant_id_eia"])["capacity_mw"]
+        .sum()
+        .reset_index()
+    )
 
     # keep only the specified year of data
     generator_capacity = generator_capacity[
@@ -474,6 +549,39 @@ def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
         .sum()
         .round(2)
         .reset_index()
+    )
+
+    # if there are any plants that are missing from plant_capacity because they've
+    # already retired, add the most recent capacity for that plant
+    plant_capacity = pd.concat(
+        [
+            plant_capacity,
+            latest_plant_capacity[
+                ~latest_plant_capacity["plant_id_eia"].isin(
+                    list(plant_capacity.plant_id_eia.unique())
+                )
+            ],
+            proposed_plant_capacity[
+                ~proposed_plant_capacity["plant_id_eia"].isin(
+                    list(plant_capacity.plant_id_eia.unique())
+                )
+                & ~proposed_plant_capacity["plant_id_eia"].isin(
+                    list(latest_plant_capacity.plant_id_eia.unique())
+                )
+            ],
+            earliest_plant_capacity[
+                ~earliest_plant_capacity["plant_id_eia"].isin(
+                    list(plant_capacity.plant_id_eia.unique())
+                )
+                & ~earliest_plant_capacity["plant_id_eia"].isin(
+                    list(latest_plant_capacity.plant_id_eia.unique())
+                )
+                & ~earliest_plant_capacity["plant_id_eia"].isin(
+                    list(proposed_plant_capacity.plant_id_eia.unique())
+                )
+            ],
+        ],
+        axis=0,
     )
 
     df = df.merge(plant_capacity, how="left", on=["plant_id_eia"], validate="1:1")
