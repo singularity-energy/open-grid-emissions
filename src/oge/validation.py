@@ -296,20 +296,20 @@ def test_for_negative_values(df, year, small: bool = False):
                 " Found negative values during small run, these may be fixed with full data"
             )
         else:
-            logger.warning("The above negative values are errors and must be fixed!")
+            logger.error("The above negative values are errors and must be fixed!")
     else:
         logger.info("OK")
     return negative_test
 
 
-def test_for_missing_values(df, small: bool = False):
+def test_for_missing_values(df, small: bool = False, skip_cols: list = []):
     """Checks that there are no unexpected missing values in the output data."""
     logger.info("Checking that no values are missing...  ")
     missing_warnings = 0
 
     for column in df.columns:
         missing_test = df[df[column].isna()]
-        if not missing_test.empty:
+        if not missing_test.empty and column not in skip_cols:
             logger.warning(
                 f"There are {len(missing_test)} records where {column} is missing."
             )
@@ -320,7 +320,7 @@ def test_for_missing_values(df, small: bool = False):
                 "Found missing values during small run, these may be fixed with full data"
             )
         else:
-            logger.warning("The above missing values are errors and must be fixed")
+            logger.error("The above missing values are errors and must be fixed")
     else:
         logger.info("OK")
     return missing_test
