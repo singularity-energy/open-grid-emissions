@@ -3,6 +3,7 @@ stoplight-id: pipeline_overview
 ---
 
 # Overview of the data pipeline
+The pipeline is run for each year following several steps that are enumerated below. Note that these steps will differ depending on the year that is processed. The reason is that complete EIA-930 data is available in 2019 onward, which is used to assign an hourly profile to non-CEMS data.
 
 1. **Download data**: Download data, including CEMS (via PUDL), EIA Forms 860, 861, and 923 (raw data and via PUDL), EPA-EIA Power Sector Data Crosswalk, EIA-930 data
 2. **Identify subplants**: Identify distinct “subplants” which represent interconnected groupings of units, generators, and boilers within a plant using graph analysis, based on relationships reported in the power sector data crosswalk and the EIA-860 boiler-generator association table. ([methodology](../Methodology/Data%20Aggregation/Subplant%20Aggregation.md))
@@ -38,6 +39,9 @@ stoplight-id: pipeline_overview
     3. Apply GTN conversion factors hierarchically, using the best available factor for each subplant
 10. **Adjust CEMS emissions**: Calculate hourly CHP-adjusted emissions for the CEMS data ([methodology](../Methodology/Emissions%20Calculations/Adjusting%20Emissions%20for%20CHP.md)), as well as CO2e emissions ([methodology](../Methodology/Emissions%20Calculations/GHG%20Emissions.md))
 11. **Export monthly and annual plant data:** Export plant-level results at the monthly and annual aggregations
+
+For years 2019 onward:
+
 12. **Clean the EIA-930 data** using a physics-based reconciliation algorithm that ensure that reported data respects conservation of energy laws ([methodology](../Methodology/Data%20Cleaning/EIA-930%20Data.md))
 13. **Calculate residual net generation profiles**: Estimate hourly profiles for monthly EIA data that is not reported to CEMS using EIA-930 data ([methodology](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md))
     1. For BAs where wind and solar data is missing, impute profiles based on the wind and solar profiles in neighboring BAs that are in the same time zone. For all other BA-fuels that are missing, assume a flat profile
@@ -47,3 +51,7 @@ stoplight-id: pipeline_overview
 15. **Combine hourly plant-level data** from all sources (CEMS, partial CEMS, and shaped EIA-923) and export hourly plant-level results (currently, shaped EIA-923 data is aggregated to the BA-fuel level instead of individual plants to prevent false precision and keep data size reasonable)
 16. **Export power sector (BA-fuel level) data**
 17. **Calculate and export consumed emission factors** based on hourly interchange between BAs reported in EIA-930 ([methodology](../Methodology/Emissions%20Calculations/Consumption-based%20Emissions.md))
+
+For years 2005-2018:
+
+12. **Aggregate CEMS data to BA-fuel and write power sector results**
