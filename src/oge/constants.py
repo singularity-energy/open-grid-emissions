@@ -6,7 +6,10 @@ earliest_data_year = 2005
 # earliest_validated_year is the earliest data for which OGE data is currently published
 # and validated. The pipeline could be run for data prior to this year, but it has not
 # been validated
-earliest_validated_year = 2019
+earliest_validated_year = 2005
+# earliest_hourly_data_year is the most recent year for which OGE can produce hourly
+# profiles
+earliest_hourly_data_year = 2019
 # latest_validated_year is the most recent year for which OGE data has been published
 latest_validated_year = 2022
 
@@ -43,6 +46,7 @@ class ConversionFactors(float):
     """Defines conversion factors between common units."""
 
     lb_to_kg = 0.453592
+    kgal_to_barrel = 23.8095
     mmbtu_to_GJ = 1.055056
     mwh_to_mmbtu = 3.412142
     short_ton_to_lbs = 2000

@@ -17,7 +17,7 @@ There are two different types of emissions factors: generated and consumed.
 
 Generated emission factors describe the emissions intensity of generated electricity injected into the grid, and are calculated as
 
-$$ emission\_mass\_lb \over net\_generation\_mwh $$
+emission (in lb) &frasl; net generation (in MWh)
 
 Consumed emission factors describe the emissions intensity of electricity consumed in a region, which is a mix of the electricity generated in a region and the electricity imported into the region. More details about this methodology can be found [here](../Emissions%20Calculations/Consumption-based%20Emissions.md).
 

@@ -8,7 +8,11 @@ from oge.column_checks import get_dtypes
 from oge.helpers import create_plant_ba_table
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
-from oge.constants import CLEAN_FUELS, earliest_validated_year, latest_validated_year
+from oge.constants import (
+    CLEAN_FUELS,
+    earliest_data_year,
+    latest_validated_year,
+)
 
 logger = get_logger(__name__)
 
@@ -18,27 +22,27 @@ logger = get_logger(__name__)
 
 
 def validate_year(year):
-    """Returns a warning if the year specified is not known to work with the pipeline."""
+    """Raises a warning if the year specified is not known to work with the pipeline.
 
-    if year < earliest_validated_year:
-        year_warning = f"""
-        ################################################################################
-        The data pipeline has only been validated to work for years {earliest_validated_year}-{latest_validated_year}.
-        Running the pipeline for {year} may cause it to fail or may lead to poor-quality
-        or anomalous results. To check on the progress of validating additional years of
-        data, see: https://github.com/singularity-energy/open-grid-emissions/issues/117
-        ################################################################################
-        """
-        logger.warning(year_warning)
-    elif year > latest_validated_year:
-        year_warning = f"""
-        ################################################################################
-        The most recent available year of input data is currently {latest_validated_year}.
-        Input data for {year} should be available from the EIA in Fall {year+1} and we will
-        work to validate that the pipeline works with {year} data as soon as possible
-        after the data is released.
-        ################################################################################
-        """
+    Args:
+        year (_type_): a four-digit year.
+
+    Raises:
+        UserWarning: if `year` is not supported.
+    """
+    start = earliest_data_year
+    end = latest_validated_year
+    year_warning = f"""
+    #########################################################################
+    Invalid year. The data pipeline has only been validated to work for years 
+    {start}-{end}. 
+    
+    Input data for {end+1} should be available from the EIA in Fall {end+2} and we 
+    will work to validate that the pipeline works with {end+1} data as soon as 
+    possible after the data is released.
+    #########################################################################
+    """
+    if year < earliest_data_year or year > latest_validated_year:
         raise UserWarning(year_warning)
 
 
@@ -49,7 +53,7 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     We use np.isclose() to identify any values that are off by more than 1e-9% different
     from the total input generation or fuel.
     """
-    gf = load_data.load_pudl_table("denorm_generation_fuel_combined_eia923", year)
+    gf = load_data.load_pudl_table("out_eia923__generation_fuel_combined", year)
     plant_total_gf = gf.groupby(["plant_id_eia", "energy_source_code"], dropna=False)[
         [
             "net_generation_mwh",
@@ -178,7 +182,8 @@ def flag_possible_primary_fuel_mismatches(plant_primary_fuel, year):
     for esc_column in ["plant_primary_fuel_from_capacity_mw", "plant_primary_fuel"]:
         # load the fuel category table
         energy_source_groups = pd.read_csv(
-            reference_table_folder("energy_source_groups.csv"), dtype=get_dtypes()
+            reference_table_folder("energy_source_groups.csv"),
+            dtype=get_dtypes(),
         )[["energy_source_code", "fuel_category_eia930"]].rename(
             columns={
                 "energy_source_code": esc_column,
@@ -291,20 +296,20 @@ def test_for_negative_values(df, year, small: bool = False):
                 " Found negative values during small run, these may be fixed with full data"
             )
         else:
-            logger.warning("The above negative values are errors and must be fixed!")
+            logger.error("The above negative values are errors and must be fixed!")
     else:
         logger.info("OK")
     return negative_test
 
 
-def test_for_missing_values(df, small: bool = False):
+def test_for_missing_values(df, small: bool = False, skip_cols: list = []):
     """Checks that there are no unexpected missing values in the output data."""
     logger.info("Checking that no values are missing...  ")
     missing_warnings = 0
 
     for column in df.columns:
         missing_test = df[df[column].isna()]
-        if not missing_test.empty:
+        if not missing_test.empty and column not in skip_cols:
             logger.warning(
                 f"There are {len(missing_test)} records where {column} is missing."
             )
@@ -315,7 +320,7 @@ def test_for_missing_values(df, small: bool = False):
                 "Found missing values during small run, these may be fixed with full data"
             )
         else:
-            logger.warning("The above missing values are errors and must be fixed")
+            logger.error("The above missing values are errors and must be fixed")
     else:
         logger.info("OK")
     return missing_test
@@ -611,14 +616,17 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
 
 
 def identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio, year):
-    """Identifies when net generation for a plant is substantially higher than gross
-    generation."""
+    """Identifies when net generation for a plant is substantially higher or lower
+    than gross generation."""
 
-    anomalous_gtn = annual_plant_ratio[annual_plant_ratio["annual_plant_ratio"] > 1.25]
+    anomalous_gtn = annual_plant_ratio[
+        (annual_plant_ratio["annual_plant_ratio"] > 1.25)
+        | (annual_plant_ratio["annual_plant_ratio"] < 0.5)
+    ]
 
     if len(anomalous_gtn) > 0:
         logger.warning(
-            "The following plants have annual net generation that is >125% of annual gross generation:"
+            "The following plants have annual net generation that is >125% or <50% of annual gross generation:"
         )
         logger.warning(
             "\n"
@@ -726,6 +734,15 @@ def test_emissions_adjustments(df, year):
 
     pollutants = ["co2", "ch4", "n2o", "co2e", "nox", "so2"]
 
+    columns_to_show = [
+        "report_date",
+        "plant_id_eia",
+        "generator_id",
+        "emissions_unit_id_epa",
+        "prime_mover_code",
+        "energy_source_code",
+    ]
+
     bad_adjustment_count = 0
 
     for pollutant in pollutants:
@@ -739,14 +756,10 @@ def test_emissions_adjustments(df, year):
             )
             logger.warning(
                 bad_adjustment[
-                    [
-                        "report_date",
-                        "plant_id_eia",
-                        "generator_id",
-                        "prime_mover_code",
-                        "energy_source_code",
+                    [col for col in columns_to_show if col in bad_adjustment.columns]
+                    + [
                         f"{pollutant}_mass_lb",
-                        f"{pollutant}_mass_lb_for_electricity",
+                        f"{pollutant}_mass_lb_adjusted",
                     ]
                 ]
                 .merge(
@@ -769,12 +782,8 @@ def test_emissions_adjustments(df, year):
             )
             logger.warning(
                 bad_adjustment[
-                    [
-                        "report_date",
-                        "plant_id_eia",
-                        "generator_id",
-                        "prime_mover_code",
-                        "energy_source_code",
+                    [col for col in columns_to_show if col in bad_adjustment.columns]
+                    + [
                         f"{pollutant}_mass_lb",
                         f"{pollutant}_mass_lb_adjusted",
                     ]
@@ -802,14 +811,10 @@ def test_emissions_adjustments(df, year):
             )
             logger.warning(
                 bad_adjustment[
-                    [
-                        "report_date",
-                        "plant_id_eia",
-                        "generator_id",
-                        "prime_mover_code",
-                        "energy_source_code",
-                        f"{pollutant}_mass_lb_for_electricity",
-                        f"{pollutant}_mass_lb_for_electricity_adjusted",
+                    [col for col in columns_to_show if col in bad_adjustment.columns]
+                    + [
+                        f"{pollutant}_mass_lb",
+                        f"{pollutant}_mass_lb_adjusted",
                     ]
                 ]
                 .merge(
@@ -1135,7 +1140,7 @@ def check_for_complete_monthly_timeseries(
     """
 
     input_data_inventory = pd.read_csv(
-        outputs_folder(f"{year}/input_data_inventory_{year}.csv")
+        outputs_folder(f"{year}/input_data_inventory_{year}.csv.zip")
     )
 
     # count the number of report_dates and non-missing data in each group
@@ -1526,7 +1531,9 @@ def identify_reporting_frequency(eia923_allocated, year):
 
     # load data about the respondent frequency for each plant and merge into the EIA-923 data
     plant_frequency = load_data.load_pudl_table(
-        "plants_eia860", year, columns=["plant_id_eia", "reporting_frequency_code"]
+        "out_eia__yearly_plants",
+        year,
+        columns=["plant_id_eia", "reporting_frequency_code"],
     )
     plant_frequency["reporting_frequency_code"] = plant_frequency[
         "reporting_frequency_code"
@@ -1712,7 +1719,7 @@ def summarize_cems_measurement_quality(cems):
 
 def identify_cems_gtn_method(cems):
     method_summary = cems.groupby("gtn_method", dropna=False)[
-        "gross_generation_mwh"
+        "net_generation_mwh"
     ].sum()
     method_summary = method_summary / method_summary.sum(axis=0)
     method_summary = method_summary.reset_index()
@@ -2076,7 +2083,7 @@ def test_for_missing_data(df, columns_to_test):
 def test_for_missing_incorrect_prime_movers(df, year):
     # cehck for incorrect PM by comparing to EIA-860 data
     pms_in_eia860 = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=["plant_id_eia", "generator_id", "prime_mover_code"],
     )
@@ -2468,7 +2475,7 @@ def identify_plants_missing_from_our_calculations(
 
     # see if any of these plants are retired
     generator_status = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=[
             "plant_id_eia",
@@ -2495,7 +2502,7 @@ def identify_plants_missing_from_egrid(egrid_plant, annual_plant_results):
     )
 
     plant_names = load_data.load_pudl_table(
-        "plants_entity_eia", columns=["plant_id_eia", "plant_name_eia"]
+        "core_eia__entity_plants", columns=["plant_id_eia", "plant_name_eia"]
     )
     missing_from_egrid = annual_plant_results[
         annual_plant_results["plant_id_egrid"].isin(PLANTS_MISSING_FROM_EGRID)
@@ -2532,7 +2539,7 @@ def segment_plants_by_known_issues(
     ] = 1
 
     # fuel cells
-    gens_eia860 = load_data.load_pudl_table("generators_eia860", year)
+    gens_eia860 = load_data.load_pudl_table("core_eia860__scd_generators", year)
     PLANTS_WITH_FUEL_CELLS = list(
         gens_eia860.loc[
             gens_eia860["prime_mover_code"] == "FC", "plant_id_eia"
@@ -2575,12 +2582,12 @@ def segment_plants_by_known_issues(
     # identify plants that report data to the bf or gen table
     bf_reporter = list(
         load_data.load_pudl_table(
-            "boiler_fuel_eia923", year, columns=["plant_id_eia"]
+            "out_eia923__boiler_fuel", year, columns=["plant_id_eia"]
         ).unique()
     )
     gen_reporter = list(
         load_data.load_pudl_table(
-            "generation_eia923", year, columns=["plant_id_eia"]
+            "out_eia923__generation", year, columns=["plant_id_eia"]
         ).unique()
     )
     annual_plant_results_segmented["flag_bf_gen_reporter"] = 0
@@ -2594,7 +2601,7 @@ def segment_plants_by_known_issues(
 
     # identify plants with proposed generators
     status = load_data.load_pudl_table(
-        "generators_eia860",
+        "core_eia860__scd_generators",
         year,
         columns=["plant_id_eia", "generator_id", "operational_status"],
     )
@@ -2698,7 +2705,7 @@ def identify_potential_missing_fuel_in_egrid(year, egrid_plant, cems):
         "prime_mover_code",
     ]
     gf = load_data.load_pudl_table(
-        "denorm_generation_fuel_combined_eia923",
+        "out_eia923__generation_fuel_combined",
         year,
         columns=IDX_PM_ESC
         + [

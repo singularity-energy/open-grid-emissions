@@ -5,12 +5,13 @@ channels:
 dependencies:
   - cvxopt
   - cvxpy
+  - dask<2024.3.0
   - osqp
   - ipykernel
   - notebook
   - numpy
   - openpyxl
-  - pandas>=2.0
+  - pandas
   - pip
   - plotly
   - pyarrow
@@ -24,6 +25,8 @@ dependencies:
   - sqlalchemy
   - statsmodels
   - coloredlogs # used for prettier logging
+  - timezonefinder
+  - geopy
 
   - pip:
       # --editable ../pudl #NOTE: this is for development use

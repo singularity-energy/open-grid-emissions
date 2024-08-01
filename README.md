@@ -50,7 +50,7 @@ independently of the installation method you chose.
 A more detailed walkthrough of these steps can be found below in the "Development Setup" section.
 
 ## Data Availability and Release Schedule
-The latest release includes data for year 2019-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability), and to expand the historical coverage of the data.
+The latest release includes data for year 2005-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability).
 
 Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2022 data was published in September 2023). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
 
@@ -99,9 +99,9 @@ Notebooks are organized into five directories based on their purpose
 All manual reference tables are stored in `src/oge/reference_tables`.
 
 All files downloaded/created as part of the pipeline are stored in your HOME directory (e.g. users/user.name/):
-- `HOME/open_grid_emissions_data/downloads` contains all files that are downloaded by functions in `load_data`
-- `HOME/open_grid_emissions_data/outputs` contains intermediate outputs from the data pipeline... any files created by our code that are not final results
-- `HOME/open_grid_emissions_data/results` contains all final output files that will be published
+- `$HOME/open_grid_emissions_data/downloads` contains all files that are downloaded by functions in `load_data`
+- `$HOME/open_grid_emissions_data/outputs` contains intermediate outputs from the data pipeline... any files created by our code that are not final results
+- `$HOME/open_grid_emissions_data/results` contains all final output files that will be published
 
 ## Importing OGE as a Package in your Project
 OGE is not yet available on PyPi but can be installed from GitHub. For example, this can be done by adding `oge = {git="https://github.com/singularity-energy/open-grid-emissions.git"}` to your Pipfile if you are using `pipenv` for your project.
@@ -197,13 +197,13 @@ If you ever need to remove and reinstall the environment, run `pipenv --rm` from
 
 ### Running the complete data pipeline
 If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src/oge`, and run the following (replacing 2022 with whichever year you want to run):
-```
+```bash
 python data_pipeline.py --year 2022
 ```
 
 ### Keeping the code updated
 From time to time, the code will be updated on GitHub. To ensure that you are keeping your local version of the code up to date, open git bash and follow these steps:
-```
+```bash
 # change the directory to where ever your local git repository is saved
 # after hitting enter, it should show the name of the git branch (e.g. "(main)")
 cd GitHub/open-grid-emissions  
@@ -249,6 +249,6 @@ If you plan on contributing edits to the codebase that will be merged into the m
 - Functions should include descriptive docstrings (using the Google style guide https://google.github.io/styleguide/pyguide.html#383-functions-and-methods), inline comments should be used to describe individual steps, and variable names should be made descriptive (e.g. `cems_plants_with_missing_co2_data` not `cems_missing` or `cpmco2`)
 - All pandas merge operations should include the `validate` parameter to ensure that unintentional duplicate entries are not created (https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.merge.html)
 - All pandas groupby operations should include the `dropna=False` parameter so that data with missing groupby keys are not unintentionally dropped from the data.
-- All code should be formatted using `black`
+- All code should be formatted using `ruff`, running `ruff format` in the root of the repository will format all files according to the set of configurations enclosed in the `pyproject.toml` file.
 - Clear all outputs from notebooks before committing your work.
-- Any manual changes to reported categorical data, conversion factors, or manual data mappings should be loaded from a .csv file `data/manual` rather than stored in a dictionary or variable in the code.
+- Any manual changes to reported categorical data, conversion factors, or manual data mappings should be loaded from a .csv file `src/oge/reference_tables` rather than stored in a dictionary or variable in the code.

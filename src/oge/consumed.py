@@ -112,7 +112,7 @@ def get_average_emission_factors(prefix: str, year: int):
     Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
-        outputs_folder(f"{prefix}annual_generation_averages_by_fuel_{year}.csv"),
+        outputs_folder(f"{prefix}annual_generation_averages_by_fuel_{year}.csv.zip"),
         index_col="fuel_category",
     )
     efs = {}

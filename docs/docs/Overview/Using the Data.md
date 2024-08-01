@@ -6,9 +6,9 @@ stoplight-id: using_the_data
 
 ## Data Availability
 
-The latest release includes data for year 2019-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)), and to expand the historical coverage of the data.
+The latest release includes data for year 2005-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)).
 
-Currently, 2019 is the earliest available year because it is the first year for which complete EIA-930 data is available (which is used to assign an hourly profile to non-CEMS data). You can track progress on integrating pre-2019 data [here](https://github.com/singularity-energy/open-grid-emissions/issues/117)
+Currently, 2005 is the earliest available year. Note that only monthly and annual data are available for year 2005-2018 because 2019 is the first year for which complete EIA-930 data is available (which is used to assign an hourly profile to non-CEMS data).
 
 ## Data Release Schedule
 
@@ -63,17 +63,25 @@ This table summarizes static attributes of each plant in the dataset.
 
 Field Name | Type | Description | Source
 ---------|----------|---------|---------
- plant_id_eia | integer | The unique six-digit facility identification number, also called an ORISPL, assigned by the Energy Information Administration. | EIA-860
- plant_primary_fuel | string | two- or three-character energy_source_code of the primary fuel consumed by the plant in a year | [Calculated](../Methodology/Data%20Aggregation/Plant%20Primary%20Fuel.md)
- data_availability | string | identifies whether this plant only reports to EIA, only reports to CEMS, or reports to both EIA and CEMS | Derived from EIA and CEMS data
- ba_code | string | three- or four-character code representing the commercial balancing authority with which the plant is associated | EIA-860
- ba_code_physical | string | three- or four-character code representing the commercial balancing authority with which the plant is associated | [Inferred from EIA-860](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md)
- state | string | Two-letter state abbreviation where the plant is physically located | EIA-860
- distribution_flag | boolean | Indicates whether a plant is connected to the distribution grid (<= 60kV interconnection) | EIA-860
- fuel_category | string | named fuel category associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/energy_source_groups.csv)
- fuel_category_eia930 | string | named fuel category used by EIA-930 associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/energy_source_groups.csv)
- timezone | string | IANA timezone name for the local timezone where the plant is physically located | EIA-860
- shaped_plant_id | integer | A synthetic plant id code used when aggregating plants to the ba-fuel level. If blank, this plant is not aggregated | [See fleet shaping method](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md)
+plant_id_eia | integer | The unique six-digit facility identification number, also called an ORISPL, assigned by the Energy Information Administration | EIA-860
+plant_name_eia | string | Plant name | EIA-860
+capacity_mw | float | Total installed (nameplate) capacity, in megawatts | EIA-860
+plant_primary_fuel | string | two- or three-character energy_source_code of the primary fuel consumed by the plant in a year | [Calculated](../Methodology/Data%20Aggregation/Plant%20Primary%20Fuel.md)
+fuel_category | string | named fuel category associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/energy_source_groups.csv)
+fuel_category_eia930 | string | named fuel category used by EIA-930 associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/energy_source_groups.csv)
+state | string | Two-letter state abbreviation where the plant is physically located | EIA-860
+county | string | County name | EIA-860
+city | string | City name | EIA-860
+ba_code | string | Three- or four-character code representing the commercial balancing authority with which the plant is associated | EIA-860
+ba_code_physical | string | three- or four-character code representing the commercial balancing authority with which the plant is associated | [Inferred from EIA-860](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md)
+latitude | float | latitude of the plant (in deg.) with Equator as zero point | EIA-860
+longitude | float | longitude of the plant (in deg.) measured eastward from Greenwich, UK | EIA-860
+plant_operating_date | date | Date the plant began commercial operation | EIA-860
+plant_retirement_date | date | Date of the scheduled or effected retirement of the plant | EIA-860
+distribution_flag | boolean | Indicates whether a plant is connected to the distribution grid (<= 60kV interconnection) | EIA-860
+timezone | string | IANA timezone name for the local timezone where the plant is physically located | EIA-860
+data_availability | string | identifies whether this plant only reports to EIA, only reports to CEMS, or reports to both EIA and CEMS | Derived from EIA and CEMS data
+shaped_plant_id | integer | A synthetic plant id code used when aggregating plants to the ba-fuel level. If blank, this plant is not aggregated | [See fleet shaping method](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md)
 
 ### Plant Metadata Table
 
