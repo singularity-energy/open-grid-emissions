@@ -85,8 +85,8 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,notes
 61241,CT2,61241,VC-2,Manual fuzzy match of generator ID
 61242,CT1,61242,VP-1,Manual fuzzy match of generator ID
 61242,CT2,61242,VP-2,Manual fuzzy match of generator ID
-55641,CT-03,55641,CTG3,Manual fuzzy match of generator ID
-55641,CT-04,55641,CTG4,Manual fuzzy match of generator ID
+55641,CT-03,64020,CTG3,Proposed plant number changed when generator became operational
+55641,CT-04,64020,CTG4,Proposed plant number changed when generator became operational
 568,BHB5,568,501,Matched based on total net generation
 568,BHB5,568,502,Matched based on total net generation
 60925,CT1,60925,1A,Matched based on generator ID and prime mover code
