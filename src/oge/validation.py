@@ -12,6 +12,7 @@ from oge.constants import (
     CLEAN_FUELS,
     earliest_data_year,
     latest_validated_year,
+    current_early_release_year,
 )
 
 logger = get_logger(__name__)
@@ -42,6 +43,10 @@ def validate_year(year):
     possible after the data is released.
     #########################################################################
     """
+    if year == current_early_release_year:
+        raise UserWarning(
+            "To run the pipeline with Early Release data, change `constants.latest_validated_year` to match `constants.current_early_release_year`"
+        )
     if year < earliest_data_year or year > latest_validated_year:
         raise UserWarning(year_warning)
 

@@ -94,7 +94,6 @@ def main(args):
         raise OSError(
             "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
         )
-
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
     path_prefix += "flat/" if args.flat else ""
@@ -142,6 +141,7 @@ def main(args):
     logger.info("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(source="aws")
+    logger.info(f"Using {os.getenv('PUDL_BUILD')} PUDL build")
     # eGRID
     download_data.download_egrid_files()
     # EIA-930
