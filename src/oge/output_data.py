@@ -9,7 +9,12 @@ import oge.column_checks as column_checks
 import oge.validation as validation
 from oge.filepaths import outputs_folder, results_folder, data_folder
 from oge.logging_util import get_logger
-from oge.constants import ConversionFactors
+from oge.constants import (
+    ConversionFactors,
+    earliest_validated_year,
+    earliest_hourly_data_year,
+    latest_validated_year,
+)
 
 logger = get_logger(__name__)
 
@@ -59,54 +64,113 @@ def prepare_files_for_upload(years: list):
     """
 
     for year in years:
-        zip_results_for_s3(year)
+        zip_results_for_s3()
         zip_data_for_zenodo(year)
 
 
-def zip_results_for_s3(year: int):
+def zip_results_for_s3():
     """Zips results directories that contain more than a single file for hosting on an
     Amazon S3 bucket.
 
-
-    Args:
-        year (int): a four-digit year indicating when the data were taken.
     """
     os.makedirs(data_folder("s3_upload"), exist_ok=True)
-    for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
-        for aggregation in ["hourly", "monthly", "annual"]:
+    historical_years = list(range(earliest_validated_year, earliest_hourly_data_year))
+    year_range = f"{earliest_validated_year}-{earliest_hourly_data_year-1}"
+    for data_type in ["power_sector_data", "plant_data"]:
+        for aggregation in ["monthly", "annual"]:
             for unit in ["metric_units", "us_units"]:
-                if (
-                    (data_type == "plant_data")
-                    & (aggregation == "hourly")
-                    & (unit == "metric_units")
-                ):
-                    # skip the metric hourly plant data since we do not create those outputs
-                    pass
-                else:
-                    logger.info(
-                        f"zipping {year}_{data_type}_{aggregation}_{unit} for s3"
+                logger.info(
+                    f"zipping {year_range}_{data_type}_{aggregation}_{unit} for s3"
+                )
+                for year in historical_years:
+                    # copy the annual file to a combined folder
+                    shutil.copytree(
+                        (results_folder(f"{year}/{data_type}/{aggregation}/{unit}")),
+                        data_folder(
+                            f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}/{year}"
+                        ),
                     )
-                    folder = (
-                        f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
+                # now create an archive
+                shutil.make_archive(
+                    data_folder(
+                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
+                    ),
+                    "zip",
+                    root_dir=data_folder(
+                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
+                    ),
+                )
+                shutil.rmtree(
+                    data_folder(
+                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
                     )
-                    shutil.make_archive(
-                        f"{data_folder()}/s3_upload/{year}_{data_type}_{aggregation}_{unit}",
-                        "zip",
-                        root_dir=folder,
-                        # base_dir="",
-                    )
+                )
     # move and rename the plant attributes files
-    shutil.copy(
-        f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
-        f"{data_folder()}/s3_upload/plant_static_attributes_{year}.csv",
+    os.makedirs(
+        data_folder(f"s3_upload/{year_range}_plant_attributes"),
+        exist_ok=True,
     )
-    # archive the data quality metrics
+    for year in historical_years:
+        # data quality metrics
+        shutil.copytree(
+            (results_folder(f"{year}/data_quality_metrics")),
+            data_folder(f"s3_upload/{year_range}_data_quality_metrics/{year}"),
+        )
+
+        shutil.copy(
+            results_folder(f"{year}/plant_data/plant_static_attributes.csv"),
+            data_folder(
+                f"s3_upload/{year_range}_plant_attributes/plant_static_attributes_{year}.csv"
+            ),
+        )
     shutil.make_archive(
-        f"{data_folder()}/s3_upload/{year}_data_quality_metrics",
+        data_folder(f"s3_upload/{year_range}_data_quality_metrics"),
         "zip",
-        root_dir=f"{results_folder()}/{year}/data_quality_metrics",
-        # base_dir="",
+        root_dir=data_folder(f"s3_upload/{year_range}_data_quality_metrics"),
     )
+    shutil.rmtree(data_folder(f"s3_upload/{year_range}_data_quality_metrics"))
+    shutil.make_archive(
+        data_folder(f"s3_upload/{year_range}_plant_attributes"),
+        "zip",
+        root_dir=data_folder(f"s3_upload/{year_range}_plant_attributes"),
+    )
+    shutil.rmtree(data_folder(f"s3_upload/{year_range}_plant_attributes"))
+    for year in range(2019, latest_validated_year + 1):
+        for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
+            for aggregation in ["hourly", "monthly", "annual"]:
+                for unit in ["metric_units", "us_units"]:
+                    if (
+                        (data_type == "plant_data")
+                        & (aggregation == "hourly")
+                        & (unit == "metric_units")
+                    ):
+                        # skip the metric hourly plant data since we do not create those outputs
+                        pass
+                    else:
+                        logger.info(
+                            f"zipping {year}_{data_type}_{aggregation}_{unit} for s3"
+                        )
+                        folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
+                        shutil.make_archive(
+                            data_folder(
+                                f"s3_upload/{year}_{data_type}_{aggregation}_{unit}"
+                            ),
+                            "zip",
+                            root_dir=folder,
+                            # base_dir="",
+                        )
+        # move and rename the plant attributes files
+        shutil.copy(
+            f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
+            data_folder(f"s3_upload/plant_static_attributes_{year}.csv"),
+        )
+        # archive the data quality metrics
+        shutil.make_archive(
+            data_folder(f"s3_upload/{year}_data_quality_metrics"),
+            "zip",
+            root_dir=f"{results_folder()}/{year}/data_quality_metrics",
+            # base_dir="",
+        )
 
 
 def zip_data_for_zenodo(year: int):
