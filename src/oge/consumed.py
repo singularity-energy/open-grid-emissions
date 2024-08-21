@@ -31,6 +31,7 @@ BA_930_INCONSISTENCY = {
     2020: ["CPLW", "EEI"],
     2021: ["CPLW", "GCPD"],
     2022: ["CPLW", "GCPD", "HST"],
+    2023: []
 }
 
 # Defined in output_data, written to each BA file
