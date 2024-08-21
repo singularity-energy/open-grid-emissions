@@ -121,25 +121,25 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
         # download the pudl sqlite database
         if not os.path.exists(downloads_folder(f"pudl/{build}/pudl.sqlite")):
             output_filepath = downloads_folder(f"pudl/{build}/pudl.sqlite")
-            if build == "stable":
-                pudl_db_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/pudl.sqlite.gz"
-                download_helper(
-                    pudl_db_url,
-                    download_path=output_filepath + ".gz",
-                    output_path=output_filepath,
-                    requires_gzip=True,
-                    should_clean=True,
-                )
-            # the nightly build is saved as a zip rather than a .gz
-            elif build == "nightly":
-                pudl_db_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/pudl.sqlite.zip"
-                download_helper(
-                    pudl_db_url,
-                    download_path=output_filepath + ".zip",
-                    output_path=output_filepath,
-                    requires_unzip=True,
-                    should_clean=True,
-                )
+            pudl_db_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/pudl.sqlite.zip"
+            download_helper(
+                pudl_db_url,
+                download_path=output_filepath + ".zip",
+                output_path=output_filepath,
+                requires_unzip=True,
+                should_clean=True,
+            )
+            # move the sqlite file from the folder it was extracted into
+            os.makedirs(downloads_folder(f"pudl/{build}/tmp"), exist_ok=True)
+            shutil.move(
+                src=(output_filepath + "/pudl.sqlite"),
+                dst=downloads_folder(f"pudl/{build}/tmp/pudl.sqlite"),
+            )
+            os.rmdir(output_filepath)
+            shutil.move(
+                downloads_folder(f"pudl/{build}/tmp/pudl.sqlite"), output_filepath
+            )
+            os.rmdir(downloads_folder(f"pudl/{build}/tmp"))
 
             # add a version file
             with open(
