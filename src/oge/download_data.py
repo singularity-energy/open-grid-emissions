@@ -9,7 +9,7 @@ import zipfile
 
 from oge.filepaths import downloads_folder, data_folder, get_pudl_build_version
 from oge.logging_util import get_logger
-from oge.constants import current_early_release_year
+from oge.constants import current_early_release_year, latest_validated_year
 
 logger = get_logger(__name__)
 
@@ -341,9 +341,12 @@ def download_raw_eia923(year: int):
         download_raw_eia_906_920(year)
     else:
         os.makedirs(downloads_folder("eia923"), exist_ok=True)
-        url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
-        if year == current_early_release_year:
+        if (year == current_early_release_year) and (
+            current_early_release_year != latest_validated_year
+        ):
             url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}er.zip"
+        else:
+            url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
         archive_url = (
             f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
         )
@@ -402,9 +405,12 @@ def download_raw_eia860(year: int):
     if year < 2005:
         raise NotImplementedError(f"We haven't tested EIA-860 for '{year}'.")
     os.makedirs(downloads_folder("eia860"), exist_ok=True)
-    url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
-    if year == current_early_release_year:
+    if (year == current_early_release_year) and (
+        current_early_release_year != latest_validated_year
+    ):
         url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}ER.zip"
+    else:
+        url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
     archive_url = (
         f"https://www.eia.gov/electricity/data/eia860/archive/xls/eia860{year}.zip"
     )

@@ -135,7 +135,9 @@ def load_cems_ids() -> pd.DataFrame:
     # duplicates before concatenating the next year to the dataframe
     cems_ids = []
     # The `constants.earliest_data_year` is 2005
-    for year in range(earliest_data_year, latest_validated_year + 1):
+    for year in range(
+        earliest_data_year, max(latest_validated_year, current_early_release_year) + 1
+    ):
         cems_id_year = pd.read_parquet(
             pudl_folder("core_epacems__hourly_emissions.parquet"),
             filters=[["year", "==", year]],
@@ -195,7 +197,10 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     # this avoids using potentially preliminary early-release data
     complete_gens = complete_gens[
         (complete_gens["report_date"].dt.year >= earliest_data_year)
-        & (complete_gens["report_date"].dt.year <= latest_validated_year)
+        & (
+            complete_gens["report_date"].dt.year
+            <= max(latest_validated_year, current_early_release_year)
+        )
     ]
 
     # for any retired gens, forward fill the most recently available unit_id_pudl to
@@ -231,7 +236,10 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     under_construction_status_codes = ["U", "V", "TS"]
     complete_gens = complete_gens[
         ~(
-            (complete_gens["report_date"].dt.year < latest_validated_year)
+            (
+                complete_gens["report_date"].dt.year
+                < max(latest_validated_year, current_early_release_year)
+            )
             & (
                 complete_gens["operational_status_code"].isin(
                     under_construction_status_codes
@@ -257,7 +265,10 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
         ~(
             (complete_gens["generator_operating_date"].isna())
             & (complete_gens["generator_retirement_date"].isna())
-            & (complete_gens["report_date"].dt.year < latest_validated_year)
+            & (
+                complete_gens["report_date"].dt.year
+                < max(latest_validated_year, current_early_release_year)
+            )
             & (complete_gens["operational_status_code"] != "TS")
         )
     ]
@@ -265,7 +276,7 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     ####################
     # merge into complete_gens and fill missing operating dates with the EIA-860 data
     generator_data_from_eia860 = load_raw_eia860_generator_dates_and_unit_ids(
-        latest_validated_year
+        max(latest_validated_year, current_early_release_year)
     )
     complete_gens = complete_gens.merge(
         generator_data_from_eia860,
@@ -307,11 +318,14 @@ def load_raw_eia860_plant_geographical_info(year: int) -> pd.DataFrame:
     """
     # load geographic information from the raw EIA-860 file to supplement missing
     # information from pudl
-    filepath = f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"
-    header_row = 1
-    if year == current_early_release_year:
+    if (year == current_early_release_year) and (
+        current_early_release_year != latest_validated_year
+    ):
         filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}_Early_Release.xlsx"
         header_row = 2
+    else:
+        filepath = f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"
+        header_row = 1
     plant_geographical_eia860 = pd.read_excel(
         downloads_folder(filepath),
         header=header_row,
@@ -362,11 +376,14 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     """
     # load operating dates from the raw EIA-860 file to supplement missing operating
     # dates from pudl
-    filepath = f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
-    header_row = 1
-    if year == current_early_release_year:
+    if (year == current_early_release_year) and (
+        current_early_release_year != latest_validated_year
+    ):
         filepath = f"eia860/eia860{year}ER/3_1_Generator_Y{year}_Early_Release.xlsx"
         header_row = 2
+    else:
+        filepath = f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
+        header_row = 1
     generator_op_dates_eia860 = pd.read_excel(
         downloads_folder(filepath),
         header=header_row,
@@ -1168,7 +1185,7 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
         )
 
     if year >= 2012:
-        if year < current_early_release_year:
+        if year <= latest_validated_year:
             # Handle filename changes across years.
             schedule_8_filename = {
                 2012: downloads_folder(
@@ -1206,7 +1223,9 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
                 ),
             }[year]
             header_row = 4
-        elif year == current_early_release_year:
+        elif (year == current_early_release_year) and (
+            current_early_release_year != latest_validated_year
+        ):
             schedule_8_filename = downloads_folder(
                 f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Early_Release.xlsx"
             )

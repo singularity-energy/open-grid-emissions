@@ -6,7 +6,11 @@ from timezonefinder import TimezoneFinder
 from urllib3.exceptions import ReadTimeoutError
 
 from oge.column_checks import get_dtypes, apply_dtypes
-from oge.constants import earliest_data_year, latest_validated_year
+from oge.constants import (
+    earliest_data_year,
+    latest_validated_year,
+    current_early_release_year,
+)
 from oge.filepaths import reference_table_folder, outputs_folder
 
 import oge.load_data as load_data
@@ -385,7 +389,7 @@ def add_plant_operating_and_retirement_dates(df: pd.DataFrame) -> pd.DataFrame:
     generator_dates = load_data.load_pudl_table(
         "out_eia__yearly_generators",
         year=earliest_data_year,
-        end_year=latest_validated_year,
+        end_year=max(latest_validated_year, current_early_release_year),
         columns=[
             "plant_id_eia",
             "generator_id",
@@ -456,7 +460,7 @@ def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
     generator_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
         year=earliest_data_year,
-        end_year=latest_validated_year,
+        end_year=max(latest_validated_year, current_early_release_year),
         columns=[
             "plant_id_eia",
             "generator_id",
@@ -687,7 +691,7 @@ def add_plant_entity(df: pd.DataFrame) -> pd.DataFrame:
         columns=["plant_id_eia", "timezone"] + eia860_info,
     )
     plants_entity_from_eia860 = load_data.load_raw_eia860_plant_geographical_info(
-        latest_validated_year
+        max(latest_validated_year, current_early_release_year)
     )
     complete_plants_entity = plants_entity.merge(
         plants_entity_from_eia860,

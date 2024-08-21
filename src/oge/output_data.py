@@ -14,6 +14,7 @@ from oge.constants import (
     earliest_validated_year,
     earliest_hourly_data_year,
     latest_validated_year,
+    current_early_release_year,
 )
 
 logger = get_logger(__name__)
@@ -135,7 +136,7 @@ def zip_results_for_s3():
         root_dir=data_folder(f"s3_upload/{year_range}_plant_attributes"),
     )
     shutil.rmtree(data_folder(f"s3_upload/{year_range}_plant_attributes"))
-    for year in range(2019, latest_validated_year + 1):
+    for year in range(2019, max(latest_validated_year, current_early_release_year) + 1):
         for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
             for aggregation in ["hourly", "monthly", "annual"]:
                 for unit in ["metric_units", "us_units"]:

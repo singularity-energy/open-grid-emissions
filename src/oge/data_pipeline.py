@@ -30,6 +30,7 @@ from oge.logging_util import get_logger, configure_root_logger
 from oge.constants import (
     TIME_RESOLUTIONS,
     latest_validated_year,
+    current_early_release_year,
     earliest_hourly_data_year,
 )
 
@@ -161,7 +162,9 @@ def main(args):
     # integrated into pudl
     download_data.download_raw_eia860(year)
     # download eia860 from the latest validated year for use in subplant identification
-    download_data.download_raw_eia860(latest_validated_year)
+    download_data.download_raw_eia860(
+        max(latest_validated_year, current_early_release_year)
+    )
     download_data.download_raw_eia923(year)
 
     # 2. Identify subplants
