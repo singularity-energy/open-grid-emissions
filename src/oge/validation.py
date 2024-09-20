@@ -12,6 +12,7 @@ from oge.constants import (
     CLEAN_FUELS,
     earliest_data_year,
     latest_validated_year,
+    current_early_release_year,
 )
 
 logger = get_logger(__name__)
@@ -40,9 +41,17 @@ def validate_year(year):
     Input data for {end+1} should be available from the EIA in Fall {end+2} and we 
     will work to validate that the pipeline works with {end+1} data as soon as 
     possible after the data is released.
+
+    If you are looking to run the pipeline with Early Release data, check that
+    this data is available and integrated into PUDL, then update 
+    `constants.current_early_release_year`
     #########################################################################
     """
-    if year < earliest_data_year or year > latest_validated_year:
+    if (year == current_early_release_year) and (year != latest_validated_year):
+        logger.warning(
+            f"Running pipeline with unvalidated Early Release data for {year}"
+        )
+    if year < earliest_data_year or year > current_early_release_year:
         raise UserWarning(year_warning)
 
 

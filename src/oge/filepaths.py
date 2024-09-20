@@ -20,6 +20,17 @@ def get_data_store():
         return f"s3://open-grid-emissions/open_grid_emissions_data/v{oge_data_version}"
 
 
+def get_pudl_build_version():
+    """get the pudl build version to access"""
+    build = os.getenv("PUDL_BUILD")
+    if build is None:
+        return "stable"
+    elif build.lower() == "stable":
+        return "stable"
+    elif build.lower() == "nightly":
+        return "nightly"
+
+
 def top_folder(rel=""):
     """Returns a path relative to the top-level repo folder. This will work regardless
     of where the function is imported or called from.
@@ -40,6 +51,12 @@ def data_folder(rel=""):
 
 def downloads_folder(rel=""):
     return os.path.join(data_folder("downloads"), rel).replace("\\", "/")
+
+
+def pudl_folder(rel=""):
+    return os.path.join(
+        downloads_folder(f"pudl/{get_pudl_build_version()}"), rel
+    ).replace("\\", "/")
 
 
 def outputs_folder(rel=""):

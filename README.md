@@ -56,6 +56,16 @@ Parts of the input data used for the Open Grid Emissions dataset is released by 
 
 Updated datasets will also be published whenever a new version of the open-grid-emissions repository is released.
 
+### Running the pipeline with early release data
+The OGE pipeline can be used to generate data using Early Release EIA data as soon as it is integrated into the PUDL nightly builds. In order to do that, `constants.current_early_release_year` must be updated to the current early release year (such that `current_early_release_year` is 1 year greater than `latest_validated_year`). Early release data is typically available from EIA in June/July of the following year, and is integrated into PUDL shortly thereafter.
+
+In addition, you will need to download and use the pudl nightly build data until the data becomes available through a stable release. To do so, you need to set your `PUDL_BUILD` environment variable to "nightly". You can do this through the command line using `set PUDL_BUILD=nightly` (for Windows), or by adding the following to the `__init__.py` file in `src/oge`:
+```python
+import os
+
+os.environ["PUDL_BUILD"] = "nightly"
+```
+
 ## Contribute
 There are many ways that you can contribute!
  - Tell us how you are using the dataset or python tools

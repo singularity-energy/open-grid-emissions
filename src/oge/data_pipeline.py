@@ -30,6 +30,7 @@ from oge.logging_util import get_logger, configure_root_logger
 from oge.constants import (
     TIME_RESOLUTIONS,
     latest_validated_year,
+    current_early_release_year,
     earliest_hourly_data_year,
 )
 
@@ -94,7 +95,6 @@ def main(args):
         raise OSError(
             "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
         )
-
     # 0. Set up directory structure
     path_prefix = "" if not args.small else "small/"
     path_prefix += "flat/" if args.flat else ""
@@ -142,6 +142,7 @@ def main(args):
     logger.info("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(source="aws")
+    logger.info(f"Using {os.getenv('PUDL_BUILD', default="stable")} PUDL build")
     # eGRID
     download_data.download_egrid_files()
     # EIA-930
@@ -161,7 +162,9 @@ def main(args):
     # integrated into pudl
     download_data.download_raw_eia860(year)
     # download eia860 from the latest validated year for use in subplant identification
-    download_data.download_raw_eia860(latest_validated_year)
+    download_data.download_raw_eia860(
+        max(latest_validated_year, current_early_release_year)
+    )
     download_data.download_raw_eia923(year)
 
     # 2. Identify subplants
