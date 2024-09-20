@@ -111,10 +111,11 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
         build (str): whether to download the "stable" or "nightly" build
 
     Raises:
+        ValueError: if `build` is neither 'stable' or 'nightly'.
         ValueError: if `source` is neither 'aws' or 'zenodo'.
     """
     if build not in ["stable", "nightly"]:
-        raise UserWarning(f"pudl build must be 'stable' or 'nightly', not {build}")
+        raise ValueError(f"pudl build must be 'stable' or 'nightly', not {build}")
     os.makedirs(downloads_folder(f"pudl/{build}"), exist_ok=True)
 
     if source == "aws":

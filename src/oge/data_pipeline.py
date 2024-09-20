@@ -142,7 +142,7 @@ def main(args):
     logger.info("1. Downloading data")
     # PUDL
     download_data.download_pudl_data(source="aws")
-    logger.info(f"Using {os.getenv('PUDL_BUILD')} PUDL build")
+    logger.info(f"Using {os.getenv('PUDL_BUILD', default="stable")} PUDL build")
     # eGRID
     download_data.download_egrid_files()
     # EIA-930
