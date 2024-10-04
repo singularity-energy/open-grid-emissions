@@ -60,9 +60,9 @@ def graph_hourly_data_by_fuel_category(
         "biomass",
         "petroleum",
         "waste",
-        "solar",
-        "wind",
         "natural_gas",
+        "wind",
+        "solar",
     ]
 
     hourly_data = hourly_data[hourly_data[fuel_category_name] != "total"]

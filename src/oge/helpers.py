@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderUnavailable
 from timezonefinder import TimezoneFinder
 from urllib3.exceptions import ReadTimeoutError
 
@@ -849,8 +850,8 @@ def get_coordinates_of_location(state: str, county: str, city: str) -> tuple[flo
     """
     if pd.isna(state):
         return np.NaN, np.NaN
-    if pd.isna(city):
-        if not pd.isna(county):
+    if pd.isna(city) | (city == "unsited"):
+        if not (pd.isna(county) | (county == "NOT IN FILE")):
             query = f"{county} county, {state}, USA"
         else:
             query = f"{state}, USA"
@@ -860,10 +861,15 @@ def get_coordinates_of_location(state: str, county: str, city: str) -> tuple[flo
     try:
         location = geolocator.geocode(query, country_codes="us")
         if location is None:
+            logger.warning(f"No location returned for {query}")
             return np.NaN, np.NaN
         else:
             return float(location.raw["lat"]), float(location.raw["lon"])
     except ReadTimeoutError:
+        logger.warning(f"ReadTimeoutError for {query}")
+        return np.NaN, np.NaN
+    except GeocoderUnavailable:
+        logger.warning(f"GeocoderUnavailable for {query}")
         return np.NaN, np.NaN
 
 
