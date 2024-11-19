@@ -3,8 +3,11 @@ AB,Agricultural Byproducts,other_biomass,other,biomass,biomass
 ANT,Anthracite Coal,coal,coal,coal,coal
 BFG,Blast Furnace Gas,natural_gas,natural_gas,other_fossil,natural_gas
 BIT,Bituminous Coal,coal,coal,coal,coal
+BU,Butane Gas,,petroleum_products,petroleum,oil,petroleum
 BLQ,Black Liquor,wood,other,biomass,biomass
+COG,Coke Oven Gas,coal,coal,coal,coal
 DFO,Distillate Fuel Oil/Diesel,petroleum_products,petroleum,oil,petroleum
+DG,Digester Gas,other_biomass,other,biomass,biomass
 GEO,Geothermal,other_renewable,other,geothermal,geothermal
 JF,Jet Fuel,petroleum_products,petroleum,oil,petroleum
 KER,Kerosene,petroleum_products,petroleum,oil,petroleum
@@ -26,6 +29,7 @@ PG,Propane Gas,petroleum_products,petroleum,gas,petroleum
 PRG,Process Gas,natural_gas,natural_gas,other,natural_gas
 PUR,Purchased Steam,other,other,other,other
 RC,Refined Coal,coal,coal,coal,coal
+RG,Refinery Gas,petroleum_products,petroleum,oil,petroleum
 RFO,Residual Fuel Oil,petroleum_products,petroleum,oil,petroleum
 SC,Coal Synfuel,coal,coal,coal,coal
 SG,Other Syngas,natural_gas,natural_gas,other_fossil,natural_gas
