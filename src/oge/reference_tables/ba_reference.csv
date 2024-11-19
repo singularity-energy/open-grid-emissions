@@ -1,6 +1,6 @@
 ba_code,ba_name,ba_category,timezone_reporting_eia930,timezone_local,us_ba,activation_date,retirement_date,ba_name_ferc,activation_date_ferc,retirement_date_ferc,source,ba_number
 AEBN,"AESC, LLC - AEBN",,,,Yes,1/1/2004,7/1/2006,,,,FERC,1
-AEC,PowerSouth Energy Cooperative,,US/Central,US/Central,Yes,1/1/2004,9/1/2021,"Alabama Electric Cooperative, Inc.",,,EIA & FERC,2
+AEC,PowerSouth Energy Cooperative,,US/Central,US/Central,Yes,1/1/2004,9/30/2021,"Alabama Electric Cooperative, Inc.",,,EIA & FERC,2
 AECI,"Associated Electric Cooperative, Inc.",,US/Central,US/Central,Yes,1/1/2004,,,,,EIA & FERC,3
 AEGL,"AESC, LLC - Gleason",,,,Yes,1/1/2004,7/1/2006,,,,FERC,4
 AELC,"AESC, LLC - Lincoln Center",,,,Yes,1/1/2004,7/1/2006,,,,FERC,5
@@ -70,7 +70,7 @@ DSK1,BridgeCo,,,,Yes,1/1/2004,7/1/2006,,,,FERC,68
 DUK,Duke Energy Carolinas,,US/Eastern,US/Eastern,Yes,1/1/2004,,Duke Energy Corporation,,,EIA & FERC,69
 EAI,"Entergy Arkansas, Inc.",,,,Yes,7/1/2013,,,,,FERC,70
 EDE,"Empire District Electric Co., The",,,,Yes,1/1/2004,4/1/2015,,,,FERC,71
-EEI,"Electric Energy, Inc.",generation_only,US/Central,US/Central,Yes,1/1/2004,2/29/2020,,,,EIA & FERC,72
+EEI,"Electric Energy, Inc.",generation_only,US/Central,US/Central,Yes,1/1/2004,5/6/2021,,,,EIA & FERC,72
 EES,Entergy,,,,Yes,1/1/2004,,,,,FERC,73
 EKPC,"East Kentucky Power Cooperative, Inc.",,,,Yes,1/1/2004,4/1/2015,,,,FERC,74
 EMBA,"Entergy Mississippi, Inc.",,,,Yes,4/1/2015,,,,,FERC,75
@@ -92,7 +92,7 @@ GRES,Great River Energy,,,,Yes,1/1/2004,,,,,FERC,90
 GRID,"Gridforce Energy Management, LLC",generation_only,US/Pacific,US/Pacific,Yes,4/1/2014,,Constellation Energy Control and Dispatch,,,EIA & FERC,91
 GRIF,"Griffith Energy, LLC",generation_only,US/Arizona,US/Arizona,Yes,10/1/2008,11/1/2023,Constellation Energy Control and Dispatch,,,EIA & FERC,92
 GRIS,Gridforce South,,US/Central,US/Central,Yes,,,,,,EIA,93
-GRMA,"Gila River Power, LLC",generation_only,US/Arizona,US/Arizona,Yes,1/1/2004,5/3/2018,Constellation Energy Control and Dispatch - Gila River,,,EIA & FERC,94
+GRMA,"Gila River Power, LLC",generation_only,US/Arizona,US/Arizona,Yes,1/1/2004,5/31/2018,Constellation Energy Control and Dispatch - Gila River,,,EIA & FERC,94
 GSOC,Georgia System Operations Corporation,,,,Yes,1/1/2004,12/31/2009,,,,FERC,95
 GTC,Georgia Transmission Corporation,,,,Yes,1/1/2005,12/31/2009,,,,FERC,96
 GVL,Gainesville Regional Utilities,,US/Eastern,US/Eastern,Yes,1/1/2004,,,,,EIA & FERC,97
@@ -141,7 +141,7 @@ NIPS,Northern Indiana Public Service Company,,,,Yes,1/1/2004,,,,,FERC,139
 NLR,"Louisiana Generating, LLC - North Little Rock",,,,Yes,1/1/2010,,,,,FERC,140
 NLSO,Newfoundland and Labrador Hydro,,,,No,7/1/2017,,,,,FERC,141
 NPPD,Nebraska Public Power District,,,,Yes,1/1/2004,4/1/2015,,,,FERC,142
-NSB,Utilities Commission of New Smyrna Beach,limited_generation,US/Eastern,US/Eastern,Yes,1/1/2004,1/8/2020,,,,EIA & FERC,143
+NSB,Utilities Commission of New Smyrna Beach,limited_generation,US/Eastern,US/Eastern,Yes,1/1/2004,1/27/2020,,,,EIA & FERC,143
 NSP,Northern States Power Company,,,,Yes,1/1/2004,,,,,FERC,144
 NSSO,Nova Scotia Power System Operator,,,,No,7/1/2013,,,,,FERC,145
 NWMT,NorthWestern Corporation,,US/Mountain,US/Mountain,Yes,1/1/2004,,NorthWestern Energy,,,EIA & FERC,146
@@ -151,7 +151,7 @@ OMLP,Constellation Energy Control and Dispatch - Osceola Municipal Light an,,,,Y
 ONT,Ontario - Independent Electricity System Operator,,,,No,3/2/2006,,,,,FERC,150
 OPPD,OPPD CA/TP,,,,Yes,1/1/2004,7/1/2016,,,,FERC,151
 OTP,Otter Tail Power Company,,,,Yes,1/1/2004,,,,,FERC,152
-OVEC,Ohio Valley Electric Corporation,,US/Eastern,US/Eastern,Yes,1/1/2004,12/1/2018,,,,EIA & FERC,153
+OVEC,Ohio Valley Electric Corporation,,US/Eastern,US/Eastern,Yes,1/1/2004,1/9/2020,,,,EIA & FERC,153
 PACE,PacifiCorp East,,US/Mountain,US/Mountain,Yes,1/1/2004,,,,,EIA & FERC,154
 PACW,PacifiCorp West,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,155
 PGE,Portland General Electric Company,,US/Pacific,US/Pacific,Yes,1/1/2004,,,,,EIA & FERC,156
