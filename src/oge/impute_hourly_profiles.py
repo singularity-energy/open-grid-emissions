@@ -1145,9 +1145,7 @@ def get_shaped_plant_id_from_ba_fuel(df):
     return df
 
 
-def aggregate_eia_data_to_ba_fuel(
-    monthly_eia_data_to_shape, plant_attributes, path_prefix
-):
+def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
     """
     Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
     using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
@@ -1194,16 +1192,29 @@ def aggregate_eia_data_to_ba_fuel(
     return eia_agg, plant_attributes
 
 
-def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles, year):
-    """
-    Uses monthly-level EIA data and assigns an hourly profile
-    Intended for calling after `monthly_eia_data_to_ba`
-    Inputs:
-        shaped_monthly_data: a dataframe that contains monthly total net generation,
-            fuel consumption, and co2 data, along with columns for report_date and ba_code
+def shape_monthly_eia_data_as_hourly(
+    monthly_eia_data_to_shape: pd.DataFrame, hourly_profiles: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Assigns an hourly profile to monthly-level EIA data.
+
+    Can be used to shape plant-level data (if monthly_eia_data_to_shape contains a
+    plant_id_eia column), or shape fleet (BA-fuel) level data.
+
+    The fuel_category column from both monthly_eia_data_to_shape and hourly_profiles
+    is used to identify the correct profile. This column can be based on any fuel
+    assignment method before passing the dataframe to this function.
+
+    Args:
+        monthly_eia_data_to_shape (pd.DataFrame): The monthly data to shape
+        hourly_profiles (pd.DataFrame): The profiles used to shape the other df
+        year (int): the data year, only used in the validation function
+
+    Returns:
+        pd.DataFrame: plant- or fleet-level hourly activity data
     """
 
     # merge the hourly profiles into each plant-month
+    # this will create a row for each hour in a month
     shaped_monthly_data = monthly_eia_data_to_shape.merge(
         hourly_profiles[
             [
@@ -1232,7 +1243,8 @@ def shape_monthly_eia_data_as_hourly(monthly_eia_data_to_shape, hourly_profiles,
         shaped_monthly_data["net_generation_mwh"] < 0, "profile_method"
     ] = "flat_negative_generation"
 
-    # shape the data
+    # shape the data by multiplying the monthly activity data by the fraction of total
+    # monthly activity occuring in that hour ("profile")
     for column in DATA_COLUMNS:
         if column in shaped_monthly_data.columns:
             shaped_monthly_data[column] = (

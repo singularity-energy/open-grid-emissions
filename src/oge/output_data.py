@@ -287,85 +287,60 @@ def output_data_quality_metrics(
         )
 
 
-def output_plant_data(
-    df: pd.DataFrame,
+def write_plant_data_to_results(
+    monthly_subplant_data: pd.DataFrame,
     year: int,
     path_prefix: str,
+    plant_part: str,
     resolution: str,
     skip_outputs: bool,
     plant_attributes: pd.DataFrame,
 ):
-    """Helper function for plant-level output. Different output will be produced for
-    real and shaped plants.
-
-    Note:
-        plant-level does not include rates, so all aggregation is summation.
+    """
+    Helper function to write subplant or plant data at the monthly or annual resolution.
 
     Args:
-        df (pd.DataFrame): plant-level data both CEMS and synthetic.
+        monthly_subplant_data (pd.DataFrame): Combined monthly data for all subplants
         year (int): a four-digit year indicating when data were taken.
         path_prefix (str): name of base directory prefixing directory where data will
             be saved.
+        plant_part (str): either "plant" or "subplant"
         resolution (str): temporal resolution. Wither 'hourly', 'monthly' or 'annual'.
         skip_outputs (bool): whether to save data or not.
         plant_attributes (pd.DataFrame): the plant static attributes table.
     """
     if not skip_outputs:
-        if resolution == "hourly":
-            # output hourly data
-            validation.validate_unique_datetimes(
-                year, df, "individual_plant_data", ["plant_id_eia"]
-            )
-            validation.check_for_complete_hourly_timeseries(
-                df, "individual_plant_data", ["plant_id_eia"], "year"
-            )
-            # Separately save real and aggregate plants
-            output_to_results(
-                df[df.plant_id_eia > 900000],
-                year,
-                "shaped_fleet_data",
-                "plant_data/hourly/",
-                path_prefix,
-                skip_outputs,
-            )
-            output_to_results(
-                df[df.plant_id_eia < 900000],
-                year,
-                "individual_plant_data",
-                "plant_data/hourly/",
-                path_prefix,
-                skip_outputs,
-            )
-        elif resolution == "monthly":
-            # output monthly data
-            output_to_results(
-                df,
-                year,
-                "plant_data",
-                "plant_data/monthly/",
-                path_prefix,
-                skip_outputs,
-            )
-        elif resolution == "annual":
-            # output annual data
-            df = (
-                df.groupby(["plant_id_eia"], dropna=False)
+        groupby_cols = ["plant_id_eia"]
+        if plant_part == "subplant":
+            groupby_cols += ["subplant_id"]
+        if resolution == "monthly":
+            groupby_cols += ["report_date"]
+
+        # group data to specified groups
+        df = (
+                monthly_subplant_data.groupby(groupby_cols, dropna=False)
                 .sum(numeric_only=True)
                 .reset_index()
             )
-            # check for anomalous looking co2 rates
-            validation.check_for_anomalous_co2_factors(
-                df, plant_attributes, year, min_threshold=10, max_threshold=15000
-            )
-            # Separately save real and aggregate plants
-            output_to_results(
-                df,
-                year,
-                "plant_data",
-                "plant_data/annual/",
-                path_prefix,
-                skip_outputs,
-            )
+        
+        # calculate emission rates
+        df = add_generated_emission_rate_columns(df)
+
+        # check for anomalous looking co2 rates
+        validation.check_for_anomalous_co2_factors(
+            df, plant_attributes, year, min_threshold=10, max_threshold=15000
+        )
+
+        # output monthly data
+        output_to_results(
+            df,
+            year,
+            f"{plant_part}_data",
+            f"plant_data/{resolution}/",
+            path_prefix,
+            skip_outputs,
+        )
+
 
 
 def convert_results(df: pd.DataFrame) -> pd.DataFrame:
@@ -420,18 +395,7 @@ def write_generated_averages(
         total_production.loc[0, "fuel_category"] = "total"
         production = pd.concat([fuel_type_production, total_production], axis=0)
 
-        # Calculate rates
-        for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
-            for emission in ["co2", "ch4", "n2o", "co2e", "nox", "so2"]:
-                production[f"generated_{emission}_rate_lb_per_mwh{emission_type}"] = (
-                    (
-                        production[f"{emission}_mass_lb{emission_type}"]
-                        / production["net_generation_mwh"]
-                    )
-                    .replace(np.inf, np.NaN)
-                    .replace(-np.inf, np.NaN)
-                    .fillna(0)
-                )
+        production = add_generated_emission_rate_columns(production)
 
         output_intermediate_data(
             production,

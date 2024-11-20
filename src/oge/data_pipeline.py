@@ -405,39 +405,41 @@ def main(args):
         args.skip_outputs,
     )
     # combine and export plant data at monthly and annual level
-    monthly_plant_data = data_cleaning.combine_plant_data(
+    monthly_subplant_data = data_cleaning.combine_monthly_subplant_data(
         cems,
         partial_cems_subplant,
         partial_cems_plant,
         monthly_eia_data_to_shape,
-        "monthly",
     )
     validation.check_for_complete_monthly_timeseries(
-        df=monthly_plant_data,
+        df=monthly_subplant_data,
         df_name="monthly_plant_data",
-        keys=["plant_id_eia"],
+        keys=["plant_id_eia", "subplant_id"],
         columns_to_check=["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"],
         year=year,
     )
-    output_data.output_plant_data(
-        monthly_plant_data,
-        year,
-        path_prefix,
-        "monthly",
-        args.skip_outputs,
-        plant_attributes,
+    # output plant and subplant data
+    for plant_part in ["subplant", "plant"]:
+        for resolution in ["monthly", "annual"]:
+            output_data.write_plant_data_to_results(
+                monthly_subplant_data,
+                year,
+                path_prefix,
+                resolution,
+                plant_part,
+                args.skip_outputs,
+                plant_attributes,
+            )
+    # output monthly/annual power sector results
+    ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
+        year, monthly_subplant_data, plant_attributes
     )
-    output_data.output_plant_data(
-        monthly_plant_data,
-        year,
-        path_prefix,
-        "annual",
-        args.skip_outputs,
-        plant_attributes,
+    output_data.write_power_sector_results(
+        ba_fuel_data, year, path_prefix, args.skip_outputs, include_hourly=False
     )
 
     if year >= earliest_hourly_data_year:
-        del monthly_plant_data
+        del monthly_subplant_data
         # 12. Clean and Reconcile EIA-930 data
         ################################################################################
         logger.info("12. Cleaning EIA-930 data")
@@ -572,15 +574,6 @@ def main(args):
             args.skip_outputs,
         )
         # Export data
-        validation.validate_unique_datetimes(
-            year,
-            df=shaped_eia_data,
-            df_name="shaped_eia_data",
-            keys=["plant_id_eia"],
-        )
-        output_data.output_intermediate_data(
-            shaped_eia_data, "shaped_eia923_data", path_prefix, year, args.skip_outputs
-        )
         output_data.output_intermediate_data(
             plant_attributes,
             "plant_static_attributes",

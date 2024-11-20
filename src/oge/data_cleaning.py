@@ -10,7 +10,11 @@ import oge.emissions as emissions
 from oge.constants import CLEAN_FUELS, earliest_hourly_data_year
 from oge.column_checks import get_dtypes, apply_dtypes
 from oge.filepaths import reference_table_folder, outputs_folder
-from oge.helpers import create_plant_ba_table, add_subplant_ids_to_df
+from oge.helpers import (
+    create_plant_ba_table,
+    add_subplant_ids_to_df,
+    assign_fuel_category_to_esc,
+)
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -1716,8 +1720,11 @@ def filter_unique_cems_data(cems, partial_cems):
     return filtered_cems
 
 
-def aggregate_plant_data_to_ba_fuel(
-    year: int, combined_plant_data: pd.DataFrame, plant_attributes_table: pd.DataFrame
+def aggregate_subplant_data_to_ba_fuel(
+    year: int,
+    combined_plant_data: pd.DataFrame,
+    plant_attributes_table: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
 ) -> pd.DataFrame:
     """Group plant data by BA and fuel category.
 
@@ -1733,33 +1740,27 @@ def aggregate_plant_data_to_ba_fuel(
     Returns:
         pd.DataFrame: a data frame grouped by fuel category and BA
     """
-    if year >= earliest_hourly_data_year:
-        # create a table that has data for the sythetic plant attributes
-        shaped_plant_attributes = (
-            plant_attributes_table[["shaped_plant_id", "ba_code", "fuel_category"]]
-            .drop_duplicates()
-            .dropna(subset="shaped_plant_id")
-            .rename(columns={"shaped_plant_id": "plant_id_eia"})
-        )
-
-        combined_plant_attributes = pd.concat(
-            [
-                plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
-                shaped_plant_attributes,
-            ],
-            axis=0,
-        )
-
-        ba_fuel_data = combined_plant_data.merge(
-            combined_plant_attributes, how="left", on=["plant_id_eia"], validate="m:1"
-        )
-    else:
-        ba_fuel_data = combined_plant_data.merge(
-            plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
-            how="left",
-            on=["plant_id_eia"],
-            validate="m:1",
-        )
+    # add the BA and the subplant primary fuel to the data
+    ba_fuel_data = combined_plant_data.merge(
+        plant_attributes_table[["plant_id_eia", "ba_code"]],
+        how="left",
+        on=["plant_id_eia"],
+        validate="m:1",
+    )
+    subplant_primary_fuel = primary_fuel_table[
+        ["plant_id_eia", "subplant_id", "subplant_primary_fuel"]
+    ].drop_duplicates()
+    subplant_primary_fuel = assign_fuel_category_to_esc(
+        subplant_primary_fuel,
+        fuel_category_names=["fuel_category"],
+        esc_column="subplant_primary_fuel",
+    ).drop(columns=["subplant_primary_fuel"])
+    ba_fuel_data = combined_plant_data.merge(
+        subplant_primary_fuel,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
     # check that there is no missing ba or fuel codes
     if (
         len(
@@ -1795,12 +1796,11 @@ def aggregate_plant_data_to_ba_fuel(
     return ba_fuel_data
 
 
-def combine_plant_data(
+def combine_monthly_subplant_data(
     cems,
     partial_cems_subplant,
     partial_cems_plant,
     eia_data,
-    resolution,
     validate=True,
 ):
     """
@@ -1810,21 +1810,11 @@ def combine_plant_data(
         resolution: string, either 'monthly' or 'hourly'
     """
 
-    if resolution == "hourly":
-        KEY_COLUMNS = [
-            "plant_id_eia",
-            "datetime_utc",
-            "report_date",
-        ]
-    elif resolution == "monthly":
-        KEY_COLUMNS = [
-            "plant_id_eia",
-            "report_date",
-        ]
-    else:
-        raise UserWarning(
-            "arg 'resolution' for `combine_plant_data` must be either 'monthly' or 'hourly'"
-        )
+    KEY_COLUMNS = [
+        "plant_id_eia",
+        "subplant_id",
+        "report_date",
+    ]
 
     ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
 
@@ -1875,24 +1865,22 @@ def combine_plant_data(
     )
 
     # concat together
-    combined_plant_data = pd.concat(
+    combined_subplant_data = pd.concat(
         [cems, partial_cems_subplant, partial_cems_plant, eia_data],
         axis=0,
         ignore_index=True,
         copy=False,
     )
 
-    # groupby plant
-    combined_plant_data = (
-        combined_plant_data.groupby(KEY_COLUMNS, dropna=False).sum().reset_index()
+    # groupby subplant after combining in case subplant reported multiple places
+    combined_subplant_data = (
+        combined_subplant_data.groupby(KEY_COLUMNS, dropna=False).sum().reset_index()
     )
 
-    combined_plant_data[DATA_COLUMNS] = combined_plant_data[DATA_COLUMNS].round(2)
-
     # re-order the columns
-    combined_plant_data = combined_plant_data[ALL_COLUMNS]
+    combined_subplant_data = combined_subplant_data[ALL_COLUMNS]
 
-    return combined_plant_data
+    return combined_subplant_data
 
 
 def aggregate_cems_to_subplant(cems):
