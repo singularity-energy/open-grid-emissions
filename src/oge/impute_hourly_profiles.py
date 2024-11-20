@@ -60,17 +60,63 @@ DATA_COLUMNS = [
 
 
 def calculate_hourly_profiles(
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    eia930_data,
-    plant_attributes,
-    monthly_eia_data_to_shape,
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    eia930_data: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    monthly_eia_data_to_shape: pd.DataFrame,
     year: int,
-    transmission_only=False,
-    ba_column_name="ba_code",
+    transmission_only: bool = False,
+    ba_column_name: str = "ba_code",
     use_flat: bool = False,
-):
+) -> pd.DataFrame:
+    """Coordinating function for calculating the hourly residual profiles that will be
+    used to shape monthly EIA data.
+
+    First, we calculate residual profiles by subtracting known, hourly CEMS data from
+    the hourly EIA-930, fleet-level profiles.
+
+    Where these residual profiles cannot be calculated, we then estimate the profiles in
+    impute_missing_hourly_profiles, either by using regional wind and solar profiles, or
+    assuming flat generation for certain resources.
+
+    Next, we add the average hourly profile of all subplants in a fleet that report CEMS
+    data.
+
+    Finally, of the various profile options created, we select the best available
+    profile based on a hierarchy. The available profile types to select from include:
+        - "residual_profile"
+        - "shifted_residual_profile"
+        - "eia930_profile"
+        - "cems_profile"
+        - "DIBA_average"
+        - "national_average"
+        - "assumed_flat"
+
+    Args:
+        cems (pd.DataFrame): Hourly, unit- or subplant-level CEMS data
+        partial_cems_subplant (pd.DataFrame): Hourly data for partial-CEMS subplants
+        partial_cems_plant (pd.DataFrame): Hourly data for partial-CEMS plants
+        eia930_data (pd.DataFrame): Hourly EIA-930 net generation data for each fleet
+        plant_attributes (pd.DataFrame): table of plant-level static attributes
+        monthly_eia_data_to_shape (pd.DataFrame): Monthly, subplant-level EIA data for
+            subplants that only report to EIA-923
+        year (int): The data year
+        transmission_only (bool, optional): Whether or not to only consider subplants
+            that are connected to the transmission grid when calculating residual
+            profiles. Defaults to False.
+        ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
+            to define fleet composition. Defaults to "ba_code".
+        use_flat (bool, optional): Whether or not to use a flat profile for all fleets.
+            Defaults to False.
+
+    Returns:
+        pd.DataFrame: dataframe of hourly profiles (in MW) for each fleet. The table
+            includes a profile for each method, as well as a selected best "profile".
+            Profiles must still be converted to a percent of the monthly total using
+            convert_profile_to_percent()
+    """
     residual_profiles = calculate_residual(
         cems,
         partial_cems_subplant,
@@ -153,9 +199,8 @@ def calculate_hourly_profiles(
     return hourly_profiles
 
 
-def select_best_available_profile(hourly_profiles):
-    """
-    Selects the best available hourly profile from the options available.
+def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame:
+    """Selects the best available hourly profile from the options available.
     The order of preference is:
         1. If the residual profile does not have a negative total for a month, use that
         2. If the eia930 profile doesn't have missing data, use that next
@@ -164,6 +209,11 @@ def select_best_available_profile(hourly_profiles):
 
     We could create two different profiles - one for positive and one for negative values
 
+    Args:
+        hourly_profiles (pd.DataFrame): dataframe of hourly profiles
+
+    Returns:
+        pd.DataFrame: hourly_profiles with a new "profile" column added
     """
 
     # create a filtered version of the residual profile, removing months where the residual contains negative values
@@ -264,16 +314,38 @@ def select_best_available_profile(hourly_profiles):
 
 
 def aggregate_for_residual(
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    plant_attributes,
-    year,
-    time_key: str = "datetime_utc",
-    ba_key: str = "ba_code",
-    transmission: bool = False,
-):
-    """Utility function for trying different BA aggregations in 930 and 923 data"""
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    year: int,
+    datetime_col: str = "datetime_utc",
+    ba_column_name: str = "ba_code",
+    transmission_only: bool = False,
+) -> pd.DataFrame:
+    """Utility function for trying different BA aggregations in 930 and 923 data
+
+    Args:
+         cems (pd.DataFrame): Hourly, unit- or subplant-level CEMS data
+        partial_cems_subplant (pd.DataFrame): Hourly data for partial-subplant CEMS
+            subplants
+        partial_cems_plant (pd.DataFrame): Hourly data for partial-plant CEMS subplants
+        plant_attributes (pd.DataFrame): table of plant-level static attributes
+        year (int): The data year
+        datetime_col (str, optional): Name of datetime column to use. Defaults to
+            "datetime_utc".
+        ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
+            to define fleet composition.. Defaults to "ba_code".
+        transmission_only (bool, optional): Whether or not to only consider subplants
+            that are connected to the transmission grid when calculating residual
+            profiles. Defaults to False.
+
+    Raises:
+        UserWarning: If a fuel category cannot be assigned to a CEMS subplant
+
+    Returns:
+        pd.DataFrame: dataframe of all hourly CEMS data aggregated to the fleet level
+    """
 
     # add the partial cems data
     cems_agg = pd.concat([cems, partial_cems_subplant, partial_cems_plant], axis=0)
@@ -282,16 +354,22 @@ def aggregate_for_residual(
     )
 
     # merge in plant attributes
+    # TODO: assign fleet using function
     cems_agg = cems_agg.merge(
         plant_attributes[
-            ["plant_id_eia", "distribution_flag", "fuel_category_eia930", ba_key]
+            [
+                "plant_id_eia",
+                "distribution_flag",
+                "fuel_category_eia930",
+                ba_column_name,
+            ]
         ],
         how="left",
         on="plant_id_eia",
         validate="m:1",
     )
 
-    if transmission:
+    if transmission_only:
         cems_agg = cems_agg[cems_agg["distribution_flag"] is False]
 
     # ensure that there are no missing fuel categories in the cems data associated with nonzero generation data
@@ -306,7 +384,7 @@ def aggregate_for_residual(
         )
         logger.warning(
             "\n"
-            + missing_fuel_category[["plant_id_eia", "subplant_id", ba_key]]
+            + missing_fuel_category[["plant_id_eia", "subplant_id", ba_column_name]]
             .drop_duplicates()
             .to_string()
         )
@@ -315,14 +393,14 @@ def aggregate_for_residual(
         )
 
     cems_agg = (
-        cems_agg.groupby([ba_key, "fuel_category_eia930", time_key], dropna=False)[
-            "net_generation_mwh"
-        ]
+        cems_agg.groupby(
+            [ba_column_name, "fuel_category_eia930", datetime_col], dropna=False
+        )["net_generation_mwh"]
         .sum()
         .reset_index()
     )
 
-    if ba_key == "ba_code_physical":
+    if ba_column_name == "ba_code_physical":
         cems_agg = cems_agg.rename(columns={"ba_code_physical": "ba_code"})
 
     # clean up the eia930 data before merging
@@ -360,42 +438,34 @@ def aggregate_non_930_fuel_categories(cems, plant_attributes):
 
 
 def calculate_residual(
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    eia930_data,
-    plant_attributes,
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    eia930_data: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
     year: int,
-    transmission_only=False,
-    ba_column_name="ba_code",
-):
-    """
-        calculate_residual
-    Inputs:
-        `cems`: dataframe of CEMS hourly plant-level data containing columns
-            `plant_id_eia`
-        `eia930`: dataframe of 930 hourly BA-level data containing columns
-            `net_generation_mwh_930`
-        `plant_frame` dataframe of static plant data containing columns
-            `plant_id_eia`, `ba_code`, `ba_code_physical`
-        transmission_only: true or false, only use plants that are connected to
-        transmission grid?
-        ba_column_name: string, either "ba_code" or "ba_code_physical" - which BA
-        assignment to use.
-    Returns:
-        Dataframe of hourly profiles, containing columns
+    transmission_only: bool = False,
+    ba_column_name: str = "ba_code",
+) -> pd.DataFrame:
+    """Creates a dataframe of residual hourly profiles for each fleet.
 
-    Scaling:
-    If the residual is ever negative, we want to scale the cems net generation data to
-    always be less than or equal to the 930 net generation.
-    To do this, we'll try scaling the data as a percentage:
-        1. For each hour, calculate the ratio between 930 NG and CEMS NG.
-        2. For each BA-fuel, find the minimum ratio. If the minimum ratio is >= 1,
-            it means that 930 is always greater than CEMS and doesn't need to be
-            scaled. For any BA-fuels where the ratio is < 1, we will use this as a
-            scaling factor to scale the CEMS data such that the scaled data is
-            always <= the 930 data
-        3. Multiply all hourly CEMS values by the scaling factor
+    Args:
+        cems (pd.DataFrame): Hourly, unit- or subplant-level CEMS data
+        partial_cems_subplant (pd.DataFrame): Hourly data for partial-subplant CEMS
+            subplants
+        partial_cems_plant (pd.DataFrame): Hourly data for partial-plant CEMS subplants
+        eia930_data (pd.DataFrame): Hourly EIA-930 net generation data for each fleet
+        plant_attributes (pd.DataFrame): table of plant-level static attributes
+        plant_attributes (pd.DataFrame): Static plant attributes table
+        year (int): The data year
+        transmission_only (bool, optional): Whether or not to only consider subplants
+            that are connected to the transmission grid when calculating residual
+            profiles. Defaults to False.
+        ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
+            to define fleet composition. Defaults to "ba_code".
+
+    Returns:
+        pd.DataFrame: Dataframe of hourly profiles, containing columns
     """
 
     cems_agg = aggregate_for_residual(
@@ -458,7 +528,25 @@ def calculate_residual(
     ]
 
 
-def calculate_scaled_residual(combined_data):
+def calculate_scaled_residual(combined_data: pd.DataFrame) -> pd.DataFrame:
+    """Scaling:
+    If the residual is ever negative, we want to scale the cems net generation data to
+    always be less than or equal to the 930 net generation.
+    To do this, we'll try scaling the data as a percentage:
+        1. For each hour, calculate the ratio between 930 NG and CEMS NG.
+        2. For each BA-fuel, find the minimum ratio. If the minimum ratio is >= 1,
+            it means that 930 is always greater than CEMS and doesn't need to be
+            scaled. For any BA-fuels where the ratio is < 1, we will use this as a
+            scaling factor to scale the CEMS data such that the scaled data is
+            always <= the 930 data
+        3. Multiply all hourly CEMS values by the scaling factor
+
+    Args:
+        combined_data (pd.DataFrame): _description_
+
+    Returns:
+        pd.DataFrame: combined_data with an added "scaled_residual_profile" column
+    """
     # Find scaling factor
     # only keep data where the cems data is greater than zero
     scaling_factors = combined_data.copy()[combined_data["cems_profile"] > 0]

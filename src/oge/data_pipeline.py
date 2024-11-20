@@ -430,14 +430,20 @@ def main(args):
                 args.skip_outputs,
                 plant_attributes,
             )
+    # 12. Export monthly and annual power sector data
+    ####################################################################################
+    logger.info("12. Exporting monthly and annual fleet-level results")
     # output monthly/annual power sector results
-    ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
-        year, monthly_subplant_data, plant_attributes
+    fleet_data = data_cleaning.aggregate_subplant_data_to_fleet(
+        monthly_subplant_data, plant_attributes, primary_fuel_table
     )
     output_data.write_power_sector_results(
-        ba_fuel_data, year, path_prefix, args.skip_outputs, include_hourly=False
+        fleet_data, year, path_prefix, args.skip_outputs, include_hourly=False
     )
 
+    # TODO: does fleet_data need to be kept around?
+
+    # For 2019 onward, calculate hourly data, otherwise skip these steps
     if year >= earliest_hourly_data_year:
         del monthly_subplant_data
         # 12. Clean and Reconcile EIA-930 data
@@ -673,21 +679,9 @@ def main(args):
         )
         hourly_consumed_calc.run()
         hourly_consumed_calc.output_results()
+    
+    # for years prior to 2019, do not export carbon accounting data
     elif year < earliest_hourly_data_year:
-        # 12. Aggregate CEMS data to BA-fuel and write power sector results
-        ################################################################################
-        logger.info("12. Creating and exporting BA-level power sector results")
-        ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
-            year, monthly_plant_data, plant_attributes
-        )
-        # Output intermediate data: produced per-fuel annual averages
-        output_data.write_generated_averages(
-            ba_fuel_data, year, path_prefix, args.skip_outputs
-        )
-        # Output final data: per-ba hourly generation and rate
-        output_data.write_power_sector_results(
-            ba_fuel_data, year, path_prefix, args.skip_outputs, include_hourly=False
-        )
 
         # export plant static attributes to csv
         output_data.output_intermediate_data(

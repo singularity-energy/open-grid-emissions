@@ -1720,53 +1720,115 @@ def filter_unique_cems_data(cems, partial_cems):
     return filtered_cems
 
 
-def aggregate_subplant_data_to_ba_fuel(
-    year: int,
-    combined_plant_data: pd.DataFrame,
+def aggregate_subplant_data_to_fleet(
+    combined_subplant_data: pd.DataFrame,
     plant_attributes_table: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Group plant data by BA and fuel category.
+    """Group plant data by BA and fuel category (fleet).
 
     Args:
-        year (int): year under consideration
-        combined_plant_data (pd.DataFrame): the combined plant data.
-        plant_attributes_table (pd.DataFrame): the plant attributes table enclosing the
-            BA code and fuel category of each plant.
+        combined_subplant_data (pd.DataFrame): the combined subplant data.
+        plant_attributes_table (pd.DataFrame): the plant attributes table with the
+            BA code of each plant.
+        primary_fuel_table (pd.DataFrame): table with subplant and plant-level fuels
 
     Raises:
-        UserWarning: if no BA or fuel category can be assigned to a plant
+        UserWarning: if no BA or fuel category can be assigned to any subplant
 
     Returns:
         pd.DataFrame: a data frame grouped by fuel category and BA
     """
-    # add the BA and the subplant primary fuel to the data
-    ba_fuel_data = combined_plant_data.merge(
-        plant_attributes_table[["plant_id_eia", "ba_code"]],
+
+    # Assign fleet to subplant data
+    ba_fuel_data = assign_fleet_to_subplant_data(
+        combined_subplant_data,
+        plant_attributes_table,
+        primary_fuel_table,
+        ba_col="ba_code",
+        primary_fuel_col="subplant_primary_fuel",
+    )
+
+    # if the input data is hourly, aggregate at the hourly level
+    if "datetime_utc" in ba_fuel_data.columns:
+        agg_cols = ["ba_code", "fuel_category", "datetime_utc", "report_date"]
+    else:
+        agg_cols = ["ba_code", "fuel_category", "report_date"]
+    ba_fuel_data = (
+        ba_fuel_data.groupby(
+            agg_cols,
+            dropna=False,
+        )[DATA_COLUMNS]
+        .sum()
+        .reset_index()
+    )
+
+    return ba_fuel_data
+
+
+def assign_fleet_to_subplant_data(
+    subplant_data: pd.DataFrame,
+    plant_attributes_table: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    ba_col: str = "ba_code",
+    primary_fuel_col: str = "subplant_primary_fuel",
+    fuel_category_col: str = "fuel_category",
+) -> pd.DataFrame:
+    """Assigns a BA code and fuel category to each subplant in order to facilitate
+    aggregating the data to the fleet level.
+
+    Args:
+        subplant_data (pd.DataFrame): dataframe to assign fleet to
+        primary_fuel_table (pd.DataFrame): static plant attributes
+        primary_fuel_table (pd.DataFrame): table of subplant-level primary fuels
+        ba_col (str, optional): Whether to use commercial "ba_code" balancing area
+            definition or physical BA "ba_code_physical". Defaults to "ba_code".
+        primary_fuel_col (str, optional): Name of column from primary_fuel_table to use
+            to assign a fuel type to the subplant. Defaults to "subplant_primary_fuel".
+        fuel_category_col (str, optional): name of fuel category column to map to the
+            energy source code specified by the primary_fuel_col in primary_fuel_table.
+            Defaults to "fuel_category".
+
+    Raises:
+        UserWarning: If a BA code or fuel type cannot be assigned to a subplant
+
+    Returns:
+        pd.DataFrame: subplant_data with ba_code and fuel_category columns added
+    """
+
+    # Assign a BA to the data
+    subplant_data = subplant_data.merge(
+        plant_attributes_table[["plant_id_eia", ba_col]].rename(
+            columns={ba_col: "ba_code"}
+        ),
         how="left",
         on=["plant_id_eia"],
         validate="m:1",
     )
+
+    # assign a fuel category to the subplant
     subplant_primary_fuel = primary_fuel_table[
-        ["plant_id_eia", "subplant_id", "subplant_primary_fuel"]
+        ["plant_id_eia", "subplant_id", primary_fuel_col]
     ].drop_duplicates()
     subplant_primary_fuel = assign_fuel_category_to_esc(
         subplant_primary_fuel,
-        fuel_category_names=["fuel_category"],
-        esc_column="subplant_primary_fuel",
-    ).drop(columns=["subplant_primary_fuel"])
-    ba_fuel_data = combined_plant_data.merge(
+        fuel_category_names=[fuel_category_col],
+        esc_column=primary_fuel_col,
+    ).drop(columns=[primary_fuel_col])
+    # merge in the fuel data
+    subplant_data = subplant_data.merge(
         subplant_primary_fuel,
         how="left",
         on=["plant_id_eia", "subplant_id"],
         validate="m:1",
     )
+
     # check that there is no missing ba or fuel codes
     if (
         len(
-            ba_fuel_data[
-                (ba_fuel_data["ba_code"].isna())
-                | (ba_fuel_data["fuel_category"].isna())
+            subplant_data[
+                (subplant_data["ba_code"].isna())
+                | (subplant_data[fuel_category_col].isna())
             ]
         )
         > 0
@@ -1774,26 +1836,8 @@ def aggregate_subplant_data_to_ba_fuel(
         raise UserWarning(
             "The plant attributes table is missing ba code or fuel_category data for some plants. This will result in incomplete power sector results."
         )
-    # try to group assuming the data is hourly resolution
-    try:
-        ba_fuel_data = (
-            ba_fuel_data.groupby(
-                ["ba_code", "fuel_category", "datetime_utc", "report_date"],
-                dropna=False,
-            )[DATA_COLUMNS]
-            .sum()
-            .reset_index()
-        )
-    # if datetime_utc is missing, groupby month
-    except KeyError:
-        ba_fuel_data = (
-            ba_fuel_data.groupby(
-                ["ba_code", "fuel_category", "report_date"], dropna=False
-            )[DATA_COLUMNS]
-            .sum()
-            .reset_index()
-        )
-    return ba_fuel_data
+
+    return subplant_data
 
 
 def combine_monthly_subplant_data(

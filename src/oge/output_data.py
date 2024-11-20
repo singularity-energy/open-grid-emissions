@@ -574,7 +574,7 @@ def round_table(table: pd.DataFrame) -> pd.DataFrame:
 
 
 def write_power_sector_results(
-    ba_fuel_data: pd.DataFrame,
+    fleet_data: pd.DataFrame,
     year: int,
     path_prefix: str,
     skip_outputs: bool,
@@ -583,7 +583,7 @@ def write_power_sector_results(
     """Helper function to write combined data by BA
 
     Args:
-        ba_fuel_data (pd.DataFrame): plant data aggregated by BA and fuel type.
+        fleet_data (pd.DataFrame): subplant data aggregated by BA and fuel type.
         year (int): a four-digit year indicating when data were taken.
         path_prefix (str): name of base directory prefixing directory where data will
             be saved.
@@ -623,16 +623,16 @@ def write_power_sector_results(
     ]
 
     if not skip_outputs:
-        for ba in list(ba_fuel_data.ba_code.unique()):
+        for ba in list(fleet_data.ba_code.unique()):
             if not isinstance(ba, str):
                 logger.warning(
-                    f"not aggregating {sum(ba_fuel_data.ba_code.isna())} plants "
+                    f"not aggregating {sum(fleet_data.ba_code.isna())} plants "
                     f"with numeric BA {ba}"
                 )
                 continue
 
             # filter the data for a single BA
-            ba_table = ba_fuel_data[ba_fuel_data["ba_code"] == ba].drop(
+            ba_table = fleet_data[fleet_data["ba_code"] == ba].drop(
                 columns="ba_code"
             )
 
