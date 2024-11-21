@@ -985,21 +985,21 @@ def validate_shaped_totals(
 
     # calculate the difference between the two datasets
     compare = (shaped_data_agg - eia_data_agg).round(0)
-
+    # not all dfs are at the plant level
+    if "plant_id_eia" in compare.columns:
+        compare = compare.merge(
+            create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+            how="left",
+            on="plant_id_eia",
+            validate="m:1",
+        )
     if compare.sum().sum() > 0:
         logger.warning(
             "\n"
             + compare[
                 (compare["net_generation_mwh"] != 0)
                 | (compare["fuel_consumed_mmbtu"] != 0)
-            ]
-            .merge(
-                create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
-                how="left",
-                on="plant_id_eia",
-                validate="m:1",
-            )
-            .to_string()
+            ].to_string()
         )
         raise UserWarning(
             "The data shaping process is changing the monthly total values compared to reported EIA values. This process should only shape the data, not alter it."

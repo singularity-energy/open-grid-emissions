@@ -13,22 +13,6 @@ from oge.helpers import assign_fleet_to_subplant_data
 logger = get_logger(__name__)
 
 
-# specify the ba numbers with leading zeros
-FUEL_NUMBERS = {
-    "biomass": "01",
-    "coal": "02",
-    "geothermal": "03",
-    "hydro": "04",
-    "natural_gas": "05",
-    "nuclear": "06",
-    "other": "07",
-    "petroleum": "08",
-    "solar": "09",
-    "storage": "10",
-    "waste": "11",
-    "wind": "12",
-}
-
 DATA_COLUMNS = [
     "fuel_consumed_mmbtu",
     "fuel_consumed_for_electricity_mmbtu",
@@ -1215,6 +1199,21 @@ def get_shaped_plant_id_from_ba_fuel(df):
 
     df must contain `ba_code` and `fuel_category`
     """
+    # specify the ba numbers with leading zeros
+    FUEL_NUMBERS = {
+        "biomass": "01",
+        "coal": "02",
+        "geothermal": "03",
+        "hydro": "04",
+        "natural_gas": "05",
+        "nuclear": "06",
+        "other": "07",
+        "petroleum": "08",
+        "solar": "09",
+        "storage": "10",
+        "waste": "11",
+        "wind": "12",
+    }
 
     # load the ba reference table with all of the ba number ids
     ba_numbers = pd.read_csv(reference_table_folder("ba_reference.csv"))[
@@ -1238,7 +1237,11 @@ def get_shaped_plant_id_from_ba_fuel(df):
     return df
 
 
-def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
+def aggregate_eia_data_to_fleet(
+    monthly_eia_data_to_shape: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+) -> pd.DataFrame:
     """
     Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
     using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
@@ -1249,15 +1252,17 @@ def aggregate_eia_data_to_ba_fuel(monthly_eia_data_to_shape, plant_attributes):
 
     # Note: currently using ba_code, could alternatively use ba_code_physical
     # Add plant attributes for grouping
-    eia_agg = monthly_eia_data_to_shape.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "fuel_category"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
+    eia_agg = assign_fleet_to_subplant_data(
+        monthly_eia_data_to_shape,
+        plant_attributes,
+        primary_fuel_table,
+        ba_col="ba_code",
+        primary_fuel_col="subplant_primary_fuel",
+        fuel_category_col="fuel_category",
     )
 
     # Make nan BA "None" so equality test works
-    eia_agg.ba_code = eia_agg.ba_code.replace(np.nan, None)
+    # eia_agg.ba_code = eia_agg.ba_code.replace(np.nan, None)
 
     # create a column with shaped plant ids
     eia_agg = get_shaped_plant_id_from_ba_fuel(eia_agg)

@@ -1767,18 +1767,33 @@ def aggregate_subplant_data_to_fleet(
     return ba_fuel_data
 
 
-def combine_monthly_subplant_data(
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    eia_data,
-    validate=True,
-):
-    """
-    Combines final hourly subplant data from each source into a single dataframe.
-    Inputs:
-        Pandas dataframes of shaped or original hourly data
-        resolution: string, either 'monthly' or 'hourly'
+def combine_subplant_data(
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    eia_data: pd.DataFrame,
+    resolution: str,
+    validate: bool = True,
+) -> pd.DataFrame:
+    """Combines subplant-level data from multiple sources into a single dataframe.
+    Data can be returned at either the monthly or hourly resolution.
+
+    When passing hourly data in later in the pipeline, we only want to combine cems data
+    so we can pass an empty dataframe for eia_data.
+
+    Args:
+        cems (pd.DataFrame): _description_
+        partial_cems_subplant (pd.DataFrame): _description_
+        partial_cems_plant (pd.DataFrame): _description_
+        eia_data (pd.DataFrame): _description_
+        resolution (str): _description_
+        validate (bool, optional): _description_. Defaults to True.
+
+    Raises:
+        UserWarning: _description_
+
+    Returns:
+        pd.DataFrame: _description_
     """
 
     KEY_COLUMNS = [
@@ -1786,6 +1801,14 @@ def combine_monthly_subplant_data(
         "subplant_id",
         "report_date",
     ]
+    if resolution == "hourly":
+        KEY_COLUMNS += ["datetime_utc"]
+    elif resolution == "monthly":
+        pass
+    else:
+        raise UserWarning(
+            f"`resolution` must be 'monthly' or 'hourly'. '{resolution}' specified"
+        )
 
     ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
 

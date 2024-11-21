@@ -3,7 +3,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
-Optional arguments are --year (default 2022), --shape_individual_plants (default True)
+Optional arguments are --year (default 2022)
 Optional arguments for development are --small, --flat, and --skip_outputs
 """
 
@@ -42,15 +42,6 @@ def get_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", help="Year for analysis", default=2022, type=int)
-    parser.add_argument(
-        "--shape_individual_plants",
-        help=(
-            "Assign an hourly profile to each individual plant with EIA-only data, "
-            "instead of aggregating to the fleet level before shaping."
-        ),
-        default=True,
-        action=argparse.BooleanOptionalAction,
-    )
     parser.add_argument(
         "--small",
         help=(
@@ -405,11 +396,12 @@ def main(args):
         args.skip_outputs,
     )
     # combine and export plant data at monthly and annual level
-    monthly_subplant_data = data_cleaning.combine_monthly_subplant_data(
+    monthly_subplant_data = data_cleaning.combine_subplant_data(
         cems,
         partial_cems_subplant,
         partial_cems_plant,
         monthly_eia_data_to_shape,
+        resolution="monthly",
     )
     validation.check_for_complete_monthly_timeseries(
         df=monthly_subplant_data,
@@ -527,7 +519,7 @@ def main(args):
         # represents the characteristics of all plants that do not report hourly data
         # elsewhere in each month.
         logger.info("14. Exporting Hourly Plant-level data for each BA")
-        if args.shape_individual_plants and not args.small:
+        if not args.small:
             impute_hourly_profiles.combine_and_export_hourly_plant_data(
                 year,
                 cems,
@@ -540,15 +532,6 @@ def main(args):
                 args.skip_outputs,
                 region_to_group="ba_code",
             )
-        else:
-            logger.info(
-                "Not shaping and exporting individual plant data since "
-                "`shape_individual_plants` is False."
-            )
-            logger.info(
-                "Plants that only report to EIA will be aggregated to the fleet level "
-                "before shaping."
-            )
 
         # 15. Shape fleet-level data
         ################################################################################
@@ -560,20 +543,20 @@ def main(args):
         )
         # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
         (
-            monthly_eia_data_to_shape,
+            monthly_eia_fleet_data,
             plant_attributes,
-        ) = impute_hourly_profiles.aggregate_eia_data_to_ba_fuel(
-            monthly_eia_data_to_shape, plant_attributes, path_prefix
+        ) = impute_hourly_profiles.aggregate_eia_data_to_fleet(
+            monthly_eia_data_to_shape, plant_attributes, primary_fuel_table
         )
-        shaped_eia_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
-            monthly_eia_data_to_shape, hourly_profiles, year
+        shaped_eia_fleet_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+            monthly_eia_fleet_data, hourly_profiles, year
         )
         output_data.output_data_quality_metrics(
             validation.hourly_profile_source_metric(
                 cems,
                 partial_cems_subplant,
                 partial_cems_plant,
-                shaped_eia_data,
+                shaped_eia_fleet_data,
                 plant_attributes,
             ),
             "hourly_profile_method",
@@ -595,8 +578,8 @@ def main(args):
             )
         # validate that the shaping did not alter data at the monthly level
         validation.validate_shaped_totals(
-            shaped_eia_data,
-            monthly_eia_data_to_shape,
+            shaped_eia_fleet_data,
+            monthly_eia_fleet_data,
             year,
             group_keys=["ba_code", "fuel_category"],
         )
@@ -605,67 +588,80 @@ def main(args):
         ################################################################################
         logger.info("16. Combining plant-level hourly data")
         # write metadata outputs
+        # TODO: remove shaped plant id from this and use ba-fuel instead
         output_data.write_plant_metadata(
             plant_attributes,
             eia923_allocated,
             cems,
             partial_cems_subplant,
             partial_cems_plant,
-            shaped_eia_data,
+            shaped_eia_fleet_data,
             path_prefix,
             args.skip_outputs,
             year,
         )
-        # set validate parameter to False since validating non-overlapping data
-        # requires subplant-level data since the shaped eia data is at the fleet level,
-        # this check will not work.
-        # However, we already checked for non-overlapping data in step 11 when
-        # combining monthly data
-        combined_plant_data = data_cleaning.combine_plant_data(
+
+        # Because EIA data is already aggregated to the fleet level, at this point, we
+        # only want to combine CEMS data together. We pass a blank dataframe as the
+        # EIA data
+        combined_cems_subplant_data = data_cleaning.combine_subplant_data(
             cems,
             partial_cems_subplant,
             partial_cems_plant,
-            shaped_eia_data,
-            "hourly",
-            False,
+            eia_data=pd.DataFrame(
+                columns=["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
+            ),
+            resolution="hourly",
+            validate=True,
         )
+        # free memory back to python
         del (
-            shaped_eia_data,
             cems,
             partial_cems_subplant,
             partial_cems_plant,
-        )  # free memory back to python
+        )
         # export to a csv.
         validation.validate_unique_datetimes(
             year,
-            df=combined_plant_data,
+            df=combined_cems_subplant_data,
             df_name="combined_plant_data",
-            keys=["plant_id_eia"],
+            keys=["plant_id_eia", "subplant_id"],
         )
-        if not args.shape_individual_plants:
-            output_data.output_plant_data(
-                combined_plant_data,
-                year,
-                path_prefix,
-                "hourly",
-                args.skip_outputs,
-                plant_attributes,
-            )
 
         # 17. Aggregate CEMS data to BA-fuel and write power sector results
         ################################################################################
         logger.info("17. Creating and exporting BA-level power sector results")
-        ba_fuel_data = data_cleaning.aggregate_plant_data_to_ba_fuel(
-            year, combined_plant_data, plant_attributes
+        # aggregate CEMS data to the fleet level
+        cems_fleet_data = data_cleaning.aggregate_subplant_data_to_fleet(
+            combined_cems_subplant_data, plant_attributes, primary_fuel_table
         )
-        del combined_plant_data
+        del combined_cems_subplant_data
+
+        # combine fleet-level CEMS data and EIA data into a single df and group
+        # fleets together
+        combined_fleet_data = pd.concat(
+            [cems_fleet_data, shaped_eia_fleet_data], axis=0
+        )
+        combined_fleet_data = (
+            combined_fleet_data.groupby(
+                ["ba_code", "fuel_category", "datetime_utc", "report_date"],
+                dropna=False,
+            )[data_cleaning.DATA_COLUMNS]
+            .sum()
+            .reset_index()
+        )
+
         # Output intermediate data: produced per-fuel annual averages
         output_data.write_generated_averages(
-            ba_fuel_data, year, path_prefix, args.skip_outputs
+            combined_fleet_data, year, path_prefix, args.skip_outputs
         )
         # Output final data: per-ba hourly generation and rate
         output_data.write_power_sector_results(
-            ba_fuel_data, year, path_prefix, args.skip_outputs, include_hourly=True
+            combined_fleet_data,
+            year,
+            path_prefix,
+            args.skip_outputs,
+            include_hourly=True,
         )
 
         # 18. Calculate consumption-based emissions and write carbon accounting results
