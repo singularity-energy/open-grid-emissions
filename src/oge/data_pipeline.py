@@ -487,6 +487,7 @@ def main(args):
             partial_cems_plant,
             eia930_data,
             plant_attributes,
+            primary_fuel_table,
             monthly_eia_data_to_shape,
             year,
             transmission_only=False,
@@ -679,10 +680,9 @@ def main(args):
         )
         hourly_consumed_calc.run()
         hourly_consumed_calc.output_results()
-    
+
     # for years prior to 2019, do not export carbon accounting data
     elif year < earliest_hourly_data_year:
-
         # export plant static attributes to csv
         output_data.output_intermediate_data(
             plant_attributes.assign(shaped_plant_id=pd.NA),

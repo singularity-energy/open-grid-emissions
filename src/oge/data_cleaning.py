@@ -7,13 +7,13 @@ import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import oge.load_data as load_data
 import oge.validation as validation
 import oge.emissions as emissions
-from oge.constants import CLEAN_FUELS, earliest_hourly_data_year
+from oge.constants import CLEAN_FUELS
 from oge.column_checks import get_dtypes, apply_dtypes
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.helpers import (
     create_plant_ba_table,
     add_subplant_ids_to_df,
-    assign_fuel_category_to_esc,
+    assign_fleet_to_subplant_data,
 )
 from oge.logging_util import get_logger
 
@@ -1747,6 +1747,7 @@ def aggregate_subplant_data_to_fleet(
         primary_fuel_table,
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel",
+        fuel_category_col="fuel_category",
     )
 
     # if the input data is hourly, aggregate at the hourly level
@@ -1764,80 +1765,6 @@ def aggregate_subplant_data_to_fleet(
     )
 
     return ba_fuel_data
-
-
-def assign_fleet_to_subplant_data(
-    subplant_data: pd.DataFrame,
-    plant_attributes_table: pd.DataFrame,
-    primary_fuel_table: pd.DataFrame,
-    ba_col: str = "ba_code",
-    primary_fuel_col: str = "subplant_primary_fuel",
-    fuel_category_col: str = "fuel_category",
-) -> pd.DataFrame:
-    """Assigns a BA code and fuel category to each subplant in order to facilitate
-    aggregating the data to the fleet level.
-
-    Args:
-        subplant_data (pd.DataFrame): dataframe to assign fleet to
-        primary_fuel_table (pd.DataFrame): static plant attributes
-        primary_fuel_table (pd.DataFrame): table of subplant-level primary fuels
-        ba_col (str, optional): Whether to use commercial "ba_code" balancing area
-            definition or physical BA "ba_code_physical". Defaults to "ba_code".
-        primary_fuel_col (str, optional): Name of column from primary_fuel_table to use
-            to assign a fuel type to the subplant. Defaults to "subplant_primary_fuel".
-        fuel_category_col (str, optional): name of fuel category column to map to the
-            energy source code specified by the primary_fuel_col in primary_fuel_table.
-            Defaults to "fuel_category".
-
-    Raises:
-        UserWarning: If a BA code or fuel type cannot be assigned to a subplant
-
-    Returns:
-        pd.DataFrame: subplant_data with ba_code and fuel_category columns added
-    """
-
-    # Assign a BA to the data
-    subplant_data = subplant_data.merge(
-        plant_attributes_table[["plant_id_eia", ba_col]].rename(
-            columns={ba_col: "ba_code"}
-        ),
-        how="left",
-        on=["plant_id_eia"],
-        validate="m:1",
-    )
-
-    # assign a fuel category to the subplant
-    subplant_primary_fuel = primary_fuel_table[
-        ["plant_id_eia", "subplant_id", primary_fuel_col]
-    ].drop_duplicates()
-    subplant_primary_fuel = assign_fuel_category_to_esc(
-        subplant_primary_fuel,
-        fuel_category_names=[fuel_category_col],
-        esc_column=primary_fuel_col,
-    ).drop(columns=[primary_fuel_col])
-    # merge in the fuel data
-    subplant_data = subplant_data.merge(
-        subplant_primary_fuel,
-        how="left",
-        on=["plant_id_eia", "subplant_id"],
-        validate="m:1",
-    )
-
-    # check that there is no missing ba or fuel codes
-    if (
-        len(
-            subplant_data[
-                (subplant_data["ba_code"].isna())
-                | (subplant_data[fuel_category_col].isna())
-            ]
-        )
-        > 0
-    ):
-        raise UserWarning(
-            "The plant attributes table is missing ba code or fuel_category data for some plants. This will result in incomplete power sector results."
-        )
-
-    return subplant_data
 
 
 def combine_monthly_subplant_data(

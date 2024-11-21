@@ -8,6 +8,7 @@ from oge.filepaths import reference_table_folder
 import oge.validation as validation
 import oge.output_data as output_data
 from oge.logging_util import get_logger
+from oge.helpers import assign_fleet_to_subplant_data
 
 logger = get_logger(__name__)
 
@@ -65,6 +66,7 @@ def calculate_hourly_profiles(
     partial_cems_plant: pd.DataFrame,
     eia930_data: pd.DataFrame,
     plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
     monthly_eia_data_to_shape: pd.DataFrame,
     year: int,
     transmission_only: bool = False,
@@ -123,6 +125,7 @@ def calculate_hourly_profiles(
         partial_cems_plant,
         eia930_data,
         plant_attributes,
+        primary_fuel_table,
         year,
         transmission_only=transmission_only,
         ba_column_name=ba_column_name,
@@ -132,7 +135,9 @@ def calculate_hourly_profiles(
     hourly_profiles = impute_missing_hourly_profiles(
         monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
     )
-    hourly_profiles = add_missing_cems_profiles(hourly_profiles, cems, plant_attributes)
+    hourly_profiles = add_missing_cems_profiles(
+        hourly_profiles, cems, plant_attributes, primary_fuel_table
+    )
 
     # if there are any months that have incomplete cems data, replace the cems profile with na
     incomplete_cems = hourly_profiles.loc[
@@ -318,6 +323,7 @@ def aggregate_for_residual(
     partial_cems_subplant: pd.DataFrame,
     partial_cems_plant: pd.DataFrame,
     plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
     year: int,
     datetime_col: str = "datetime_utc",
     ba_column_name: str = "ba_code",
@@ -353,44 +359,21 @@ def aggregate_for_residual(
         year, cems_agg, "cems_for_residual", ["plant_id_eia", "subplant_id"]
     )
 
-    # merge in plant attributes
-    # TODO: assign fleet using function
-    cems_agg = cems_agg.merge(
-        plant_attributes[
-            [
-                "plant_id_eia",
-                "distribution_flag",
-                "fuel_category_eia930",
-                ba_column_name,
-            ]
-        ],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
+    # Assign CEMS-subplant level data to a fleet based on the subplant-specific,
+    # capacity-based primary fuel, and using the EIA-930 fuel categories. This should
+    # best match the way data is aggregated to fleet in 930.
+    cems_agg = assign_fleet_to_subplant_data(
+        cems_agg,
+        plant_attributes,
+        primary_fuel_table,
+        ba_col=ba_column_name,
+        primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+        fuel_category_col="fuel_category_eia930",
+        other_attribute_cols=["distribution_flag"],
     )
 
     if transmission_only:
         cems_agg = cems_agg[cems_agg["distribution_flag"] is False]
-
-    # ensure that there are no missing fuel categories in the cems data associated with nonzero generation data
-    missing_fuel_category = cems_agg[
-        (cems_agg["fuel_category_eia930"].isna())
-        & (cems_agg["net_generation_mwh"] != 0)
-    ]
-
-    if len(missing_fuel_category) > 0:
-        logger.warning(
-            "The following cems subplants are missing fuel categories and will lead to incorrect residual calculations:"
-        )
-        logger.warning(
-            "\n"
-            + missing_fuel_category[["plant_id_eia", "subplant_id", ba_column_name]]
-            .drop_duplicates()
-            .to_string()
-        )
-        raise UserWarning(
-            "The missing fuel categories must be fixed before proceeding."
-        )
 
     cems_agg = (
         cems_agg.groupby(
@@ -405,9 +388,6 @@ def aggregate_for_residual(
 
     # clean up the eia930 data before merging
     cems_agg = cems_agg.rename(columns={"fuel_category_eia930": "fuel_category"})
-
-    # concatenate the data for the different fuel categories together
-    # cems = pd.concat([cems, cems_profiles_for_non_930_fuels], axis=0, ignore_index=True)
 
     # rename the net generation column to cems profile
     cems_agg = cems_agg.rename(columns={"net_generation_mwh": "cems_profile"})
@@ -443,6 +423,7 @@ def calculate_residual(
     partial_cems_plant: pd.DataFrame,
     eia930_data: pd.DataFrame,
     plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
     year: int,
     transmission_only: bool = False,
     ba_column_name: str = "ba_code",
@@ -473,6 +454,7 @@ def calculate_residual(
         partial_cems_subplant,
         partial_cems_plant,
         plant_attributes,
+        primary_fuel_table,
         year,
         "datetime_utc",
         ba_column_name,
@@ -877,11 +859,34 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     return df_temporary
 
 
-def add_missing_cems_profiles(hourly_profiles, cems, plant_attributes):
-    # add ba-fuel data and aggregate cems by ba-fuel
-    cems_ba_fuel = cems.merge(
-        plant_attributes, how="left", on="plant_id_eia", validate="m:1"
-    )
+def add_missing_cems_profiles(
+    hourly_profiles: pd.DataFrame,
+    cems: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+) -> pd.DataFrame:
+    """While a "cems_profile" column is added to the hourly_profiles in
+    aggregate_for_residual, these profiles may be missing.
+    TODO: Is is actually unclear what this function is doing and if it fills any missing
+    values
+
+    Args:
+        hourly_profiles (pd.DataFrame): _description_
+        cems (pd.DataFrame): _description_
+        plant_attributes (pd.DataFrame): _description_
+        primary_fuel_table (pd.DataFrame): _description_
+
+    Returns:
+        pd.DataFrame: _description_
+    """
+    cems_ba_fuel = assign_fleet_to_subplant_data(
+        cems,
+        plant_attributes,
+        primary_fuel_table,
+        ba_col="ba_code",
+        primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+        fuel_category_col="fuel_category_eia930",
+    ).rename(columns={"fuel_category_eia930": "fuel_category"})
 
     # Count unique plants: after grouping by BA we will remove where n_unique_plants < 3
     cems_count = (

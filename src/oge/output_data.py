@@ -318,11 +318,11 @@ def write_plant_data_to_results(
 
         # group data to specified groups
         df = (
-                monthly_subplant_data.groupby(groupby_cols, dropna=False)
-                .sum(numeric_only=True)
-                .reset_index()
-            )
-        
+            monthly_subplant_data.groupby(groupby_cols, dropna=False)
+            .sum(numeric_only=True)
+            .reset_index()
+        )
+
         # calculate emission rates
         df = add_generated_emission_rate_columns(df)
 
@@ -340,7 +340,6 @@ def write_plant_data_to_results(
             path_prefix,
             skip_outputs,
         )
-
 
 
 def convert_results(df: pd.DataFrame) -> pd.DataFrame:
@@ -632,9 +631,7 @@ def write_power_sector_results(
                 continue
 
             # filter the data for a single BA
-            ba_table = fleet_data[fleet_data["ba_code"] == ba].drop(
-                columns="ba_code"
-            )
+            ba_table = fleet_data[fleet_data["ba_code"] == ba].drop(columns="ba_code")
 
             if include_hourly:
                 # convert the datetime_utc column back to a datetime
