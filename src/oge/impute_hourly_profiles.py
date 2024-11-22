@@ -9,6 +9,7 @@ import oge.validation as validation
 import oge.output_data as output_data
 from oge.logging_util import get_logger
 from oge.helpers import assign_fleet_to_subplant_data
+from oge.data_cleaning import combine_subplant_data
 
 logger = get_logger(__name__)
 
@@ -115,11 +116,15 @@ def calculate_hourly_profiles(
         ba_column_name=ba_column_name,
     )
 
-    # load profile data and format for use in the pipeline
+    # add backstop profiles where residuals were not available
     hourly_profiles = impute_missing_hourly_profiles(
-        monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
+        monthly_eia_data_to_shape,
+        residual_profiles,
+        plant_attributes,
+        primary_fuel_table,
+        year,
     )
-    hourly_profiles = add_missing_cems_profiles(
+    hourly_profiles = add_cems_backstop_profile(
         hourly_profiles, cems, plant_attributes, primary_fuel_table
     )
 
@@ -302,7 +307,7 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
     return hourly_profiles
 
 
-def aggregate_for_residual(
+def aggregate_cems_to_fleet_for_residual_calc(
     cems: pd.DataFrame,
     partial_cems_subplant: pd.DataFrame,
     partial_cems_plant: pd.DataFrame,
@@ -414,6 +419,9 @@ def calculate_residual(
 ) -> pd.DataFrame:
     """Creates a dataframe of residual hourly profiles for each fleet.
 
+    NOTE: We do not return the CEMS profile used for the residual calculation. The back-
+    stop CEMS value will be calculated in add_cems_backstop_profile()
+
     Args:
         cems (pd.DataFrame): Hourly, unit- or subplant-level CEMS data
         partial_cems_subplant (pd.DataFrame): Hourly data for partial-subplant CEMS
@@ -433,7 +441,7 @@ def calculate_residual(
         pd.DataFrame: Dataframe of hourly profiles, containing columns
     """
 
-    cems_agg = aggregate_for_residual(
+    cems_agg = aggregate_cems_to_fleet_for_residual_calc(
         cems,
         partial_cems_subplant,
         partial_cems_plant,
@@ -463,7 +471,8 @@ def calculate_residual(
         validate="1:1",
     )
 
-    # if there is no cems data for a ba-fuel, and there is eia profile data replace missing values with zero
+    # if there is no cems data for a ba-fuel, and there is eia profile data replace
+    # missing values with zero. This means that the profile will match the EIA profile
     combined_data.loc[~combined_data["eia930_profile"].isna(), "cems_profile"] = (
         combined_data.loc[
             ~combined_data["eia930_profile"].isna(), "cems_profile"
@@ -486,7 +495,6 @@ def calculate_residual(
             "datetime_local",
             "report_date",
             "eia930_profile",
-            "cems_profile",
             "residual_profile",
             "scaled_residual_profile",
             "shifted_residual_profile",
@@ -645,15 +653,42 @@ def create_flat_profile(report_date, ba, fuel):
 
 
 def impute_missing_hourly_profiles(
-    monthly_eia_data_to_shape, residual_profiles, plant_attributes, year
-):
-    """Identify and estimate hourly profiles for missing BA-fuels."""
+    monthly_eia_data_to_shape: pd.DataFrame,
+    residual_profiles: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+) -> pd.DataFrame:
+    """Identifies which hourly profiles are missing after calculating residual_profiles,
+    and imputes profiles for wind and solar, as well as flat profiles for "baseload" gen
+
+
+    Args:
+        monthly_eia_data_to_shape (pd.DataFrame): used to identify the complete set of
+            fleet-months for which we have data
+        residual_profiles (pd.DataFrame): Calculated from calculate_residual(), the df
+            we evaluate for missing fleet-months
+        plant_attributes (pd.DataFrame): Used to assign fleet keys
+        primary_fuel_table (pd.DataFrame): used to assign fleet keys
+        year (int): the data year
+
+    Raises:
+        UserWarning: if hourly_profiles contains an unrecognized fuel category
+
+    Returns:
+        pd.DataFrame: new hourly_profiles dataframe that includes complete data for all
+        fleet-months, including calculated residual profiles and imputed backstop
+        profiles
+    """
 
     # round the data to the nearest tenth
     # residual_profiles["profile"] = residual_profiles["profile"].round(1)
 
     missing_profiles = identify_missing_profiles(
-        monthly_eia_data_to_shape, residual_profiles, plant_attributes
+        monthly_eia_data_to_shape,
+        residual_profiles,
+        plant_attributes,
+        primary_fuel_table,
     )
 
     # load information about directly interconnected balancing authorities (DIBAs)
@@ -737,8 +772,25 @@ def impute_missing_hourly_profiles(
 
 
 def identify_missing_profiles(
-    monthly_eia_data_to_shape, residual_profiles, plant_attributes
-):
+    monthly_eia_data_to_shape: pd.DataFrame,
+    residual_profiles: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+) -> pd.DataFrame:
+    """Identifies the fleet-months for which there is no profile data in residual_profiles
+
+    Args:
+        monthly_eia_data_to_shape (pd.DataFrame): used to determine the complete set of
+            fleet-months for which we should have a profile.
+        residual_profiles (pd.DataFrame): used to determine which profiles are available
+        plant_attributes (pd.DataFrame): used to identify fleet keys
+        primary_fuel_table (pd.DataFrame): used to identify fleet keys
+
+    Returns:
+        pd.DataFrame: table with three columns (ba_code, fuel_category, report_date)
+            that list the combinations of these keys for which a profile is missing in
+            residual_profiles
+    """
     # drop ba fuel months where the reported profile is all zeros
     MONTHLY_GROUP_COLUMNS = [
         "ba_code",
@@ -748,12 +800,14 @@ def identify_missing_profiles(
 
     # determine for which BA-fuels we are missing residual profiles
     available_profiles = residual_profiles[MONTHLY_GROUP_COLUMNS].drop_duplicates()
-    # add ba and fuel data to the plant-level monthly data
-    monthly_eia_data_to_shape = monthly_eia_data_to_shape.merge(
-        plant_attributes[["plant_id_eia", "fuel_category", "ba_code"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
+    # assign fleet to the subplant-level monthly data
+    monthly_eia_data_to_shape = assign_fleet_to_subplant_data(
+        monthly_eia_data_to_shape,
+        plant_attributes,
+        primary_fuel_table,
+        ba_col="ba_code",
+        primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+        fuel_category_col="fuel_category",
     )
     ba_fuel_to_distribute = monthly_eia_data_to_shape[
         MONTHLY_GROUP_COLUMNS
@@ -843,25 +897,31 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     return df_temporary
 
 
-def add_missing_cems_profiles(
+def add_cems_backstop_profile(
     hourly_profiles: pd.DataFrame,
     cems: pd.DataFrame,
     plant_attributes: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
 ) -> pd.DataFrame:
-    """While a "cems_profile" column is added to the hourly_profiles in
-    aggregate_for_residual, these profiles may be missing.
-    TODO: Is is actually unclear what this function is doing and if it fills any missing
-    values
+    """Adds a "cems_profile" column to hourly_profiles to use as a backstop where
+    residuals are not available.
+
+    This function only adds a profile if there are at least 4 plants in the fleet so
+    that the profile is not overly-fit to a specific plant.
+
+    We also use OGE fuel categories to aggregate to the fleet so that if data for
+    fuel categories that do not exist in EIA-930 (ie waste, biomass) are in CEMS, we
+    have profiles to use rather than using the flat backstop.
 
     Args:
-        hourly_profiles (pd.DataFrame): _description_
-        cems (pd.DataFrame): _description_
-        plant_attributes (pd.DataFrame): _description_
-        primary_fuel_table (pd.DataFrame): _description_
+        hourly_profiles (pd.DataFrame): dataframe calculated by
+            impute_missing_hourly_profiles(). "cems_profile" will be added to this.
+        cems (pd.DataFrame): Used to create cems profiles
+        plant_attributes (pd.DataFrame): Used to identify fleet keys
+        primary_fuel_table (pd.DataFrame): Used to identify fleet keys
 
     Returns:
-        pd.DataFrame: _description_
+        pd.DataFrame: hourly_profiles with a "cems_profile" column added
     """
     cems_ba_fuel = assign_fleet_to_subplant_data(
         cems,
@@ -869,8 +929,8 @@ def add_missing_cems_profiles(
         primary_fuel_table,
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
-        fuel_category_col="fuel_category_eia930",
-    ).rename(columns={"fuel_category_eia930": "fuel_category"})
+        fuel_category_col="fuel_category",
+    ).rename(columns={"fuel_category": "fuel_category"})
 
     # Count unique plants: after grouping by BA we will remove where n_unique_plants < 3
     cems_count = (
@@ -882,10 +942,10 @@ def add_missing_cems_profiles(
         .rename(columns={"plant_id_eia": "n_unique_plants"})
     )
 
-    # grouping by datetime_utc and report_date will lead to some duplicate datetime values
-    # since report_date is based on datetime_local, and some plants in a ba may be located
-    # in different timezones. We will remove these duplicates through a later groupby operation
-    # once we no longer need report_date as a merge key
+    # grouping by datetime_utc and report_date will lead to some duplicate datetime
+    # values since report_date is based on datetime_local, and some plants in a ba may
+    # be located in different timezones. We will remove these duplicates through a later
+    # groupby operation once we no longer need report_date as a merge key
     cems_ba_fuel = (
         cems_ba_fuel.groupby(
             ["ba_code", "fuel_category", "datetime_utc", "report_date"], dropna=False
@@ -933,20 +993,15 @@ def add_missing_cems_profiles(
         )["net_generation_mwh"]
         .sum()
         .reset_index()
-    )
+    ).rename(columns={"net_generation_mwh": "cems_profile"})
 
     # fill missing cems profile data
     hourly_profiles = hourly_profiles.merge(
-        cems_ba_fuel,
+        cems_ba_fuel[["ba_code", "fuel_category", "datetime_utc", "cems_profile"]],
         how="left",
         on=["ba_code", "fuel_category", "datetime_utc"],
         validate="1:1",
     )
-
-    hourly_profiles["cems_profile"] = hourly_profiles["cems_profile"].fillna(
-        hourly_profiles["net_generation_mwh"]
-    )
-    hourly_profiles = hourly_profiles.drop(columns=["net_generation_mwh"])
 
     return hourly_profiles
 
@@ -986,6 +1041,7 @@ def combine_and_export_hourly_plant_data(
     partial_cems_plant: pd.DataFrame,
     monthly_eia_data_to_shape: pd.DataFrame,
     plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
     hourly_profiles: pd.DataFrame,
     path_prefix: str,
     skip_outputs: bool,
@@ -994,10 +1050,20 @@ def combine_and_export_hourly_plant_data(
     """
     Exports files with hourly data for each individual plant, split up by region.
 
-    Creating hourly records for all plants in the US at once will cause memory errors
+    Creating hourly records for all EIA plants in the US at once will cause memory errors
     on most computers, so we need to only shape data for one subset of plants at a time.
     This function shapes the EIA monthly data for one region at a time, combines it with
     the hourly CEMS data for that region, and exports the data as a csv file.
+
+    Process:
+        1. Combine all hourly CEMS data together and aggregate to plant level
+        2. Add a BA code to the CEMS data to help with filtering
+        3. Add fleet identifiers to the EIA data to help with filtering and shaping
+        4. For each BA:
+            a. Filter the EIA data to the region and shape the data to hourly
+            b. Aggregate EIA data to the plant level
+            c. Combine the hourly EIA plant data with the hourly CEMS plant data
+            d. Export the data
 
     All of the inputs are dataframes containing data from the data pipeline except for `region_to_group`
     `region_to_group` identifying whether "ba_code" or "state" should be used to group the data. "ba_code" is the default.
@@ -1027,121 +1093,90 @@ def combine_and_export_hourly_plant_data(
     ]
     all_columns = key_columns + data_columns_for_plant_export
 
+    # ensure that we will not be duplicating data when we combine
     validation.ensure_non_overlapping_data_from_all_sources(
         cems, partial_cems_subplant, partial_cems_plant, monthly_eia_data_to_shape
     )
 
-    # for each of our four input dataframes, create versions that are
-    # aggregated by plant-hour, and only keep the columns that we will export
-    cems_agg = (
-        cems.groupby(
-            key_columns,
-            dropna=False,
-        )
-        .sum(numeric_only=True)
-        .reset_index()[[col for col in cems.columns if col in all_columns]]
-    )
-    # don't group if there is no data in the dataframe
-    if len(partial_cems_subplant) > 0:
-        partial_cems_subplant_agg = (
-            partial_cems_subplant.groupby(
-                key_columns,
-                dropna=False,
-            )
-            .sum(numeric_only=True)
-            .reset_index()[
-                [col for col in partial_cems_subplant.columns if col in all_columns]
-            ]
-        )
-    else:
-        partial_cems_subplant_agg = partial_cems_subplant
-    if len(partial_cems_plant) > 0:
-        partial_cems_plant_agg = (
-            partial_cems_plant.groupby(
-                key_columns,
-                dropna=False,
-            )
-            .sum(numeric_only=True)
-            .reset_index()[
-                [col for col in partial_cems_plant.columns if col in all_columns]
-            ]
-        )
-    else:
-        partial_cems_plant_agg = partial_cems_plant
-    monthly_eia_data_to_shape_agg = (
-        monthly_eia_data_to_shape.groupby(
-            ["plant_id_eia", "report_date"],
-            dropna=False,
-        )
-        .sum(numeric_only=True)
-        .reset_index()[
-            [
-                col
-                for col in monthly_eia_data_to_shape.columns
-                if col in (all_columns + ["report_date"])
-            ]
-        ]
+    # combine all the CEMS data together
+    combined_cems_data = combine_subplant_data(
+        cems,
+        partial_cems_subplant,
+        partial_cems_plant,
+        eia_data=pd.DataFrame(
+            columns=["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
+        ),
+        resolution="hourly",
+        validate=False,  # we just checked this above
     )
 
-    # add ba_codes and fuel categories to the input data to help with filtering and merging
-    monthly_eia_data_to_shape_agg = monthly_eia_data_to_shape_agg.merge(
-        plant_attributes[["plant_id_eia", region_to_group, "fuel_category"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
+    # aggregate combined CEMS data to the plant level and only keep relevant columns
+    combined_cems_data = (
+        combined_cems_data.groupby(
+            key_columns,
+            dropna=False,
+        )[[col for col in cems.columns if col in all_columns]]
+        .sum(numeric_only=True)
+        .reset_index()
     )
-    cems_agg = cems_agg.merge(
+
+    # add ba_codes to the input data to help with regional filtering
+    combined_cems_data = combined_cems_data.merge(
         plant_attributes[["plant_id_eia", region_to_group]],
         how="left",
         on="plant_id_eia",
         validate="m:1",
     )
-    partial_cems_plant_agg = partial_cems_plant_agg.merge(
-        plant_attributes[["plant_id_eia", region_to_group]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
-    )
-    partial_cems_subplant_agg = partial_cems_subplant_agg.merge(
-        plant_attributes[["plant_id_eia", region_to_group]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
+
+    # because we need to shape the EIA based on its fleet category, we need to assign
+    # fleet based on the subplant fuel, not the plant fuel
+    monthly_eia_data_to_shape = assign_fleet_to_subplant_data(
+        monthly_eia_data_to_shape,
+        plant_attributes,
+        primary_fuel_table,
+        ba_col="ba_code",
+        primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+        fuel_category_col="fuel_category",
     )
 
     # for each region, shape the EIA-only data, combine with CEMS data, and export
-    for region in list(plant_attributes[region_to_group].unique()):
+    for region in list(
+        plant_attributes.sort_values(by=region_to_group)[region_to_group].unique()
+    ):
         # filter each of the data sources to the region
-        eia_region = monthly_eia_data_to_shape_agg[
-            monthly_eia_data_to_shape_agg[region_to_group] == region
-        ].copy()
-        cems_region = cems_agg[cems_agg[region_to_group] == region].copy()
-        partial_cems_plant_region = partial_cems_plant_agg[
-            partial_cems_plant_agg[region_to_group] == region
-        ].copy()
-        partial_cems_subplant_region = partial_cems_subplant_agg[
-            partial_cems_subplant_agg[region_to_group] == region
+        eia_region = monthly_eia_data_to_shape[
+            monthly_eia_data_to_shape[region_to_group] == region
         ].copy()
 
-        # shape the eia data
+        # shape the EIA subplant-level data
         shaped_eia_region_data = shape_monthly_eia_data_as_hourly(
             eia_region, hourly_profiles, year
         )
-
         # validate that the shaped data contains no duplicate datetimes
         validation.validate_unique_datetimes(
             year,
             df=shaped_eia_region_data,
             df_name="shaped_eia_data",
-            keys=["plant_id_eia"],
+            keys=["plant_id_eia", "subplant_id"],
         )
 
-        # concat all of the data together
+        # group the subplant data to plant
+        shaped_eia_region_data = (
+            shaped_eia_region_data.groupby(
+                key_columns,
+                dropna=False,
+            )[[col for col in cems.columns if col in all_columns]]
+            .sum(numeric_only=True)
+            .reset_index()
+        )
+
+        # filter the CEMS data to the region and combine it with the EIA data
+        cems_region = combined_cems_data[
+            combined_cems_data[region_to_group] == region
+        ].copy()
         combined_plant_data = pd.concat(
             [
                 cems_region,
-                partial_cems_subplant_region,
-                partial_cems_plant_region,
                 shaped_eia_region_data,
             ],
             axis=0,
@@ -1151,8 +1186,6 @@ def combine_and_export_hourly_plant_data(
 
         del (
             cems_region,
-            partial_cems_subplant_region,
-            partial_cems_plant_region,
             shaped_eia_region_data,
         )
 
@@ -1242,7 +1275,9 @@ def aggregate_eia_data_to_fleet(
     plant_attributes: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
 ) -> pd.DataFrame:
-    """
+    """Aggregates monthly EIA-923 data to the fleet level prior to assigning an hourly
+    profile
+
     Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
     using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
     and YY=fuel (see `impute_hourly_profiles.get_shaped_plant_id_from_ba_fuel`)
@@ -1250,19 +1285,16 @@ def aggregate_eia_data_to_fleet(
     Add new artificial plants to plant_attributes frame.
     """
 
-    # Note: currently using ba_code, could alternatively use ba_code_physical
+    # NOTE: currently using ba_code, could alternatively use ba_code_physical
     # Add plant attributes for grouping
     eia_agg = assign_fleet_to_subplant_data(
         monthly_eia_data_to_shape,
         plant_attributes,
         primary_fuel_table,
         ba_col="ba_code",
-        primary_fuel_col="subplant_primary_fuel",
+        primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
     )
-
-    # Make nan BA "None" so equality test works
-    # eia_agg.ba_code = eia_agg.ba_code.replace(np.nan, None)
 
     # create a column with shaped plant ids
     eia_agg = get_shaped_plant_id_from_ba_fuel(eia_agg)
@@ -1295,8 +1327,8 @@ def shape_monthly_eia_data_as_hourly(
 ) -> pd.DataFrame:
     """Assigns an hourly profile to monthly-level EIA data.
 
-    Can be used to shape plant-level data (if monthly_eia_data_to_shape contains a
-    plant_id_eia column), or shape fleet (BA-fuel) level data.
+    Can be used to shape subplant-level data (if monthly_eia_data_to_shape contains a
+    subplant_id column), or shape fleet (BA-fuel) level data.
 
     The fuel_category column from both monthly_eia_data_to_shape and hourly_profiles
     is used to identify the correct profile. This column can be based on any fuel
@@ -1354,6 +1386,7 @@ def shape_monthly_eia_data_as_hourly(
     # re order the columns
     column_order = [
         "plant_id_eia",
+        "subplant_id",
         "ba_code",
         "fuel_category",
         "datetime_utc",

@@ -216,6 +216,23 @@ def assign_fleet_to_subplant_data(
     """Assigns a BA code and fuel category to each subplant in order to facilitate
     aggregating the data to the fleet level.
 
+    When assigning a primary fuel/fuel category, the general options we should follow
+    are:
+        - If these keys will be used to calculate the residual hourly shape from CEMS,
+         we should use categories that best match how the data would be aggregated for
+         reporting to EIA-930. This means using 'subplant_primary_fuel_from_capacity_mw'
+         and fuel_category_eia930
+        - If these keys will be used to assign a shape to monthly data, the hourly_profiles
+         have been calculated using OGE categories, so we want to use fuel_category, but
+         the shape is defined by the fuel category that would hace been used by 930, so
+         subplant_primary_fuel_from_capacity_mw. This essentially means that we are
+         assigning our flat profiles for all the fuels that are categorized as "other"
+         in 930, rather than using the other profile for all of these individual
+         categories
+        - If these keys will be used to group fleet data for power sector results, we
+         want to use the OGE defaults, which are subplant_primary_fuel and fuel_category
+
+
     Args:
         subplant_data (pd.DataFrame): dataframe to assign fleet to
         primary_fuel_table (pd.DataFrame): static plant attributes

@@ -5,7 +5,7 @@ import oge.load_data as load_data
 import oge.impute_hourly_profiles as impute_hourly_profiles
 from oge.anomaly_screening import flag_cems_outliers
 from oge.column_checks import get_dtypes
-from oge.helpers import create_plant_ba_table
+from oge.helpers import create_plant_ba_table, assign_fleet_to_subplant_data
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
 from oge.constants import (
@@ -1335,14 +1335,33 @@ def hourly_profile_source_metric(
 
 
 def identify_percent_of_data_by_input_source(
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    eia_only_data,
-    year,
-    plant_attributes,
-):
-    """Identifies what percent of output data comes from each input source (CEMS or EIA)."""
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    eia_only_data: pd.DataFrame,
+    year: int,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+) -> pd.DataFrame:
+    """For each BA, identifies the percentage of input data (at the subplant level) from
+    one of 4 sources, for each data column:
+        - cems_hourly
+        - eia_annual
+        - eia_monthly
+        - eia_multiple
+
+    Args:
+        cems (pd.DataFrame): used to identify the data source
+        partial_cems_subplant (pd.DataFrame): used to identify the data source
+        partial_cems_plant (pd.DataFrame): used to identify the data source
+        eia_only_data (pd.DataFrame): used to identify the data source
+        year (int): the data year
+        plant_attributes (pd.DataFrame): used to assign fleet keys
+        primary_fuel_table (pd.DataFrame): used to assign fleet keys
+
+    Returns:
+        pd.DataFrame: Table of data source percentages
+    """
 
     columns_to_use = [
         "net_generation_mwh",
@@ -1363,29 +1382,15 @@ def identify_percent_of_data_by_input_source(
     partial_cems_plant = identify_reporting_frequency(partial_cems_plant, year)
 
     # add ba codes and plant primary fuel to all of the data
-    eia_only_data = eia_only_data.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
+    eia_only_data = assign_fleet_to_subplant_data(
+        eia_only_data, plant_attributes, primary_fuel_table
     )
-    cems = cems.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
+    cems = assign_fleet_to_subplant_data(cems, plant_attributes, primary_fuel_table)
+    partial_cems_subplant = assign_fleet_to_subplant_data(
+        partial_cems_subplant, plant_attributes, primary_fuel_table
     )
-    partial_cems_subplant = partial_cems_subplant.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
-    )
-    partial_cems_plant = partial_cems_plant.merge(
-        plant_attributes[["plant_id_eia", "ba_code", "plant_primary_fuel"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",
+    partial_cems_plant = assign_fleet_to_subplant_data(
+        partial_cems_plant, plant_attributes, primary_fuel_table
     )
 
     # add a column for fossil-based generation
