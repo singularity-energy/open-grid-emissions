@@ -8,7 +8,7 @@ import oge.load_data as load_data
 import oge.validation as validation
 import oge.emissions as emissions
 from oge.constants import CLEAN_FUELS
-from oge.column_checks import get_dtypes, apply_dtypes
+from oge.column_checks import get_dtypes, apply_dtypes, DATA_COLUMNS
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.helpers import (
     create_plant_ba_table,
@@ -18,36 +18,6 @@ from oge.helpers import (
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
-
-DATA_COLUMNS = [
-    "net_generation_mwh",
-    "fuel_consumed_mmbtu",
-    "fuel_consumed_for_electricity_mmbtu",
-    "co2_mass_lb",
-    "ch4_mass_lb",
-    "n2o_mass_lb",
-    "co2e_mass_lb",
-    "nox_mass_lb",
-    "so2_mass_lb",
-    "co2_mass_lb_for_electricity",
-    "ch4_mass_lb_for_electricity",
-    "n2o_mass_lb_for_electricity",
-    "co2e_mass_lb_for_electricity",
-    "nox_mass_lb_for_electricity",
-    "so2_mass_lb_for_electricity",
-    "co2_mass_lb_adjusted",
-    "ch4_mass_lb_adjusted",
-    "n2o_mass_lb_adjusted",
-    "co2e_mass_lb_adjusted",
-    "nox_mass_lb_adjusted",
-    "so2_mass_lb_adjusted",
-    "co2_mass_lb_for_electricity_adjusted",
-    "ch4_mass_lb_for_electricity_adjusted",
-    "n2o_mass_lb_for_electricity_adjusted",
-    "co2e_mass_lb_for_electricity_adjusted",
-    "nox_mass_lb_for_electricity_adjusted",
-    "so2_mass_lb_for_electricity_adjusted",
-]
 
 
 def clean_eia923(

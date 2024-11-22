@@ -661,10 +661,6 @@ def main(args):
             .reset_index()
         )
 
-        # Output intermediate data: produced per-fuel annual averages
-        output_data.write_generated_averages(
-            combined_fleet_data, year, path_prefix, args.skip_outputs
-        )
         # Output final data: per-ba hourly generation and rate
         output_data.write_power_sector_results(
             combined_fleet_data,
@@ -672,6 +668,10 @@ def main(args):
             path_prefix,
             args.skip_outputs,
             include_hourly=True,
+        )
+        # Write US-average fleet data
+        output_data.write_national_fleet_averages(
+            combined_fleet_data, year, path_prefix, args.skip_outputs
         )
 
         # 19. Calculate consumption-based emissions and write carbon accounting results

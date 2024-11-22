@@ -5,7 +5,7 @@ import shutil
 import os
 
 import oge.load_data as load_data
-import oge.column_checks as column_checks
+from oge.column_checks import check_columns, DATA_COLUMNS
 import oge.validation as validation
 from oge.filepaths import outputs_folder, results_folder, data_folder
 from oge.logging_util import get_logger
@@ -204,7 +204,7 @@ def output_intermediate_data(
         year (int): a four-digit year indicating when the data were taken.
         skip_outputs (bool): whether to save data or not.
     """
-    column_checks.check_columns(df, file_name)
+    check_columns(df, file_name)
     if not skip_outputs:
         logger.info(f"Exporting {file_name} to data/outputs")
         df.to_csv(
@@ -372,10 +372,10 @@ def convert_results(df: pd.DataFrame) -> pd.DataFrame:
     return converted
 
 
-def write_generated_averages(
+def write_national_fleet_averages(
     ba_fuel_data: pd.DataFrame, year: int, path_prefix: str, skip_outputs: bool
 ):
-    """Outputs generated averaged emission.
+    """Outputs annual, national-average fleet-level emissions data
 
     Args:
         ba_fuel_data (pd.DataFrame): plant data aggregated by BA and fuel type.
@@ -385,22 +385,29 @@ def write_generated_averages(
         skip_outputs (bool): whether to save data or not.
     """
     if not skip_outputs:
-        fuel_type_production = (
-            ba_fuel_data.groupby(["fuel_category"]).sum(numeric_only=True).reset_index()
+        national_avg = (
+            ba_fuel_data.groupby(["fuel_category"])[DATA_COLUMNS]
+            .sum(numeric_only=True)
+            .reset_index()
         )
 
         # Add row for total
-        total_production = fuel_type_production.sum(numeric_only=True).to_frame().T
-        total_production.loc[0, "fuel_category"] = "total"
-        production = pd.concat([fuel_type_production, total_production], axis=0)
+        national_total = national_avg[DATA_COLUMNS].sum().reset_index()
+        national_total["fuel_category"] = "total"
 
-        production = add_generated_emission_rate_columns(production)
+        # concat the totals to the fuel-specific totals
+        national_avg = pd.concat(
+            [national_avg, national_total], axis=0, ignore_index=True
+        )
 
-        output_intermediate_data(
-            production,
-            "annual_generation_averages_by_fuel",
-            path_prefix,
+        national_avg = add_generated_emission_rate_columns(national_avg)
+
+        output_to_results(
+            national_avg,
             year,
+            "US",
+            "power_sector_data/annual/",
+            path_prefix,
             skip_outputs,
         )
 
@@ -532,7 +539,7 @@ def write_plant_metadata(
         year=year,
     )
 
-    column_checks.check_columns(metadata, "plant_metadata")
+    check_columns(metadata, "plant_metadata")
 
     if not skip_outputs:
         metadata.to_csv(
@@ -591,36 +598,6 @@ def write_power_sector_results(
             monthly and yearly results
     """
 
-    data_columns = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-    ]
-
     if not skip_outputs:
         for ba in list(fleet_data.ba_code.unique()):
             if not isinstance(ba, str):
@@ -650,7 +627,7 @@ def write_power_sector_results(
                 # datetime_utc for the hourly calculations
                 ba_total = (
                     ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
-                        data_columns
+                        DATA_COLUMNS
                     ]
                     .sum()
                     .reset_index()
@@ -684,7 +661,7 @@ def write_power_sector_results(
                 # re-order columns
                 ba_table_hourly = ba_table_hourly[
                     ["fuel_category", "datetime_local", "datetime_utc"]
-                    + data_columns
+                    + DATA_COLUMNS
                     + GENERATED_EMISSION_RATE_COLS
                 ]
 
@@ -712,7 +689,7 @@ def write_power_sector_results(
                 )
             else:
                 ba_total = (
-                    ba_table.groupby(["report_date"], dropna=False)[data_columns]
+                    ba_table.groupby(["report_date"], dropna=False)[DATA_COLUMNS]
                     .sum()
                     .reset_index()
                 )
@@ -731,7 +708,7 @@ def write_power_sector_results(
             # re-order columns
             ba_table_monthly = ba_table_monthly[
                 ["fuel_category", "report_date"]
-                + data_columns
+                + DATA_COLUMNS
                 + GENERATED_EMISSION_RATE_COLS
             ]
             output_to_results(
@@ -752,7 +729,7 @@ def write_power_sector_results(
             ba_table_annual = add_generated_emission_rate_columns(ba_table_annual)
             # re-order columns
             ba_table_annual = ba_table_annual[
-                ["fuel_category"] + data_columns + GENERATED_EMISSION_RATE_COLS
+                ["fuel_category"] + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS
             ]
             output_to_results(
                 ba_table_annual,
