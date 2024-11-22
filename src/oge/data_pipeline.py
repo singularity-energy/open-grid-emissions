@@ -269,7 +269,7 @@ def main(args):
         args.skip_outputs,
     )
 
-    # 7. Aggregating CEMS data to subplant
+    # 7. Aggregate CEMS data to subplant
     ####################################################################################
     logger.info("7. Aggregating CEMS data from unit to subplant")
     # aggregate cems data to subplant level
@@ -433,15 +433,29 @@ def main(args):
     output_data.write_power_sector_results(
         fleet_data, year, path_prefix, args.skip_outputs, include_hourly=False
     )
-
-    # TODO: does fleet_data need to be kept around?
+    # free up memory
+    del monthly_subplant_data
+    del fleet_data
 
     # For 2019 onward, calculate hourly data, otherwise skip these steps
-    if year >= earliest_hourly_data_year:
-        del monthly_subplant_data
-        # 12. Clean and Reconcile EIA-930 data
+    if year < earliest_hourly_data_year:
+        # export plant static attributes to csv
+        output_data.output_intermediate_data(
+            plant_attributes.assign(shaped_plant_id=pd.NA),
+            "plant_static_attributes",
+            path_prefix,
+            year,
+            args.skip_outputs,
+        )
+        if not args.skip_outputs:
+            plant_attributes.assign(shaped_plant_id=pd.NA).to_csv(
+                results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
+                index=False,
+            )
+    elif year >= earliest_hourly_data_year:
+        # 13. Clean and Reconcile EIA-930 data
         ################################################################################
-        logger.info("12. Cleaning EIA-930 data")
+        logger.info("13. Cleaning EIA-930 data")
         # Scrapes and cleans data in data/downloads, outputs cleaned file at
         # EBA_elec.csv
         if args.flat:
@@ -471,9 +485,9 @@ def main(args):
         eia930_data = eia930.remove_imputed_ones(eia930_data)
         eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
-        # 13. Calculate hourly profiles for monthly EIA data
+        # 14. Calculate hourly profiles for monthly EIA data
         ################################################################################
-        logger.info("13. Estimating hourly profiles for EIA data")
+        logger.info("14. Estimating hourly profiles for EIA data")
         hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
             cems,
             partial_cems_subplant,
@@ -505,21 +519,14 @@ def main(args):
             columns_to_convert=["profile", "flat_profile"],
         )
 
-        # 14. Export hourly plant-level data
+        # 15. Export hourly plant-level data
         ################################################################################
-        # The data pipeline offers two options for exporting plant-level data. The
-        # first option, executed here in step 14 is to shape hourly data for each
-        # individual plant.
-        # This option provides a complete hourly timeseries for each plant, but is more
+        # This provides a complete hourly timeseries for each plant, but is more
         # memory-intensive and results in larger output files.
         # This data is immediately exported and not held in memory for the rest of the
         # pipeline. Instead, this data is re-combined again using the aggregated shaped
-        # plants in step 16.
-        # The other option happens in step 16 if step 14 is not run: instead of shaping
-        # each plant, only an aggregate fleet-level synthetic plant is exported, which
-        # represents the characteristics of all plants that do not report hourly data
-        # elsewhere in each month.
-        logger.info("14. Exporting Hourly Plant-level data for each BA")
+        # plants in step 17.
+        logger.info("15. Exporting Hourly Plant-level data for each BA")
         if not args.small:
             impute_hourly_profiles.combine_and_export_hourly_plant_data(
                 year,
@@ -535,9 +542,9 @@ def main(args):
                 region_to_group="ba_code",
             )
 
-        # 15. Shape fleet-level data
+        # 16. Shape fleet-level data
         ################################################################################
-        logger.info("15. Assigning hourly profiles to monthly EIA-923 data")
+        logger.info("16. Assigning hourly profiles to monthly EIA-923 data")
         hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
             hourly_profiles,
             group_keys=["ba_code", "fuel_category", "profile_method"],
@@ -586,11 +593,7 @@ def main(args):
             group_keys=["ba_code", "fuel_category"],
         )
 
-        # 16. Combine plant-level data from all sources
-        ################################################################################
-        logger.info("16. Combining plant-level hourly data")
         # write metadata outputs
-        # TODO: remove shaped plant id from this and use ba-fuel instead
         output_data.write_plant_metadata(
             plant_attributes,
             eia923_allocated,
@@ -603,6 +606,9 @@ def main(args):
             year,
         )
 
+        # 17. Combine plant-level data from all sources
+        ################################################################################
+        logger.info("17. Combining hourly CEMS data")
         # Because EIA data is already aggregated to the fleet level, at this point, we
         # only want to combine CEMS data together. We pass a blank dataframe as the
         # EIA data
@@ -630,9 +636,11 @@ def main(args):
             keys=["plant_id_eia", "subplant_id"],
         )
 
-        # 17. Aggregate CEMS data to BA-fuel and write power sector results
+        # 18. Aggregate CEMS data to fleet and write power sector results
         ################################################################################
-        logger.info("17. Creating and exporting BA-level power sector results")
+        logger.info(
+            "18. Creating and exporting hourly, fleet-level power sector results"
+        )
         # aggregate CEMS data to the fleet level
         cems_fleet_data = data_cleaning.aggregate_subplant_data_to_fleet(
             combined_cems_subplant_data, plant_attributes, primary_fuel_table
@@ -666,9 +674,9 @@ def main(args):
             include_hourly=True,
         )
 
-        # 18. Calculate consumption-based emissions and write carbon accounting results
+        # 19. Calculate consumption-based emissions and write carbon accounting results
         ################################################################################
-        logger.info("18. Calculating and exporting consumption-based results")
+        logger.info("19. Calculating and exporting consumption-based results")
         hourly_consumed_calc = consumed.HourlyConsumed(
             clean_930_file,
             path_prefix,
@@ -678,22 +686,6 @@ def main(args):
         )
         hourly_consumed_calc.run()
         hourly_consumed_calc.output_results()
-
-    # for years prior to 2019, do not export carbon accounting data
-    elif year < earliest_hourly_data_year:
-        # export plant static attributes to csv
-        output_data.output_intermediate_data(
-            plant_attributes.assign(shaped_plant_id=pd.NA),
-            "plant_static_attributes",
-            path_prefix,
-            year,
-            args.skip_outputs,
-        )
-        if not args.skip_outputs:
-            plant_attributes.assign(shaped_plant_id=pd.NA).to_csv(
-                results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
-                index=False,
-            )
 
 
 if __name__ == "__main__":

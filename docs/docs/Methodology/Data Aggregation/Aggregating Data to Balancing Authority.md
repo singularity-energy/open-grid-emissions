@@ -4,7 +4,7 @@ stoplight-id: ba_aggregation
 
 ## Aggregating plant data to balancing authority
 
-In addition to plant-level data, OGEI includes data aggregated to the balancing authority level.
+In addition to plant-level data, OGE includes data aggregated to the balancing authority level.
 
 As explained in the [eGRID technical support documentation](https://www.epa.gov/system/files/documents/2022-01/egrid2020_technical_guide.pdf):
 
