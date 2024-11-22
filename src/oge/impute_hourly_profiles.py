@@ -8,8 +8,7 @@ from oge.filepaths import reference_table_folder
 import oge.validation as validation
 import oge.output_data as output_data
 from oge.logging_util import get_logger
-from oge.helpers import assign_fleet_to_subplant_data
-from oge.data_cleaning import combine_subplant_data
+from oge.helpers import assign_fleet_to_subplant_data, combine_subplant_data
 
 logger = get_logger(__name__)
 
