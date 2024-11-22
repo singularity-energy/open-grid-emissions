@@ -571,7 +571,7 @@ def get_dtypes() -> dict:
         "fuel_consumed_units": "float64",
         "fuel_cost_from_eiaapi": "boolean",
         "fuel_cost_per_mmbtu": "float64",
-        "fuel_cost_per_mmbtu_source":"string",
+        "fuel_cost_per_mmbtu_source": "string",
         "fuel_cost_per_mwh": "float64",
         "fuel_mmbtu_per_unit": "float64",
         "fuel_type_code_aer": "string",
