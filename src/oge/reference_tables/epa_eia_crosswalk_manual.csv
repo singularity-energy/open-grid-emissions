@@ -149,3 +149,8 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,notes
 13213,AA-004, 55080,4,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
 13213,AA-005, 55080,5,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
 13213,AA-006, 55080,6,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+10298,CG801,10298,GT1,Repower of existing generator_id GEN_1
+10298,CG802,10298,GT2,Repower of existing generator_id GEN_2
+10298,CG803,10298,GT3,Repower of existing generator_id GEN_3
+10298,CG804,10298,GT4,Repower of existing generator_id GEN_4
+56668,CGTC,56668,CGT,Repower of existing generator_id CGTG

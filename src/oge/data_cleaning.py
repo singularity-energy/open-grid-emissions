@@ -481,9 +481,23 @@ def calculate_capacity_based_primary_fuel(
             "generator_id",
             "capacity_mw",
             "energy_source_code_1",
+            "operational_status",
             "operational_status_code",
         ],
     )
+
+    # keep operating generators and proposed generators that are already under construction
+    under_construction_status_codes = ["U", "V", "TS"]
+    gen_cap_under_construction = gen_capacity[
+        (
+            (gen_capacity["operational_status"] == "proposed")
+            & (
+                gen_capacity["operational_status_code"].isin(
+                    under_construction_status_codes
+                )
+            )
+        )
+    ]
     # only keep keys that exist in gen_fuel_allocated
     gen_capacity = gen_capacity.merge(
         gen_fuel_allocated[["plant_id_eia", "generator_id"]].drop_duplicates(),
@@ -491,6 +505,8 @@ def calculate_capacity_based_primary_fuel(
         on=["plant_id_eia", "generator_id"],
         validate="1:1",
     )
+    # add under construction plants to this
+    gen_capacity = pd.concat([gen_capacity, gen_cap_under_construction], axis=0)
 
     if "subplant_id" in agg_keys:
         gen_capacity = add_subplant_ids_to_df(
