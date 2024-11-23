@@ -279,6 +279,11 @@ def create_primary_fuel_table(
         pd.DataFrame: the primary fuel table.
     """
 
+    # add under construction generators to the dataframe
+    gen_fuel_allocated = add_under_construction_generator_ids_to_df(
+        gen_fuel_allocated, year
+    )
+
     # add subplant ids so that we can create subplant-specific primary fuels
     gen_fuel_allocated = add_subplant_ids_to_df(
         gen_fuel_allocated,
@@ -309,20 +314,6 @@ def create_primary_fuel_table(
         subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
     )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
 
-    plant_primary_fuel = calculate_aggregated_primary_fuel(
-        gen_fuel_allocated, gen_primary_fuel, "plant", year
-    )
-
-    validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel, year)
-
-    # merge the plant primary fuel into the gen primary fuel
-    primary_fuel_table = gen_primary_fuel.merge(
-        plant_primary_fuel,
-        how="left",
-        on="plant_id_eia",
-        validate="many_to_one",
-    )
-
     # calculate the subplant primary fuel
     subplant_primary_fuel = calculate_aggregated_primary_fuel(
         gen_fuel_allocated,
@@ -330,10 +321,24 @@ def create_primary_fuel_table(
         "subplant",
         year,
     )
-    primary_fuel_table = primary_fuel_table.merge(
+    primary_fuel_table = gen_primary_fuel.merge(
         subplant_primary_fuel,
-        how="left",
+        how="outer",
         on=["plant_id_eia", "subplant_id"],
+        validate="many_to_one",
+    )
+
+    plant_primary_fuel = calculate_aggregated_primary_fuel(
+        gen_fuel_allocated, gen_primary_fuel, "plant", year
+    )
+
+    validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel, year)
+
+    # merge the plant primary fuel into the gen primary fuel
+    primary_fuel_table = primary_fuel_table.merge(
+        plant_primary_fuel,
+        how="outer",
+        on="plant_id_eia",
         validate="many_to_one",
     )
 
@@ -417,7 +422,7 @@ def calculate_aggregated_primary_fuel(
 
     # merge the primary fuel into the main table
     agg_primary_fuel = agg_primary_fuel.merge(
-        primary_fuel_from_capacity, how="left", on=agg_keys, validate="1:1"
+        primary_fuel_from_capacity, how="outer", on=agg_keys, validate="1:1"
     )
 
     agg_primary_fuel = agg_primary_fuel.merge(
@@ -481,23 +486,9 @@ def calculate_capacity_based_primary_fuel(
             "generator_id",
             "capacity_mw",
             "energy_source_code_1",
-            "operational_status",
-            "operational_status_code",
         ],
     )
 
-    # keep operating generators and proposed generators that are already under construction
-    under_construction_status_codes = ["U", "V", "TS"]
-    gen_cap_under_construction = gen_capacity[
-        (
-            (gen_capacity["operational_status"] == "proposed")
-            & (
-                gen_capacity["operational_status_code"].isin(
-                    under_construction_status_codes
-                )
-            )
-        )
-    ]
     # only keep keys that exist in gen_fuel_allocated
     gen_capacity = gen_capacity.merge(
         gen_fuel_allocated[["plant_id_eia", "generator_id"]].drop_duplicates(),
@@ -505,8 +496,6 @@ def calculate_capacity_based_primary_fuel(
         on=["plant_id_eia", "generator_id"],
         validate="1:1",
     )
-    # add under construction plants to this
-    gen_capacity = pd.concat([gen_capacity, gen_cap_under_construction], axis=0)
 
     if "subplant_id" in agg_keys:
         gen_capacity = add_subplant_ids_to_df(
@@ -546,6 +535,66 @@ def calculate_capacity_based_primary_fuel(
     gen_capacity = gen_capacity[~(gen_capacity.duplicated(subset=agg_keys, keep=False))]
 
     return gen_capacity
+
+
+def add_under_construction_generator_ids_to_df(df: pd.DataFrame, year: int):
+    """Adds rows to df for generators that are under construction. Used to ensure
+    complete coverage when a generator starts reporting data before coming online
+
+    NOTE: this function may result in the addition of duplicate generator_ids. If that
+    is an issue for the context, run drop_duplicates after this function.
+
+    Args:
+        df (pd.DataFrame): the df to add generator IDs to
+        year (int): the data year
+
+    Returns:
+        _type_: df with new rows for under construction generator ids added
+    """
+    # create a table of primary fuel by nameplate capacity
+    gen_capacity = load_data.load_pudl_table(
+        "core_eia860__scd_generators",
+        year,
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "capacity_mw",
+            "energy_source_code_1",
+            "operational_status",
+            "operational_status_code",
+        ],
+    ).rename(columns={"energy_source_code_1": "energy_source_code"})
+
+    # keep operating generators and proposed generators that are already under construction
+    under_construction_status_codes = ["U", "V", "TS"]
+    gen_cap_under_construction = gen_capacity[
+        (
+            (gen_capacity["operational_status"] == "proposed")
+            & (
+                gen_capacity["operational_status_code"].isin(
+                    under_construction_status_codes
+                )
+            )
+        )
+    ]
+
+    # add subplant_ids
+    gen_cap_under_construction = add_subplant_ids_to_df(
+        gen_cap_under_construction,
+        year,
+        plant_part_to_map="generator_id",
+        how_merge="left",
+        validate_merge="m:1",
+    )
+
+    columns_to_append = [
+        col for col in gen_cap_under_construction.columns if col in df.columns
+    ]
+
+    # add under construction plants to this
+    df = pd.concat([df, gen_cap_under_construction[columns_to_append]], axis=0)
+
+    return df
 
 
 def calculate_subplant_efs(gen_fuel_allocated):
