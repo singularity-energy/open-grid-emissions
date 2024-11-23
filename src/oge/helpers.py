@@ -290,18 +290,42 @@ def assign_fleet_to_subplant_data(
     )
 
     # check that there is no missing ba or fuel codes for subplants with nonzero gen
-    if (
-        len(
-            subplant_data[
-                (
-                    (subplant_data["ba_code"].isna())
-                    | (subplant_data[fuel_category_col].isna())
-                    & (subplant_data["net_generation_mwh"] != 0)
-                )
+    # for CEMS data, check only units that report positive gross generaiton
+    if "gross_generation_mwh" in subplant_data.columns:
+        missing_fleet_keys = subplant_data[
+            (
+                (subplant_data["ba_code"].isna())
+                | (subplant_data[fuel_category_col].isna())
+                & (subplant_data["gross_generation_mwh"] > 0)
+            )
+        ]
+    # otherwise, check units that report non-zero net generation
+    else:
+        missing_fleet_keys = subplant_data[
+            (
+                (subplant_data["ba_code"].isna())
+                | (subplant_data[fuel_category_col].isna())
+                & (subplant_data["net_generation_mwh"] != 0)
+            )
+        ]
+    if len(missing_fleet_keys) > 0:
+        logger.warning(
+            missing_fleet_keys.groupby(
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "ba_code",
+                    fuel_category_col,
+                ],
+                dropna=False,
+            )[
+                [
+                    "net_generation_mwh",
+                ]
             ]
+            .sum()
+            .to_string()
         )
-        > 0
-    ):
         raise UserWarning(
             "The plant attributes table is missing ba code or fuel_category data for some plants. This will result in incomplete power sector results."
         )
