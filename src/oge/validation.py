@@ -1385,17 +1385,26 @@ def identify_percent_of_data_by_input_source(
     eia_only_data = assign_fleet_to_subplant_data(
         eia_only_data, plant_attributes, primary_fuel_table
     )
-    cems = assign_fleet_to_subplant_data(cems, plant_attributes, primary_fuel_table)
+    cems = assign_fleet_to_subplant_data(
+        cems, plant_attributes, primary_fuel_table, drop_primary_fuel_col=False
+    )
     partial_cems_subplant = assign_fleet_to_subplant_data(
-        partial_cems_subplant, plant_attributes, primary_fuel_table
+        partial_cems_subplant,
+        plant_attributes,
+        primary_fuel_table,
+        drop_primary_fuel_col=False,
     )
     partial_cems_plant = assign_fleet_to_subplant_data(
-        partial_cems_plant, plant_attributes, primary_fuel_table
+        partial_cems_plant,
+        plant_attributes,
+        primary_fuel_table,
+        drop_primary_fuel_col=False,
     )
 
     # add a column for fossil-based generation
-    # this copies the net generation data if the associated fuel is not clean or geothermal, and otherwise adds a zero
-    # use the generator-specific energy source code for the eia data, otherwise use the pliant primary fuel
+    # this copies the net generation data if the associated fuel is not clean or
+    # geothermal, and otherwise adds a zero use the generator-specific energy source
+    # code for the eia data, otherwise use the plant primary fuel
     eia_only_data = eia_only_data.assign(
         emitting_net_generation_mwh=lambda x: np.where(
             ~x.energy_source_code.isin(CLEAN_FUELS + ["GEO"]),
@@ -1405,21 +1414,21 @@ def identify_percent_of_data_by_input_source(
     )
     cems = cems.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
+            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
             x.net_generation_mwh,
             0,
         )
     )
     partial_cems_subplant = partial_cems_subplant.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
+            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
             x.net_generation_mwh,
             0,
         )
     )
     partial_cems_plant = partial_cems_plant.assign(
         emitting_net_generation_mwh=lambda x: np.where(
-            ~x.plant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
+            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
             x.net_generation_mwh,
             0,
         )

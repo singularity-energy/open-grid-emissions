@@ -680,8 +680,8 @@ def load_pudl_table(
 def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
     """Read in the EPA-EIA Crosswalk table downloaded from the EPA website.
 
-    This is only used in OGE to access the CAMD_FUEL_TYPE column, which is dropped from
-    the PUDL version of the table.
+    This is only used data_cleaning.assign_fuel_type_to_cems() to access the
+    CAMD_FUEL_TYPE column, which is dropped from the PUDL version of the table.
 
     Args:
         year (int): a four-digit year.

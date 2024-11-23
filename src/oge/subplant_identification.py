@@ -84,6 +84,8 @@ def generate_subplant_ids() -> pd.DataFrame:
             "original_planned_generator_operating_date",
             "current_planned_generator_operating_date",
             "prime_mover_code",
+            "start_year",
+            "end_year",
         ]
     ]
 
@@ -142,6 +144,8 @@ def generate_subplant_ids() -> pd.DataFrame:
             "generator_retirement_date",
             "current_planned_generator_operating_date",
             "prime_mover_code",
+            "start_year",
+            "end_year",
         ]
     ].drop_duplicates(
         subset=[

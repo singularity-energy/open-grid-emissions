@@ -149,11 +149,11 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 13213,AA-004,55080,4,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
 13213,AA-005,55080,5,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
 13213,AA-006,55080,6,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
-10298,CG801,10298,GT1,,,Repower of existing generator_id GEN_1
-10298,CG802,10298,GT2,,,Repower of existing generator_id GEN_2
-10298,CG803,10298,GT3,,,Repower of existing generator_id GEN_3
-10298,CG804,10298,GT4,,,Repower of existing generator_id GEN_4
-56668,CGTC,56668,CGT,,,Repower of existing generator_id CGTG
+10298,CG801,10298,GT1,2014,,Repower of existing generator_id GEN_1
+10298,CG802,10298,GT2,2015,,Repower of existing generator_id GEN_2
+10298,CG803,10298,GT3,2015,,Repower of existing generator_id GEN_3
+10298,CG804,10298,GT4,2019,,Repower of existing generator_id GEN_4
+56668,CGTC,56668,CGT,2018,,Repower of existing generator_id CGTG
 1571,SMECO,65285,GT1,2021,2022,This generator switches plant IDs for two years then switches back to its original plant ID
 1571,1,65285,ST1,2021,,This generator switches plant IDs the year it retires (2021)
-1571,2,65285,ST1,2021,,This generator switches plant IDs the year it retires (2021)
+1571,2,65285,ST2,2021,,This generator switches plant IDs the year it retires (2021)

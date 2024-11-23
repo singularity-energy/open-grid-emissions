@@ -212,6 +212,7 @@ def assign_fleet_to_subplant_data(
     primary_fuel_col: str = "subplant_primary_fuel",
     fuel_category_col: str = "fuel_category",
     other_attribute_cols: list[str] = [],
+    drop_primary_fuel_col: bool = True,
 ) -> pd.DataFrame:
     """Assigns a BA code and fuel category to each subplant in order to facilitate
     aggregating the data to the fleet level.
@@ -246,6 +247,9 @@ def assign_fleet_to_subplant_data(
             Defaults to "fuel_category".
         other_attribute_cols (list[str], optional): a list of additional columns from
             plant_attributes_table to add to subplant_data. Defaults to [].
+        drop_primary_fuel_col (bool): Whether to drop the ESC-level primary_fuel_col
+            before returning the table. Can be set to False for use of this function
+            in validation.identify_percent_of_data_by_input_source() Defaults to True.
 
     Raises:
         UserWarning: If a BA code or fuel type cannot be assigned to a subplant
@@ -280,7 +284,9 @@ def assign_fleet_to_subplant_data(
         subplant_primary_fuel,
         fuel_category_names=[fuel_category_col],
         esc_column=primary_fuel_col,
-    ).drop(columns=[primary_fuel_col])
+    )
+    if drop_primary_fuel_col:
+        subplant_primary_fuel = subplant_primary_fuel.drop(columns=[primary_fuel_col])
     # merge in the fuel data
     subplant_data = subplant_data.merge(
         subplant_primary_fuel,
