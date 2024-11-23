@@ -65,7 +65,7 @@ def load_cems_data(year: int) -> pd.DataFrame:
     cems = apply_dtypes(cems)
 
     # update the plant_id_eia column using manual matches
-    cems = update_epa_to_eia_map(cems)
+    cems = update_epa_to_eia_map(cems, year)
 
     cems = cems.rename(
         columns={
@@ -143,7 +143,11 @@ def load_cems_ids() -> pd.DataFrame:
             filters=[["year", "==", year]],
             columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
         ).drop_duplicates()
+        cems_id_year = apply_dtypes(cems_id_year)
+        # update the plant_id_eia column using manual matches
+        cems_id_year = update_epa_to_eia_map(cems_id_year, year)
         cems_ids.append(cems_id_year)
+        # only keep new ids for the given year
         cems_ids = [pd.concat(cems_ids, axis=0).drop_duplicates()]
 
     cems_ids = (
@@ -153,9 +157,6 @@ def load_cems_ids() -> pd.DataFrame:
     )
 
     cems_ids = apply_dtypes(cems_ids)
-
-    # update the plant_id_eia column using manual matches
-    cems_ids = update_epa_to_eia_map(cems_ids)
 
     return cems_ids[["plant_id_eia", "emissions_unit_id_epa"]]
 
@@ -456,75 +457,12 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     return generator_data_from_eia860
 
 
-def load_cems_gross_generation(start_year: int, end_year: int) -> pd.DataFrame:
-    """Loads hourly CEMS gross generation data for multiple years.
-
-    Args:
-        start_year (int): a four-digit year.
-        end_year (int): a four-digit year
-
-    Returns:
-        pd.DataFrame: CEMS gross generation data over the required year aggregated by
-            plant, unit and month.
-    """
-
-    # specify the columns to use from the CEMS database
-    cems_columns = [
-        "plant_id_epa",
-        "plant_id_eia",
-        "emissions_unit_id_epa",
-        "operating_datetime_utc",
-        "operating_time_hours",
-        "gross_load_mw",
-    ]
-
-    # load cems data
-    cems = pd.read_parquet(
-        pudl_folder("core_epacems__hourly_emissions.parquet"),
-        filters=[["year", ">=", start_year], ["year", "<=", end_year]],
-        columns=cems_columns,
-    )
-    # convert to tz-naive datetime to allow for dtype application
-    cems = apply_dtypes(cems)
-
-    # update the plant_id_eia column using manual matches
-    cems = update_epa_to_eia_map(cems)
-
-    # only keep values when the plant was operating
-    # this will help speed up calculations and allow us to add this data back later
-    cems = cems[(cems["gross_load_mw"] > 0) | (cems["operating_time_hours"] > 0)]
-
-    # rename the heat content column to use the convention used in the EIA data
-    cems = cems.rename(
-        columns={
-            "operating_datetime_utc": "datetime_utc",
-            "gross_load_mw": "gross_generation_mwh",
-        }
-    )
-
-    # add a report date
-    cems = add_report_date(cems)
-
-    cems = cems[
-        [
-            "plant_id_eia",
-            "emissions_unit_id_epa",
-            "report_date",
-            "gross_generation_mwh",
-        ]
-    ]
-
-    # group data by plant, unit, month
-    cems = cems.groupby(
-        ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
-    ).sum()
-
-    return cems
-
-
-def update_epa_to_eia_map(cems_df: pd.DataFrame) -> pd.DataFrame:
+def update_epa_to_eia_map(cems_df: pd.DataFrame, year: int) -> pd.DataFrame:
     """Updates the plant_id_eia column in the CEMS data frame loaded from pudl based
-    on the manual epa_eia_crosswalk_manual table
+    on the manual epa_eia_crosswalk_manual table.
+
+    This is meant to be applied on a single year of CEMS data at a time, since EPA-EIA
+    mappings can change from year to year
 
     Args:
         cems_df (pd.DataFrame): input CEMS data frame.
@@ -537,6 +475,16 @@ def update_epa_to_eia_map(cems_df: pd.DataFrame) -> pd.DataFrame:
         reference_table_folder("epa_eia_crosswalk_manual.csv"),
         dtype=get_dtypes(),
     ).drop(columns=["notes"])
+
+    # if no start_year or end_year is specified, fill with numbers to help with filtering
+    manual_plant_map["start_year"] = manual_plant_map["start_year"].fillna(0)
+    manual_plant_map["end_year"] = manual_plant_map["end_year"].fillna(9999)
+
+    # only keep mappings that are valid for the current year
+    manual_plant_map = manual_plant_map[
+        (year >= manual_plant_map["start_year"])
+        & (year <= manual_plant_map["end_year"])
+    ].drop(columns=["start_year", "end_year"])
 
     # only keep rows where the epa and eia plant ids don't match
     manual_plant_map = manual_plant_map.loc[
