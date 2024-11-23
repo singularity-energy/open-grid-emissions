@@ -397,7 +397,7 @@ def main(args):
         args.skip_outputs,
     )
     # combine and export plant data at monthly and annual level
-    monthly_subplant_data = data_cleaning.combine_subplant_data(
+    monthly_subplant_data = helpers.combine_subplant_data(
         cems,
         partial_cems_subplant,
         partial_cems_plant,
@@ -612,7 +612,7 @@ def main(args):
         # Because EIA data is already aggregated to the fleet level, at this point, we
         # only want to combine CEMS data together. We pass a blank dataframe as the
         # EIA data
-        combined_cems_subplant_data = data_cleaning.combine_subplant_data(
+        combined_cems_subplant_data = helpers.combine_subplant_data(
             cems,
             partial_cems_subplant,
             partial_cems_plant,

@@ -219,19 +219,20 @@ def assign_fleet_to_subplant_data(
 
     When assigning a primary fuel/fuel category, the general options we should follow
     are:
-        - If these keys will be used to calculate the residual hourly shape from CEMS,
-         we should use categories that best match how the data would be aggregated for
-         reporting to EIA-930. This means using 'subplant_primary_fuel_from_capacity_mw'
-         and fuel_category_eia930
-        - If these keys will be used to assign a shape to monthly data, the hourly_profiles
-         have been calculated using OGE categories, so we want to use fuel_category, but
-         the shape is defined by the fuel category that would hace been used by 930, so
-         subplant_primary_fuel_from_capacity_mw. This essentially means that we are
-         assigning our flat profiles for all the fuels that are categorized as "other"
-         in 930, rather than using the other profile for all of these individual
-         categories
-        - If these keys will be used to group fleet data for power sector results, we
-         want to use the OGE defaults, which are subplant_primary_fuel and fuel_category
+        - For applying to CEMS data for the residual hourly profile calculation:
+            - primary_fuel_col = "subplant_primary_fuel_from_capacity_mw"
+            - fuel_category_col = "fuel_category_eia930"
+            - Notes: this matches how generators would likely be classified for 930
+            reporting
+        - For applying to monthly EIA-923 data to shape:
+            - primary_fuel_col = "subplant_primary_fuel_from_capacity_mw"
+            - fuel_category_col = "fuel_category"
+            - Notes: This means that we are assigning our flat profiles for all the
+            fuels that are categorized as "other" in 930, rather than using the "other"
+            profile for all of these individual categories
+        - For aggregating subplant data to fleet-level results:
+            - primary_fuel_col = "subplant_primary_fuel"
+            - fuel_category_col = "fuel_category"
 
 
     Args:
