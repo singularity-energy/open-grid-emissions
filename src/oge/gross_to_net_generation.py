@@ -584,6 +584,20 @@ def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame
         ]
     ]
 
+    # drop any subplants that only appear in CEMS and report 0 gross generation for the
+    # entire year
+    factors_to_use = factors_to_use[
+        ~(
+            (
+                factors_to_use.groupby(["plant_id_eia", "subplant_id"])[
+                    "gross_generation_mwh"
+                ].transform("sum")
+                == 0
+            )
+            & (factors_to_use["data_source"] == "cems_only")
+        )
+    ]
+
     for scaling_factor in [
         "annual_subplant_ratio",
         "annual_plant_ratio",
@@ -667,6 +681,11 @@ def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame
         )
         factors_to_use.loc[factors_to_use["incomplete_flag"] == "both", method] = np.NaN
         factors_to_use = factors_to_use.drop(columns=["incomplete_flag"])
+
+    # for any subplants that only report CEMS data, but report all zero gross generation
+    # we want to remove any shift factors so that they don't accidentally get applied
+    # as negative generation
+    factors_to_use[factors_to_use["data_source"] == "cems_only"]
 
     return factors_to_use
 

@@ -417,11 +417,11 @@ def main(args):
             output_data.write_plant_data_to_results(
                 monthly_subplant_data,
                 year,
-                path_prefix,
-                resolution,
-                plant_part,
-                args.skip_outputs,
-                plant_attributes,
+                path_prefix=path_prefix,
+                plant_part=plant_part,
+                resolution=resolution,
+                skip_outputs=args.skip_outputs,
+                plant_attributes=plant_attributes,
             )
     # 12. Export monthly and annual power sector data
     ####################################################################################

@@ -335,10 +335,10 @@ def write_plant_data_to_results(
         output_to_results(
             df,
             year,
-            f"{plant_part}_data",
-            f"plant_data/{resolution}/",
-            path_prefix,
-            skip_outputs,
+            file_name=f"{plant_part}_data",
+            subfolder=f"plant_data/{resolution}/",
+            path_prefix=path_prefix,
+            skip_outputs=skip_outputs,
         )
 
 
