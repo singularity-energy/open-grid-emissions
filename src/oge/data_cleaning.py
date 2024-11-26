@@ -537,7 +537,9 @@ def calculate_capacity_based_primary_fuel(
     return gen_capacity
 
 
-def add_under_construction_generator_ids_to_df(df: pd.DataFrame, year: int):
+def add_under_construction_generator_ids_to_df(
+    df: pd.DataFrame, year: int
+) -> pd.DataFrame:
     """Adds rows to df for generators that are under construction. Used to ensure
     complete coverage when a generator starts reporting data before coming online
 
@@ -549,7 +551,7 @@ def add_under_construction_generator_ids_to_df(df: pd.DataFrame, year: int):
         year (int): the data year
 
     Returns:
-        _type_: df with new rows for under construction generator ids added
+        pd.DataFrame: df with new rows for under construction generator ids added
     """
     # create a table of primary fuel by nameplate capacity
     gen_capacity = load_data.load_pudl_table(

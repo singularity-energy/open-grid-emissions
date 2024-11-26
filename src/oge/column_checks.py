@@ -304,6 +304,8 @@ COLUMNS = {
         "generator_retirement_date",
         "current_planned_generator_operating_date",
         "prime_mover_code",
+        "start_year",
+        "end_year",
     },
     "shaped_aggregated_plants": {
         "plant_id_eia",

@@ -385,6 +385,7 @@ def write_national_fleet_averages(
         skip_outputs (bool): whether to save data or not.
     """
     if not skip_outputs:
+        # sum all of the columns by fuel before calculating emission rates
         national_avg = (
             ba_fuel_data.groupby(["fuel_category"])[DATA_COLUMNS]
             .sum(numeric_only=True)
@@ -392,7 +393,7 @@ def write_national_fleet_averages(
         )
 
         # Add row for total
-        national_total = national_avg[DATA_COLUMNS].sum().reset_index()
+        national_total = pd.DataFrame(national_avg[DATA_COLUMNS].sum()).T
         national_total["fuel_category"] = "total"
 
         # concat the totals to the fuel-specific totals

@@ -466,6 +466,7 @@ def update_epa_to_eia_map(cems_df: pd.DataFrame, year: int) -> pd.DataFrame:
 
     Args:
         cems_df (pd.DataFrame): input CEMS data frame.
+        year (int): used to filter to the correct mapping for the current year
 
     Returns:
         pd.DataFrame: CEMS data frame with updated plant_id_eia column.

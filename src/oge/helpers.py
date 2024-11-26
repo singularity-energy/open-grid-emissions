@@ -227,7 +227,7 @@ def assign_fleet_to_subplant_data(
         - For applying to monthly EIA-923 data to shape:
             - primary_fuel_col = "subplant_primary_fuel_from_capacity_mw"
             - fuel_category_col = "fuel_category"
-            - Notes: This means that we are assigning our flat profiles for all the
+            - Notes: This means that we are assigning our "flat" profiles for all the
             fuels that are categorized as "other" in 930, rather than using the "other"
             profile for all of these individual categories
         - For aggregating subplant data to fleet-level results:
@@ -237,7 +237,7 @@ def assign_fleet_to_subplant_data(
 
     Args:
         subplant_data (pd.DataFrame): dataframe to assign fleet to
-        primary_fuel_table (pd.DataFrame): static plant attributes
+        plant_attributes_table (pd.DataFrame): static plant attributes
         primary_fuel_table (pd.DataFrame): table of subplant-level primary fuels
         ba_col (str, optional): Whether to use commercial "ba_code" balancing area
             definition or physical BA "ba_code_physical". Defaults to "ba_code".
@@ -266,7 +266,7 @@ def assign_fleet_to_subplant_data(
         col for col in cols_to_add if col in subplant_data.columns
     ]
     if len(fleet_cols_already_in_subplant_data) > 0:
-        subplant_data = subplant_data.drop(fleet_cols_already_in_subplant_data)
+        subplant_data = subplant_data.drop(columns=fleet_cols_already_in_subplant_data)
 
     # Assign a BA to the data
     subplant_data = subplant_data.merge(
@@ -343,7 +343,7 @@ def assign_fleet_to_subplant_data(
             .to_string()
         )
         raise UserWarning(
-            "The plant attributes table is missing ba code or fuel_category data for some plants. This will result in incomplete power sector results."
+            "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
         )
 
     return subplant_data
@@ -364,18 +364,22 @@ def combine_subplant_data(
     so we can pass an empty dataframe for eia_data.
 
     Args:
-        cems (pd.DataFrame): _description_
-        partial_cems_subplant (pd.DataFrame): _description_
-        partial_cems_plant (pd.DataFrame): _description_
-        eia_data (pd.DataFrame): _description_
-        resolution (str): _description_
-        validate (bool, optional): _description_. Defaults to True.
+        cems (pd.DataFrame): One of the dfs to combine
+        partial_cems_subplant (pd.DataFrame): One of the dfs to combine
+        partial_cems_plant (pd.DataFrame): One of the dfs to combine
+        eia_data (pd.DataFrame): One of the dfs to combine
+        resolution (str): Whether to combine "hourly" data or "monthly" data. All input
+            dataframes should have "datetime_utc" columns for the former, and
+            "report_date" columns for the latter
+        validate (bool, optional): Whether to ensure non-overlapping data from all
+            sources. Sometimes not necessary based on whether this has already been
+            checked. Defaults to True.
 
     Raises:
-        UserWarning: _description_
+        UserWarning: If acceptable option for resolution arg not passed
 
     Returns:
-        pd.DataFrame: _description_
+        pd.DataFrame: combined data from the four input dfs at the resolution
     """
 
     KEY_COLUMNS = [
@@ -399,7 +403,7 @@ def combine_subplant_data(
             cems, partial_cems_subplant, partial_cems_plant, eia_data
         )
 
-    # group data by plant-hour and filter columns
+    # group data by subplant-month or subplant-hour and filter columns
     cems = (
         cems.groupby(
             KEY_COLUMNS,
@@ -450,7 +454,9 @@ def combine_subplant_data(
 
     # groupby subplant after combining in case subplant reported multiple places
     combined_subplant_data = (
-        combined_subplant_data.groupby(KEY_COLUMNS, dropna=False).sum().reset_index()
+        combined_subplant_data.groupby(KEY_COLUMNS, dropna=False)
+        .sum(numeric_only=True)
+        .reset_index()
     )
 
     # re-order the columns

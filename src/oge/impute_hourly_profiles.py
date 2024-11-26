@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # import open-grid-emissions modules
-from oge.column_checks import apply_dtypes
+from oge.column_checks import apply_dtypes, DATA_COLUMNS
 import oge.load_data as load_data
 from oge.filepaths import reference_table_folder
 import oge.validation as validation
@@ -11,37 +11,6 @@ from oge.logging_util import get_logger
 from oge.helpers import assign_fleet_to_subplant_data, combine_subplant_data
 
 logger = get_logger(__name__)
-
-
-DATA_COLUMNS = [
-    "fuel_consumed_mmbtu",
-    "fuel_consumed_for_electricity_mmbtu",
-    "net_generation_mwh",
-    "co2_mass_lb",
-    "ch4_mass_lb",
-    "n2o_mass_lb",
-    "co2e_mass_lb",
-    "nox_mass_lb",
-    "so2_mass_lb",
-    "co2_mass_lb_for_electricity",
-    "ch4_mass_lb_for_electricity",
-    "n2o_mass_lb_for_electricity",
-    "co2e_mass_lb_for_electricity",
-    "nox_mass_lb_for_electricity",
-    "so2_mass_lb_for_electricity",
-    "co2_mass_lb_adjusted",
-    "ch4_mass_lb_adjusted",
-    "n2o_mass_lb_adjusted",
-    "co2e_mass_lb_adjusted",
-    "nox_mass_lb_adjusted",
-    "so2_mass_lb_adjusted",
-    "co2_mass_lb_for_electricity_adjusted",
-    "ch4_mass_lb_for_electricity_adjusted",
-    "n2o_mass_lb_for_electricity_adjusted",
-    "co2e_mass_lb_for_electricity_adjusted",
-    "nox_mass_lb_for_electricity_adjusted",
-    "so2_mass_lb_for_electricity_adjusted",
-]
 
 
 def calculate_hourly_profiles(
@@ -320,7 +289,7 @@ def aggregate_cems_to_fleet_for_residual_calc(
     """Utility function for trying different BA aggregations in 930 and 923 data
 
     Args:
-         cems (pd.DataFrame): Hourly, unit- or subplant-level CEMS data
+         cems (pd.DataFrame): Hourly, unit-level or subplant-level CEMS data
         partial_cems_subplant (pd.DataFrame): Hourly data for partial-subplant CEMS
             subplants
         partial_cems_plant (pd.DataFrame): Hourly data for partial-plant CEMS subplants
@@ -515,7 +484,8 @@ def calculate_scaled_residual(combined_data: pd.DataFrame) -> pd.DataFrame:
         3. Multiply all hourly CEMS values by the scaling factor
 
     Args:
-        combined_data (pd.DataFrame): _description_
+        combined_data (pd.DataFrame): dataframe containing combined CEMS and EIA-930
+            data from previous steps
 
     Returns:
         pd.DataFrame: combined_data with an added "scaled_residual_profile" column
@@ -676,8 +646,8 @@ def impute_missing_hourly_profiles(
 
     Returns:
         pd.DataFrame: new hourly_profiles dataframe that includes complete data for all
-        fleet-months, including calculated residual profiles and imputed backstop
-        profiles
+            fleet-months, including calculated residual profiles and imputed backstop
+            profiles
     """
 
     # round the data to the nearest tenth
@@ -1223,13 +1193,17 @@ def combine_and_export_hourly_plant_data(
         )
 
 
-def get_shaped_plant_id_from_ba_fuel(df):
-    """
-    Return artificial plant code. Max real plant is 64663
+def get_shaped_plant_id_from_ba_fuel(df: pd.DataFrame) -> pd.DataFrame:
+    """Return artificial plant code. Max real plant is 64663
     Our codes look like 9BBBFF where BBB is the three digit BA number and FF is the
     two-digit fuel number
 
-    df must contain `ba_code` and `fuel_category`
+    Args:
+        df (pd.DataFrame): df to add shaped plant IDs to. must contain `ba_code` and
+            `fuel_category`
+
+    Returns:
+        pd.DataFrame: df with added "shaped_plant_id" column
     """
     # specify the ba numbers with leading zeros
     FUEL_NUMBERS = {
@@ -1282,6 +1256,17 @@ def aggregate_eia_data_to_fleet(
     and YY=fuel (see `impute_hourly_profiles.get_shaped_plant_id_from_ba_fuel`)
 
     Add new artificial plants to plant_attributes frame.
+
+    Args:
+        monthly_eia_data_to_shape (pd.DataFrame): data that will be aggregated and
+            shaped
+        plant_attributes (pd.DataFrame): for assigning fleet keys
+        primary_fuel_table (pd.DataFrame): for assigning fleet keys
+
+    Returns:
+        pd.DataFrame: returns eia_agg, which is aggregated to the fleet-month level
+            using shaped_plant_id, and an updated version of the plant attributes table
+            with shaped_plant_id column added.
     """
 
     # NOTE: currently using ba_code, could alternatively use ba_code_physical
