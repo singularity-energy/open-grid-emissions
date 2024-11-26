@@ -186,17 +186,6 @@ def main(args):
         year,
         args.skip_outputs,
     )
-    # remove intermediate columns from primary fuel table
-    primary_fuel_table = primary_fuel_table[
-        [
-            "plant_id_eia",
-            "subplant_id",
-            "generator_id",
-            "energy_source_code",
-            "plant_primary_fuel",
-            "subplant_primary_fuel",
-        ]
-    ]
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
         primary_fuel_table[

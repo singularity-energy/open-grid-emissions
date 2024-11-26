@@ -351,9 +351,9 @@ def aggregate_cems_to_fleet_for_residual_calc(
     # capacity-based primary fuel, and using the EIA-930 fuel categories. This should
     # best match the way data is aggregated to fleet in 930.
     cems_agg = assign_fleet_to_subplant_data(
-        cems_agg,
-        plant_attributes,
-        primary_fuel_table,
+        subplant_data=cems_agg,
+        plant_attributes_table=plant_attributes,
+        primary_fuel_table=primary_fuel_table,
         ba_col=ba_column_name,
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category_eia930",

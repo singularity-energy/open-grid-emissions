@@ -259,6 +259,15 @@ def assign_fleet_to_subplant_data(
         pd.DataFrame: subplant_data with ba_code and fuel_category columns added
     """
 
+    # check to make sure the ba_col and primary_fuel_col are not already in the dataframe
+    # if so, drop them before merging
+    cols_to_add = [ba_col, primary_fuel_col] + other_attribute_cols
+    fleet_cols_already_in_subplant_data = [
+        col for col in cols_to_add if col in subplant_data.columns
+    ]
+    if len(fleet_cols_already_in_subplant_data) > 0:
+        subplant_data = subplant_data.drop(fleet_cols_already_in_subplant_data)
+
     # Assign a BA to the data
     subplant_data = subplant_data.merge(
         plant_attributes_table[["plant_id_eia", ba_col] + other_attribute_cols].rename(
