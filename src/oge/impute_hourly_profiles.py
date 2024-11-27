@@ -8,7 +8,7 @@ from oge.filepaths import reference_table_folder
 import oge.validation as validation
 import oge.output_data as output_data
 from oge.logging_util import get_logger
-from oge.helpers import assign_fleet_to_subplant_data, combine_subplant_data
+from oge.helpers import assign_fleet_to_subplant_data
 
 logger = get_logger(__name__)
 
@@ -1067,24 +1067,20 @@ def combine_and_export_hourly_plant_data(
         cems, partial_cems_subplant, partial_cems_plant, monthly_eia_data_to_shape
     )
 
-    # combine all the CEMS data together
-    combined_cems_data = combine_subplant_data(
-        cems,
-        partial_cems_subplant,
-        partial_cems_plant,
-        eia_data=pd.DataFrame(
-            columns=["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
-        ),
-        resolution="hourly",
-        validate=False,  # we just checked this above
-    )
+    # combine all the CEMS data together and only keep relevant columns
+    combined_cems_data = pd.concat(
+        [cems, partial_cems_subplant, partial_cems_plant],
+        axis=0,
+        ignore_index=True,
+        copy=False,
+    )[[col for col in cems.columns if col in all_columns]]
 
-    # aggregate combined CEMS data to the plant level and only keep relevant columns
+    # aggregate combined CEMS data to the plant level
     combined_cems_data = (
         combined_cems_data.groupby(
             key_columns,
             dropna=False,
-        )[[col for col in cems.columns if col in all_columns]]
+        )
         .sum(numeric_only=True)
         .reset_index()
     )
