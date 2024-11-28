@@ -7,43 +7,17 @@ import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import oge.load_data as load_data
 import oge.validation as validation
 import oge.emissions as emissions
-from oge.constants import CLEAN_FUELS, earliest_hourly_data_year
-from oge.column_checks import get_dtypes, apply_dtypes
+from oge.constants import CLEAN_FUELS
+from oge.column_checks import get_dtypes, apply_dtypes, DATA_COLUMNS
 from oge.filepaths import reference_table_folder, outputs_folder
-from oge.helpers import create_plant_ba_table, add_subplant_ids_to_df
+from oge.helpers import (
+    create_plant_ba_table,
+    add_subplant_ids_to_df,
+    assign_fleet_to_subplant_data,
+)
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
-
-DATA_COLUMNS = [
-    "net_generation_mwh",
-    "fuel_consumed_mmbtu",
-    "fuel_consumed_for_electricity_mmbtu",
-    "co2_mass_lb",
-    "ch4_mass_lb",
-    "n2o_mass_lb",
-    "co2e_mass_lb",
-    "nox_mass_lb",
-    "so2_mass_lb",
-    "co2_mass_lb_for_electricity",
-    "ch4_mass_lb_for_electricity",
-    "n2o_mass_lb_for_electricity",
-    "co2e_mass_lb_for_electricity",
-    "nox_mass_lb_for_electricity",
-    "so2_mass_lb_for_electricity",
-    "co2_mass_lb_adjusted",
-    "ch4_mass_lb_adjusted",
-    "n2o_mass_lb_adjusted",
-    "co2e_mass_lb_adjusted",
-    "nox_mass_lb_adjusted",
-    "so2_mass_lb_adjusted",
-    "co2_mass_lb_for_electricity_adjusted",
-    "ch4_mass_lb_for_electricity_adjusted",
-    "n2o_mass_lb_for_electricity_adjusted",
-    "co2e_mass_lb_for_electricity_adjusted",
-    "nox_mass_lb_for_electricity_adjusted",
-    "so2_mass_lb_for_electricity_adjusted",
-]
 
 
 def clean_eia923(
@@ -305,6 +279,11 @@ def create_primary_fuel_table(
         pd.DataFrame: the primary fuel table.
     """
 
+    # add under construction generators to the dataframe
+    gen_fuel_allocated = add_under_construction_generator_ids_to_df(
+        gen_fuel_allocated, year
+    )
+
     # add subplant ids so that we can create subplant-specific primary fuels
     gen_fuel_allocated = add_subplant_ids_to_df(
         gen_fuel_allocated,
@@ -335,20 +314,6 @@ def create_primary_fuel_table(
         subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
     )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
 
-    plant_primary_fuel = calculate_aggregated_primary_fuel(
-        gen_fuel_allocated, gen_primary_fuel, "plant", year
-    )
-
-    validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel, year)
-
-    # merge the plant primary fuel into the gen primary fuel
-    primary_fuel_table = gen_primary_fuel.merge(
-        plant_primary_fuel,
-        how="left",
-        on="plant_id_eia",
-        validate="many_to_one",
-    )
-
     # calculate the subplant primary fuel
     subplant_primary_fuel = calculate_aggregated_primary_fuel(
         gen_fuel_allocated,
@@ -356,10 +321,24 @@ def create_primary_fuel_table(
         "subplant",
         year,
     )
-    primary_fuel_table = primary_fuel_table.merge(
+    primary_fuel_table = gen_primary_fuel.merge(
         subplant_primary_fuel,
-        how="left",
+        how="outer",
         on=["plant_id_eia", "subplant_id"],
+        validate="many_to_one",
+    )
+
+    plant_primary_fuel = calculate_aggregated_primary_fuel(
+        gen_fuel_allocated, gen_primary_fuel, "plant", year
+    )
+
+    validation.flag_possible_primary_fuel_mismatches(plant_primary_fuel, year)
+
+    # merge the plant primary fuel into the gen primary fuel
+    primary_fuel_table = primary_fuel_table.merge(
+        plant_primary_fuel,
+        how="outer",
+        on="plant_id_eia",
         validate="many_to_one",
     )
 
@@ -443,7 +422,7 @@ def calculate_aggregated_primary_fuel(
 
     # merge the primary fuel into the main table
     agg_primary_fuel = agg_primary_fuel.merge(
-        primary_fuel_from_capacity, how="left", on=agg_keys, validate="1:1"
+        primary_fuel_from_capacity, how="outer", on=agg_keys, validate="1:1"
     )
 
     agg_primary_fuel = agg_primary_fuel.merge(
@@ -507,9 +486,9 @@ def calculate_capacity_based_primary_fuel(
             "generator_id",
             "capacity_mw",
             "energy_source_code_1",
-            "operational_status_code",
         ],
     )
+
     # only keep keys that exist in gen_fuel_allocated
     gen_capacity = gen_capacity.merge(
         gen_fuel_allocated[["plant_id_eia", "generator_id"]].drop_duplicates(),
@@ -556,6 +535,68 @@ def calculate_capacity_based_primary_fuel(
     gen_capacity = gen_capacity[~(gen_capacity.duplicated(subset=agg_keys, keep=False))]
 
     return gen_capacity
+
+
+def add_under_construction_generator_ids_to_df(
+    df: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Adds rows to df for generators that are under construction. Used to ensure
+    complete coverage when a generator starts reporting data before coming online
+
+    NOTE: this function may result in the addition of duplicate generator_ids. If that
+    is an issue for the context, run drop_duplicates after this function.
+
+    Args:
+        df (pd.DataFrame): the df to add generator IDs to
+        year (int): the data year
+
+    Returns:
+        pd.DataFrame: df with new rows for under construction generator ids added
+    """
+    # create a table of primary fuel by nameplate capacity
+    gen_capacity = load_data.load_pudl_table(
+        "core_eia860__scd_generators",
+        year,
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "capacity_mw",
+            "energy_source_code_1",
+            "operational_status",
+            "operational_status_code",
+        ],
+    ).rename(columns={"energy_source_code_1": "energy_source_code"})
+
+    # keep operating generators and proposed generators that are already under construction
+    under_construction_status_codes = ["U", "V", "TS"]
+    gen_cap_under_construction = gen_capacity[
+        (
+            (gen_capacity["operational_status"] == "proposed")
+            & (
+                gen_capacity["operational_status_code"].isin(
+                    under_construction_status_codes
+                )
+            )
+        )
+    ]
+
+    # add subplant_ids
+    gen_cap_under_construction = add_subplant_ids_to_df(
+        gen_cap_under_construction,
+        year,
+        plant_part_to_map="generator_id",
+        how_merge="left",
+        validate_merge="m:1",
+    )
+
+    columns_to_append = [
+        col for col in gen_cap_under_construction.columns if col in df.columns
+    ]
+
+    # add under construction plants to this
+    df = pd.concat([df, gen_cap_under_construction[columns_to_append]], axis=0)
+
+    return df
 
 
 def calculate_subplant_efs(gen_fuel_allocated):
@@ -1716,183 +1757,51 @@ def filter_unique_cems_data(cems, partial_cems):
     return filtered_cems
 
 
-def aggregate_plant_data_to_ba_fuel(
-    year: int, combined_plant_data: pd.DataFrame, plant_attributes_table: pd.DataFrame
+def aggregate_subplant_data_to_fleet(
+    combined_subplant_data: pd.DataFrame,
+    plant_attributes_table: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Group plant data by BA and fuel category.
+    """Group plant data by BA and fuel category (fleet).
 
     Args:
-        year (int): year under consideration
-        combined_plant_data (pd.DataFrame): the combined plant data.
-        plant_attributes_table (pd.DataFrame): the plant attributes table enclosing the
-            BA code and fuel category of each plant.
+        combined_subplant_data (pd.DataFrame): the combined subplant data.
+        plant_attributes_table (pd.DataFrame): the plant attributes table with the
+            BA code of each plant.
+        primary_fuel_table (pd.DataFrame): table with subplant and plant-level fuels
 
     Raises:
-        UserWarning: if no BA or fuel category can be assigned to a plant
+        UserWarning: if no BA or fuel category can be assigned to any subplant
 
     Returns:
         pd.DataFrame: a data frame grouped by fuel category and BA
     """
-    if year >= earliest_hourly_data_year:
-        # create a table that has data for the sythetic plant attributes
-        shaped_plant_attributes = (
-            plant_attributes_table[["shaped_plant_id", "ba_code", "fuel_category"]]
-            .drop_duplicates()
-            .dropna(subset="shaped_plant_id")
-            .rename(columns={"shaped_plant_id": "plant_id_eia"})
-        )
 
-        combined_plant_attributes = pd.concat(
-            [
-                plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
-                shaped_plant_attributes,
-            ],
-            axis=0,
-        )
+    # Assign fleet to subplant data
+    ba_fuel_data = assign_fleet_to_subplant_data(
+        combined_subplant_data,
+        plant_attributes_table,
+        primary_fuel_table,
+        ba_col="ba_code",
+        primary_fuel_col="subplant_primary_fuel",
+        fuel_category_col="fuel_category",
+    )
 
-        ba_fuel_data = combined_plant_data.merge(
-            combined_plant_attributes, how="left", on=["plant_id_eia"], validate="m:1"
-        )
+    # if the input data is hourly, aggregate at the hourly level
+    if "datetime_utc" in ba_fuel_data.columns:
+        agg_cols = ["ba_code", "fuel_category", "datetime_utc", "report_date"]
     else:
-        ba_fuel_data = combined_plant_data.merge(
-            plant_attributes_table[["plant_id_eia", "ba_code", "fuel_category"]],
-            how="left",
-            on=["plant_id_eia"],
-            validate="m:1",
-        )
-    # check that there is no missing ba or fuel codes
-    if (
-        len(
-            ba_fuel_data[
-                (ba_fuel_data["ba_code"].isna())
-                | (ba_fuel_data["fuel_category"].isna())
-            ]
-        )
-        > 0
-    ):
-        raise UserWarning(
-            "The plant attributes table is missing ba code or fuel_category data for some plants. This will result in incomplete power sector results."
-        )
-    # try to group assuming the data is hourly resolution
-    try:
-        ba_fuel_data = (
-            ba_fuel_data.groupby(
-                ["ba_code", "fuel_category", "datetime_utc", "report_date"],
-                dropna=False,
-            )[DATA_COLUMNS]
-            .sum()
-            .reset_index()
-        )
-    # if datetime_utc is missing, groupby month
-    except KeyError:
-        ba_fuel_data = (
-            ba_fuel_data.groupby(
-                ["ba_code", "fuel_category", "report_date"], dropna=False
-            )[DATA_COLUMNS]
-            .sum()
-            .reset_index()
-        )
+        agg_cols = ["ba_code", "fuel_category", "report_date"]
+    ba_fuel_data = (
+        ba_fuel_data.groupby(
+            agg_cols,
+            dropna=False,
+        )[DATA_COLUMNS]
+        .sum()
+        .reset_index()
+    )
+
     return ba_fuel_data
-
-
-def combine_plant_data(
-    cems,
-    partial_cems_subplant,
-    partial_cems_plant,
-    eia_data,
-    resolution,
-    validate=True,
-):
-    """
-    Combines final hourly subplant data from each source into a single dataframe.
-    Inputs:
-        Pandas dataframes of shaped or original hourly data
-        resolution: string, either 'monthly' or 'hourly'
-    """
-
-    if resolution == "hourly":
-        KEY_COLUMNS = [
-            "plant_id_eia",
-            "datetime_utc",
-            "report_date",
-        ]
-    elif resolution == "monthly":
-        KEY_COLUMNS = [
-            "plant_id_eia",
-            "report_date",
-        ]
-    else:
-        raise UserWarning(
-            "arg 'resolution' for `combine_plant_data` must be either 'monthly' or 'hourly'"
-        )
-
-    ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
-
-    if validate:
-        validation.ensure_non_overlapping_data_from_all_sources(
-            cems, partial_cems_subplant, partial_cems_plant, eia_data
-        )
-
-    # group data by plant-hour and filter columns
-    cems = (
-        cems.groupby(
-            KEY_COLUMNS,
-            dropna=False,
-        )
-        .sum(numeric_only=True)
-        .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
-    )
-    # don't group if there is no data in the dataframe
-    if len(partial_cems_subplant) > 0:
-        partial_cems_subplant = (
-            partial_cems_subplant.groupby(
-                KEY_COLUMNS,
-                dropna=False,
-            )
-            .sum(numeric_only=True)
-            .reset_index()[
-                [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
-            ]
-        )
-    if len(partial_cems_plant) > 0:
-        partial_cems_plant = (
-            partial_cems_plant.groupby(
-                KEY_COLUMNS,
-                dropna=False,
-            )
-            .sum(numeric_only=True)
-            .reset_index()[
-                [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
-            ]
-        )
-    eia_data = (
-        eia_data.groupby(
-            KEY_COLUMNS,
-            dropna=False,
-        )
-        .sum(numeric_only=True)
-        .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
-    )
-
-    # concat together
-    combined_plant_data = pd.concat(
-        [cems, partial_cems_subplant, partial_cems_plant, eia_data],
-        axis=0,
-        ignore_index=True,
-        copy=False,
-    )
-
-    # groupby plant
-    combined_plant_data = (
-        combined_plant_data.groupby(KEY_COLUMNS, dropna=False).sum().reset_index()
-    )
-
-    combined_plant_data[DATA_COLUMNS] = combined_plant_data[DATA_COLUMNS].round(2)
-
-    # re-order the columns
-    combined_plant_data = combined_plant_data[ALL_COLUMNS]
-
-    return combined_plant_data
 
 
 def aggregate_cems_to_subplant(cems):

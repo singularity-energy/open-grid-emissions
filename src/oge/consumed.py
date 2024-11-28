@@ -5,7 +5,7 @@ import sys
 
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
-from oge.filepaths import outputs_folder, reference_table_folder, results_folder
+from oge.filepaths import reference_table_folder, results_folder
 from oge.logging_util import get_logger
 from oge.constants import TIME_RESOLUTIONS
 from oge.output_data import (
@@ -113,7 +113,7 @@ def get_average_emission_factors(prefix: str, year: int):
     Structure: EMISSIONS_FACTORS[poll][adjustment][fuel]
     """
     genavg = pd.read_csv(
-        outputs_folder(f"{prefix}annual_generation_averages_by_fuel_{year}.csv.zip"),
+        results_folder(f"{prefix}/power_sector_data/annual/us_units/US.csv"),
         index_col="fuel_category",
     )
     efs = {}
@@ -125,7 +125,7 @@ def get_average_emission_factors(prefix: str, year: int):
                 column = get_rate_column(pol, adjustment, generated=True)
                 if FUEL_TYPE_MAP[fuel] not in genavg.index:
                     logger.warning(
-                        f"fuel {FUEL_TYPE_MAP[fuel]} not found in file annual_generation_averages_by_fuel_{year}.csv, using average"
+                        f"fuel {FUEL_TYPE_MAP[fuel]} not found in US fleet average data, using total average"
                     )
                     efs[pol][adjustment][fuel] = genavg.loc["total", column]
                 else:
@@ -402,6 +402,8 @@ class HourlyConsumed:
         for f in os.listdir(
             results_folder(f"{self.prefix}/power_sector_data/hourly/us_units/")
         ):
+            # TODO: delete this message, for testing
+            logger.info(f"Loading {f}")
             if ".DS_Store" in f:
                 continue
             this_ba = pd.read_csv(
