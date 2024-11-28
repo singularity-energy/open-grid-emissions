@@ -440,20 +440,6 @@ def combine_subplant_data(
         copy=False,
     )
 
-    # to save memory, delete any rows where all of the data columns are zero
-    combined_subplant_data = combined_subplant_data[
-        combined_subplant_data[DATA_COLUMNS].sum(axis=1) != 0
-    ]
-
-    # groupby subplant after combining in case subplant reported multiple places
-    combined_subplant_data = (
-        combined_subplant_data.groupby(KEY_COLUMNS, dropna=False, sort=False)[
-            DATA_COLUMNS
-        ]
-        .sum(numeric_only=True)
-        .reset_index()
-    )
-
     # re-order the columns
     combined_subplant_data = combined_subplant_data[ALL_COLUMNS]
 

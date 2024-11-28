@@ -402,6 +402,8 @@ class HourlyConsumed:
         for f in os.listdir(
             results_folder(f"{self.prefix}/power_sector_data/hourly/us_units/")
         ):
+            # TODO: delete this message, for testing
+            logger.info(f"Loading {f}")
             if ".DS_Store" in f:
                 continue
             this_ba = pd.read_csv(
