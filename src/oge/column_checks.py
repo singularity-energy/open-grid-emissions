@@ -195,7 +195,6 @@ COLUMNS = {
         "distribution_flag",
         "timezone",
         "data_availability",
-        "shaped_plant_id",
         "latitude",
         "longitude",
         "state",

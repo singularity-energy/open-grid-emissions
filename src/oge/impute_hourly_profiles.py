@@ -231,7 +231,7 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
     # pick the profile
 
     hourly_profiles["profile"] = np.NaN
-    hourly_profiles["profile_method"] = np.NaN
+    hourly_profiles["profile_method"] = pd.NA
     # specify the profile as the best available data
     profile_hierarchy = [
         "residual_profile_filtered",
@@ -1108,6 +1108,7 @@ def combine_and_export_hourly_plant_data(
     for region in list(
         plant_attributes.sort_values(by=region_to_group)[region_to_group].unique()
     ):
+        logger.info(f"Shaping hourly plant data for {region}")
         # filter each of the data sources to the region
         eia_region = monthly_eia_data_to_shape[
             monthly_eia_data_to_shape[region_to_group] == region
@@ -1121,7 +1122,7 @@ def combine_and_export_hourly_plant_data(
         validation.validate_unique_datetimes(
             year,
             df=shaped_eia_region_data,
-            df_name="shaped_eia_data",
+            df_name="shaped_eia_region_data",
             keys=["plant_id_eia", "subplant_id"],
         )
 
@@ -1130,7 +1131,13 @@ def combine_and_export_hourly_plant_data(
             shaped_eia_region_data.groupby(
                 key_columns,
                 dropna=False,
-            )[[col for col in cems.columns if col in all_columns]]
+            )[
+                [
+                    col
+                    for col in shaped_eia_region_data.columns
+                    if col in data_columns_for_plant_export
+                ]
+            ]
             .sum(numeric_only=True)
             .reset_index()
         )
@@ -1230,7 +1237,7 @@ def get_shaped_plant_id_from_ba_fuel(df: pd.DataFrame) -> pd.DataFrame:
     df["ba_code"] = df["ba_code"].astype(str)
     # create a new column with the shaped plant ids
     df["shaped_plant_id"] = df.apply(
-        lambda row: f"9{ba_numbers[row['ba_code']]}{FUEL_NUMBERS[row['fuel_category']]}",
+        lambda row: f"9{ba_numbers[row['ba_code']]}{FUEL_NUMBERS[row['fuel_category_for_shaping']]}",
         axis=1,
     )
     # convert to an int32 column
@@ -1261,12 +1268,11 @@ def aggregate_eia_data_to_fleet(
 
     Returns:
         pd.DataFrame: returns eia_agg, which is aggregated to the fleet-month level
-            using shaped_plant_id, and an updated version of the plant attributes table
-            with shaped_plant_id column added.
+            using shaped_plant_id
     """
 
     # NOTE: currently using ba_code, could alternatively use ba_code_physical
-    # Add plant attributes for grouping
+    # First, add capacity-based fuel category for shaping the data
     eia_agg = assign_fleet_to_subplant_data(
         monthly_eia_data_to_shape,
         plant_attributes,
@@ -1275,17 +1281,31 @@ def aggregate_eia_data_to_fleet(
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
     )
+    eia_agg = eia_agg.rename(columns={"fuel_category": "fuel_category_for_shaping"})
+
+    # now, add fuel-based fuel category for fleet aggregation
+    eia_agg = assign_fleet_to_subplant_data(
+        eia_agg,
+        plant_attributes,
+        primary_fuel_table,
+        ba_col="ba_code",
+        primary_fuel_col="subplant_primary_fuel",
+        fuel_category_col="fuel_category",
+    )
 
     # create a column with shaped plant ids
     eia_agg = get_shaped_plant_id_from_ba_fuel(eia_agg)
 
-    # create a table that maps plant_id_eia to shaped_plant_id
-    shaped_id_map = eia_agg[["shaped_plant_id", "plant_id_eia"]].drop_duplicates()
-
     # Group
     eia_agg = (
         eia_agg.groupby(
-            ["shaped_plant_id", "ba_code", "report_date", "fuel_category"],
+            [
+                "shaped_plant_id",
+                "ba_code",
+                "report_date",
+                "fuel_category",
+                "fuel_category_for_shaping",
+            ],
             dropna=False,
         )
         .sum(numeric_only=True)
@@ -1294,16 +1314,14 @@ def aggregate_eia_data_to_fleet(
         .rename(columns={"shaped_plant_id": "plant_id_eia"})
     )
 
-    # Add BA code and fuel type for shaped plants into plant_attributes.
-    plant_attributes = plant_attributes.merge(
-        shaped_id_map, how="left", on="plant_id_eia", validate="1:1"
-    )
-
-    return eia_agg, plant_attributes
+    return eia_agg
 
 
 def shape_monthly_eia_data_as_hourly(
-    monthly_eia_data_to_shape: pd.DataFrame, hourly_profiles: pd.DataFrame, year: int
+    monthly_eia_data_to_shape: pd.DataFrame,
+    hourly_profiles: pd.DataFrame,
+    year: int,
+    fuel_category_col_for_shaping: str = "fuel_category",
 ) -> pd.DataFrame:
     """Assigns an hourly profile to monthly-level EIA data.
 
@@ -1318,6 +1336,9 @@ def shape_monthly_eia_data_as_hourly(
         monthly_eia_data_to_shape (pd.DataFrame): The monthly data to shape
         hourly_profiles (pd.DataFrame): The profiles used to shape the other df
         year (int): the data year, only used in the validation function
+        fuel_category_col_for_shaping (str): the name of the fuel column for shaping
+            the data. When shaping the data in step 16 we assign a
+            fuel_category_for_shaping column
 
     Returns:
         pd.DataFrame: plant- or fleet-level hourly activity data
@@ -1336,9 +1357,9 @@ def shape_monthly_eia_data_as_hourly(
                 "flat_profile",
                 "profile_method",
             ]
-        ],
+        ].rename(columns={"fuel_category": fuel_category_col_for_shaping}),
         how="left",
-        on=["report_date", "fuel_category", "ba_code"],
+        on=["report_date", fuel_category_col_for_shaping, "ba_code"],
         validate="m:m",
     )
 

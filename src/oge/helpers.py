@@ -263,7 +263,7 @@ def assign_fleet_to_subplant_data(
     # if so, drop them before merging
     cols_to_add = [ba_col, primary_fuel_col] + other_attribute_cols
     fleet_cols_already_in_subplant_data = [
-        col for col in cols_to_add if col in subplant_data.columns
+        col for col in subplant_data.columns if col in cols_to_add
     ]
     if len(fleet_cols_already_in_subplant_data) > 0:
         subplant_data = subplant_data.drop(columns=fleet_cols_already_in_subplant_data)
@@ -454,7 +454,7 @@ def combine_subplant_data(
 
     # groupby subplant after combining in case subplant reported multiple places
     combined_subplant_data = (
-        combined_subplant_data.groupby(KEY_COLUMNS, dropna=False)
+        combined_subplant_data.groupby(KEY_COLUMNS, dropna=False)[DATA_COLUMNS]
         .sum(numeric_only=True)
         .reset_index()
     )
@@ -586,7 +586,7 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
     # rename the ba column
     plant_ba = plant_ba.rename(columns={"balancing_authority_code_eia": "ba_code"})
 
-    plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
+    plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", pd.NA)
 
     # get a list of all of the BAs that retired prior to the current year
     retired_bas = load_data.load_ba_reference()[["ba_code", "retirement_date"]]

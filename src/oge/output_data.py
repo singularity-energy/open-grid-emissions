@@ -489,37 +489,7 @@ def write_plant_metadata(
         .drop_duplicates(subset=["plant_id_eia", "subplant_id", "report_date"])
     )
 
-    # For monthly only: specify which synthetic plant we were aggregated to
-    monthly_eia_meta = monthly_eia_meta.merge(
-        plant_static_attributes[["plant_id_eia", "shaped_plant_id"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",  # There can be multiple subplants for each plant
-    )
-
     monthly_eia_meta["data_source"] = "EIA"
-
-    # merge in the net generation method and hourly profile from the shaped metadata
-    shaped_eia_data_meta = shaped_eia_data.copy()[
-        ["plant_id_eia", "report_date", "profile_method"]
-    ].drop_duplicates(subset=["plant_id_eia", "report_date"])
-    shaped_eia_data_meta = shaped_eia_data_meta.rename(
-        columns={"plant_id_eia": "shaped_plant_id"}
-    )
-    shaped_eia_data_meta["net_generation_method"] = shaped_eia_data_meta[
-        "profile_method"
-    ]
-    shaped_eia_data_meta = shaped_eia_data_meta.rename(
-        columns={"profile_method": "hourly_profile_source"}
-    )
-    monthly_eia_meta = monthly_eia_meta.merge(
-        shaped_eia_data_meta,
-        how="left",
-        on=["shaped_plant_id", "report_date"],
-        validate="m:1",  # There can be multiple subplants for each plant
-    )
-
-    monthly_eia_meta = monthly_eia_meta.drop(columns=["shaped_plant_id"])
 
     # concat the metadata into a one file and export
     metadata = pd.concat(

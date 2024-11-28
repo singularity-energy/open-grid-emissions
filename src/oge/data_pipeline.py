@@ -33,6 +33,7 @@ from oge.constants import (
     current_early_release_year,
     earliest_hourly_data_year,
 )
+from oge.column_checks import DATA_COLUMNS
 
 
 def get_args() -> argparse.Namespace:
@@ -385,6 +386,14 @@ def main(args):
         path_prefix,
         args.skip_outputs,
     )
+    # group EIA data to subplant level
+    monthly_eia_data_to_shape = (
+        monthly_eia_data_to_shape.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )[DATA_COLUMNS]
+        .sum()
+        .reset_index()
+    )
     # combine and export plant data at monthly and annual level
     monthly_subplant_data = helpers.combine_subplant_data(
         cems,
@@ -534,21 +543,17 @@ def main(args):
         # 16. Shape fleet-level data
         ################################################################################
         logger.info("16. Assigning hourly profiles to monthly EIA-923 data")
-        hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
-            hourly_profiles,
-            group_keys=["ba_code", "fuel_category", "profile_method"],
-            columns_to_convert=["profile", "flat_profile"],
-        )
         # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
-        (
-            monthly_eia_fleet_data,
-            plant_attributes,
-        ) = impute_hourly_profiles.aggregate_eia_data_to_fleet(
+        monthly_eia_fleet_data = impute_hourly_profiles.aggregate_eia_data_to_fleet(
             monthly_eia_data_to_shape, plant_attributes, primary_fuel_table
         )
         shaped_eia_fleet_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
-            monthly_eia_fleet_data, hourly_profiles, year
+            monthly_eia_fleet_data,
+            hourly_profiles,
+            year,
+            fuel_category_col_for_shaping="fuel_category_for_shaping",
         )
+
         output_data.output_data_quality_metrics(
             validation.hourly_profile_source_metric(
                 cems,
@@ -593,6 +598,21 @@ def main(args):
             path_prefix,
             args.skip_outputs,
             year,
+        )
+        # group shaped data by fleet, since the fuel category used for shaping might
+        # not match the fuel category for fleet aggregation
+        shaped_eia_fleet_data = (
+            shaped_eia_fleet_data.groupby(
+                [
+                    "ba_code",
+                    "fuel_category",
+                    "datetime_utc",
+                    "report_date",
+                ],
+                dropna=False,
+            )[DATA_COLUMNS]
+            .sum(numeric_only=True)
+            .reset_index()
         )
 
         # 17. Combine plant-level data from all sources
