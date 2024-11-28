@@ -405,20 +405,14 @@ def combine_subplant_data(
 
     # group data by subplant-month or subplant-hour and filter columns
     cems = (
-        cems.groupby(
-            KEY_COLUMNS,
-            dropna=False,
-        )
+        cems.groupby(KEY_COLUMNS, dropna=False, sort=False)
         .sum(numeric_only=True)
         .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
     )
     # don't group if there is no data in the dataframe
     if len(partial_cems_subplant) > 0:
         partial_cems_subplant = (
-            partial_cems_subplant.groupby(
-                KEY_COLUMNS,
-                dropna=False,
-            )
+            partial_cems_subplant.groupby(KEY_COLUMNS, dropna=False, sort=False)
             .sum(numeric_only=True)
             .reset_index()[
                 [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
@@ -426,20 +420,14 @@ def combine_subplant_data(
         )
     if len(partial_cems_plant) > 0:
         partial_cems_plant = (
-            partial_cems_plant.groupby(
-                KEY_COLUMNS,
-                dropna=False,
-            )
+            partial_cems_plant.groupby(KEY_COLUMNS, dropna=False, sort=False)
             .sum(numeric_only=True)
             .reset_index()[
                 [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
             ]
         )
     eia_data = (
-        eia_data.groupby(
-            KEY_COLUMNS,
-            dropna=False,
-        )
+        eia_data.groupby(KEY_COLUMNS, dropna=False, sort=False)
         .sum(numeric_only=True)
         .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
     )
@@ -452,9 +440,16 @@ def combine_subplant_data(
         copy=False,
     )
 
+    # to save memory, delete any rows where all of the data columns are zero
+    combined_subplant_data = combined_subplant_data[
+        combined_subplant_data[DATA_COLUMNS].sum(axis=1) != 0
+    ]
+
     # groupby subplant after combining in case subplant reported multiple places
     combined_subplant_data = (
-        combined_subplant_data.groupby(KEY_COLUMNS, dropna=False)[DATA_COLUMNS]
+        combined_subplant_data.groupby(KEY_COLUMNS, dropna=False, sort=False)[
+            DATA_COLUMNS
+        ]
         .sum(numeric_only=True)
         .reset_index()
     )

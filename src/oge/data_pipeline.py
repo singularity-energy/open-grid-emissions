@@ -610,6 +610,7 @@ def main(args):
                     "report_date",
                 ],
                 dropna=False,
+                sort=False,
             )[DATA_COLUMNS]
             .sum(numeric_only=True)
             .reset_index()
