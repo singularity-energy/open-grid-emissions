@@ -3,7 +3,7 @@ AB,Agricultural Byproducts,other_biomass,other,biomass,biomass
 ANT,Anthracite Coal,coal,coal,coal,coal
 BFG,Blast Furnace Gas,natural_gas,natural_gas,other_fossil,natural_gas
 BIT,Bituminous Coal,coal,coal,coal,coal
-BU,Butane Gas,,petroleum_products,petroleum,oil,petroleum
+BU,Butane Gas,petroleum_products,petroleum,oil,petroleum
 BLQ,Black Liquor,wood,other,biomass,biomass
 COG,Coke Oven Gas,coal,coal,coal,coal
 DFO,Distillate Fuel Oil/Diesel,petroleum_products,petroleum,oil,petroleum
