@@ -341,6 +341,19 @@ def create_primary_fuel_table(
         on="plant_id_eia",
         validate="many_to_one",
     )
+    # load manual manual assignment of primary fuel
+    # TODO: temporary fix. Need to be removed when EIA adds missing generators at
+    # plants listed in file
+    primary_fuel_manual = pd.read_csv(
+        reference_table_folder("temporary_primary_fuel_manual.csv")
+    )
+    primary_fuel_manual = primary_fuel_manual[primary_fuel_manual["year"] == year]
+
+    primary_fuel_table = pd.concat(
+        [primary_fuel_table, primary_fuel_manual.drop(columns=["year", "notes"])],
+        axis=0,
+        ignore_index=True,
+    ).sort_values(by=["plant_id_eia", "subplant_id"])
 
     return primary_fuel_table
 
