@@ -429,7 +429,7 @@ def manual_930_adjust(raw: pd.DataFrame):
     # we need to shift all data by +1 hour
     ba = "PJM"
     cols = get_columns(ba, raw.columns)
-    new = raw[cols].shift(1, freq="H")
+    new = raw[cols].shift(1, freq="h")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
@@ -539,4 +539,4 @@ def manual_930_adjust(raw: pd.DataFrame):
     raw = pd.concat([raw, pjm_dat], axis="columns")
 
     # Shift all -1 hour to make start-of-hour
-    return raw.shift(-1, freq="H")
+    return raw.shift(-1, freq="h")

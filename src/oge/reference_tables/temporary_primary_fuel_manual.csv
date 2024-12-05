@@ -1,0 +1,3 @@
+plant_id_eia,subplant_id,energy_source_code,subplant_primary_fuel,plant_primary_fuel,year,notes
+65373,7,NG,NG,NG,2023,CEMS unit ID but no EIA generator ID
+65373,8,NG,NG,NG,2023,CEMS unit ID but no EIA generator ID

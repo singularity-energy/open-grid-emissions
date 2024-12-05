@@ -157,3 +157,37 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 1571,SMECO,65285,GT1,2021,2022,This generator switches plant IDs for two years then switches back to its original plant ID
 1571,1,65285,ST1,2021,,This generator switches plant IDs the year it retires (2021)
 1571,2,65285,ST2,2021,,This generator switches plant IDs the year it retires (2021)
+3,8,3,A3C1,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+3,8,3,A3ST,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+47,CCT10,47,GT10,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+47,CCT11,47,GT11,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+47,CCT9,47,GT9,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+56,CC1,56,LEC1,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+56,CC1,56,LEC2,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+136,CT1,136,CT1,,,Matched based on generator ID
+136,CT2,136,CT2,,,Matched based on generator ID
+492,A1,492,A1,,,Matched based on generator ID
+492,A2,492,A2,,,Matched based on generator ID
+492,A3,492,A3,,,Matched based on generator ID
+492,A4,492,A4,,,Matched based on generator ID
+492,A5,492,A5,,,Matched based on generator ID
+492,A6,492,A6,,,Matched based on generator ID
+54271,A01,54271,CTG1,,,Matched based on generator ID and fuel consumption
+54271,A02,54271,CTG2,,,Matched based on generator ID and fuel consumption
+56350,CT-4B,56350,CT4B,,,Matched based on generator ID
+60387,3,60387,GEN3,,,Matched based on generator ID
+60387,4,60387,GEN4,,,Matched based on generator ID
+62949,P001,62949,GPS1,,,Matched based on generator ID
+62949,P002,62949,GPS2,,,Matched based on generator ID
+62949,P003,62949,GPS3,,,Matched based on generator ID
+63931,1,63931,GEN1,,,Matched based on generator ID
+63931,2,63931,GEN2,,,Matched based on generator ID
+65372,CT-4,65372,CTG-4,,,Matched based on generator ID
+65372,CT-5,65372,CTG-5,,,Matched based on generator ID
+65372,CT-6,65372,CTG-6,,,Matched based on generator ID
+65373,CT-1,65373,CTG-1,,,Matched based on generator ID
+65373,CT-2,65373,CTG-2,,,Matched based on generator ID
+65373,CT-3,65373,CTG-3,,,Matched based on generator ID
+65373,CT-4,65373,CTG-4,,,Matched based on generator ID
+65373,CT-5,65373,CTG-5,,,Matched based on generator ID
+65373,CT-6,65373,CTG-6,,,Matched based on generator ID
