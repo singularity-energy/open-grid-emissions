@@ -1,3 +1,6 @@
 plant_id_eia,subplant_id,energy_source_code,subplant_primary_fuel,plant_primary_fuel,year,notes
-65373,7,NG,NG,NG,2023,CEMS unit ID but no EIA generator ID
-65373,8,NG,NG,NG,2023,CEMS unit ID but no EIA generator ID
+65373,7,NG,NG,NG,2023,Missing in EIA 860
+65373,8,NG,NG,NG,2023,Missing in EIA 860
+1554,2,RFO,RFO,RFO,2023,Fuel missing for this generator
+3406,31,NG,NG,NG,2023,No obvious matching
+3406,32,NG,NG,NG,2023,No obvious matching

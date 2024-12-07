@@ -162,8 +162,8 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 47,CCT10,47,GT10,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
 47,CCT11,47,GT11,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
 47,CCT9,47,GT9,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
-56,CC1,56,LEC1,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
-56,CC1,56,LEC2,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+56,CC1,56,LEC1,,,Matched based on fuel consumption
+56,CC1,56,LEC2,,,Matched based on fuel consumption
 136,CT1,136,CT1,,,Matched based on generator ID
 136,CT2,136,CT2,,,Matched based on generator ID
 492,A1,492,A1,,,Matched based on generator ID
@@ -191,3 +191,65 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 65373,CT-4,65373,CTG-4,,,Matched based on generator ID
 65373,CT-5,65373,CTG-5,,,Matched based on generator ID
 65373,CT-6,65373,CTG-6,,,Matched based on generator ID
+1702,A,1702,3,,,Matched based on fuel type and fuel consumption
+1702,B,1702,4,,,Matched based on fuel type and fuel consumption
+2503,BLR114,2503,GT1,,,Only one generator at this plant
+2503,BLR115,2503,GT1,,,Only one generator at this plant
+2503,BLR116,2503,GT1,,,Only one generator at this plant
+2503,BLR117,2503,GT1,,,Only one generator at this plant
+2503,BLR118,2503,GT1,,,Only one generator at this plant
+2504,120,2504,GT1,,,Should be excluded according to CAMD
+2504,121,2504,GT1,,,Should be excluded according to CAMD
+2504,122,2504,GT1,,,Should be excluded according to CAMD
+2828,B008,2828,1,,,Matched based on fuel consumption
+2828,B010,2828,2,,,Matched based on fuel consumption
+3399,A1,3399,1,,,Matched based on generator ID
+3399,B1,3399,1,,,Matched based on generator ID
+3935,AUX1,3935,1,,,Matched based on generator ID
+3935,AUX2,3935,1,,,Matched based on generator ID
+3948,AUX1,3948,1,,,Matched based on generator ID
+6166,AB1,6166,MB1,,,Matched based on generator ID
+6166,AB2,6166,MB2,,,Matched based on generator ID
+6264,AUX1,6264,1,,,Matched to unique generator ID at the plant
+6264,AUX2,6264,1,,,Matched to unique generator ID at the plant
+8102,B001,8102,1,,,Matched based on generator ID
+8102,B002,8102,1,,,Matched based on generator ID
+10856,GB1,10865,GEN7,,,Matched based on fuel consumption
+10856,GB2,10865,GEN8,,,Matched based on fuel consumption
+10866,13,10866,GEN6,,,Matched based on opreation date
+10866,14,10866,GEN7,,,Matched based on opreation date
+50240,2,50240,GEN2,,,Unclear. Both GEN1 and GEN2 belong to same subplant
+50240,3,50240,GEN1,,,Unclear.
+50240,5,50240,GEN1,,,Unclear.
+50240,7,50240,GEN1,,,Unclear.
+50472,BLR05,50472,GEN1,,,Unclear. Both generator at plant have 4 boilers named BLR01 -> BLR04
+50479,6,50479,GEN1,,,Matched based on energy source code of generator
+50481,253-28,50481,TG21,,,Generators TG16 to TG21 are associated to boiler 253-25 to 253-29. TG21 is the only generator with no CAMD unit
+50729,CLBLR1,50729,GEN3,,,Matched based on boiler ID and fuel consumption
+50729,CLBLR2,50729,GEN3,,,Matched based on boiler ID and fuel consumption
+50733,701B1,50733,STG1,,,Only one generator at this plant
+50733,701B2,50733,STG1,,,Only one generator at this plant
+50733,701B3,50733,STG1,,,Only one generator at this plant
+50733,701B5,50733,STG1,,,Only one generator at this plant
+50733,701B6,50733,STG1,,,Only one generator at this plant
+50733,720B1,50733,STG1,,,Only one generator at this plant
+50733,720B2,50733,STG1,,,Only one generator at this plant
+50733,720B3,50733,STG1,,,Only one generator at this plant
+50900,5,50900,GEN3,,,Matched based on fuel consumption
+50900,11,50900,GEN3,,,Matched based on fuel consumption
+50900,1,50900,GEN3,,,Matched based on fuel consumption
+50900,4,50900,GEN3,,,Matched based on fuel consumption
+52089,BLR010,52089,GEN4,,,Matched based on fuel consumption. All generators at plant share same boilers and stack
+52089,BLR011,52089,GEN4,,,Matched based on fuel consumption. All generators at plant share same boilers and stack
+52089,BLR012,52089,GEN4,,,Matched based on fuel consumption. All generators at plant share same boilers and stack
+52089,BLR013,52089,GEN4,,,Matched based on fuel consumption. All generators at plant share same boilers and stack
+52089,BLR014,52089,GEN4,,,Matched based on fuel consumption. All generators at plant share same boilers and stack
+52168,1,52168,GEN3,,,Matched based on fuel consumption
+54276,ES003,54276,TG3,,,Matched on fuel consumption and fuel type
+55216,B-5,55216,STG1,,,Matched on fuel consumption
+55216,B-6,55216,STG1,,,Matched on fuel consumption
+55308,A,55308,GEN1,,,Only one generator at this plant
+55308,B,55308,GEN1,,,Only one generator at this plant
+55386,B-1,55386,ST1,,,Matching based on fuel consumption
+55386,B-2,55386,ST1,,,Matching based on fuel consumption
+55386,B-3,55386,ST1,,,Matching based on fuel consumption
