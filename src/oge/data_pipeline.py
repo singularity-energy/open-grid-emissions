@@ -168,7 +168,7 @@ def main(args):
         "subplant_crosswalk",
         path_prefix,
         year,
-        args.skip_outputs,
+        skip_outputs=False,  # always output the crosswalk because it is loaded later
     )
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
@@ -185,7 +185,7 @@ def main(args):
         "primary_fuel_table",
         path_prefix,
         year,
-        args.skip_outputs,
+        skip_outputs=False,
     )
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(

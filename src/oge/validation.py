@@ -520,6 +520,17 @@ def test_for_missing_subplant_id(df, plant_part):
             + limit_error_output_df(
                 missing_subplant_test[
                     ["plant_id_eia", plant_part, "subplant_id"]
+                    + [
+                        col
+                        for col in missing_subplant_test.columns
+                        if col
+                        in [
+                            "net_generation_mwh",
+                            "gross_generation_mwh",
+                            "fuel_consumed_mmbtu",
+                            "capacity_mw",
+                        ]
+                    ]
                 ].drop_duplicates()
             ).to_string()
         )

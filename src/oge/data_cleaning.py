@@ -164,6 +164,7 @@ def clean_eia923(
     gen_fuel_allocated = emissions.adjust_emissions_for_biomass(gen_fuel_allocated)
 
     # adjust emissions for CHP
+    logger.info("Adding subplant_id to gen_fuel_allocated for CHP adjustment")
     gen_fuel_allocated = add_subplant_ids_to_df(
         gen_fuel_allocated,
         year,
@@ -208,6 +209,7 @@ def clean_eia923(
     ].round(1)
 
     # map subplant ids to the data
+    logger.info("Adding subplant_id to gen_fuel_allocated")
     gen_fuel_allocated = add_subplant_ids_to_df(
         gen_fuel_allocated,
         year,
@@ -286,7 +288,7 @@ def create_primary_fuel_table(
     Returns:
         pd.DataFrame: the primary fuel table.
     """
-
+    logger.info("Creating Primary Fuel Table")
     # add under construction generators to the dataframe
     gen_fuel_allocated = add_under_construction_generator_ids_to_df(
         gen_fuel_allocated, year
@@ -296,6 +298,7 @@ def create_primary_fuel_table(
     )
 
     # add subplant ids so that we can create subplant-specific primary fuels
+    logger.info("Adding subplant_id to gen_fuel_allocated for primary_fuel_table")
     gen_fuel_allocated = add_subplant_ids_to_df(
         gen_fuel_allocated,
         year,
@@ -522,6 +525,7 @@ def calculate_capacity_based_primary_fuel(
     )
 
     if "subplant_id" in agg_keys:
+        logger.info("Adding subplant_id to gen_capacity")
         gen_capacity = add_subplant_ids_to_df(
             gen_capacity,
             year,
@@ -592,7 +596,7 @@ def add_under_construction_generator_ids_to_df(
     ).rename(columns={"energy_source_code_1": "energy_source_code"})
 
     # keep operating generators and proposed generators that are already under construction
-    under_construction_status_codes = ["U", "V", "TS"]
+    under_construction_status_codes = ["U", "V", "TS", "OT"]
     gen_cap_under_construction = gen_capacity[
         (
             (gen_capacity["operational_status"] == "proposed")
@@ -605,6 +609,7 @@ def add_under_construction_generator_ids_to_df(
     ]
 
     # add subplant_ids
+    logger.info("Adding subplant_id to gen_cap_under_construction")
     gen_cap_under_construction = add_subplant_ids_to_df(
         gen_cap_under_construction,
         year,
@@ -678,6 +683,7 @@ def add_recently_retired_generator_ids_to_df(
     ]
 
     # add subplant_ids
+    logger.info("Adding subplant_id to gen_cap_recently_retired")
     gen_cap_recently_retired = add_subplant_ids_to_df(
         gen_cap_recently_retired,
         year,
@@ -928,6 +934,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     # See: https://github.com/singularity-energy/open-grid-emissions/issues/50
 
     # add subplant id
+    logger.info("Adding subplant_id to cems")
     cems = add_subplant_ids_to_df(
         cems,
         year,
@@ -1177,6 +1184,7 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
             year,
             columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
         ).drop_duplicates()
+        logger.info("Adding subplant_id to gen_fuel for cems fuel assignment")
         gen_fuel = add_subplant_ids_to_df(
             gen_fuel, year, "generator_id", how_merge="inner", validate_merge="1:1"
         )
