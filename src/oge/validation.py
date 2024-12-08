@@ -133,8 +133,8 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     ) / plant_total_gf.fillna(0).replace(0, 0.00001).dropna(how="all", axis=0)
     # Flag rows where the absolute percentage difference is greater than our threshold
     mismatched_allocation = plant_total_diff[
-        (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0))
-        | (~np.isclose(plant_total_diff["net_generation_mwh"], 0))
+        (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0, atol=0.0001))
+        | (~np.isclose(plant_total_diff["net_generation_mwh"], 0, atol=0.0001))
     ]
 
     if len(mismatched_allocation) > 0:

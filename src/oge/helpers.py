@@ -310,18 +310,28 @@ def assign_fleet_to_subplant_data(
     if "gross_generation_mwh" in subplant_data.columns:
         missing_fleet_keys = subplant_data[
             (
-                (subplant_data["ba_code"].isna())
-                | (subplant_data[fuel_category_col].isna())
-                & (subplant_data["gross_generation_mwh"] > 0)
+                (
+                    (subplant_data["ba_code"].isna())
+                    | (subplant_data[fuel_category_col].isna())
+                )
+                & (
+                    (subplant_data["gross_generation_mwh"] > 0)
+                    | (subplant_data["fuel_consumed_for_electricity_mmbtu"] > 0)
+                )
             )
         ]
     # otherwise, check units that report non-zero net generation
     else:
         missing_fleet_keys = subplant_data[
             (
-                (subplant_data["ba_code"].isna())
-                | (subplant_data[fuel_category_col].isna())
-                & (subplant_data["net_generation_mwh"] != 0)
+                (
+                    (subplant_data["ba_code"].isna())
+                    | (subplant_data[fuel_category_col].isna())
+                )
+                & (
+                    (subplant_data["net_generation_mwh"] != 0)
+                    | (subplant_data["fuel_consumed_for_electricity_mmbtu"] != 0)
+                )
             )
         ]
     if len(missing_fleet_keys) > 0:
@@ -334,11 +344,7 @@ def assign_fleet_to_subplant_data(
                     fuel_category_col,
                 ],
                 dropna=False,
-            )[
-                [
-                    "net_generation_mwh",
-                ]
-            ]
+            )[["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"]]
             .sum()
             .to_string()
         )

@@ -701,6 +701,7 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
             "EIA_BOILER_ID",
             "EIA_FUEL_TYPE",
             "CAMD_FUEL_TYPE",
+            "MATCH_TYPE_GEN",
         ],
     )
 
@@ -725,6 +726,7 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
             "EIA_BOILER_ID": "boiler_id",
             "EIA_FUEL_TYPE": "energy_source_code_eia",
             "CAMD_FUEL_TYPE": "energy_source_code_epa",
+            "MATCH_TYPE_GEN": "epa_match_type",
         }
     )
 

@@ -191,3 +191,31 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 65373,CT-4,65373,CTG-4,,,Matched based on generator ID
 65373,CT-5,65373,CTG-5,,,Matched based on generator ID
 65373,CT-6,65373,CTG-6,,,Matched based on generator ID
+52089,BLR007,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR008,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR010,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR011,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR012,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR013,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR014,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR007,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR008,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR010,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR011,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR012,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR013,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR014,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR007,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR008,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR010,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR011,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR012,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR013,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR014,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR007,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR008,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR010,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR011,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR012,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR013,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR014,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
