@@ -295,3 +295,38 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 55306,3CTGA,59784,ST11,2014,,This changes plants to power block 3 in 2014
 55306,3CTGB,59784,CTG6,2014,,This changes plants to power block 3 in 2014
 55306,3CTGB,59784,ST11,2014,,This changes plants to power block 3 in 2014
+548,1,548,1,,,EPA crosswalk generator matches generator_id
+548,2,548,2,,,EPA crosswalk generator matches generator_id
+548,10,548,10,,,EPA crosswalk generator matches generator_id
+603,15,603,15,,,EPA crosswalk generator matches generator_id
+603,16,603,16,,,EPA crosswalk generator matches generator_id
+981,3,,3,,,CAMPD generator mapping matches generator name and nameplate cap
+981,3,,3A,,,CAMPD generator mapping matches generator name and nameplate cap
+981,4,,4,,,CAMPD generator mapping matches generator name and nameplate cap
+981,4,,4A,,,CAMPD generator mapping matches generator name and nameplate cap
+1822,5,1822,5,,,EPA crosswalk generator matches generator_id
+1822,6,1822,6,,,EPA crosswalk generator matches generator_id
+1822,7,1822,7,,,EPA crosswalk generator matches generator_id
+1822,GT-1,1822,GT1,,,EPA crosswalk generator matches generator_id
+1961,NEPP,1961,1,,,CAMPD generator mapping matches generator name and nameplate cap
+2169,2,2169,2,,,EPA crosswalk generator matches generator_id
+3788,1,3788,1,,,EPA crosswalk generator matches generator_id
+3788,2,3788,2,,,EPA crosswalk generator matches generator_id
+3788,3,3788,3,,,EPA crosswalk generator matches generator_id
+3788,4,3788,4,,,EPA crosswalk generator matches generator_id
+3788,5,3788,5,,,EPA crosswalk generator matches generator_id
+10670,1001,10670,GEN1,,,EPA crosswalk generator matches generator_id
+10802,1,10802,GEN1,,,CAMPD generator mapping matches generator name and nameplate cap
+10802,1,10802,GEN2,,,CAMPD generator mapping matches generator name and nameplate cap
+50245,GTX017,50245,ABB,,,EPA crosswalk generator matches generator_id
+50245,GTX017,50245,GE,,,EPA crosswalk generator matches generator_id
+50245,GTX017,50245,GT,,,EPA crosswalk generator matches generator_id
+50245,PBX007,50245,ABB,,,EPA crosswalk generator matches generator_id
+50245,PBX007,50245,GE,,,EPA crosswalk generator matches generator_id
+54144,31,54144,GEN1,,,EPA crosswalk generator matches generator_id
+54423,EU003,54423,GT1,,,EPA crosswalk generator matches generator_id
+54423,EU003,54423,ST1,,,EPA crosswalk generator matches generator_id
+54423,EU004,54423,GT2,,,EPA crosswalk generator matches generator_id
+54423,EU004,54423,ST1,,,EPA crosswalk generator matches generator_id
+54658,1,54658,CT,,,EPA crosswalk generator matches generator_id
+54658,1,54658,ST,,,EPA crosswalk generator matches generator_id
