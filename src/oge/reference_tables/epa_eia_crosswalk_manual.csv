@@ -300,10 +300,10 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 548,10,548,10,,,EPA crosswalk generator matches generator_id
 603,15,603,15,,,EPA crosswalk generator matches generator_id
 603,16,603,16,,,EPA crosswalk generator matches generator_id
-981,3,,3,,,CAMPD generator mapping matches generator name and nameplate cap
-981,3,,3A,,,CAMPD generator mapping matches generator name and nameplate cap
-981,4,,4,,,CAMPD generator mapping matches generator name and nameplate cap
-981,4,,4A,,,CAMPD generator mapping matches generator name and nameplate cap
+981,3,981,3,,,CAMPD generator mapping matches generator name and nameplate cap
+981,3,981,3A,,,CAMPD generator mapping matches generator name and nameplate cap
+981,4,981,4,,,CAMPD generator mapping matches generator name and nameplate cap
+981,4,981,4A,,,CAMPD generator mapping matches generator name and nameplate cap
 1822,5,1822,5,,,EPA crosswalk generator matches generator_id
 1822,6,1822,6,,,EPA crosswalk generator matches generator_id
 1822,7,1822,7,,,EPA crosswalk generator matches generator_id

@@ -487,10 +487,8 @@ def update_epa_to_eia_map(cems_df: pd.DataFrame, year: int) -> pd.DataFrame:
         & (year <= manual_plant_map["end_year"])
     ].drop(columns=["start_year", "end_year"])
 
-    # only keep rows where the epa and eia plant ids don't match
-    manual_plant_map = manual_plant_map.loc[
-        manual_plant_map["plant_id_epa"] != manual_plant_map["plant_id_eia"],
-        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"],
+    manual_plant_map = manual_plant_map[
+        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"]
     ].drop_duplicates()
 
     # merge into the cems data
