@@ -426,7 +426,7 @@ def main(args):
     logger.info("12. Exporting monthly and annual fleet-level results")
     # output monthly/annual power sector results
     fleet_data = data_cleaning.aggregate_subplant_data_to_fleet(
-        monthly_subplant_data, plant_attributes, primary_fuel_table
+        monthly_subplant_data, plant_attributes, primary_fuel_table, year
     )
     output_data.write_power_sector_results(
         fleet_data, year, path_prefix, args.skip_outputs, include_hourly=False
@@ -545,7 +545,7 @@ def main(args):
         logger.info("16. Assigning hourly profiles to monthly EIA-923 data")
         # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
         monthly_eia_fleet_data = impute_hourly_profiles.aggregate_eia_data_to_fleet(
-            monthly_eia_data_to_shape, plant_attributes, primary_fuel_table
+            monthly_eia_data_to_shape, plant_attributes, primary_fuel_table, year
         )
         shaped_eia_fleet_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
             monthly_eia_fleet_data,
@@ -653,7 +653,7 @@ def main(args):
         )
         # aggregate CEMS data to the fleet level
         cems_fleet_data = data_cleaning.aggregate_subplant_data_to_fleet(
-            combined_cems_subplant_data, plant_attributes, primary_fuel_table
+            combined_cems_subplant_data, plant_attributes, primary_fuel_table, year
         )
         del combined_cems_subplant_data
 

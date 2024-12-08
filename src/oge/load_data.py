@@ -681,6 +681,8 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
 
     This is only used data_cleaning.assign_fuel_type_to_cems() to access the
     CAMD_FUEL_TYPE column, which is dropped from the PUDL version of the table.
+    This is also used in data_cleaning.remove_non_grid_connected_plants() to identify
+    the units that CAMD identified as NGC.
 
     Args:
         year (int): a four-digit year.
@@ -797,6 +799,8 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
 
 def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
     """Read in the manual EPA-EIA Crosswalk table.
+
+    This is currently only used for subplant identification
 
     Args:
         year (int): a four-digit year.

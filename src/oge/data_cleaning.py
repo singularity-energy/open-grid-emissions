@@ -307,6 +307,11 @@ def create_primary_fuel_table(
         validate_merge="m:1",
     )
 
+    # flag and remove any missing ESCs
+    gen_fuel_allocated = validation.test_for_missing_energy_source_code(
+        gen_fuel_allocated, drop_missing=True
+    )
+
     # get a table of primary energy source codes by generator
     # this will be used in `calculate_aggregated_primary_fuel()` to determine the
     # mode of energy source codes by plant
@@ -1976,6 +1981,7 @@ def aggregate_subplant_data_to_fleet(
     combined_subplant_data: pd.DataFrame,
     plant_attributes_table: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
+    year: int,
 ) -> pd.DataFrame:
     """Group plant data by BA and fuel category (fleet).
 
@@ -1997,6 +2003,7 @@ def aggregate_subplant_data_to_fleet(
         combined_subplant_data,
         plant_attributes_table,
         primary_fuel_table,
+        year,
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel",
         fuel_category_col="fuel_category",

@@ -330,3 +330,143 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 54423,EU004,54423,ST1,,,EPA crosswalk generator matches generator_id
 54658,1,54658,CT,,,EPA crosswalk generator matches generator_id
 54658,1,54658,ST,,,EPA crosswalk generator matches generator_id
+247,7,247,4,,,CAMPD Facility database mapping
+310,3,310,3,,,CAMPD Facility database mapping
+310,4,310,4,,,CAMPD Facility database mapping
+634,1,634,ST1,,,CAMPD Facility database mapping
+634,2,634,ST2,,,CAMPD Facility database mapping
+634,3,634,ST3,,,CAMPD Facility database mapping
+641,2,641,2,,,CAMPD Facility database mapping
+641,3,641,3,,,CAMPD Facility database mapping
+658,7,658,7,,,CAMPD Facility database mapping
+658,8,658,8,,,CAMPD Facility database mapping
+688,2,688,2,,,CAMPD Facility database mapping
+863,5,863,3,,,CAMPD Facility database mapping
+863,6,863,4,,,CAMPD Facility database mapping
+864,5,864,3,,,CAMPD Facility database mapping
+864,6,864,4,,,CAMPD Facility database mapping
+883,17,883,6,,,CAMPD Facility database mapping
+964,7,964,6,,,CAMPD Facility database mapping
+964,8,964,7,,,CAMPD Facility database mapping
+1012,1,1012,1,,,CAMPD Facility database mapping
+1305,1,1305,1,,,CAMPD Facility database mapping
+1372,6,1372,6,,,CAMPD Facility database mapping
+1392,10,1392,10,,,Matches generator name and CAMPD database capacity
+1392,11,1392,11,,,Matches generator name and CAMPD database capacity
+1392,12,1392,12,,,Matches generator name and CAMPD database capacity
+1458,2,1458,2,,,CAMPD Facility database mapping
+1458,3,1458,3,,,CAMPD Facility database mapping
+1589,1,1589,1,,,CAMPD Facility database mapping
+1589,2,1589,2,,,CAMPD Facility database mapping
+1613,11,1613,JET2,,,CAMPD Facility database mapping
+1613,8,1613,6,,,CAMPD Facility database mapping
+1769,1,1769,1,,,CAMPD Facility database mapping
+1769,2,1769,2,,,CAMPD Facility database mapping
+1769,3,1769,3,,,CAMPD Facility database mapping
+1769,4,1769,4,,,CAMPD Facility database mapping
+1912,3,1912,3,,,CAMPD Facility database mapping
+1912,4,1912,4,,,CAMPD Facility database mapping
+1912,5,1912,5,,,CAMPD Facility database mapping
+1912,6,1912,6,,,CAMPD Facility database mapping
+1927,6,1927,7,,,CAMPD Facility database mapping
+1927,7,1927,7,,,CAMPD Facility database mapping
+1927,7,1927,ST7,,,CAMPD Facility database mapping
+1927,8,1927,8,,,CAMPD Facility database mapping
+2322,1,2322,1,,,CAMPD Facility database mapping
+2322,2,2322,2,,,CAMPD Facility database mapping
+2322,3,2322,3,,,CAMPD Facility database mapping
+2397,A01001,2397,1,,,CAMPD Facility database mapping
+2397,A02001,2397,2,,,CAMPD Facility database mapping
+2539,1,2539,1,,,CAMPD Facility database mapping
+2539,2,2539,2,,,CAMPD Facility database mapping
+2539,3,2539,3,,,CAMPD Facility database mapping
+2539,4,2539,4,,,CAMPD Facility database mapping
+2629,3,2629,3,,,CAMPD Facility database mapping
+2629,4,2629,4,,,CAMPD Facility database mapping
+2629,5,2629,5,,,CAMPD Facility database mapping
+2642,1,2642,1,,,CAMPD Facility database mapping
+2642,2,2642,2,,,CAMPD Facility database mapping
+2642,3,2642,3,,,CAMPD Facility database mapping
+2642,4,2642,4,,,CAMPD Facility database mapping
+2832,5-1,2832,5,,,CAMPD Facility database mapping
+2832,5-2,2832,5,,,CAMPD Facility database mapping
+2840,1,2840,1,,,CAMPD Facility database mapping
+2840,2,2840,2,,,CAMPD Facility database mapping
+3148,1,3148,1,,,CAMPD Facility database mapping
+3148,2,3148,2,,,CAMPD Facility database mapping
+3176,4,23279,4,,,Matches CAMPD mapping of generator at plant of same name
+3264,4C,3264,4,,,CAMPD Facility database mapping
+3264,5C,3264,5,,,CAMPD Facility database mapping
+3264,6C,3264,6,,,CAMPD Facility database mapping
+3438,1,3438,1,,,CAMPD Facility database mapping
+3438,2,3438,2,,,CAMPD Facility database mapping
+3439,1,3439,1,,,CAMPD Facility database mapping
+3439,2,3439,2,,,CAMPD Facility database mapping
+3439,3,3439,3,,,CAMPD Facility database mapping
+3442,7,3442,6,,,CAMPD Facility database mapping
+3453,2,3453,2,,,CAMPD Facility database mapping
+3453,3A,3453,3,,,CAMPD Facility database mapping
+3453,3B,3453,3,,,CAMPD Facility database mapping
+3506,1,3506,1,,,CAMPD Facility database mapping
+3506,2,3506,2,,,CAMPD Facility database mapping
+3508,1,3508,1,,,CAMPD Facility database mapping
+3508,2,3508,2,,,CAMPD Facility database mapping
+3508,3,3508,3,,,CAMPD Facility database mapping
+3549,3,3549,3,,,CAMPD Facility database mapping
+3549,4,3549,4,,,CAMPD Facility database mapping
+3992,11,3992,3,,,CAMPD Facility database mapping
+4072,3,4072,3,,,CAMPD Facility database mapping
+4072,4,4072,4,,,CAMPD Facility database mapping
+4939,2,4939,2,,,CAMPD Facility database mapping
+6052,6A,55965,ST6,,2011,"CAMPD Facility database mapping, changes plant ID in 2012"
+6052,6A,55965,CT6A,,2011,"CAMPD Facility database mapping, changes plant ID in 2013"
+6052,6B,55965,ST6,,2011,"CAMPD Facility database mapping, changes plant ID in 2014"
+6052,6B,55965,CT6B,,2011,"CAMPD Facility database mapping, changes plant ID in 2015"
+6052,7A,55965,ST7,,2011,"CAMPD Facility database mapping, changes plant ID in 2016"
+6052,7A,55965,CT7A,,2011,"CAMPD Facility database mapping, changes plant ID in 2017"
+6052,7B,55965,ST7,,2011,"CAMPD Facility database mapping, changes plant ID in 2018"
+6052,7B,55965,CT7B,,2011,"CAMPD Facility database mapping, changes plant ID in 2019"
+55965,6A,55965,ST6,2012,,"CAMPD Facility database mapping, changes plant ID in 2012"
+55965,6A,55965,CT6A,2012,,"CAMPD Facility database mapping, changes plant ID in 2013"
+55965,6B,55965,ST6,2012,,"CAMPD Facility database mapping, changes plant ID in 2014"
+55965,6B,55965,CT6B,2012,,"CAMPD Facility database mapping, changes plant ID in 2015"
+55965,7A,55965,ST7,2012,,"CAMPD Facility database mapping, changes plant ID in 2016"
+55965,7A,55965,CT7A,2012,,"CAMPD Facility database mapping, changes plant ID in 2017"
+55965,7B,55965,ST7,2012,,"CAMPD Facility database mapping, changes plant ID in 2018"
+55965,7B,55965,CT7B,2012,,"CAMPD Facility database mapping, changes plant ID in 2019"
+7945,1,7945,1,,,CAMPD Facility database mapping
+8906,30,8906,3,,,CAMPD Facility database mapping
+8906,40,8906,4,,,CAMPD Facility database mapping
+8906,50,8906,ST5,,,CAMPD Facility database mapping
+10618,1,10618,GEN1,,,CAMPD Facility database mapping
+10618,1,10618,GEN2,,,CAMPD Facility database mapping
+50012,BLR4,50012,GEN3,,,CAMPD Facility database mapping
+50459,1,50459,GT,,,CAMPD Facility database mapping
+50459,1,50459,ST,,,CAMPD Facility database mapping
+50797,1001,50797,GEN1,,,CAMPD Facility database mapping
+50797,1001,50797,GEN2,,,CAMPD Facility database mapping
+50855,1,50855,GEN1,,,CAMPD Facility database mapping
+50855,1,50855,GEN2,,,CAMPD Facility database mapping
+50855,2,50855,GEN2,,,CAMPD Facility database mapping
+50855,2,50855,GEN3,,,CAMPD Facility database mapping
+54138,01GTDB,54138,GTG,,,CAMPD Facility database mapping
+54425,1,54425,GT1,,,CAMPD Facility database mapping
+54425,2,54425,GT2,,,CAMPD Facility database mapping
+54658,6,55833,CTP,,2008,"Matches CAMPD mapping of generator at plant of same name, changes plant ID in 2009"
+55833,6,55833,CTP,2009,,"Matches CAMPD mapping of generator at plant of same name, changes plant ID in 2009"
+55082,AA-001,55082,1,,,CAMPD Facility database mapping
+55082,AA-002,55082,2,,,CAMPD Facility database mapping
+55082,AA-003,55082,3,,,CAMPD Facility database mapping
+55082,AA-004,55082,4,,,CAMPD Facility database mapping
+55082,AA-005,55082,5,,,CAMPD Facility database mapping
+55082,AA-006,55082,6,,,CAMPD Facility database mapping
+55303,AA-001,55303,A001,,,CAMPD Facility database mapping
+55303,AA-002,55303,A002,,,CAMPD Facility database mapping
+55303,AA-003,55303,A003,,,CAMPD Facility database mapping
+55303,AA-004,55303,A004,,,CAMPD Facility database mapping
+55494,CT1,55494,CT3,,,CAMPD Facility database mapping
+55494,CT2,55494,CT4,,,CAMPD Facility database mapping
+55494,CT3,55494,CT1,,,CAMPD Facility database mapping
+55494,CT4,55494,CT2,,,CAMPD Facility database mapping
+55494,CT5,55494,CT5,,,CAMPD Facility database mapping
+55494,CT6,55494,CT6,,,CAMPD Facility database mapping

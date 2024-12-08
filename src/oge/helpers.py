@@ -208,6 +208,7 @@ def assign_fleet_to_subplant_data(
     subplant_data: pd.DataFrame,
     plant_attributes_table: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
+    year: int,
     ba_col: str = "ba_code",
     primary_fuel_col: str = "subplant_primary_fuel",
     fuel_category_col: str = "fuel_category",
@@ -243,6 +244,7 @@ def assign_fleet_to_subplant_data(
             definition or physical BA "ba_code_physical". Defaults to "ba_code".
         primary_fuel_col (str, optional): Name of column from primary_fuel_table to use
             to assign a fuel type to the subplant. Defaults to "subplant_primary_fuel".
+        year (int): Used to fill missing CEMS fuels if necessary
         fuel_category_col (str, optional): name of fuel category column to map to the
             energy source code specified by the primary_fuel_col in primary_fuel_table.
             Defaults to "fuel_category".
@@ -290,6 +292,37 @@ def assign_fleet_to_subplant_data(
     subplant_primary_fuel = primary_fuel_table[
         ["plant_id_eia", "subplant_id", primary_fuel_col]
     ].drop_duplicates()
+
+    # if there are any missing ESCs in the dataframe, these might be from unmapped CEMS
+    # units. Attempt to add a fuel from the EPA-EIA crosswalk
+    if len(subplant_primary_fuel[subplant_primary_fuel[primary_fuel_col].isna()]) > 0:
+        # load the crosswalk, and assign subplant_id
+        campd_fuels = (
+            load_data.load_epa_eia_crosswalk_from_raw(year)[
+                ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
+            ]
+            .dropna(subset=["emissions_unit_id_epa"])
+            .drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
+        )
+        campd_fuels = add_subplant_ids_to_df(
+            campd_fuels, year, "emissions_unit_id_epa", "left", "1:m"
+        )
+
+        # only keep a unique fuel per subplant
+        campd_fuels = campd_fuels[
+            ["plant_id_eia", "subplant_id", "energy_source_code_epa"]
+        ].drop_duplicates(subset=["plant_id_eia", "subplant_id"])
+
+        subplant_primary_fuel = subplant_primary_fuel.merge(
+            campd_fuels, how="left", on=["plant_id_eia", "subplant_id"], validate="m:1"
+        )
+        subplant_primary_fuel[primary_fuel_col] = subplant_primary_fuel[
+            primary_fuel_col
+        ].fillna(subplant_primary_fuel["energy_source_code_epa"])
+        subplant_primary_fuel = subplant_primary_fuel.drop(
+            columns=["energy_source_code_epa"]
+        )
+
     subplant_primary_fuel = assign_fuel_category_to_esc(
         subplant_primary_fuel,
         fuel_category_names=[fuel_category_col],
