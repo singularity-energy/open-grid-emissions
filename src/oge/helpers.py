@@ -293,9 +293,24 @@ def assign_fleet_to_subplant_data(
         ["plant_id_eia", "subplant_id", primary_fuel_col]
     ].drop_duplicates()
 
+    subplant_primary_fuel = assign_fuel_category_to_esc(
+        subplant_primary_fuel,
+        fuel_category_names=[fuel_category_col],
+        esc_column=primary_fuel_col,
+    )
+    if drop_primary_fuel_col:
+        subplant_primary_fuel = subplant_primary_fuel.drop(columns=[primary_fuel_col])
+    # merge in the fuel data
+    subplant_data = subplant_data.merge(
+        subplant_primary_fuel,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
+
     # if there are any missing ESCs in the dataframe, these might be from unmapped CEMS
     # units. Attempt to add a fuel from the EPA-EIA crosswalk
-    if len(subplant_primary_fuel[subplant_primary_fuel[primary_fuel_col].isna()]) > 0:
+    if len(subplant_data[subplant_data[fuel_category_col].isna()]) > 0:
         # load the crosswalk, and assign subplant_id
         campd_fuels = (
             load_data.load_epa_eia_crosswalk_from_raw(year)[
@@ -313,30 +328,24 @@ def assign_fleet_to_subplant_data(
             ["plant_id_eia", "subplant_id", "energy_source_code_epa"]
         ].drop_duplicates(subset=["plant_id_eia", "subplant_id"])
 
-        subplant_primary_fuel = subplant_primary_fuel.merge(
-            campd_fuels, how="left", on=["plant_id_eia", "subplant_id"], validate="m:1"
+        campd_fuels = assign_fuel_category_to_esc(
+            campd_fuels,
+            fuel_category_names=[fuel_category_col],
+            esc_column="energy_source_code_epa",
         )
-        subplant_primary_fuel[primary_fuel_col] = subplant_primary_fuel[
-            primary_fuel_col
-        ].fillna(subplant_primary_fuel["energy_source_code_epa"])
-        subplant_primary_fuel = subplant_primary_fuel.drop(
-            columns=["energy_source_code_epa"]
-        )
+        campd_fuels = campd_fuels.drop(columns=["energy_source_code_epa"])
 
-    subplant_primary_fuel = assign_fuel_category_to_esc(
-        subplant_primary_fuel,
-        fuel_category_names=[fuel_category_col],
-        esc_column=primary_fuel_col,
-    )
-    if drop_primary_fuel_col:
-        subplant_primary_fuel = subplant_primary_fuel.drop(columns=[primary_fuel_col])
-    # merge in the fuel data
-    subplant_data = subplant_data.merge(
-        subplant_primary_fuel,
-        how="left",
-        on=["plant_id_eia", "subplant_id"],
-        validate="m:1",
-    )
+        subplant_data = subplant_data.merge(
+            campd_fuels,
+            how="left",
+            on=["plant_id_eia", "subplant_id"],
+            validate="m:1",
+            suffixes=(None, "_fill"),
+        )
+        subplant_data[primary_fuel_col] = subplant_data[primary_fuel_col].fillna(
+            subplant_data[f"{primary_fuel_col}_fill"]
+        )
+        subplant_data = subplant_data.drop(columns=[f"{primary_fuel_col}_fill"])
 
     # check that there is no missing ba or fuel codes for subplants with nonzero gen
     # for CEMS data, check only units that report positive gross generaiton

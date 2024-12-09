@@ -394,7 +394,7 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 2840,2,2840,2,,,CAMPD Facility database mapping
 3148,1,3148,1,,,CAMPD Facility database mapping
 3148,2,3148,2,,,CAMPD Facility database mapping
-3176,4,23279,4,,,Matches CAMPD mapping of generator at plant of same name
+3176,4,56397,4,,,Matches CAMPD mapping of generator at plant of same name
 3264,4C,3264,4,,,CAMPD Facility database mapping
 3264,5C,3264,5,,,CAMPD Facility database mapping
 3264,6C,3264,6,,,CAMPD Facility database mapping
