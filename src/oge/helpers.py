@@ -342,10 +342,10 @@ def assign_fleet_to_subplant_data(
             validate="m:1",
             suffixes=(None, "_fill"),
         )
-        subplant_data[primary_fuel_col] = subplant_data[primary_fuel_col].fillna(
-            subplant_data[f"{primary_fuel_col}_fill"]
+        subplant_data[fuel_category_col] = subplant_data[fuel_category_col].fillna(
+            subplant_data[f"{fuel_category_col}_fill"]
         )
-        subplant_data = subplant_data.drop(columns=[f"{primary_fuel_col}_fill"])
+        subplant_data = subplant_data.drop(columns=[f"{fuel_category_col}_fill"])
 
     # check that there is no missing ba or fuel codes for subplants with nonzero gen
     # for CEMS data, check only units that report positive gross generaiton
@@ -377,7 +377,7 @@ def assign_fleet_to_subplant_data(
             )
         ]
     if len(missing_fleet_keys) > 0:
-        logger.warning(
+        logger.error(
             missing_fleet_keys.groupby(
                 [
                     "plant_id_eia",
@@ -390,9 +390,12 @@ def assign_fleet_to_subplant_data(
             .sum()
             .to_string()
         )
-        raise UserWarning(
+        logger.error(
             "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
         )
+        """raise UserWarning(
+            "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
+        )"""
 
     return subplant_data
 
