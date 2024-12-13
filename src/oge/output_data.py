@@ -556,6 +556,8 @@ def write_power_sector_results(
     path_prefix: str,
     skip_outputs: bool,
     include_hourly: bool,
+    include_monthly: bool,
+    include_annual: bool,
 ):
     """Helper function to write combined data by BA
 
@@ -565,8 +567,9 @@ def write_power_sector_results(
         path_prefix (str): name of base directory prefixing directory where data will
             be saved.
         skip_outputs (bool): whether to save power sector results or not.
-        include_hourly (bool): whether to include hourly results in addition to
-            monthly and yearly results
+        include_hourly (bool): whether to include hourly results.
+        include_monthly (bool): whether to include monthly results.
+        include_annual (bool): whether to include annual results.
     """
 
     if not skip_outputs:
@@ -658,7 +661,7 @@ def write_power_sector_results(
                     path_prefix,
                     skip_outputs,
                 )
-            else:
+            elif include_monthly or include_annual:
                 ba_total = (
                     ba_table.groupby(["report_date"], dropna=False)[DATA_COLUMNS]
                     .sum()
@@ -669,47 +672,31 @@ def write_power_sector_results(
                 # concat the totals to the fuel-specific totals
                 ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
 
-            # aggregate data to monthly
-            ba_table_monthly = (
-                ba_table.groupby(["fuel_category", "report_date"], dropna=False)
-                .sum(numeric_only=True)
-                .reset_index()
-            )
-            ba_table_monthly = add_generated_emission_rate_columns(ba_table_monthly)
-            # re-order columns
-            ba_table_monthly = ba_table_monthly[
-                ["fuel_category", "report_date"]
-                + DATA_COLUMNS
-                + GENERATED_EMISSION_RATE_COLS
-            ]
-            output_to_results(
-                ba_table_monthly,
-                year,
-                ba,
-                "power_sector_data/monthly/",
-                path_prefix,
-                skip_outputs,
-            )
+                agg = {}
+                if include_monthly:
+                    agg["monthly"] = ["fuel_category", "report_date"]
 
-            # aggregate data to annual
-            ba_table_annual = (
-                ba_table.groupby(["fuel_category"], dropna=False)
-                .sum(numeric_only=True)
-                .reset_index()
-            )
-            ba_table_annual = add_generated_emission_rate_columns(ba_table_annual)
-            # re-order columns
-            ba_table_annual = ba_table_annual[
-                ["fuel_category"] + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS
-            ]
-            output_to_results(
-                ba_table_annual,
-                year,
-                ba,
-                "power_sector_data/annual/",
-                path_prefix,
-                skip_outputs,
-            )
+                if include_annual:
+                    agg["annual"] = ["fuel_category"]
+
+                for k, v in agg.items():
+                    # aggregate data
+                    ba_table = (
+                        ba_table.groupby(v, dropna=False)
+                        .sum(numeric_only=True)
+                        .reset_index()
+                    )
+                    ba_table = add_generated_emission_rate_columns(ba_table)
+                    # re-order columns
+                    ba_table = ba_table[v + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS]
+                    output_to_results(
+                        ba_table,
+                        year,
+                        ba,
+                        f"power_sector_data/{k}/",
+                        path_prefix,
+                        skip_outputs,
+                    )
 
 
 def add_generated_emission_rate_columns(df: pd.DataFrame) -> pd.DataFrame:
