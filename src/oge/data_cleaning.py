@@ -972,7 +972,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     # load the CEMS data
     cems = load_data.load_cems_data(year)
 
-    cems = remove_negative_cems_data(cems)
+    cems = remove_negative_cems_data(cems, year)
 
     if small:
         cems = smallerize_test_data(df=cems, random_seed=42)
