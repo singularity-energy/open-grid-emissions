@@ -924,7 +924,9 @@ def remove_unmapped_fuel(cems: pd.DataFrame, year: int) -> pd.DataFrame:
             "These may need to be mapped to prevent double-counting of generation"
         )
         logger.error(
-            validation.limit_error_output_df(potential_missing_map.to_string())
+            validation.limit_error_output_df(potential_missing_map).to_string(
+                index=False
+            )
         )
 
     # flag units that report fuel input but no generation or steam output, and which
@@ -947,7 +949,7 @@ def remove_unmapped_fuel(cems: pd.DataFrame, year: int) -> pd.DataFrame:
             "To prevent these fuel and emissions from being counted, they will be removed"
         )
         logger.warning(
-            validation.limit_error_output_df(fuel_only_unmapped.to_string(index=False))
+            validation.limit_error_output_df(fuel_only_unmapped).to_string(index=False)
         )
 
         cems = cems.merge(
@@ -1191,7 +1193,7 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
             "To prevent these fuel and emissions from being counted, they will be removed"
         )
         logger.warning(
-            validation.limit_error_output_df(steam_only_unmapped.to_string(index=False))
+            validation.limit_error_output_df(steam_only_unmapped).to_string(index=False)
         )
 
         cems = cems.merge(
@@ -1218,7 +1220,7 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
             "This may result in anomalous results for these units until steam output data is handled in the pipeline"
         )
         logger.warning(
-            validation.limit_error_output_df(mapped_steam.to_string(index=False))
+            validation.limit_error_output_df(mapped_steam).to_string(index=False)
         )
 
     return cems
