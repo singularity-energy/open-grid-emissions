@@ -208,6 +208,7 @@ def assign_fleet_to_subplant_data(
     subplant_data: pd.DataFrame,
     plant_attributes_table: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
+    year: int,
     ba_col: str = "ba_code",
     primary_fuel_col: str = "subplant_primary_fuel",
     fuel_category_col: str = "fuel_category",
@@ -243,6 +244,7 @@ def assign_fleet_to_subplant_data(
             definition or physical BA "ba_code_physical". Defaults to "ba_code".
         primary_fuel_col (str, optional): Name of column from primary_fuel_table to use
             to assign a fuel type to the subplant. Defaults to "subplant_primary_fuel".
+        year (int): Used to fill missing CEMS fuels if necessary
         fuel_category_col (str, optional): name of fuel category column to map to the
             energy source code specified by the primary_fuel_col in primary_fuel_table.
             Defaults to "fuel_category".
@@ -290,6 +292,7 @@ def assign_fleet_to_subplant_data(
     subplant_primary_fuel = primary_fuel_table[
         ["plant_id_eia", "subplant_id", primary_fuel_col]
     ].drop_duplicates()
+
     subplant_primary_fuel = assign_fuel_category_to_esc(
         subplant_primary_fuel,
         fuel_category_names=[fuel_category_col],
@@ -305,27 +308,76 @@ def assign_fleet_to_subplant_data(
         validate="m:1",
     )
 
+    # if there are any missing ESCs in the dataframe, these might be from unmapped CEMS
+    # units. Attempt to add a fuel from the EPA-EIA crosswalk
+    if len(subplant_data[subplant_data[fuel_category_col].isna()]) > 0:
+        # load the crosswalk, and assign subplant_id
+        campd_fuels = (
+            load_data.load_epa_eia_crosswalk_from_raw(year)[
+                ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
+            ]
+            .dropna(subset=["emissions_unit_id_epa"])
+            .drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
+        )
+        campd_fuels = add_subplant_ids_to_df(
+            campd_fuels, year, "emissions_unit_id_epa", "left", "1:m"
+        )
+
+        # only keep a unique fuel per subplant
+        campd_fuels = campd_fuels[
+            ["plant_id_eia", "subplant_id", "energy_source_code_epa"]
+        ].drop_duplicates(subset=["plant_id_eia", "subplant_id"])
+
+        campd_fuels = assign_fuel_category_to_esc(
+            campd_fuels,
+            fuel_category_names=[fuel_category_col],
+            esc_column="energy_source_code_epa",
+        )
+        campd_fuels = campd_fuels.drop(columns=["energy_source_code_epa"])
+
+        subplant_data = subplant_data.merge(
+            campd_fuels,
+            how="left",
+            on=["plant_id_eia", "subplant_id"],
+            validate="m:1",
+            suffixes=(None, "_fill"),
+        )
+        subplant_data[fuel_category_col] = subplant_data[fuel_category_col].fillna(
+            subplant_data[f"{fuel_category_col}_fill"]
+        )
+        subplant_data = subplant_data.drop(columns=[f"{fuel_category_col}_fill"])
+
     # check that there is no missing ba or fuel codes for subplants with nonzero gen
     # for CEMS data, check only units that report positive gross generaiton
     if "gross_generation_mwh" in subplant_data.columns:
         missing_fleet_keys = subplant_data[
             (
-                (subplant_data["ba_code"].isna())
-                | (subplant_data[fuel_category_col].isna())
-                & (subplant_data["gross_generation_mwh"] > 0)
+                (
+                    (subplant_data["ba_code"].isna())
+                    | (subplant_data[fuel_category_col].isna())
+                )
+                & (
+                    (subplant_data["gross_generation_mwh"] > 0)
+                    | (subplant_data["fuel_consumed_for_electricity_mmbtu"] > 0)
+                )
             )
         ]
     # otherwise, check units that report non-zero net generation
     else:
         missing_fleet_keys = subplant_data[
             (
-                (subplant_data["ba_code"].isna())
-                | (subplant_data[fuel_category_col].isna())
-                & (subplant_data["net_generation_mwh"] != 0)
+                (
+                    (subplant_data["ba_code"].isna())
+                    | (subplant_data[fuel_category_col].isna())
+                )
+                & (
+                    (subplant_data["net_generation_mwh"] != 0)
+                    | (subplant_data["fuel_consumed_for_electricity_mmbtu"] != 0)
+                )
             )
         ]
     if len(missing_fleet_keys) > 0:
-        logger.warning(
+        logger.error(
             missing_fleet_keys.groupby(
                 [
                     "plant_id_eia",
@@ -334,17 +386,16 @@ def assign_fleet_to_subplant_data(
                     fuel_category_col,
                 ],
                 dropna=False,
-            )[
-                [
-                    "net_generation_mwh",
-                ]
-            ]
+            )[["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"]]
             .sum()
             .to_string()
         )
-        raise UserWarning(
+        logger.error(
             "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
         )
+        """raise UserWarning(
+            "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
+        )"""
 
     return subplant_data
 

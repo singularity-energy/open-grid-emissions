@@ -133,8 +133,8 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     ) / plant_total_gf.fillna(0).replace(0, 0.00001).dropna(how="all", axis=0)
     # Flag rows where the absolute percentage difference is greater than our threshold
     mismatched_allocation = plant_total_diff[
-        (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0))
-        | (~np.isclose(plant_total_diff["net_generation_mwh"], 0))
+        (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0, atol=0.0001))
+        | (~np.isclose(plant_total_diff["net_generation_mwh"], 0, atol=0.0001))
     ]
 
     if len(mismatched_allocation) > 0:
@@ -437,22 +437,35 @@ def test_chp_allocation(df):
     return chp_allocation_test
 
 
-def test_for_missing_energy_source_code(df):
-    """Checks that there are no missing energy source codes associated with non-zero fuel consumption."""
-    logger.info(
-        "Checking that there are no missing energy source codes associated with non-zero fuel consumption...  "
-    )
-    missing_esc_test = df[
-        (df["energy_source_code"].isna()) & (df["fuel_consumed_mmbtu"] > 0)
-    ]
+def test_for_missing_energy_source_code(
+    df: pd.DataFrame, drop_missing: bool = False
+) -> pd.DataFrame:
+    """Checks that there are no missing energy source codes
+
+    Args:
+        df (pd.DataFrame): the data to check, containing an energy_source_code column
+        drop_missing (bool, optional): Whether to drop data that has a missing energy
+            source code. Defaults to False.
+
+    Returns:
+        pd.DataFrame: Only returned if drop_missing is True
+    """
+    logger.info("Checking that there are no missing energy source codes...  ")
+    missing_esc_test = df[(df["energy_source_code"].isna())]
     if not missing_esc_test.empty:
         logger.warning(
-            f"There are {len(missing_esc_test)} records where there is a missing energy source code associated with non-zero fuel consumption. Check `missing_esc_test` for complete list"
+            f"There are {len(missing_esc_test)} records where there is a missing energy source code associated with non-zero fuel consumption."
         )
+        logger.warning(limit_error_output_df(missing_esc_test).to_string())
+        if drop_missing:
+            logger.warning("These entries will be removed from the dataframe")
+            df = df[~(df["energy_source_code"].isna())]
     else:
         logger.info("OK")
 
-    return missing_esc_test
+    # if missing are being dropped, return the df with the dropped entries
+    if drop_missing:
+        return df
 
 
 def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
@@ -520,6 +533,17 @@ def test_for_missing_subplant_id(df, plant_part):
             + limit_error_output_df(
                 missing_subplant_test[
                     ["plant_id_eia", plant_part, "subplant_id"]
+                    + [
+                        col
+                        for col in missing_subplant_test.columns
+                        if col
+                        in [
+                            "net_generation_mwh",
+                            "gross_generation_mwh",
+                            "fuel_consumed_mmbtu",
+                            "capacity_mw",
+                        ]
+                    ]
                 ].drop_duplicates()
             ).to_string()
         )
@@ -1403,21 +1427,23 @@ def identify_percent_of_data_by_input_source(
 
     # add ba codes and plant primary fuel to all of the data
     eia_only_data = assign_fleet_to_subplant_data(
-        eia_only_data, plant_attributes, primary_fuel_table
+        eia_only_data, plant_attributes, primary_fuel_table, year
     )
     cems = assign_fleet_to_subplant_data(
-        cems, plant_attributes, primary_fuel_table, drop_primary_fuel_col=False
+        cems, plant_attributes, primary_fuel_table, year, drop_primary_fuel_col=False
     )
     partial_cems_subplant = assign_fleet_to_subplant_data(
         partial_cems_subplant,
         plant_attributes,
         primary_fuel_table,
+        year,
         drop_primary_fuel_col=False,
     )
     partial_cems_plant = assign_fleet_to_subplant_data(
         partial_cems_plant,
         plant_attributes,
         primary_fuel_table,
+        year,
         drop_primary_fuel_col=False,
     )
 

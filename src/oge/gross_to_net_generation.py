@@ -513,6 +513,7 @@ def calculate_subplant_nameplate_capacity(year):
     )
 
     # add subplant ids to the generator data
+    logger.info("Adding subplant_id to gen_capacity")
     gen_capacity = add_subplant_ids_to_df(
         gen_capacity,
         year,

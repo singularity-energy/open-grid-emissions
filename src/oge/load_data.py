@@ -487,10 +487,8 @@ def update_epa_to_eia_map(cems_df: pd.DataFrame, year: int) -> pd.DataFrame:
         & (year <= manual_plant_map["end_year"])
     ].drop(columns=["start_year", "end_year"])
 
-    # only keep rows where the epa and eia plant ids don't match
-    manual_plant_map = manual_plant_map.loc[
-        manual_plant_map["plant_id_epa"] != manual_plant_map["plant_id_eia"],
-        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"],
+    manual_plant_map = manual_plant_map[
+        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"]
     ].drop_duplicates()
 
     # merge into the cems data
@@ -683,6 +681,8 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
 
     This is only used data_cleaning.assign_fuel_type_to_cems() to access the
     CAMD_FUEL_TYPE column, which is dropped from the PUDL version of the table.
+    This is also used in data_cleaning.remove_non_grid_connected_plants() to identify
+    the units that CAMD identified as NGC.
 
     Args:
         year (int): a four-digit year.
@@ -701,6 +701,7 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
             "EIA_BOILER_ID",
             "EIA_FUEL_TYPE",
             "CAMD_FUEL_TYPE",
+            "MATCH_TYPE_GEN",
         ],
     )
 
@@ -725,6 +726,7 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
             "EIA_BOILER_ID": "boiler_id",
             "EIA_FUEL_TYPE": "energy_source_code_eia",
             "CAMD_FUEL_TYPE": "energy_source_code_epa",
+            "MATCH_TYPE_GEN": "epa_match_type",
         }
     )
 
@@ -797,6 +799,8 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
 
 def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
     """Read in the manual EPA-EIA Crosswalk table.
+
+    This is currently only used for subplant identification
 
     Args:
         year (int): a four-digit year.

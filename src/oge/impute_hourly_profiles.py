@@ -93,7 +93,7 @@ def calculate_hourly_profiles(
         year,
     )
     hourly_profiles = add_cems_backstop_profile(
-        hourly_profiles, cems, plant_attributes, primary_fuel_table
+        hourly_profiles, cems, plant_attributes, primary_fuel_table, year
     )
 
     # if there are any months that have incomplete cems data, replace the cems profile with na
@@ -323,6 +323,7 @@ def aggregate_cems_to_fleet_for_residual_calc(
         subplant_data=cems_agg,
         plant_attributes_table=plant_attributes,
         primary_fuel_table=primary_fuel_table,
+        year=year,
         ba_col=ba_column_name,
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category_eia930",
@@ -658,6 +659,7 @@ def impute_missing_hourly_profiles(
         residual_profiles,
         plant_attributes,
         primary_fuel_table,
+        year,
     )
 
     # load information about directly interconnected balancing authorities (DIBAs)
@@ -745,6 +747,7 @@ def identify_missing_profiles(
     residual_profiles: pd.DataFrame,
     plant_attributes: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
+    year,
 ) -> pd.DataFrame:
     """Identifies the fleet-months for which there is no profile data in residual_profiles
 
@@ -754,6 +757,7 @@ def identify_missing_profiles(
         residual_profiles (pd.DataFrame): used to determine which profiles are available
         plant_attributes (pd.DataFrame): used to identify fleet keys
         primary_fuel_table (pd.DataFrame): used to identify fleet keys
+        year (int): the data year
 
     Returns:
         pd.DataFrame: table with three columns (ba_code, fuel_category, report_date)
@@ -774,6 +778,7 @@ def identify_missing_profiles(
         monthly_eia_data_to_shape,
         plant_attributes,
         primary_fuel_table,
+        year,
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
@@ -871,6 +876,7 @@ def add_cems_backstop_profile(
     cems: pd.DataFrame,
     plant_attributes: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
+    year,
 ) -> pd.DataFrame:
     """Adds a "cems_profile" column to hourly_profiles to use as a backstop where
     residuals are not available.
@@ -896,6 +902,7 @@ def add_cems_backstop_profile(
         cems,
         plant_attributes,
         primary_fuel_table,
+        year,
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
@@ -1099,6 +1106,7 @@ def combine_and_export_hourly_plant_data(
         monthly_eia_data_to_shape,
         plant_attributes,
         primary_fuel_table,
+        year,
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
@@ -1250,6 +1258,7 @@ def aggregate_eia_data_to_fleet(
     monthly_eia_data_to_shape: pd.DataFrame,
     plant_attributes: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
+    year: int,
 ) -> pd.DataFrame:
     """Aggregates monthly EIA-923 data to the fleet level prior to assigning an hourly
     profile
@@ -1265,6 +1274,7 @@ def aggregate_eia_data_to_fleet(
             shaped
         plant_attributes (pd.DataFrame): for assigning fleet keys
         primary_fuel_table (pd.DataFrame): for assigning fleet keys
+        year (int): the data year
 
     Returns:
         pd.DataFrame: returns eia_agg, which is aggregated to the fleet-month level
@@ -1277,6 +1287,7 @@ def aggregate_eia_data_to_fleet(
         monthly_eia_data_to_shape,
         plant_attributes,
         primary_fuel_table,
+        year,
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
@@ -1288,6 +1299,7 @@ def aggregate_eia_data_to_fleet(
         eia_agg,
         plant_attributes,
         primary_fuel_table,
+        year,
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel",
         fuel_category_col="fuel_category",
