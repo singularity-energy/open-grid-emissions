@@ -1184,13 +1184,10 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
     ]
     if len(steam_only_unmapped) > 0:
         logger.warning(
-            "The following CEMS units report fuel consumption but no generation or steam output"
+            "The following CEMS units report only steam output and are missing a generator ID mapping"
         )
         logger.warning(
-            "These units also are missing a mapping to an EIA generator, meaning they will have their own subplant ID"
-        )
-        logger.warning(
-            "To prevent these fuel and emissions from being counted, they will be removed"
+            "This means they would have their own subplant ID and potentially be double counted, so will be removed"
         )
         logger.warning(
             validation.limit_error_output_df(steam_only_unmapped).to_string(index=False)
@@ -1211,7 +1208,9 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
     # flag units that report non-zero steam output and are mapped to a generator. We
     # are still not entirely certain how to interpret steam data in CEMS, so its
     # inclusion could result in potentially anomalous results
-    mapped_steam = annual_cems[(annual_cems["steam_load_1000_lb"] > 0)]
+    mapped_steam = annual_cems[
+        (annual_cems["steam_load_1000_lb"] > 0) & (~annual_cems["generator_id"].isna())
+    ]
     if len(mapped_steam) > 0:
         logger.warning(
             "The following CEMS units report non-zero steam output and are mapped to an EIA generator"
