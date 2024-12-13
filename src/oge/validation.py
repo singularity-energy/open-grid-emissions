@@ -437,8 +437,19 @@ def test_chp_allocation(df):
     return chp_allocation_test
 
 
-def test_for_missing_energy_source_code(df: pd.DataFrame, drop_missing: bool = False):
-    """Checks that there are no missing energy source codes"""
+def test_for_missing_energy_source_code(
+    df: pd.DataFrame, drop_missing: bool = False
+) -> pd.DataFrame:
+    """Checks that there are no missing energy source codes
+
+    Args:
+        df (pd.DataFrame): the data to check, containing an energy_source_code column
+        drop_missing (bool, optional): Whether to drop data that has a missing energy
+            source code. Defaults to False.
+
+    Returns:
+        pd.DataFrame: Only returned if drop_missing is True
+    """
     logger.info("Checking that there are no missing energy source codes...  ")
     missing_esc_test = df[(df["energy_source_code"].isna())]
     if not missing_esc_test.empty:

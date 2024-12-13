@@ -757,6 +757,7 @@ def identify_missing_profiles(
         residual_profiles (pd.DataFrame): used to determine which profiles are available
         plant_attributes (pd.DataFrame): used to identify fleet keys
         primary_fuel_table (pd.DataFrame): used to identify fleet keys
+        year (int): the data year
 
     Returns:
         pd.DataFrame: table with three columns (ba_code, fuel_category, report_date)
@@ -1273,6 +1274,7 @@ def aggregate_eia_data_to_fleet(
             shaped
         plant_attributes (pd.DataFrame): for assigning fleet keys
         primary_fuel_table (pd.DataFrame): for assigning fleet keys
+        year (int): the data year
 
     Returns:
         pd.DataFrame: returns eia_agg, which is aggregated to the fleet-month level

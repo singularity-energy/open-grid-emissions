@@ -199,7 +199,7 @@ def clean_eia923(
         year,
         non_grid_connected=True,
         remove_states=["PR"],
-        steam_only_plants=False,
+        remove_steam_only=False,
         distribution_connected_plants=False,
     )
 
@@ -775,7 +775,7 @@ def remove_plants(
     year,
     non_grid_connected=False,
     remove_states=[],
-    steam_only_plants=False,
+    remove_steam_only=False,
     distribution_connected_plants=False,
 ):
     """
@@ -785,7 +785,7 @@ def remove_plants(
         df: dataframe containing plant_id_eia column
         non_grid_connected: if True, remove all plants that are not grid connected
         remove_states: list of two-letter state codes for which plants should be
-        removed if located within steam_only_plants: if True, remove plants that only
+        removed if located within remove_steam_only: if True, remove plants that only
         generate heat and no electricity (not yet implemented)
         distribution_connected_plants: if True, remove plants that are connected to the
         distribution grid (not yet implemented)
@@ -806,8 +806,9 @@ def remove_plants(
             f"Removing {len(plants_in_states_to_remove)} plants located in the following states: {remove_states}"
         )
         df = df[~df["plant_id_eia"].isin(plants_in_states_to_remove)]
-    if steam_only_plants:
+    if remove_steam_only:
         # df = manually_remove_steam_units(df)
+        df = remove_unmapped_fuel(df, year)
         df = identify_and_remove_steam_only_units(df, year)
 
     if distribution_connected_plants:
@@ -816,13 +817,16 @@ def remove_plants(
     return df
 
 
-def remove_non_grid_connected_plants(df, year):
-    """
-    Removes any records from a dataframe associated with plants that are not connected to the electricity grid
-    Inputs:
-        df: any pandas dataframe containing the column 'plant_id_eia'
+def remove_non_grid_connected_plants(df: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Removes any records from a dataframe associated with plants that are not
+    connected to the electricity grid.
+
+    Args:
+        df (pd.DataFrame): any pandas dataframe containing the column 'plant_id_eia'
+        year (int): The data year
+
     Returns:
-        df: pandas dataframe with non-grid connected plants removed
+        pd.DataFrame: The df with NGCs removed
     """
 
     # get the list of plant_id_eia from the static table
@@ -873,6 +877,94 @@ def remove_non_grid_connected_plants(df, year):
     return df
 
 
+def remove_unmapped_fuel(cems: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Removes units that only report fuel input but no outputs, and are unmapped to
+    an EIA generator
+
+    Args:
+        cems (pd.DataFrame): The CEMS data to assess and remove steam units from
+        year (int): The data year
+
+    Returns:
+        pd.DataFrame: The CEMS data with any unmapped steam-only units removed
+    """
+    # calculate annual totals by unit
+    annual_cems = (
+        cems.groupby(["plant_id_eia", "emissions_unit_id_epa"], dropna=False)[
+            ["gross_generation_mwh", "steam_load_1000_lb", "fuel_consumed_mmbtu"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    # merge in mapped generator ids so that we can check which CEMS data is mapped to
+    # an EIA generator, and thus will not be double counted
+    subplant_crosswalk = (
+        pd.read_csv(
+            outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
+            dtype=get_dtypes(),
+        )[["plant_id_eia", "emissions_unit_id_epa", "generator_id"]].drop_duplicates()
+    ).dropna(subset=["emissions_unit_id_epa"])
+    annual_cems = annual_cems.merge(
+        subplant_crosswalk,
+        how="left",
+        on=["plant_id_eia", "emissions_unit_id_epa"],
+        validate="1:m",
+    )
+    # raise a warning about units that have non-zero generation but are missing a
+    # generator_id. This may result in double-counting of generation and emissions
+    potential_missing_map = annual_cems[
+        (annual_cems["generator_id"].isna()) & (annual_cems["gross_generation_mwh"] > 0)
+    ]
+    if len(potential_missing_map) > 0:
+        logger.error(
+            "The following CEMS units report non-zero generation but are missing a mapping to an EIA generator_id"
+        )
+        logger.error(
+            "These may need to be mapped to prevent double-counting of generation"
+        )
+        logger.error(
+            validation.limit_error_output_df(potential_missing_map.to_string())
+        )
+
+    # flag units that report fuel input but no generation or steam output, and which
+    # are not mapped to an EIA unit. This is potentially anomalous data that we want
+    # to remove
+    fuel_only_unmapped = annual_cems[
+        (annual_cems["generator_id"].isna())
+        & (annual_cems["gross_generation_mwh"] == 0)
+        & (annual_cems["steam_load_1000_lb"] == 0)
+        & (annual_cems["fuel_consumed_mmbtu"] > 0)
+    ]
+    if len(fuel_only_unmapped) > 0:
+        logger.warning(
+            "The following CEMS units report fuel consumption but no generation or steam output"
+        )
+        logger.warning(
+            "These units also are missing a mapping to an EIA generator, meaning they will have their own subplant ID"
+        )
+        logger.warning(
+            "To prevent these fuel and emissions from being counted, they will be removed"
+        )
+        logger.warning(
+            validation.limit_error_output_df(fuel_only_unmapped.to_string(index=False))
+        )
+
+        cems = cems.merge(
+            fuel_only_unmapped[
+                ["plant_id_eia", "emissions_unit_id_epa"]
+            ].drop_duplicates(),
+            how="left",
+            on=["plant_id_eia", "emissions_unit_id_epa"],
+            validate="m:1",
+            indicator="fuel_only_unmapped",
+        )
+        cems = cems[cems["fuel_only_unmapped"] != "both"]
+        cems = cems.drop(columns="fuel_only_unmapped")
+
+    return cems
+
+
 def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_factors):
     """
     Coordinating function for all of the cems data cleaning
@@ -880,34 +972,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     # load the CEMS data
     cems = load_data.load_cems_data(year)
 
-    # treat negative emissions as bad data and replace with missing values
-    for column in ["co2_mass_lb", "nox_mass_lb", "so2_mass_lb"]:
-        negative_emissions_data = cems[cems[column] < 0]
-        if len(negative_emissions_data) > 0:
-            logger.warning(
-                f"Bad input {column} data detected for the following plants:"
-            )
-            logger.warning(
-                negative_emissions_data[
-                    [
-                        "datetime_utc",
-                        "plant_id_eia",
-                        "plant_id_epa",
-                        "gross_generation_mwh",
-                        column,
-                        f"{column.split('_')[0]}_mass_measurement_code",
-                    ]
-                ]
-                .merge(
-                    create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
-                    how="left",
-                    on="plant_id_eia",
-                    validate="m:1",
-                )
-                .to_string()
-            )
-            logger.warning("These values will be treated as missing values")
-            cems.loc[cems[column] < 0, column] = np.NaN
+    cems = remove_negative_cems_data(cems)
 
     if small:
         cems = smallerize_test_data(df=cems, random_seed=42)
@@ -918,7 +983,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
         year,
         non_grid_connected=True,
         remove_states=["PR"],
-        steam_only_plants=True,
+        remove_steam_only=True,
         distribution_connected_plants=False,
     )
 
@@ -982,6 +1047,49 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     return cems
 
 
+def remove_negative_cems_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Removes anomalous data, defined as negative fuel or emisisons data.
+
+    Args:
+        cems (pd.DataFrame): The CEMS data to screen and remove data from
+        year (int): The data year
+
+    Returns:
+        pd.DataFrame: CEMS data with anomalous data removed
+    """
+
+    # treat negative emissions as bad data and replace with missing values
+    for column in ["co2_mass_lb", "nox_mass_lb", "so2_mass_lb"]:
+        negative_emissions_data = cems[cems[column] < 0]
+        if len(negative_emissions_data) > 0:
+            logger.warning(
+                f"Bad input {column} data detected for the following plants:"
+            )
+            logger.warning(
+                negative_emissions_data[
+                    [
+                        "datetime_utc",
+                        "plant_id_eia",
+                        "plant_id_epa",
+                        "gross_generation_mwh",
+                        column,
+                        f"{column.split('_')[0]}_mass_measurement_code",
+                    ]
+                ]
+                .merge(
+                    create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
+                    how="left",
+                    on="plant_id_eia",
+                    validate="m:1",
+                )
+                .to_string()
+            )
+            logger.warning("These values will be treated as missing values")
+            cems.loc[cems[column] < 0, column] = np.NaN
+
+    return cems
+
+
 def smallerize_test_data(df, random_seed=None):
     logger.info("Randomly selecting 5% of plants for faster test run.")
     # Select 5% of plants
@@ -1025,8 +1133,21 @@ def manually_remove_steam_units(df):
     return df
 
 
-def identify_and_remove_steam_only_units(cems, year):
-    # get annual totals by unit
+def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Identifies CEMS units that report steam output data and either removes or flags
+    the data.
+
+    Where steam-only output data is unmapped to an EIA generator, it is removed.
+    Where steam-only output data is mapped to an EIA generator, it is flagged.
+
+    Args:
+        cems (pd.DataFrame): The CEMS data to assess and remove steam units from
+        year (int): The data year
+
+    Returns:
+        pd.DataFrame: The CEMS data with any unmapped steam-only units removed
+    """
+    # calculate annual totals by unit
     annual_cems = (
         cems.groupby(["plant_id_eia", "emissions_unit_id_epa"], dropna=False)[
             ["gross_generation_mwh", "steam_load_1000_lb", "fuel_consumed_mmbtu"]
@@ -1035,7 +1156,8 @@ def identify_and_remove_steam_only_units(cems, year):
         .reset_index()
     )
 
-    # merge in mapped generator ids so that we can see where the CEMS data overlaps with EIA
+    # merge in mapped generator ids so that we can check which CEMS data is mapped to
+    # an EIA generator, and thus will not be double counted
     subplant_crosswalk = (
         pd.read_csv(
             outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
@@ -1048,27 +1170,17 @@ def identify_and_remove_steam_only_units(cems, year):
         on=["plant_id_eia", "emissions_unit_id_epa"],
         validate="1:m",
     )
-    # raise a warning about units that have non-zero generation but are missing a
-    # generator_id. These may need to be mapped
-    potential_missing_map = annual_cems[
-        (annual_cems["generator_id"].isna()) & (annual_cems["gross_generation_mwh"] > 0)
-    ]
-    if len(potential_missing_map) > 0:
-        logger.warning(
-            "The following CEMS units report non-zero generation but are missing a mapping to an EIA generator_id"
-        )
-        logger.warning(
-            "These may need to be mapped to prevent double-counting of generation"
-        )
-        logger.warning(potential_missing_map.to_string())
 
-    # flag units that report zero generation (but non-zero fuel consumption or steam), but which have no mapping to an EIA generator
-    # we want to remove these so that we don't include these emissions in the plant
-    anomalous_units = annual_cems[
+    # flag units that report only steam output but no generation, and are not mapped to
+    # an EIA generator. We want to remove these so that the steam only generation is not
+    # counted
+    steam_only_unmapped = annual_cems[
         (annual_cems["generator_id"].isna())
         & (annual_cems["gross_generation_mwh"] == 0)
+        & (annual_cems["steam_load_1000_lb"] > 0)
+        & (annual_cems["fuel_consumed_mmbtu"] > 0)
     ]
-    if len(anomalous_units) > 0:
+    if len(steam_only_unmapped) > 0:
         logger.warning(
             "The following CEMS units report fuel consumption but no generation or steam output"
         )
@@ -1078,19 +1190,36 @@ def identify_and_remove_steam_only_units(cems, year):
         logger.warning(
             "To prevent these fuel and emissions from being counted, they will be removed"
         )
-        logger.warning(anomalous_units.to_string())
+        logger.warning(
+            validation.limit_error_output_df(steam_only_unmapped.to_string(index=False))
+        )
 
         cems = cems.merge(
-            anomalous_units[
+            steam_only_unmapped[
                 ["plant_id_eia", "emissions_unit_id_epa"]
             ].drop_duplicates(),
             how="left",
             on=["plant_id_eia", "emissions_unit_id_epa"],
             validate="m:1",
-            indicator="anomalous",
+            indicator="unmapped_steam",
         )
-        cems = cems[cems["anomalous"] != "both"]
-        cems = cems.drop(columns="anomalous")
+        cems = cems[cems["unmapped_steam"] != "both"]
+        cems = cems.drop(columns="unmapped_steam")
+
+    # flag units that report non-zero steam output and are mapped to a generator. We
+    # are still not entirely certain how to interpret steam data in CEMS, so its
+    # inclusion could result in potentially anomalous results
+    mapped_steam = annual_cems[(annual_cems["steam_load_1000_lb"] > 0)]
+    if len(mapped_steam) > 0:
+        logger.warning(
+            "The following CEMS units report non-zero steam output and are mapped to an EIA generator"
+        )
+        logger.warning(
+            "This may result in anomalous results for these units until steam output data is handled in the pipeline"
+        )
+        logger.warning(
+            validation.limit_error_output_df(mapped_steam.to_string(index=False))
+        )
 
     return cems
 
@@ -1990,6 +2119,7 @@ def aggregate_subplant_data_to_fleet(
         plant_attributes_table (pd.DataFrame): the plant attributes table with the
             BA code of each plant.
         primary_fuel_table (pd.DataFrame): table with subplant and plant-level fuels
+        year (int): the data year
 
     Raises:
         UserWarning: if no BA or fuel category can be assigned to any subplant
