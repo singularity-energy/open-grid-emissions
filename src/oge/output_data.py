@@ -679,21 +679,23 @@ def write_power_sector_results(
                 if include_annual:
                     agg["annual"] = ["fuel_category"]
 
-                for k, v in agg.items():
+                for agg_level, groupby_cols in agg.items():
                     # aggregate data
                     ba_table = (
-                        ba_table.groupby(v, dropna=False)
+                        ba_table.groupby(groupby_cols, dropna=False)
                         .sum(numeric_only=True)
                         .reset_index()
                     )
                     ba_table = add_generated_emission_rate_columns(ba_table)
                     # re-order columns
-                    ba_table = ba_table[v + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS]
+                    ba_table = ba_table[
+                        groupby_cols + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS
+                    ]
                     output_to_results(
                         ba_table,
                         year,
                         ba,
-                        f"power_sector_data/{k}/",
+                        f"power_sector_data/{agg_level}/",
                         path_prefix,
                         skip_outputs,
                     )
