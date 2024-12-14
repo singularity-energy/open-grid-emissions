@@ -429,7 +429,13 @@ def main(args):
         monthly_subplant_data, plant_attributes, primary_fuel_table, year
     )
     output_data.write_power_sector_results(
-        fleet_data, year, path_prefix, args.skip_outputs, include_hourly=False
+        fleet_data,
+        year,
+        path_prefix,
+        args.skip_outputs,
+        include_hourly=False,
+        include_monthly=True,
+        include_annual=True,
     )
     # free up memory
     del monthly_subplant_data
@@ -678,6 +684,8 @@ def main(args):
             path_prefix,
             args.skip_outputs,
             include_hourly=True,
+            include_monthly=False,
+            include_annual=False,
         )
         # Write US-average fleet data
         output_data.write_national_fleet_averages(
