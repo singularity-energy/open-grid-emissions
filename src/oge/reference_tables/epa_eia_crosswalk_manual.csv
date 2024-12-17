@@ -470,3 +470,11 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 55494,CT4,55494,CT2,,,CAMPD Facility database mapping
 55494,CT5,55494,CT5,,,CAMPD Facility database mapping
 55494,CT6,55494,CT6,,,CAMPD Facility database mapping
+55481,1,55481,GT1,,2012,Changes plant ID in 2013
+55481,1,55481,ST1,,2012,Changes plant ID in 2013
+55481,2,55481,GT2,,2012,Changes plant ID in 2013
+55481,2,55481,ST1,,2012,Changes plant ID in 2013
+55481,1,58557,GT1,2013,,Changes plant ID in 2013
+55481,1,58557,ST1,2013,,Changes plant ID in 2013
+55481,2,58557,GT2,2013,,Changes plant ID in 2013
+55481,2,58557,ST1,2013,,Changes plant ID in 2013

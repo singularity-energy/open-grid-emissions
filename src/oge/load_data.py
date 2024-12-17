@@ -64,6 +64,9 @@ def load_cems_data(year: int) -> pd.DataFrame:
     # convert to tz-naive datetime to allow for dtype application
     cems = apply_dtypes(cems)
 
+    # strip leading zeros from emissions unit id
+    cems["emissions_unit_id_epa"] = cems["emissions_unit_id_epa"].str.lstrip("0")
+
     # update the plant_id_eia column using manual matches
     cems = update_epa_to_eia_map(cems, year)
 
@@ -144,6 +147,10 @@ def load_cems_ids() -> pd.DataFrame:
             columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
         ).drop_duplicates()
         cems_id_year = apply_dtypes(cems_id_year)
+        # strip leading zeros from emissions unit id
+        cems_id_year["emissions_unit_id_epa"] = cems_id_year[
+            "emissions_unit_id_epa"
+        ].str.lstrip("0")
         # update the plant_id_eia column using manual matches
         cems_id_year = update_epa_to_eia_map(cems_id_year, year)
         cems_ids.append(cems_id_year)
@@ -707,6 +714,7 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
 
     # remove leading zeros from the generator id and emissions_unit_id_epa
     crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
+    crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # some eia plant ids are missing. Let us assume that the EIA and EPA plant ids
     # match in this case
@@ -810,6 +818,9 @@ def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
     """
 
     crosswalk = load_pudl_table("core_epa__assn_eia_epacamd")
+    crosswalk["emissions_unit_id_epa"] = crosswalk["emissions_unit_id_epa"].str.lstrip(
+        "0"
+    )
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
