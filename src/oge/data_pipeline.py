@@ -445,14 +445,14 @@ def main(args):
     if year < earliest_hourly_data_year:
         # export plant static attributes to csv
         output_data.output_intermediate_data(
-            plant_attributes.assign(shaped_plant_id=pd.NA),
+            plant_attributes,
             "plant_static_attributes",
             path_prefix,
             year,
             args.skip_outputs,
         )
         if not args.skip_outputs:
-            plant_attributes.assign(shaped_plant_id=pd.NA).to_csv(
+            plant_attributes.to_csv(
                 results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
                 index=False,
             )
