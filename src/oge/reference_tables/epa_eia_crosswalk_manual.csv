@@ -41,7 +41,6 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 55524,6,55524,STG2,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
 56963,E101,56963,E101,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 56963,E102,56963,E102,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-57842,1,57842,1,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 60345,OCEC1A,60345,1A,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
 60345,OCEC1A,60345,1ST,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
 60345,OCEC1B,60345,1B,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
@@ -239,8 +238,12 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 693,**5,693,5,,,EPA crosswalk generator matches generator_id
 693,3,693,3,,,EPA crosswalk generator matches generator_id
 693,4,693,4,,,EPA crosswalk generator matches generator_id
-1010,1,1010,1,,,"unit_id matches generator_id pattern, and part of CC"
-1010,1,1010,1A,,,"unit_id matches generator_id pattern, and part of CC"
+1010,1,1010,1,,2010,"unit_id matches generator_id pattern, and part of CC"
+1010,1,1010,1A,,2010,"unit_id matches generator_id pattern, and part of CC"
+1010,1,57842,1,2011,2016,"Changes plant code in 2011, EPA catches up in 2017"
+1010,1,57842,1A,2011,2016,"Changes plant code in 2011, EPA catches up in 2017"
+57842,1,57842,1,2017,,"Changes plant code in 2011, EPA catches up in 2017"
+57842,1,57842,1A,2017,,"Changes plant code in 2011, EPA catches up in 2017"
 1619,1,1619,1,,,EPA crosswalk generator matches generator_id
 1619,2,1619,2,,,EPA crosswalk generator matches generator_id
 1619,3,1619,3,,,EPA crosswalk generator matches generator_id
