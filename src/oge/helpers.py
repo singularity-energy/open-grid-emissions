@@ -378,6 +378,9 @@ def assign_fleet_to_subplant_data(
         ]
     if len(missing_fleet_keys) > 0:
         logger.error(
+            "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
+        )
+        logger.error(
             missing_fleet_keys.groupby(
                 [
                     "plant_id_eia",
@@ -389,9 +392,6 @@ def assign_fleet_to_subplant_data(
             )[["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"]]
             .sum()
             .to_string()
-        )
-        logger.error(
-            "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
         )
         """raise UserWarning(
             "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
