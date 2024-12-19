@@ -696,9 +696,8 @@ def add_recently_retired_generator_ids_to_df(
     # this is based on data reported in the data year
     gen_cap_recently_retired = gen_capacity[
         (
-            (gen_capacity["report_date"] == year)(
-                gen_capacity["operational_status"] == "retired"
-            )
+            (gen_capacity["report_date"] == year)
+            & (gen_capacity["operational_status"] == "retired")
             & (gen_capacity["operational_status_code"] == "RE")
             & (gen_capacity["generator_retirement_date"].dt.year >= (year - 4))
         )
