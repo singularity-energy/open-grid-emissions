@@ -391,8 +391,6 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 2642,2,2642,2,,,CAMPD Facility database mapping
 2642,3,2642,3,,,CAMPD Facility database mapping
 2642,4,2642,4,,,CAMPD Facility database mapping
-2832,1-May,2832,5,,,CAMPD Facility database mapping
-2832,2-May,2832,5,,,CAMPD Facility database mapping
 2840,1,2840,1,,,CAMPD Facility database mapping
 2840,2,2840,2,,,CAMPD Facility database mapping
 3148,1,3148,1,,,CAMPD Facility database mapping
@@ -498,3 +496,5 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 666,CT3,666,GT3,,,CAMPD Facility database mapping
 645,BBCT2,645,GT2,,,CAMPD Facility database mapping
 645,BBCT3,645,GT3,,,CAMPD Facility database mapping
+2832,5-1,2832,5,,,CAMPD Facility database mapping
+2832,5-2,2832,5,,,CAMPD Facility database mapping
