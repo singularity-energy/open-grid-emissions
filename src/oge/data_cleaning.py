@@ -7,7 +7,7 @@ import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import oge.load_data as load_data
 import oge.validation as validation
 import oge.emissions as emissions
-from oge.constants import CLEAN_FUELS
+from oge.constants import CLEAN_FUELS, earliest_data_year
 from oge.column_checks import get_dtypes, apply_dtypes, DATA_COLUMNS
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.helpers import (
@@ -512,14 +512,25 @@ def calculate_capacity_based_primary_fuel(
     # create a table of primary fuel by nameplate capacity
     gen_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
-        year,
+        year=max(earliest_data_year, year - 4),
+        end_year=year,
         columns=[
+            "report_date",
             "plant_id_eia",
             "generator_id",
             "capacity_mw",
             "energy_source_code_1",
         ],
     )
+    # only keep data for the most recent availble data year
+    gen_capacity = gen_capacity[
+        gen_capacity["report_date"]
+        == gen_capacity.groupby(["plant_id_eia", "generator_id"])[
+            "report_date"
+        ].transform("max")
+    ]
+    # drop the report date column
+    gen_capacity = gen_capacity.drop(columns=["report_date"])
 
     # only keep keys that exist in gen_fuel_allocated
     gen_capacity = gen_capacity.merge(
@@ -664,10 +675,13 @@ def add_recently_retired_generator_ids_to_df(
         pd.DataFrame: df with new rows for under construction generator ids added
     """
     # create a table of primary fuel by nameplate capacity
+    # load data for up to the past 5 years
     gen_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
-        year,
+        year=max(earliest_data_year, year - 4),
+        end_year=year,
         columns=[
+            "report_date",
             "plant_id_eia",
             "generator_id",
             "capacity_mw",
@@ -679,13 +693,43 @@ def add_recently_retired_generator_ids_to_df(
     ).rename(columns={"energy_source_code_1": "energy_source_code"})
 
     # keep generators that have retired in teh past 5 years
+    # this is based on data reported in the data year
     gen_cap_recently_retired = gen_capacity[
         (
-            (gen_capacity["operational_status"] == "retired")
+            (gen_capacity["report_date"] == year)(
+                gen_capacity["operational_status"] == "retired"
+            )
             & (gen_capacity["operational_status_code"] == "RE")
             & (gen_capacity["generator_retirement_date"].dt.year >= (year - 4))
         )
     ]
+
+    # some generators "silently retire", meaning they just disappear from the data one
+    # year rather than being marked as retired. We also want to include these in the
+    # recently retired generators data
+    # identify which generators have a most recent report date that is prior to the current year
+    silent_retirers = gen_capacity[
+        gen_capacity.groupby(["plant_id_eia", "generator_id"])["report_date"]
+        .transform("max")
+        .dt.year
+        < year
+    ]
+    # filter to only include the most recent year of reported data
+    silent_retirers = silent_retirers[
+        silent_retirers["report_date"]
+        == silent_retirers.groupby(["plant_id_eia", "generator_id"])[
+            "report_date"
+        ].transform("max")
+    ]
+    # now, only keep units that were existing in that year (not proposed gens that disappear)
+    silent_retirers = silent_retirers[
+        silent_retirers["operational_status"] == "existing"
+    ]
+
+    gen_cap_recently_retired = pd.concat(
+        [gen_cap_recently_retired, silent_retirers], axis=0
+    )
+    gen_cap_recently_retired = gen_cap_recently_retired.drop(columns=["report_date"])
 
     # add subplant_ids
     logger.info("Adding subplant_id to gen_cap_recently_retired")
