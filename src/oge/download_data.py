@@ -335,6 +335,7 @@ def download_raw_eia923(year: int):
         year (int): a four-digit year.
     """
     if year < 2008:
+        os.makedirs(downloads_folder("eia923"), exist_ok=True)
         logger.warning(
             "EIA-923 data is not available before 2008. "
             "Downloading EIA-906/920 files instead"
