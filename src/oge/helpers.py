@@ -400,25 +400,6 @@ def assign_fleet_to_subplant_data(
     else:
         pass
 
-    logger.info(
-        "Dropping subplants that have zero fuel consumption and zero generation from "
-        "fleet aggregation"
-    )
-    if "gross_generation_mwh" in subplant_data.columns:
-        subplant_data = subplant_data[
-            ~(
-                (subplant_data["gross_generation_mwh"] == 0)
-                & (subplant_data["fuel_consumed_for_electricity_mmbtu"] == 0)
-            )
-        ]
-    else:
-        subplant_data = subplant_data[
-            ~(
-                (subplant_data["net_generation_mwh"] == 0)
-                & (subplant_data["fuel_consumed_for_electricity_mmbtu"] == 0)
-            )
-        ]
-
     return subplant_data
 
 
