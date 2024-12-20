@@ -323,6 +323,27 @@ def write_plant_data_to_results(
             .reset_index()
         )
 
+        # add some basic plant data to the annual plant output table
+        if resolution == "annual" and plant_part == "plant":
+            df = df.merge(
+                plant_attributes[
+                    [
+                        "plant_id_eia",
+                        "plant_name_eia",
+                        "ba_code",
+                        "fuel_category",
+                        "capacity_mw",
+                        "ba_code",
+                        "city",
+                        "county",
+                        "state",
+                    ]
+                ],
+                how="left",
+                on="plant_id_eia",
+                validate="m:1",
+            )
+
         # calculate emission rates
         df = add_generated_emission_rate_columns(df)
 
