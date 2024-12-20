@@ -2183,6 +2183,16 @@ def aggregate_subplant_data_to_fleet(
         fuel_category_col="fuel_category",
     )
 
+    # drop subplants that have missing fuel category and no generation or fuel data
+    # this prevents them from creating blank entries in the power sector results data
+    ba_fuel_data = ba_fuel_data[
+        ~(
+            ba_fuel_data["fuel_category"].isna()
+            & (ba_fuel_data["net_generation_mwh"] == 0)
+            & (ba_fuel_data["fuel_consumed_for_electricity_mmbtu"] == 0)
+        )
+    ]
+
     # if the input data is hourly, aggregate at the hourly level
     if "datetime_utc" in ba_fuel_data.columns:
         agg_cols = ["ba_code", "fuel_category", "datetime_utc", "report_date"]
