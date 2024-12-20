@@ -1,3 +1,9 @@
 plant_id_eia,subplant_id,energy_source_code,subplant_primary_fuel,plant_primary_fuel,year,notes
 65373,7,NG,NG,NG,2023,CEMS unit ID but no EIA generator ID
 65373,8,NG,NG,NG,2023,CEMS unit ID but no EIA generator ID
+1912,4,NG,NG,SUB,2005,"CEMS unit ID not in EIA, may have retired prior to 2005"
+1912,5,NG,NG,SUB,2005,"CEMS unit ID not in EIA, may have retired prior to 2005"
+1912,4,NG,NG,SUB,2006,"CEMS unit ID not in EIA, may have retired prior to 2005"
+1912,5,NG,NG,SUB,2006,"CEMS unit ID not in EIA, may have retired prior to 2005"
+1912,4,NG,NG,SUB,2007,"CEMS unit ID not in EIA, may have retired prior to 2005"
+1912,5,NG,NG,SUB,2007,"CEMS unit ID not in EIA, may have retired prior to 2005"

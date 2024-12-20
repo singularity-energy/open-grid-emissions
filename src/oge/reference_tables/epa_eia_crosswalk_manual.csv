@@ -41,7 +41,6 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 55524,6,55524,STG2,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
 56963,E101,56963,E101,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 56963,E102,56963,E102,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-57842,1,57842,1,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
 60345,OCEC1A,60345,1A,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
 60345,OCEC1A,60345,1ST,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
 60345,OCEC1B,60345,1B,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
@@ -239,8 +238,12 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 693,**5,693,5,,,EPA crosswalk generator matches generator_id
 693,3,693,3,,,EPA crosswalk generator matches generator_id
 693,4,693,4,,,EPA crosswalk generator matches generator_id
-1010,1,1010,1,,,"unit_id matches generator_id pattern, and part of CC"
-1010,1,1010,1A,,,"unit_id matches generator_id pattern, and part of CC"
+1010,1,1010,1,,2010,"unit_id matches generator_id pattern, and part of CC"
+1010,1,1010,1A,,2010,"unit_id matches generator_id pattern, and part of CC"
+1010,1,57842,1,2011,2016,"Changes plant code in 2011, EPA catches up in 2017"
+1010,1,57842,1A,2011,2016,"Changes plant code in 2011, EPA catches up in 2017"
+57842,1,57842,1,2017,,"Changes plant code in 2011, EPA catches up in 2017"
+57842,1,57842,1A,2017,,"Changes plant code in 2011, EPA catches up in 2017"
 1619,1,1619,1,,,EPA crosswalk generator matches generator_id
 1619,2,1619,2,,,EPA crosswalk generator matches generator_id
 1619,3,1619,3,,,EPA crosswalk generator matches generator_id
@@ -449,7 +452,7 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 50855,1,50855,GEN2,,,CAMPD Facility database mapping
 50855,2,50855,GEN2,,,CAMPD Facility database mapping
 50855,2,50855,GEN3,,,CAMPD Facility database mapping
-54138,01GTDB,54138,GTG,,,CAMPD Facility database mapping
+54138,1GTDB,54138,GTG,,,CAMPD Facility database mapping
 54425,1,54425,GT1,,,CAMPD Facility database mapping
 54425,2,54425,GT2,,,CAMPD Facility database mapping
 54658,6,55833,CTP,,2008,"Matches CAMPD mapping of generator at plant of same name, changes plant ID in 2009"
@@ -478,3 +481,20 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 55481,1,58557,ST1,2013,,Changes plant ID in 2013
 55481,2,58557,GT2,2013,,Changes plant ID in 2013
 55481,2,58557,ST1,2013,,Changes plant ID in 2013
+10474,501,54995,17TG,,,Matched based on boiler_id and EIA-860 BGA table
+10474,502,54995,17TG,,,Matched based on boiler_id and EIA-860 BGA table
+10474,503,54995,17TG,,,Matched based on boiler_id and EIA-860 BGA table
+10474,504,54995,17TG,,,Matched based on boiler_id and EIA-860 BGA table
+591,11,591,CHCH,,,Matched based on fuel consumption and nameplate cap
+591,14,591,CHCH,,,Matched based on fuel consumption and nameplate cap
+55064,1,55064,UNIT2,,,Matched base on nameplate cap
+55120,CTG-1,10789,GEN1,,,Matched based on fuel consumption
+55120,CTG-2,10789,GEN1,,,Matched based on fuel consumption
+55279,AGS10,55279,CT10,,,CAMPD generator mapping matches generator name and nameplate cap
+55733,CT01,55733,FT01,,,Matched based on generator_id and nameplate cap
+3454,1,3454,1,,,CAMPD Facility database mapping
+3454,2,3454,2,,,CAMPD Facility database mapping
+3454,3,3454,3,,,CAMPD Facility database mapping
+666,CT3,666,GT3,,,CAMPD Facility database mapping
+645,BBCT2,645,GT2,,,CAMPD Facility database mapping
+645,BBCT3,645,GT3,,,CAMPD Facility database mapping
