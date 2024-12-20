@@ -12,7 +12,7 @@ from oge.constants import (
     latest_validated_year,
     current_early_release_year,
 )
-from oge.filepaths import reference_table_folder, outputs_folder
+from oge.filepaths import reference_table_folder, outputs_folder, results_folder
 
 import oge.load_data as load_data
 from oge.logging_util import get_logger
@@ -349,53 +349,56 @@ def assign_fleet_to_subplant_data(
 
     # check that there is no missing ba or fuel codes for subplants with nonzero gen
     # for CEMS data, check only units that report positive gross generaiton
-    if "gross_generation_mwh" in subplant_data.columns:
-        missing_fleet_keys = subplant_data[
-            (
+    if (
+        "gross_generation_mwh" in subplant_data.columns
+        or "net_generation_mwh" in subplant_data.columns
+    ):
+        if "gross_generation_mwh" in subplant_data.columns:
+            missing_fleet_keys = subplant_data[
                 (
-                    (subplant_data["ba_code"].isna())
-                    | (subplant_data[fuel_category_col].isna())
+                    (
+                        (subplant_data["ba_code"].isna())
+                        | (subplant_data[fuel_category_col].isna())
+                    )
+                    & (
+                        (subplant_data["gross_generation_mwh"] > 0)
+                        | (subplant_data["fuel_consumed_for_electricity_mmbtu"] > 0)
+                    )
                 )
-                & (
-                    (subplant_data["gross_generation_mwh"] > 0)
-                    | (subplant_data["fuel_consumed_for_electricity_mmbtu"] > 0)
+            ]
+        # otherwise, check units that report non-zero net generation
+        else:
+            missing_fleet_keys = subplant_data[
+                (
+                    (
+                        (subplant_data["ba_code"].isna())
+                        | (subplant_data[fuel_category_col].isna())
+                    )
+                    & (
+                        (subplant_data["net_generation_mwh"] != 0)
+                        | (subplant_data["fuel_consumed_for_electricity_mmbtu"] != 0)
+                    )
                 )
+            ]
+        if len(missing_fleet_keys) > 0:
+            logger.error(
+                "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
             )
-        ]
-    # otherwise, check units that report non-zero net generation
+            logger.error(
+                missing_fleet_keys.groupby(
+                    [
+                        "plant_id_eia",
+                        "subplant_id",
+                        "ba_code",
+                        fuel_category_col,
+                    ],
+                    dropna=False,
+                )[["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"]]
+                .sum()
+                .to_string()
+            )
     else:
-        missing_fleet_keys = subplant_data[
-            (
-                (
-                    (subplant_data["ba_code"].isna())
-                    | (subplant_data[fuel_category_col].isna())
-                )
-                & (
-                    (subplant_data["net_generation_mwh"] != 0)
-                    | (subplant_data["fuel_consumed_for_electricity_mmbtu"] != 0)
-                )
-            )
-        ]
-    if len(missing_fleet_keys) > 0:
-        logger.error(
-            "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
-        )
-        logger.error(
-            missing_fleet_keys.groupby(
-                [
-                    "plant_id_eia",
-                    "subplant_id",
-                    "ba_code",
-                    fuel_category_col,
-                ],
-                dropna=False,
-            )[["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"]]
-            .sum()
-            .to_string()
-        )
-        """raise UserWarning(
-            "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
-        )"""
+        pass
 
     return subplant_data
 
@@ -1210,3 +1213,104 @@ def add_subplant_ids_to_df(
     validation.test_for_missing_subplant_id(df, plant_part_to_map)
 
     return df
+
+
+def calculate_subplant_nameplate_capacity(year):
+    """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
+    # load generator data
+    gen_capacity = load_data.load_pudl_table(
+        "core_eia860__scd_generators",
+        year,
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "prime_mover_code",
+            "capacity_mw",
+            "operational_status_code",
+        ],
+    )
+
+    # add subplant ids to the generator data
+    logger.info("Adding subplant_id to gen_capacity")
+    gen_capacity = add_subplant_ids_to_df(
+        gen_capacity,
+        year,
+        plant_part_to_map="generator_id",
+        how_merge="inner",
+        validate_merge="1:1",
+    )
+    subplant_capacity = (
+        gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
+        .sum()
+        .reset_index()
+    )
+
+    # identify the primary prime mover for each subplant based on capacity
+    subplant_prime_mover = gen_capacity[
+        gen_capacity.groupby(["plant_id_eia", "subplant_id"], dropna=False)[
+            "capacity_mw"
+        ].transform("max")
+        == gen_capacity["capacity_mw"]
+    ][["plant_id_eia", "subplant_id", "prime_mover_code"]].drop_duplicates(
+        subset=["plant_id_eia", "subplant_id"], keep="first"
+    )
+
+    # add the prime mover information
+    subplant_capacity = subplant_capacity.merge(
+        subplant_prime_mover,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="1:1",
+    )
+
+    return subplant_capacity
+
+
+def create_subplant_attributes_table(
+    monthly_subplant_data: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+    path_prefix: str,
+):
+    """Writes a "subplant_attributes" table to the results/plant_data folder that
+    contains subplant-specific attributes including the primary fuel, fuel category,
+    nameplate capacity, and primary prime mover for each subplant in
+    monthly_subplant_data.
+
+    Args:
+        monthly_subplant_data (pd.DataFrame): Used to determine the full set of
+            subplants in the data
+        plant_attributes (pd.DataFrame): Used for assigning fleet
+        primary_fuel_table (pd.DataFrame): used for assigning fleet
+        year (int): the data year
+        path_prefix (str): used for exporting data
+    """
+    # create subplant attributes
+
+    # get list of unique subplants
+    subplant_attributes = monthly_subplant_data[
+        ["plant_id_eia", "subplant_id"]
+    ].drop_duplicates()
+
+    # assign fleet to each subplant
+    subplant_attributes = assign_fleet_to_subplant_data(
+        subplant_attributes,
+        plant_attributes,
+        primary_fuel_table,
+        year,
+        drop_primary_fuel_col=False,
+    )
+    subplant_attributes = subplant_attributes.drop(columns="ba_code")
+
+    # add subplant capacity and primary fuel
+    subplant_capacity = calculate_subplant_nameplate_capacity(year)
+
+    subplant_attributes = subplant_attributes.merge(
+        subplant_capacity, how="left", on=["plant_id_eia", "subplant_id"]
+    )
+
+    subplant_attributes.to_csv(
+        results_folder(f"{path_prefix}plant_data/subplant_attributes.csv"),
+        index=False,
+    )

@@ -402,6 +402,11 @@ def main(args):
         monthly_eia_data_to_shape,
         resolution="monthly",
     )
+    # export subplant attributes table
+    helpers.create_subplant_attributes_table(
+        monthly_subplant_data, plant_attributes, primary_fuel_table, year, path_prefix
+    )
+
     validation.check_for_complete_monthly_timeseries(
         df=monthly_subplant_data,
         df_name="monthly_plant_data",
