@@ -330,7 +330,6 @@ def write_plant_data_to_results(
                     [
                         "plant_id_eia",
                         "plant_name_eia",
-                        "ba_code",
                         "fuel_category",
                         "capacity_mw",
                         "ba_code",
@@ -343,6 +342,21 @@ def write_plant_data_to_results(
                 on="plant_id_eia",
                 validate="m:1",
             )
+
+            # rearrange columns
+            df = df[
+                [
+                    "plant_id_eia",
+                    "plant_name_eia",
+                    "fuel_category",
+                    "capacity_mw",
+                    "ba_code",
+                    "city",
+                    "county",
+                    "state",
+                ]
+                + DATA_COLUMNS
+            ]
 
         # calculate emission rates
         df = add_generated_emission_rate_columns(df)

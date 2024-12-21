@@ -245,7 +245,6 @@ def test_for_negative_values(df, year, small: bool = False):
     logger.info("Checking that fuel and emissions values are positive...  ")
     columns_that_can_be_negative = ["net_generation_mwh"]
     negative_warnings = 0
-    print(df.columns)
     for column in df.columns:
         # if the column is allowed to be negative, skip the test
         if column in columns_that_can_be_negative:
