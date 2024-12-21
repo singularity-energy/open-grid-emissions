@@ -43,7 +43,7 @@ pip install .
 The pipeline can be run as follows:
 ```bash
 cd src/oge
-python data_pipeline.py --year 2022
+python data_pipeline.py --year 2023
 ```
 independently of the installation method you chose.
 

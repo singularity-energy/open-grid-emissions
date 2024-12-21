@@ -1103,12 +1103,23 @@ def search_location_from_coordinates(latitude: float, longitude: float) -> tuple
     Returns:
         tuple[str]: state, county and city of the location.
     """
-    try:
-        address = geolocator.reverse(f"{latitude}, {longitude}").raw["address"]
-        if address["country_code"] != "us":
-            return pd.NA, pd.NA, pd.NA
-    except ReadTimeoutError:
-        return pd.NA, pd.NA, pd.NA
+
+    # try to look up the address. This often fails when contacting the server, so retry
+    # once. If it fails on the retry, return no value
+    for i in range(0, 2):
+        while True:
+            try:
+                address = geolocator.reverse(f"{latitude}, {longitude}").raw["address"]
+                if address["country_code"] != "us":
+                    return pd.NA, pd.NA, pd.NA
+            except (ReadTimeoutError, GeocoderUnavailable) as error:
+                if i < 1:
+                    logger.warning(f"{error} for reverse address lookup")
+                    continue
+                else:
+                    logger.warning(f"{error} for reverse address lookup, returning NA")
+                    return pd.NA, pd.NA, pd.NA
+            break
 
     # Check for State
     state = (

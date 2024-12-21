@@ -442,7 +442,7 @@ def manual_930_adjust(raw: pd.DataFrame):
     new = raw[cols].copy()
     new.loc[raw.index < "2021-11-01 00:00:00+00", cols] = new.loc[
         raw.index < "2021-11-01 00:00:00+00", cols
-    ].shift(1, freq="H")
+    ].shift(1, freq="h")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
@@ -466,7 +466,7 @@ def manual_930_adjust(raw: pd.DataFrame):
             & (raw.index < "2022-06-16 07:00:00+00")
         ),
         cols,
-    ].shift(1, freq="H")
+    ].shift(1, freq="h")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
@@ -500,7 +500,7 @@ def manual_930_adjust(raw: pd.DataFrame):
     new = raw[cols].copy()
     new.loc[raw.index < "2021-10-25 00:00:00+00", cols] = new.loc[
         raw.index < "2021-10-25 00:00:00+00", cols
-    ].shift(-7, freq="H")
+    ].shift(-7, freq="h")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
@@ -509,7 +509,7 @@ def manual_930_adjust(raw: pd.DataFrame):
     new = raw[col].copy()
     new.loc["2021-01-01 08:00:00+00:00":"2022-01-01 07:00:00+00:00", col] = new.loc[
         "2021-01-01 08:00:00+00:00":"2022-01-01 07:00:00+00:00", col
-    ].shift(4, freq="H")
+    ].shift(4, freq="h")
     raw = raw.drop(columns=col)
     raw = pd.concat([raw, new], axis="columns")
 
