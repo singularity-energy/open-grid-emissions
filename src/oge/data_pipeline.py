@@ -407,6 +407,21 @@ def main(args):
     helpers.create_subplant_attributes_table(
         monthly_subplant_data, plant_attributes, primary_fuel_table, year, path_prefix
     )
+    # For years before 2019, export the plant attributes table now
+    if year < earliest_hourly_data_year:
+        # export plant static attributes to csv
+        output_data.output_intermediate_data(
+            plant_attributes,
+            "plant_static_attributes",
+            path_prefix,
+            year,
+            args.skip_outputs,
+        )
+        if not args.skip_outputs:
+            plant_attributes.to_csv(
+                results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
+                index=False,
+            )
 
     validation.check_for_complete_monthly_timeseries(
         df=monthly_subplant_data,
@@ -447,22 +462,8 @@ def main(args):
     del monthly_subplant_data
     del fleet_data
 
-    # For 2019 onward, calculate hourly data, otherwise skip these steps
-    if year < earliest_hourly_data_year:
-        # export plant static attributes to csv
-        output_data.output_intermediate_data(
-            plant_attributes,
-            "plant_static_attributes",
-            path_prefix,
-            year,
-            args.skip_outputs,
-        )
-        if not args.skip_outputs:
-            plant_attributes.to_csv(
-                results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
-                index=False,
-            )
-    elif year >= earliest_hourly_data_year:
+    # calculate hourly outputs for years after 2019
+    if year >= earliest_hourly_data_year:
         # 13. Clean and Reconcile EIA-930 data
         ################################################################################
         logger.info("13. Cleaning EIA-930 data")
