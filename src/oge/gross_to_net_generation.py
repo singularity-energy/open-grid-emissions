@@ -9,7 +9,7 @@ import oge.helpers as helpers
 import oge.validation as validation
 
 from oge.data_cleaning import assign_fuel_type_to_cems
-from oge.helpers import create_plant_ba_table, add_subplant_ids_to_df
+from oge.helpers import create_plant_ba_table, calculate_subplant_nameplate_capacity
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -497,56 +497,6 @@ def calculate_gross_to_net_conversion_factors(
     return gtn_conversions
 
 
-def calculate_subplant_nameplate_capacity(year):
-    """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
-    # load generator data
-    gen_capacity = load_data.load_pudl_table(
-        "core_eia860__scd_generators",
-        year,
-        columns=[
-            "plant_id_eia",
-            "generator_id",
-            "prime_mover_code",
-            "capacity_mw",
-            "operational_status_code",
-        ],
-    )
-
-    # add subplant ids to the generator data
-    gen_capacity = add_subplant_ids_to_df(
-        gen_capacity,
-        year,
-        plant_part_to_map="generator_id",
-        how_merge="inner",
-        validate_merge="1:1",
-    )
-    subplant_capacity = (
-        gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
-        .sum()
-        .reset_index()
-    )
-
-    # identify the primary prime mover for each subplant based on capacity
-    subplant_prime_mover = gen_capacity[
-        gen_capacity.groupby(["plant_id_eia", "subplant_id"], dropna=False)[
-            "capacity_mw"
-        ].transform("max")
-        == gen_capacity["capacity_mw"]
-    ][["plant_id_eia", "subplant_id", "prime_mover_code"]].drop_duplicates(
-        subset=["plant_id_eia", "subplant_id"], keep="first"
-    )
-
-    # add the prime mover information
-    subplant_capacity = subplant_capacity.merge(
-        subplant_prime_mover,
-        how="left",
-        on=["plant_id_eia", "subplant_id"],
-        validate="1:1",
-    )
-
-    return subplant_capacity
-
-
 def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame:
     """Filters the calculated GTN ratios to remove anomalous or incomplete factors.
 
@@ -582,6 +532,20 @@ def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame
             "annual_plant_shift_mw",
             "default_gtn_ratio",
         ]
+    ]
+
+    # drop any subplants that only appear in CEMS and report 0 gross generation for the
+    # entire year
+    factors_to_use = factors_to_use[
+        ~(
+            (
+                factors_to_use.groupby(["plant_id_eia", "subplant_id"])[
+                    "gross_generation_mwh"
+                ].transform("sum")
+                == 0
+            )
+            & (factors_to_use["data_source"] == "cems_only")
+        )
     ]
 
     for scaling_factor in [
@@ -667,6 +631,11 @@ def filter_gtn_conversion_factors(gtn_conversions: pd.DataFrame) -> pd.DataFrame
         )
         factors_to_use.loc[factors_to_use["incomplete_flag"] == "both", method] = np.NaN
         factors_to_use = factors_to_use.drop(columns=["incomplete_flag"])
+
+    # for any subplants that only report CEMS data, but report all zero gross generation
+    # we want to remove any shift factors so that they don't accidentally get applied
+    # as negative generation
+    factors_to_use[factors_to_use["data_source"] == "cems_only"]
 
     return factors_to_use
 

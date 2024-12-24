@@ -19,7 +19,7 @@ def day_hour_heatmap(timeseries: pd.Series, year: int = 2022):
     timeseries.index = timeseries.index.tz_convert("EST")
     hours_index = pd.DataFrame(
         index=pd.date_range(
-            f"{year}-01-01 T00:00", f"{year}-12-31 T23:00", freq="H"
+            f"{year}-01-01 T00:00", f"{year}-12-31 T23:00", freq="h"
         ).tz_localize("EST")
     )
     hours_index = hours_index.merge(
@@ -60,9 +60,9 @@ def graph_hourly_data_by_fuel_category(
         "biomass",
         "petroleum",
         "waste",
-        "solar",
-        "wind",
         "natural_gas",
+        "wind",
+        "solar",
     ]
 
     hourly_data = hourly_data[hourly_data[fuel_category_name] != "total"]

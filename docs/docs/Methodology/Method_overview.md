@@ -40,18 +40,18 @@ The pipeline is run for each year following several steps that are enumerated be
 10. **Adjust CEMS emissions**: Calculate hourly CHP-adjusted emissions for the CEMS data ([methodology](../Methodology/Emissions%20Calculations/Adjusting%20Emissions%20for%20CHP.md)), as well as CO2e emissions ([methodology](../Methodology/Emissions%20Calculations/GHG%20Emissions.md))
 11. **Export monthly and annual plant data:** Export plant-level results at the monthly and annual aggregations
 
-For years 2019 onward:
+12. **Export monthly and annual power sector (fleet-level) data:** Export fleet-level (BA-fuel) results at the monthly and annual aggregations
 
-12. **Clean the EIA-930 data** using a physics-based reconciliation algorithm that ensure that reported data respects conservation of energy laws ([methodology](../Methodology/Data%20Cleaning/EIA-930%20Data.md))
-13. **Calculate residual net generation profiles**: Estimate hourly profiles for monthly EIA data that is not reported to CEMS using EIA-930 data ([methodology](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md))
+For years 2019 onward, when hourly data is available:
+
+13. **Clean the EIA-930 data** using a physics-based reconciliation algorithm that ensure that reported data respects conservation of energy laws ([methodology](../Methodology/Data%20Cleaning/EIA-930%20Data.md))
+14. **Calculate residual net generation profiles**: Estimate hourly profiles for monthly EIA data that is not reported to CEMS using EIA-930 data ([methodology](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md))
     1. For BAs where wind and solar data is missing, impute profiles based on the wind and solar profiles in neighboring BAs that are in the same time zone. For all other BA-fuels that are missing, assume a flat profile
     2. Calculate the total net generation for each BA-fuel reported in CEMS
     3. Calculate a residual net generation profile by subtracting CEMS net generation from EIA-930 net generation for each BA fuel. This should theoretically represent the hourly net generation profile of all generators that do not report to CEMS.
-14. **Shape monthly EIA-923 data**: Assign the best available hourly profile for each BA-fuel to the monthly EIA-923 data ([methodology](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md))
-15. **Combine hourly plant-level data** from all sources (CEMS, partial CEMS, and shaped EIA-923) and export hourly plant-level results (currently, shaped EIA-923 data is aggregated to the BA-fuel level instead of individual plants to prevent false precision and keep data size reasonable)
-16. **Export power sector (BA-fuel level) data**
-17. **Calculate and export consumed emission factors** based on hourly interchange between BAs reported in EIA-930 ([methodology](../Methodology/Emissions%20Calculations/Consumption-based%20Emissions.md))
+15. **Combine and export hourly plant-level data** from all sources (CEMS, partial CEMS, and shaped EIA-923) and export hourly plant-level results. The plant level data is shaped for each BA one at a time to keep the amount of data held in memory managable.
+16. **Shape monthly EIA-923 data at the fleet level**: Assign the best available hourly profile for each BA-fuel to the monthly EIA-923 data ([methodology](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md))
+17. **Combine subplant-level CEMS data** (Combine CEMS and partial-CEMS data)
+18. **Aggregate CEMS data to fleet level, combine with hourly EIA fleet data, and write power sector results** Combine the hourly CEMS data with the shaped EIA-923 data to get hourly fleet-level data
+19. **Calculate and export consumed emission factors** based on hourly interchange between BAs reported in EIA-930 ([methodology](../Methodology/Emissions%20Calculations/Consumption-based%20Emissions.md))
 
-For years 2005-2018:
-
-12. **Aggregate CEMS data to BA-fuel and write power sector results**

@@ -2,12 +2,17 @@ import numpy as np
 import pandas as pd
 
 from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderUnavailable
 from timezonefinder import TimezoneFinder
 from urllib3.exceptions import ReadTimeoutError
 
-from oge.column_checks import get_dtypes, apply_dtypes
-from oge.constants import earliest_data_year, latest_validated_year
-from oge.filepaths import reference_table_folder, outputs_folder
+from oge.column_checks import get_dtypes, apply_dtypes, DATA_COLUMNS
+from oge.constants import (
+    earliest_data_year,
+    latest_validated_year,
+    current_early_release_year,
+)
+from oge.filepaths import reference_table_folder, outputs_folder, results_folder
 
 import oge.load_data as load_data
 from oge.logging_util import get_logger
@@ -199,6 +204,302 @@ def assign_ba_code_to_plant(df: pd.DataFrame, year: int) -> pd.DataFrame:
     return df
 
 
+def assign_fleet_to_subplant_data(
+    subplant_data: pd.DataFrame,
+    plant_attributes_table: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+    ba_col: str = "ba_code",
+    primary_fuel_col: str = "subplant_primary_fuel",
+    fuel_category_col: str = "fuel_category",
+    other_attribute_cols: list[str] = [],
+    drop_primary_fuel_col: bool = True,
+) -> pd.DataFrame:
+    """Assigns a BA code and fuel category to each subplant in order to facilitate
+    aggregating the data to the fleet level.
+
+    When assigning a primary fuel/fuel category, the general options we should follow
+    are:
+        - For applying to CEMS data for the residual hourly profile calculation:
+            - primary_fuel_col = "subplant_primary_fuel_from_capacity_mw"
+            - fuel_category_col = "fuel_category_eia930"
+            - Notes: this matches how generators would likely be classified for 930
+            reporting
+        - For applying to monthly EIA-923 data to shape:
+            - primary_fuel_col = "subplant_primary_fuel_from_capacity_mw"
+            - fuel_category_col = "fuel_category"
+            - Notes: This means that we are assigning our "flat" profiles for all the
+            fuels that are categorized as "other" in 930, rather than using the "other"
+            profile for all of these individual categories
+        - For aggregating subplant data to fleet-level results:
+            - primary_fuel_col = "subplant_primary_fuel"
+            - fuel_category_col = "fuel_category"
+
+
+    Args:
+        subplant_data (pd.DataFrame): dataframe to assign fleet to
+        plant_attributes_table (pd.DataFrame): static plant attributes
+        primary_fuel_table (pd.DataFrame): table of subplant-level primary fuels
+        ba_col (str, optional): Whether to use commercial "ba_code" balancing area
+            definition or physical BA "ba_code_physical". Defaults to "ba_code".
+        primary_fuel_col (str, optional): Name of column from primary_fuel_table to use
+            to assign a fuel type to the subplant. Defaults to "subplant_primary_fuel".
+        year (int): Used to fill missing CEMS fuels if necessary
+        fuel_category_col (str, optional): name of fuel category column to map to the
+            energy source code specified by the primary_fuel_col in primary_fuel_table.
+            Defaults to "fuel_category".
+        other_attribute_cols (list[str], optional): a list of additional columns from
+            plant_attributes_table to add to subplant_data. Defaults to [].
+        drop_primary_fuel_col (bool): Whether to drop the ESC-level primary_fuel_col
+            before returning the table. Can be set to False for use of this function
+            in validation.identify_percent_of_data_by_input_source() Defaults to True.
+
+    Raises:
+        UserWarning: If a BA code or fuel type cannot be assigned to a subplant
+
+    Returns:
+        pd.DataFrame: subplant_data with ba_code and fuel_category columns added
+    """
+
+    # check to make sure the ba_col and primary_fuel_col are not already in the dataframe
+    # if so, drop them before merging
+    cols_to_add = [ba_col, primary_fuel_col] + other_attribute_cols
+    fleet_cols_already_in_subplant_data = [
+        col for col in subplant_data.columns if col in cols_to_add
+    ]
+    if len(fleet_cols_already_in_subplant_data) > 0:
+        subplant_data = subplant_data.drop(columns=fleet_cols_already_in_subplant_data)
+
+    # Assign a BA to the data
+    subplant_data = subplant_data.merge(
+        plant_attributes_table[["plant_id_eia", ba_col] + other_attribute_cols].rename(
+            columns={ba_col: "ba_code"}
+        ),
+        how="left",
+        on=["plant_id_eia"],
+        validate="m:1",
+    )
+
+    # assign a fuel category to the subplant
+    # ensure no missing primary fuel
+    if "subplant" in primary_fuel_col:
+        default_col = "subplant_primary_fuel"
+    else:
+        default_col = "plant_primary_fuel"
+    primary_fuel_table[primary_fuel_col] = primary_fuel_table[primary_fuel_col].fillna(
+        primary_fuel_table[default_col]
+    )
+    subplant_primary_fuel = primary_fuel_table[
+        ["plant_id_eia", "subplant_id", primary_fuel_col]
+    ].drop_duplicates()
+
+    subplant_primary_fuel = assign_fuel_category_to_esc(
+        subplant_primary_fuel,
+        fuel_category_names=[fuel_category_col],
+        esc_column=primary_fuel_col,
+    )
+    if drop_primary_fuel_col:
+        subplant_primary_fuel = subplant_primary_fuel.drop(columns=[primary_fuel_col])
+    # merge in the fuel data
+    subplant_data = subplant_data.merge(
+        subplant_primary_fuel,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
+
+    # if there are any missing ESCs in the dataframe, these might be from unmapped CEMS
+    # units. Attempt to add a fuel from the EPA-EIA crosswalk
+    if len(subplant_data[subplant_data[fuel_category_col].isna()]) > 0:
+        # load the crosswalk, and assign subplant_id
+        campd_fuels = (
+            load_data.load_epa_eia_crosswalk_from_raw(year)[
+                ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
+            ]
+            .dropna(subset=["emissions_unit_id_epa"])
+            .drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
+        )
+        campd_fuels = add_subplant_ids_to_df(
+            campd_fuels, year, "emissions_unit_id_epa", "left", "1:m"
+        )
+
+        # only keep a unique fuel per subplant
+        campd_fuels = campd_fuels[
+            ["plant_id_eia", "subplant_id", "energy_source_code_epa"]
+        ].drop_duplicates(subset=["plant_id_eia", "subplant_id"])
+
+        campd_fuels = assign_fuel_category_to_esc(
+            campd_fuels,
+            fuel_category_names=[fuel_category_col],
+            esc_column="energy_source_code_epa",
+        )
+        campd_fuels = campd_fuels.drop(columns=["energy_source_code_epa"])
+
+        subplant_data = subplant_data.merge(
+            campd_fuels,
+            how="left",
+            on=["plant_id_eia", "subplant_id"],
+            validate="m:1",
+            suffixes=(None, "_fill"),
+        )
+        subplant_data[fuel_category_col] = subplant_data[fuel_category_col].fillna(
+            subplant_data[f"{fuel_category_col}_fill"]
+        )
+        subplant_data = subplant_data.drop(columns=[f"{fuel_category_col}_fill"])
+
+    # check that there is no missing ba or fuel codes for subplants with nonzero gen
+    # for CEMS data, check only units that report positive gross generaiton
+    if (
+        "gross_generation_mwh" in subplant_data.columns
+        or "net_generation_mwh" in subplant_data.columns
+    ):
+        if "gross_generation_mwh" in subplant_data.columns:
+            missing_fleet_keys = subplant_data[
+                (
+                    (
+                        (subplant_data["ba_code"].isna())
+                        | (subplant_data[fuel_category_col].isna())
+                    )
+                    & (
+                        (subplant_data["gross_generation_mwh"] > 0)
+                        | (subplant_data["fuel_consumed_for_electricity_mmbtu"] > 0)
+                    )
+                )
+            ]
+        # otherwise, check units that report non-zero net generation
+        else:
+            missing_fleet_keys = subplant_data[
+                (
+                    (
+                        (subplant_data["ba_code"].isna())
+                        | (subplant_data[fuel_category_col].isna())
+                    )
+                    & (
+                        (subplant_data["net_generation_mwh"] != 0)
+                        | (subplant_data["fuel_consumed_for_electricity_mmbtu"] != 0)
+                    )
+                )
+            ]
+        if len(missing_fleet_keys) > 0:
+            logger.error(
+                "The plant attributes table is missing ba_code or fuel_category data for some plants. This will result in incomplete power sector results."
+            )
+            logger.error(
+                missing_fleet_keys.groupby(
+                    [
+                        "plant_id_eia",
+                        "subplant_id",
+                        "ba_code",
+                        fuel_category_col,
+                    ],
+                    dropna=False,
+                )[["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"]]
+                .sum()
+                .to_string()
+            )
+    else:
+        pass
+
+    return subplant_data
+
+
+def combine_subplant_data(
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    eia_data: pd.DataFrame,
+    resolution: str,
+    validate: bool = True,
+) -> pd.DataFrame:
+    """Combines subplant-level data from multiple sources into a single dataframe.
+    Data can be returned at either the monthly or hourly resolution.
+
+    When passing hourly data in later in the pipeline, we only want to combine cems data
+    so we can pass an empty dataframe for eia_data.
+
+    Args:
+        cems (pd.DataFrame): One of the dfs to combine
+        partial_cems_subplant (pd.DataFrame): One of the dfs to combine
+        partial_cems_plant (pd.DataFrame): One of the dfs to combine
+        eia_data (pd.DataFrame): One of the dfs to combine
+        resolution (str): Whether to combine "hourly" data or "monthly" data. All input
+            dataframes should have "datetime_utc" columns for the former, and
+            "report_date" columns for the latter
+        validate (bool, optional): Whether to ensure non-overlapping data from all
+            sources. Sometimes not necessary based on whether this has already been
+            checked. Defaults to True.
+
+    Raises:
+        UserWarning: If acceptable option for resolution arg not passed
+
+    Returns:
+        pd.DataFrame: combined data from the four input dfs at the resolution
+    """
+
+    KEY_COLUMNS = [
+        "plant_id_eia",
+        "subplant_id",
+        "report_date",
+    ]
+    if resolution == "hourly":
+        KEY_COLUMNS += ["datetime_utc"]
+    elif resolution == "monthly":
+        pass
+    else:
+        raise UserWarning(
+            f"`resolution` must be 'monthly' or 'hourly'. '{resolution}' specified"
+        )
+
+    ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
+
+    if validate:
+        validation.ensure_non_overlapping_data_from_all_sources(
+            cems, partial_cems_subplant, partial_cems_plant, eia_data
+        )
+
+    # group data by subplant-month or subplant-hour and filter columns
+    cems = (
+        cems.groupby(KEY_COLUMNS, dropna=False, sort=False)
+        .sum(numeric_only=True)
+        .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
+    )
+    # don't group if there is no data in the dataframe
+    if len(partial_cems_subplant) > 0:
+        partial_cems_subplant = (
+            partial_cems_subplant.groupby(KEY_COLUMNS, dropna=False, sort=False)
+            .sum(numeric_only=True)
+            .reset_index()[
+                [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
+            ]
+        )
+    if len(partial_cems_plant) > 0:
+        partial_cems_plant = (
+            partial_cems_plant.groupby(KEY_COLUMNS, dropna=False, sort=False)
+            .sum(numeric_only=True)
+            .reset_index()[
+                [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
+            ]
+        )
+    eia_data = (
+        eia_data.groupby(KEY_COLUMNS, dropna=False, sort=False)
+        .sum(numeric_only=True)
+        .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
+    )
+
+    # concat together
+    combined_subplant_data = pd.concat(
+        [cems, partial_cems_subplant, partial_cems_plant, eia_data],
+        axis=0,
+        ignore_index=True,
+        copy=False,
+    )
+
+    # re-order the columns
+    combined_subplant_data = combined_subplant_data[ALL_COLUMNS]
+
+    return combined_subplant_data
+
+
 def create_plant_ba_table(year: int) -> pd.DataFrame:
     """Creates a table assigning a BA code and physical BA code to each plant ID.
 
@@ -320,7 +621,7 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
     # rename the ba column
     plant_ba = plant_ba.rename(columns={"balancing_authority_code_eia": "ba_code"})
 
-    plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", np.NaN)
+    plant_ba["ba_code"] = plant_ba["ba_code"].replace("None", pd.NA)
 
     # get a list of all of the BAs that retired prior to the current year
     retired_bas = load_data.load_ba_reference()[["ba_code", "retirement_date"]]
@@ -385,7 +686,7 @@ def add_plant_operating_and_retirement_dates(df: pd.DataFrame) -> pd.DataFrame:
     generator_dates = load_data.load_pudl_table(
         "out_eia__yearly_generators",
         year=earliest_data_year,
-        end_year=latest_validated_year,
+        end_year=max(latest_validated_year, current_early_release_year),
         columns=[
             "plant_id_eia",
             "generator_id",
@@ -456,7 +757,7 @@ def add_plant_nameplate_capacity(year: int, df: pd.DataFrame) -> pd.DataFrame:
     generator_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
         year=earliest_data_year,
-        end_year=latest_validated_year,
+        end_year=max(latest_validated_year, current_early_release_year),
         columns=[
             "plant_id_eia",
             "generator_id",
@@ -687,7 +988,7 @@ def add_plant_entity(df: pd.DataFrame) -> pd.DataFrame:
         columns=["plant_id_eia", "timezone"] + eia860_info,
     )
     plants_entity_from_eia860 = load_data.load_raw_eia860_plant_geographical_info(
-        latest_validated_year
+        max(latest_validated_year, current_early_release_year)
     )
     complete_plants_entity = plants_entity.merge(
         plants_entity_from_eia860,
@@ -802,12 +1103,23 @@ def search_location_from_coordinates(latitude: float, longitude: float) -> tuple
     Returns:
         tuple[str]: state, county and city of the location.
     """
-    try:
-        address = geolocator.reverse(f"{latitude}, {longitude}").raw["address"]
-        if address["country_code"] != "us":
-            return pd.NA, pd.NA, pd.NA
-    except ReadTimeoutError:
-        return pd.NA, pd.NA, pd.NA
+
+    # try to look up the address. This often fails when contacting the server, so retry
+    # once. If it fails on the retry, return no value
+    for i in range(0, 2):
+        while True:
+            try:
+                address = geolocator.reverse(f"{latitude}, {longitude}").raw["address"]
+                if address["country_code"] != "us":
+                    return pd.NA, pd.NA, pd.NA
+            except (ReadTimeoutError, GeocoderUnavailable) as error:
+                if i < 1:
+                    logger.warning(f"{error} for reverse address lookup")
+                    continue
+                else:
+                    logger.warning(f"{error} for reverse address lookup, returning NA")
+                    return pd.NA, pd.NA, pd.NA
+            break
 
     # Check for State
     state = (
@@ -845,8 +1157,8 @@ def get_coordinates_of_location(state: str, county: str, city: str) -> tuple[flo
     """
     if pd.isna(state):
         return np.NaN, np.NaN
-    if pd.isna(city):
-        if not pd.isna(county):
+    if pd.isna(city) | (city == "unsited"):
+        if not (pd.isna(county) | (county == "NOT IN FILE")):
             query = f"{county} county, {state}, USA"
         else:
             query = f"{state}, USA"
@@ -856,10 +1168,15 @@ def get_coordinates_of_location(state: str, county: str, city: str) -> tuple[flo
     try:
         location = geolocator.geocode(query, country_codes="us")
         if location is None:
+            logger.warning(f"No location returned for {query}")
             return np.NaN, np.NaN
         else:
             return float(location.raw["lat"]), float(location.raw["lon"])
     except ReadTimeoutError:
+        logger.warning(f"ReadTimeoutError for {query}")
+        return np.NaN, np.NaN
+    except GeocoderUnavailable:
+        logger.warning(f"GeocoderUnavailable for {query}")
         return np.NaN, np.NaN
 
 
@@ -907,3 +1224,104 @@ def add_subplant_ids_to_df(
     validation.test_for_missing_subplant_id(df, plant_part_to_map)
 
     return df
+
+
+def calculate_subplant_nameplate_capacity(year):
+    """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
+    # load generator data
+    gen_capacity = load_data.load_pudl_table(
+        "core_eia860__scd_generators",
+        year,
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "prime_mover_code",
+            "capacity_mw",
+            "operational_status_code",
+        ],
+    )
+
+    # add subplant ids to the generator data
+    logger.info("Adding subplant_id to gen_capacity")
+    gen_capacity = add_subplant_ids_to_df(
+        gen_capacity,
+        year,
+        plant_part_to_map="generator_id",
+        how_merge="inner",
+        validate_merge="1:1",
+    )
+    subplant_capacity = (
+        gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
+        .sum()
+        .reset_index()
+    )
+
+    # identify the primary prime mover for each subplant based on capacity
+    subplant_prime_mover = gen_capacity[
+        gen_capacity.groupby(["plant_id_eia", "subplant_id"], dropna=False)[
+            "capacity_mw"
+        ].transform("max")
+        == gen_capacity["capacity_mw"]
+    ][["plant_id_eia", "subplant_id", "prime_mover_code"]].drop_duplicates(
+        subset=["plant_id_eia", "subplant_id"], keep="first"
+    )
+
+    # add the prime mover information
+    subplant_capacity = subplant_capacity.merge(
+        subplant_prime_mover,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="1:1",
+    )
+
+    return subplant_capacity
+
+
+def create_subplant_attributes_table(
+    monthly_subplant_data: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+    path_prefix: str,
+):
+    """Writes a "subplant_attributes" table to the results/plant_data folder that
+    contains subplant-specific attributes including the primary fuel, fuel category,
+    nameplate capacity, and primary prime mover for each subplant in
+    monthly_subplant_data.
+
+    Args:
+        monthly_subplant_data (pd.DataFrame): Used to determine the full set of
+            subplants in the data
+        plant_attributes (pd.DataFrame): Used for assigning fleet
+        primary_fuel_table (pd.DataFrame): used for assigning fleet
+        year (int): the data year
+        path_prefix (str): used for exporting data
+    """
+    # create subplant attributes
+
+    # get list of unique subplants
+    subplant_attributes = monthly_subplant_data[
+        ["plant_id_eia", "subplant_id"]
+    ].drop_duplicates()
+
+    # assign fleet to each subplant
+    subplant_attributes = assign_fleet_to_subplant_data(
+        subplant_attributes,
+        plant_attributes,
+        primary_fuel_table,
+        year,
+        drop_primary_fuel_col=False,
+    )
+    subplant_attributes = subplant_attributes.drop(columns="ba_code")
+
+    # add subplant capacity and primary fuel
+    subplant_capacity = calculate_subplant_nameplate_capacity(year)
+
+    subplant_attributes = subplant_attributes.merge(
+        subplant_capacity, how="left", on=["plant_id_eia", "subplant_id"]
+    )
+
+    subplant_attributes.to_csv(
+        results_folder(f"{path_prefix}plant_data/subplant_attributes.csv"),
+        index=False,
+    )

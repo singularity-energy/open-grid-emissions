@@ -1,151 +1,500 @@
-plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,notes
-389,3,389,3,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-1363,7A,1363,7A,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-1363,7B,1363,7B,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-1393,1A,1393,1,CAMD_UNIT_ID matches boiler_id and reported fuel consumption matches
-1393,2A,1393,2,CAMD_UNIT_ID matches boiler_id and reported fuel consumption matches
-1393,3,1393,3,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-1570,11,1570,11,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-1570,9,1570,9,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-1595,1,1595,1,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-1732,10,1732,6,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-1732,11,1732,6,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-1732,12,1732,6,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-1732,9,1732,6,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-2070,1,2070,1,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-2070,2,2070,2,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-2398,1101,2398,1101,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-2398,1201,2398,1201,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-2398,1301,2398,1301,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-2398,1401,2398,1401,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-2500,CT0008,2500,GT8,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-2527,5,2527,3,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-2594,3,2594,3,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-3176,6,3176,6,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-3466,PHR1,3466,1,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-3466,PHR2,3466,2,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-3466,PHR3,3466,3,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-3466,PHR4,3466,4,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-3627,3,3627,3,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-7063,**1,7063,1,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-10803,1,10803,GEN1,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-10803,2,10803,GEN2,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-52130,1SPS15,52130,17TG,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-52130,1SPS16,52130,17TG,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-52130,1SPS17,52130,17TG,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-55518,CTG2,55518,CTG2,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-55518,CTG3,55518,CTG3,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-55524,5,55524,CTG5,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-55524,5,55524,STG2,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-55524,6,55524,CTG6,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-55524,6,55524,STG2,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-56963,E101,56963,E101,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-56963,E102,56963,E102,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-57842,1,57842,1,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-60345,OCEC1A,60345,1A,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-60345,OCEC1A,60345,1ST,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-60345,OCEC1B,60345,1B,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-60345,OCEC1B,60345,1ST,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-60345,OCEC1C,60345,1C,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-60345,OCEC1C,60345,1ST,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-50615,GT01,50615,STG1,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-50615,GT02,50615,STG1,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-50615,GT03,50615,STG1,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-3443,6,3443,4,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-2527,4,2527,3,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
-116,GT3,116,GT3,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-116,GT4,116,GT4,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-116,GT5,116,GT5,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-116,GT6,116,GT6,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-116,GT7,116,GT7,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-676,MGT2,676,GT2,Manual fuzzy match of generator ID
-60926,1A,60926,1A,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-60926,1B,60926,1B,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-60927,1A,60927,1A,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-60927,1B,60927,1B,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-55486,CTG01,55486,CTG01,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-55486,CTG02,55486,CTG02,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-1599,3,1599,3,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-59882,J4,59882,4,Manual fuzzy match of generator ID
-59882,J5,59882,5,Manual fuzzy match of generator ID
-56104,CT-1,56104,CTG1,Manual fuzzy match of generator ID
-55218,2,55218,H02,Manual fuzzy match of generator ID
-2706,CT5,2706,CT5,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-2706,CT7,2706,CT7,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-7277,17,7277,17,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-57185,U001,57185,U001,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-57185,U002,57185,U002,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-57185,U003,57185,U003,CAMD_UNIT_ID matches EIA_GENERATOR_ID
-60589,CT-1,60589,GEN1,Matched based on generator ID and prime mover code
-60589,CT-2,60589,GEN2,Matched based on generator ID and prime mover code
-61035,1,61035,GEN1,Manual fuzzy match of generator ID
-61028,CT1,61028,CTG1,Manual fuzzy match of generator ID
-61028,CT2,61028,CTG2,Manual fuzzy match of generator ID
-61241,CT1,61241,VC-1,Manual fuzzy match of generator ID
-61241,CT2,61241,VC-2,Manual fuzzy match of generator ID
-61242,CT1,61242,VP-1,Manual fuzzy match of generator ID
-61242,CT2,61242,VP-2,Manual fuzzy match of generator ID
-55641,CT-03,55641,CTG3,Manual fuzzy match of generator ID
-55641,CT-04,55641,CTG4,Manual fuzzy match of generator ID
-568,BHB5,568,501,Matched based on total net generation
-568,BHB5,568,502,Matched based on total net generation
-60925,CT1,60925,1A,Matched based on generator ID and prime mover code
-60925,CT2,60925,1B,Matched based on generator ID and prime mover code
-60910,1GT,60910,NPLPS,Matched based on plant ID
-63259,DEPS1,63259,DEPS1,Matched based on generator ID
-63259,DEPC2,63259,DEPC2,Matched based on generator ID
-63259,DEPC3,63259,DEPC3,Matched based on generator ID
-315,CT1,62115,1A,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
-315,CT1,62115,1S,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
-315,CT2,62115,1B,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
-315,CT2,62115,1S,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
-141,7,141,AF7,Matched based on generator ID
-141,8,141,AF8,Matched based on generator ID
-335,CT1,62116,1A,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
-335,CT1,62116,1S,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
-335,CT2,62116,1B,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
-335,CT2,62116,1S,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
-613,PFL7A,65978,7GT1,"Matched based on plant address, generator id, and generation"
-613,PFL7A,65978,ST7,"Matched based on plant address, generator id, and generation"
-613,PFL7B,65978,7GT2,"Matched based on plant address, generator id, and generation"
-613,PFL7B,65978,ST7,"Matched based on plant address, generator id, and generation"
-6061,3,6061,MOR1,"Matched based on operational date, and fuel emission factor. New unit at repowered plant"
-6061,3,6061,MOR2,"Matched based on operational date, and fuel emission factor. New unit at repowered plant"
-10350,CTGA,10350,CTGA,Matched based on generator ID
-10350,CTGB,10350,CTGB,Matched based on generator ID
-10776,GTG,10776,GTG,Matched based on generator ID
-55129,DBG4,55129,CTG4,Matched based on generator ID
-55129,DBG5,55129,CTG5,Matched based on generator ID
-55460,EUCT1,55460,CT1,Matched based on generator ID and generation
-55460,EUCT1,55460,ST1,Matched based on generator ID and generation
-55460,EUCT2,55460,CT2,Matched based on generator ID and generation
-55460,EUCT2,55460,ST1,Matched based on generator ID and generation
-55699,2,56141,2,"Matched based on plant address, generator id, and generation"
-56298,CT005,56298,4,"Matched based on generator ID, fuel consumption"
-56298,CT006,56298,5,"Matched based on generator ID, fuel consumption"
-56350,CT-4A,56350,CT4A,Matched based on generator ID
-61966,CT1,61966,VP2-1,"Matched based on generator ID, fuel consumption"
-61966,CT2,61966,VP2-2,"Matched based on generator ID, fuel consumption"
-62192,11,62192,11,Matched based on generator ID
-62192,12,62192,12,Matched based on generator ID
-62548,CT1,62548,SJ-1,Matched based on generator ID
-62548,CT2,62548,SJ-2,Matched based on generator ID
-62926,CTG-01,62926,1,"Matched based on generator ID, fuel consumption"
-62926,CTG-02,62926,2,"Matched based on generator ID, fuel consumption"
-64383,CT-1,64383,CTG-1,Matched based on generator ID
-64383,CT-2,64383,CTG-2,Matched based on generator ID
-64383,CT-3,64383,CTG-3,Matched based on generator ID
-64383,CT-4,64383,CTG-4,Matched based on generator ID
-64383,CT-5,64383,CTG-5,Matched based on generator ID
-64383,CT-6,64383,CTG-6,Matched based on generator ID
-64383,CT-7,64383,CTG-7,Matched based on generator ID
-64383,CT-8,64383,CTG-8,Matched based on generator ID
-65372,CT-1,65372,CTG-1,Matched based on generator ID
-65372,CT-2,65372,CTG-2,Matched based on generator ID
-65372,CT-3,65372,CTG-3,Matched based on generator ID
-13213,AA-001, 55080,1,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
-13213,AA-002, 55080,2,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
-13213,AA-003, 55080,3,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
-13213,AA-004, 55080,4,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
-13213,AA-005, 55080,5,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
-13213,AA-006, 55080,6,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year,notes
+389,3,389,3,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+1363,7A,1363,7A,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+1363,7B,1363,7B,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+1393,1A,1393,1,,,CAMD_UNIT_ID matches boiler_id and reported fuel consumption matches
+1393,2A,1393,2,,,CAMD_UNIT_ID matches boiler_id and reported fuel consumption matches
+1393,3,1393,3,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+1570,11,1570,11,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+1570,9,1570,9,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+1595,1,1595,1,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+1732,10,1732,6,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+1732,11,1732,6,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+1732,12,1732,6,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+1732,9,1732,6,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+2070,1,2070,1,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+2070,2,2070,2,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+2398,1101,2398,1101,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+2398,1201,2398,1201,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+2398,1301,2398,1301,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+2398,1401,2398,1401,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+2500,CT0008,2500,GT8,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+2527,5,2527,3,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+2594,3,2594,3,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+3176,6,3176,6,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+3466,PHR1,3466,1,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+3466,PHR2,3466,2,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+3466,PHR3,3466,3,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+3466,PHR4,3466,4,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+3627,3,3627,3,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+7063,**1,7063,1,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+10803,1,10803,GEN1,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+10803,2,10803,GEN2,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+52130,1SPS15,52130,17TG,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+52130,1SPS16,52130,17TG,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+52130,1SPS17,52130,17TG,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+55518,CTG2,55518,CTG2,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+55518,CTG3,55518,CTG3,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+55524,5,55524,CTG5,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+55524,5,55524,STG2,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+55524,6,55524,CTG6,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+55524,6,55524,STG2,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+56963,E101,56963,E101,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+56963,E102,56963,E102,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+60345,OCEC1A,60345,1A,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+60345,OCEC1A,60345,1ST,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+60345,OCEC1B,60345,1B,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+60345,OCEC1B,60345,1ST,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+60345,OCEC1C,60345,1C,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+60345,OCEC1C,60345,1ST,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+50615,GT01,50615,STG1,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+50615,GT02,50615,STG1,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+50615,GT03,50615,STG1,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+3443,6,3443,4,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+2527,4,2527,3,,,CAMD_GENERATOR_ID matches EIA_GENERATOR_ID
+116,GT3,116,GT3,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+116,GT4,116,GT4,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+116,GT5,116,GT5,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+116,GT6,116,GT6,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+116,GT7,116,GT7,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+676,MGT2,676,GT2,,,Manual fuzzy match of generator ID
+60926,1A,60926,1A,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+60926,1B,60926,1B,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+60927,1A,60927,1A,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+60927,1B,60927,1B,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+55486,CTG01,55486,CTG01,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+55486,CTG02,55486,CTG02,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+1599,3,1599,3,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+59882,J4,59882,4,,,Manual fuzzy match of generator ID
+59882,J5,59882,5,,,Manual fuzzy match of generator ID
+56104,CT-1,56104,CTG1,,,Manual fuzzy match of generator ID
+55218,2,55218,H02,,,Manual fuzzy match of generator ID
+2706,CT5,2706,CT5,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+2706,CT7,2706,CT7,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+7277,17,7277,17,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+57185,U001,57185,U001,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+57185,U002,57185,U002,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+57185,U003,57185,U003,,,CAMD_UNIT_ID matches EIA_GENERATOR_ID
+60589,CT-1,60589,GEN1,,,Matched based on generator ID and prime mover code
+60589,CT-2,60589,GEN2,,,Matched based on generator ID and prime mover code
+61035,1,61035,GEN1,,,Manual fuzzy match of generator ID
+61028,CT1,61028,CTG1,,,Manual fuzzy match of generator ID
+61028,CT2,61028,CTG2,,,Manual fuzzy match of generator ID
+61241,CT1,61241,VC-1,,,Manual fuzzy match of generator ID
+61241,CT2,61241,VC-2,,,Manual fuzzy match of generator ID
+61242,CT1,61242,VP-1,,,Manual fuzzy match of generator ID
+61242,CT2,61242,VP-2,,,Manual fuzzy match of generator ID
+55641,CT-03,64020,CTG3,2020,,Proposed plant number changed when generator became operational
+55641,CT-04,64020,CTG4,2020,,Proposed plant number changed when generator became operational
+568,BHB5,568,501,,,Matched based on total net generation
+568,BHB5,568,502,,,Matched based on total net generation
+60925,CT1,60925,1A,,,Matched based on generator ID and prime mover code
+60925,CT2,60925,1B,,,Matched based on generator ID and prime mover code
+60910,1GT,60910,NPLPS,,,Matched based on plant ID
+63259,DEPS1,63259,DEPS1,,,Matched based on generator ID
+63259,DEPC2,63259,DEPC2,,,Matched based on generator ID
+63259,DEPC3,63259,DEPC3,,,Matched based on generator ID
+315,CT1,62115,1A,,,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
+315,CT1,62115,1S,,,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
+315,CT2,62115,1B,,,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
+315,CT2,62115,1S,,,"Matched based on plant name, prime mover, and generation. Plant 315 is ""AES Alamitos LLC"" while plant 62115 is ""AES Alamitos Energy Center"""
+141,7,141,AF7,,,Matched based on generator ID
+141,8,141,AF8,,,Matched based on generator ID
+335,CT1,62116,1A,,,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
+335,CT1,62116,1S,,,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
+335,CT2,62116,1B,,,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
+335,CT2,62116,1S,,,"Matched based on plant name, prime mover, and generation. Plant 335 is ""Huntington Beach"" while plant 62115 is ""AES Huntington Beach Energy Project"""
+613,PFL7A,613,7GT1,,2021,"Matched based on plant address, generator id, and generation"
+613,PFL7A,613,ST7,,2021,"Matched based on plant address, generator id, and generation"
+613,PFL7B,613,7GT2,,2021,"Matched based on plant address, generator id, and generation"
+613,PFL7B,613,ST7,,2021,"Matched based on plant address, generator id, and generation"
+613,PFL7A,65978,7GT1,2022,,"Matched based on plant address, generator id, and generation"
+613,PFL7A,65978,ST7,2022,,"Matched based on plant address, generator id, and generation"
+613,PFL7B,65978,7GT2,2022,,"Matched based on plant address, generator id, and generation"
+613,PFL7B,65978,ST7,2022,,"Matched based on plant address, generator id, and generation"
+6061,3,6061,MOR1,,,"Matched based on operational date, and fuel emission factor. New unit at repowered plant"
+6061,3,6061,MOR2,,,"Matched based on operational date, and fuel emission factor. New unit at repowered plant"
+10350,CTGA,10350,CTGA,,,Matched based on generator ID
+10350,CTGB,10350,CTGB,,,Matched based on generator ID
+10776,GTG,10776,GTG,,,Matched based on generator ID
+55129,DBG4,55129,CTG4,,,Matched based on generator ID
+55129,DBG5,55129,CTG5,,,Matched based on generator ID
+55460,EUCT1,55460,CT1,,,Matched based on generator ID and generation
+55460,EUCT1,55460,ST1,,,Matched based on generator ID and generation
+55460,EUCT2,55460,CT2,,,Matched based on generator ID and generation
+55460,EUCT2,55460,ST1,,,Matched based on generator ID and generation
+55699,2,56141,2,,,"Matched based on plant address, generator id, and generation"
+56298,CT005,56298,4,,,"Matched based on generator ID, fuel consumption"
+56298,CT006,56298,5,,,"Matched based on generator ID, fuel consumption"
+56350,CT-4A,56350,CT4A,,,Matched based on generator ID
+61966,CT1,61966,VP2-1,,,"Matched based on generator ID, fuel consumption"
+61966,CT2,61966,VP2-2,,,"Matched based on generator ID, fuel consumption"
+62192,11,62192,11,,,Matched based on generator ID
+62192,12,62192,12,,,Matched based on generator ID
+62548,CT1,62548,SJ-1,,,Matched based on generator ID
+62548,CT2,62548,SJ-2,,,Matched based on generator ID
+62926,CTG-01,62926,1,,,"Matched based on generator ID, fuel consumption"
+62926,CTG-02,62926,2,,,"Matched based on generator ID, fuel consumption"
+64383,CT-1,64383,CTG-1,,,Matched based on generator ID
+64383,CT-2,64383,CTG-2,,,Matched based on generator ID
+64383,CT-3,64383,CTG-3,,,Matched based on generator ID
+64383,CT-4,64383,CTG-4,,,Matched based on generator ID
+64383,CT-5,64383,CTG-5,,,Matched based on generator ID
+64383,CT-6,64383,CTG-6,,,Matched based on generator ID
+64383,CT-7,64383,CTG-7,,,Matched based on generator ID
+64383,CT-8,64383,CTG-8,,,Matched based on generator ID
+65372,CT-1,65372,CTG-1,,,Matched based on generator ID
+65372,CT-2,65372,CTG-2,,,Matched based on generator ID
+65372,CT-3,65372,CTG-3,,,Matched based on generator ID
+13213,AA-001,55080,1,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-002,55080,2,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-003,55080,3,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-004,55080,4,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-005,55080,5,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+13213,AA-006,55080,6,,,"Matched based on plant name, location and CAMD_UNIT_ID vs EIA_GENERATOR_ID"
+10298,CG801,10298,GT1,2014,,Repower of existing generator_id GEN_1
+10298,CG802,10298,GT2,2015,,Repower of existing generator_id GEN_2
+10298,CG803,10298,GT3,2015,,Repower of existing generator_id GEN_3
+10298,CG804,10298,GT4,2019,,Repower of existing generator_id GEN_4
+56668,CGTC,56668,CGT,2018,,Repower of existing generator_id CGTG
+1571,SMECO,65285,GT1,2021,2022,This generator switches plant IDs for two years then switches back to its original plant ID
+1571,1,65285,ST1,2021,,This generator switches plant IDs the year it retires (2021)
+1571,2,65285,ST2,2021,,This generator switches plant IDs the year it retires (2021)
+3,8,3,A3C1,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+3,8,3,A3ST,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+47,CCT10,47,GT10,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+47,CCT11,47,GT11,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+47,CCT9,47,GT9,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+56,CC1,56,LEC1,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+56,CC1,56,LEC2,,,This generator (CEMS unit) had no CEMS unit (generator) assigned
+136,CT1,136,CT1,,,Matched based on generator ID
+136,CT2,136,CT2,,,Matched based on generator ID
+492,A1,492,A1,,,Matched based on generator ID
+492,A2,492,A2,,,Matched based on generator ID
+492,A3,492,A3,,,Matched based on generator ID
+492,A4,492,A4,,,Matched based on generator ID
+492,A5,492,A5,,,Matched based on generator ID
+492,A6,492,A6,,,Matched based on generator ID
+54271,A01,54271,CTG1,,,Matched based on generator ID and fuel consumption
+54271,A02,54271,CTG2,,,Matched based on generator ID and fuel consumption
+56350,CT-4B,56350,CT4B,,,Matched based on generator ID
+60387,3,60387,GEN3,,,Matched based on generator ID
+60387,4,60387,GEN4,,,Matched based on generator ID
+62949,P001,62949,GPS1,,,Matched based on generator ID
+62949,P002,62949,GPS2,,,Matched based on generator ID
+62949,P003,62949,GPS3,,,Matched based on generator ID
+63931,1,63931,GEN1,,,Matched based on generator ID
+63931,2,63931,GEN2,,,Matched based on generator ID
+65372,CT-4,65372,CTG-4,,,Matched based on generator ID
+65372,CT-5,65372,CTG-5,,,Matched based on generator ID
+65372,CT-6,65372,CTG-6,,,Matched based on generator ID
+65373,CT-1,65373,CTG-1,,,Matched based on generator ID
+65373,CT-2,65373,CTG-2,,,Matched based on generator ID
+65373,CT-3,65373,CTG-3,,,Matched based on generator ID
+65373,CT-4,65373,CTG-4,,,Matched based on generator ID
+65373,CT-5,65373,CTG-5,,,Matched based on generator ID
+65373,CT-6,65373,CTG-6,,,Matched based on generator ID
+52089,BLR007,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR008,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR010,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR011,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR012,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR013,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR014,52089,GEN1,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR007,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR008,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR010,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR011,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR012,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR013,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR014,52089,GEN2,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR007,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR008,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR010,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR011,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR012,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR013,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR014,52089,GEN3,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR007,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR008,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR010,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR011,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR012,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR013,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+52089,BLR014,52089,GEN4,,,Matched based on boiler_id and EIA-860 BGA table
+2953,5A-1,2953,5A,,2018,5A and 5B change from Mustang to Tinker plant
+2953,5A-2,2953,5A,,2018,5A and 5B change from Mustang to Tinker plant
+2953,5B-1,2953,5B,,2018,5A and 5B change from Mustang to Tinker plant
+2953,5B-2,2953,5B,,2018,5A and 5B change from Mustang to Tinker plant
+2953,5A-1,63628,5A,2019,2020,5A and 5B change from Mustang to Tinker plant
+2953,5A-2,63628,5A,2019,2020,5A and 5B change from Mustang to Tinker plant
+2953,5B-1,63628,5B,2019,2020,5A and 5B change from Mustang to Tinker plant
+2953,5B-2,63628,5B,2019,2020,5A and 5B change from Mustang to Tinker plant
+63628,5A-1,63628,5A,2021,,5A and 5B change from Mustang to Tinker plant
+63628,5A-2,63628,5A,2021,,5A and 5B change from Mustang to Tinker plant
+63628,5B-1,63628,5B,2021,,5A and 5B change from Mustang to Tinker plant
+63628,5B-2,63628,5B,2021,,5A and 5B change from Mustang to Tinker plant
+693,**5,693,2,,,EPA crosswalk generator matches generator_id
+693,**5,693,5,,,EPA crosswalk generator matches generator_id
+693,3,693,3,,,EPA crosswalk generator matches generator_id
+693,4,693,4,,,EPA crosswalk generator matches generator_id
+1010,1,1010,1,,2010,"unit_id matches generator_id pattern, and part of CC"
+1010,1,1010,1A,,2010,"unit_id matches generator_id pattern, and part of CC"
+1010,1,57842,1,2011,2016,"Changes plant code in 2011, EPA catches up in 2017"
+1010,1,57842,1A,2011,2016,"Changes plant code in 2011, EPA catches up in 2017"
+57842,1,57842,1,2017,,"Changes plant code in 2011, EPA catches up in 2017"
+57842,1,57842,1A,2017,,"Changes plant code in 2011, EPA catches up in 2017"
+1619,1,1619,1,,,EPA crosswalk generator matches generator_id
+1619,2,1619,2,,,EPA crosswalk generator matches generator_id
+1619,3,1619,3,,,EPA crosswalk generator matches generator_id
+1619,4,1619,4,,,EPA crosswalk generator matches generator_id
+3470,CTSC,58378,GT2,,,CAMPD generator mapping matches plant of same name and nameplate cap
+4146,B1,4146,1,,,CAMPD generator mapping matches generator name and nameplate cap
+4146,B1,4146,2,,,CAMPD generator mapping matches generator name and nameplate cap
+4146,B2,4146,1,,,CAMPD generator mapping matches generator name and nameplate cap
+4146,B2,4146,2,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G102,10741,G102,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G103,10741,G103,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G104,10741,G104,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G102,10741,S101,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G103,10741,S101,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G104,10741,S101,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G102,10741,S102,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G103,10741,S102,,,CAMPD generator mapping matches generator name and nameplate cap
+10741,G104,10741,S102,,,CAMPD generator mapping matches generator name and nameplate cap
+55248,CT4,55248,GT4,,2018,These units change plant ID in 2019
+55248,CT5,55248,GT5,,2018,These units change plant ID in 2019
+55248,CT6,55248,GT6,,2018,These units change plant ID in 2019
+55248,CT7,55248,GT7,,2018,These units change plant ID in 2019
+55248,CT4,2847,GT4,2019,,These units change plant ID in 2019
+55248,CT5,2847,GT5,2019,,These units change plant ID in 2019
+55248,CT6,2847,GT6,2019,,These units change plant ID in 2019
+55248,CT7,2847,GT7,2019,,These units change plant ID in 2019
+55306,1CTGA,55306,CTG1,,2012,These units change plant ID in 2013
+55306,1CTGA,55306,ST9,,2012,These units change plant ID in 2013
+55306,1CTGB,55306,CTG2,,2012,These units change plant ID in 2013
+55306,1CTGB,55306,ST9,,2012,These units change plant ID in 2013
+55306,1CTGA,59338,CTG1,2013,,These units change plant ID in 2013
+55306,1CTGA,59338,ST9,2013,,These units change plant ID in 2013
+55306,1CTGB,59338,CTG2,2013,,These units change plant ID in 2013
+55306,1CTGB,59338,ST9,2013,,These units change plant ID in 2013
+55306,2CTGA,55306,CTG3,,2012,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGA,55306,ST10,,2012,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGB,55306,CTG4,,2012,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGB,55306,ST10,,2012,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGA,59338,CTG3,2013,2015,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGA,59338,ST10,2013,2015,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGB,59338,CTG4,2013,2015,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGB,59338,ST10,2013,2015,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGA,60768,CTG3,2016,,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGA,60768,ST10,2016,,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGB,60768,CTG4,2016,,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,2CTGB,60768,ST10,2016,,"This changes to power block 2 in 2013, and changes ownership and plant number again in 2016"
+55306,3CTGA,55306,CTG5,,2013,This changes plants to power block 3 in 2014
+55306,3CTGA,55306,ST11,,2013,This changes plants to power block 3 in 2014
+55306,3CTGB,55306,CTG6,,2013,This changes plants to power block 3 in 2014
+55306,3CTGB,55306,ST11,,2013,This changes plants to power block 3 in 2014
+55306,3CTGA,59784,CTG5,2014,,This changes plants to power block 3 in 2014
+55306,3CTGA,59784,ST11,2014,,This changes plants to power block 3 in 2014
+55306,3CTGB,59784,CTG6,2014,,This changes plants to power block 3 in 2014
+55306,3CTGB,59784,ST11,2014,,This changes plants to power block 3 in 2014
+548,1,548,1,,,EPA crosswalk generator matches generator_id
+548,2,548,2,,,EPA crosswalk generator matches generator_id
+548,10,548,10,,,EPA crosswalk generator matches generator_id
+603,15,603,15,,,EPA crosswalk generator matches generator_id
+603,16,603,16,,,EPA crosswalk generator matches generator_id
+981,3,981,3,,,CAMPD generator mapping matches generator name and nameplate cap
+981,3,981,3A,,,CAMPD generator mapping matches generator name and nameplate cap
+981,4,981,4,,,CAMPD generator mapping matches generator name and nameplate cap
+981,4,981,4A,,,CAMPD generator mapping matches generator name and nameplate cap
+1822,5,1822,5,,,EPA crosswalk generator matches generator_id
+1822,6,1822,6,,,EPA crosswalk generator matches generator_id
+1822,7,1822,7,,,EPA crosswalk generator matches generator_id
+1822,GT-1,1822,GT1,,,EPA crosswalk generator matches generator_id
+1961,NEPP,1961,1,,,CAMPD generator mapping matches generator name and nameplate cap
+2169,2,2169,2,,,EPA crosswalk generator matches generator_id
+3788,1,3788,1,,,EPA crosswalk generator matches generator_id
+3788,2,3788,2,,,EPA crosswalk generator matches generator_id
+3788,3,3788,3,,,EPA crosswalk generator matches generator_id
+3788,4,3788,4,,,EPA crosswalk generator matches generator_id
+3788,5,3788,5,,,EPA crosswalk generator matches generator_id
+10670,1001,10670,GEN1,,,EPA crosswalk generator matches generator_id
+10802,1,10802,GEN1,,,CAMPD generator mapping matches generator name and nameplate cap
+10802,1,10802,GEN2,,,CAMPD generator mapping matches generator name and nameplate cap
+50245,GTX017,50245,ABB,,,EPA crosswalk generator matches generator_id
+50245,GTX017,50245,GE,,,EPA crosswalk generator matches generator_id
+50245,GTX017,50245,GT,,,EPA crosswalk generator matches generator_id
+50245,PBX007,50245,ABB,,,EPA crosswalk generator matches generator_id
+50245,PBX007,50245,GE,,,EPA crosswalk generator matches generator_id
+54144,31,54144,GEN1,,,EPA crosswalk generator matches generator_id
+54423,EU003,54423,GT1,,,EPA crosswalk generator matches generator_id
+54423,EU003,54423,ST1,,,EPA crosswalk generator matches generator_id
+54423,EU004,54423,GT2,,,EPA crosswalk generator matches generator_id
+54423,EU004,54423,ST1,,,EPA crosswalk generator matches generator_id
+54658,1,54658,CT,,,EPA crosswalk generator matches generator_id
+54658,1,54658,ST,,,EPA crosswalk generator matches generator_id
+247,7,247,4,,,CAMPD Facility database mapping
+310,3,310,3,,,CAMPD Facility database mapping
+310,4,310,4,,,CAMPD Facility database mapping
+634,1,634,ST1,,,CAMPD Facility database mapping
+634,2,634,ST2,,,CAMPD Facility database mapping
+634,3,634,ST3,,,CAMPD Facility database mapping
+641,2,641,2,,,CAMPD Facility database mapping
+641,3,641,3,,,CAMPD Facility database mapping
+658,7,658,7,,,CAMPD Facility database mapping
+658,8,658,8,,,CAMPD Facility database mapping
+688,2,688,2,,,CAMPD Facility database mapping
+863,5,863,3,,,CAMPD Facility database mapping
+863,6,863,4,,,CAMPD Facility database mapping
+864,5,864,3,,,CAMPD Facility database mapping
+864,6,864,4,,,CAMPD Facility database mapping
+883,17,883,6,,,CAMPD Facility database mapping
+964,7,964,6,,,CAMPD Facility database mapping
+964,8,964,7,,,CAMPD Facility database mapping
+1012,1,1012,1,,,CAMPD Facility database mapping
+1305,1,1305,1,,,CAMPD Facility database mapping
+1372,6,1372,6,,,CAMPD Facility database mapping
+1392,10,1392,10,,,Matches generator name and CAMPD database capacity
+1392,11,1392,11,,,Matches generator name and CAMPD database capacity
+1392,12,1392,12,,,Matches generator name and CAMPD database capacity
+1458,2,1458,2,,,CAMPD Facility database mapping
+1458,3,1458,3,,,CAMPD Facility database mapping
+1589,1,1589,1,,,CAMPD Facility database mapping
+1589,2,1589,2,,,CAMPD Facility database mapping
+1613,11,1613,JET2,,,CAMPD Facility database mapping
+1613,8,1613,6,,,CAMPD Facility database mapping
+1769,1,1769,1,,,CAMPD Facility database mapping
+1769,2,1769,2,,,CAMPD Facility database mapping
+1769,3,1769,3,,,CAMPD Facility database mapping
+1769,4,1769,4,,,CAMPD Facility database mapping
+1912,3,1912,3,,,CAMPD Facility database mapping
+1912,4,1912,4,,,CAMPD Facility database mapping
+1912,5,1912,5,,,CAMPD Facility database mapping
+1912,6,1912,6,,,CAMPD Facility database mapping
+1927,6,1927,7,,,CAMPD Facility database mapping
+1927,7,1927,7,,,CAMPD Facility database mapping
+1927,7,1927,ST7,,,CAMPD Facility database mapping
+1927,8,1927,8,,,CAMPD Facility database mapping
+2322,1,2322,1,,,CAMPD Facility database mapping
+2322,2,2322,2,,,CAMPD Facility database mapping
+2322,3,2322,3,,,CAMPD Facility database mapping
+2397,A01001,2397,1,,,CAMPD Facility database mapping
+2397,A02001,2397,2,,,CAMPD Facility database mapping
+2539,1,2539,1,,,CAMPD Facility database mapping
+2539,2,2539,2,,,CAMPD Facility database mapping
+2539,3,2539,3,,,CAMPD Facility database mapping
+2539,4,2539,4,,,CAMPD Facility database mapping
+2629,3,2629,3,,,CAMPD Facility database mapping
+2629,4,2629,4,,,CAMPD Facility database mapping
+2629,5,2629,5,,,CAMPD Facility database mapping
+2642,1,2642,1,,,CAMPD Facility database mapping
+2642,2,2642,2,,,CAMPD Facility database mapping
+2642,3,2642,3,,,CAMPD Facility database mapping
+2642,4,2642,4,,,CAMPD Facility database mapping
+2832,5-1,2832,5,,,CAMPD Facility database mapping
+2832,5-2,2832,5,,,CAMPD Facility database mapping
+2840,1,2840,1,,,CAMPD Facility database mapping
+2840,2,2840,2,,,CAMPD Facility database mapping
+3148,1,3148,1,,,CAMPD Facility database mapping
+3148,2,3148,2,,,CAMPD Facility database mapping
+3176,4,56397,4,,,Matches CAMPD mapping of generator at plant of same name
+3264,4C,3264,4,,,CAMPD Facility database mapping
+3264,5C,3264,5,,,CAMPD Facility database mapping
+3264,6C,3264,6,,,CAMPD Facility database mapping
+3438,1,3438,1,,,CAMPD Facility database mapping
+3438,2,3438,2,,,CAMPD Facility database mapping
+3439,1,3439,1,,,CAMPD Facility database mapping
+3439,2,3439,2,,,CAMPD Facility database mapping
+3439,3,3439,3,,,CAMPD Facility database mapping
+3442,7,3442,6,,,CAMPD Facility database mapping
+3453,2,3453,2,,,CAMPD Facility database mapping
+3453,3A,3453,3,,,CAMPD Facility database mapping
+3453,3B,3453,3,,,CAMPD Facility database mapping
+3506,1,3506,1,,,CAMPD Facility database mapping
+3506,2,3506,2,,,CAMPD Facility database mapping
+3508,1,3508,1,,,CAMPD Facility database mapping
+3508,2,3508,2,,,CAMPD Facility database mapping
+3508,3,3508,3,,,CAMPD Facility database mapping
+3549,3,3549,3,,,CAMPD Facility database mapping
+3549,4,3549,4,,,CAMPD Facility database mapping
+3992,11,3992,3,,,CAMPD Facility database mapping
+4072,3,4072,3,,,CAMPD Facility database mapping
+4072,4,4072,4,,,CAMPD Facility database mapping
+4939,2,4939,2,,,CAMPD Facility database mapping
+6052,6A,55965,ST6,,2011,"CAMPD Facility database mapping, changes plant ID in 2012"
+6052,6A,55965,CT6A,,2011,"CAMPD Facility database mapping, changes plant ID in 2013"
+6052,6B,55965,ST6,,2011,"CAMPD Facility database mapping, changes plant ID in 2014"
+6052,6B,55965,CT6B,,2011,"CAMPD Facility database mapping, changes plant ID in 2015"
+6052,7A,55965,ST7,,2011,"CAMPD Facility database mapping, changes plant ID in 2016"
+6052,7A,55965,CT7A,,2011,"CAMPD Facility database mapping, changes plant ID in 2017"
+6052,7B,55965,ST7,,2011,"CAMPD Facility database mapping, changes plant ID in 2018"
+6052,7B,55965,CT7B,,2011,"CAMPD Facility database mapping, changes plant ID in 2019"
+55965,6A,55965,ST6,2012,,"CAMPD Facility database mapping, changes plant ID in 2012"
+55965,6A,55965,CT6A,2012,,"CAMPD Facility database mapping, changes plant ID in 2013"
+55965,6B,55965,ST6,2012,,"CAMPD Facility database mapping, changes plant ID in 2014"
+55965,6B,55965,CT6B,2012,,"CAMPD Facility database mapping, changes plant ID in 2015"
+55965,7A,55965,ST7,2012,,"CAMPD Facility database mapping, changes plant ID in 2016"
+55965,7A,55965,CT7A,2012,,"CAMPD Facility database mapping, changes plant ID in 2017"
+55965,7B,55965,ST7,2012,,"CAMPD Facility database mapping, changes plant ID in 2018"
+55965,7B,55965,CT7B,2012,,"CAMPD Facility database mapping, changes plant ID in 2019"
+7945,1,7945,1,,,CAMPD Facility database mapping
+8906,30,8906,3,,,CAMPD Facility database mapping
+8906,40,8906,4,,,CAMPD Facility database mapping
+8906,50,8906,ST5,,,CAMPD Facility database mapping
+10618,1,10618,GEN1,,,CAMPD Facility database mapping
+10618,1,10618,GEN2,,,CAMPD Facility database mapping
+50012,BLR4,50012,GEN3,,,CAMPD Facility database mapping
+50459,1,50459,GT,,,CAMPD Facility database mapping
+50459,1,50459,ST,,,CAMPD Facility database mapping
+50797,1001,50797,GEN1,,,CAMPD Facility database mapping
+50797,1001,50797,GEN2,,,CAMPD Facility database mapping
+50855,1,50855,GEN1,,,CAMPD Facility database mapping
+50855,1,50855,GEN2,,,CAMPD Facility database mapping
+50855,2,50855,GEN2,,,CAMPD Facility database mapping
+50855,2,50855,GEN3,,,CAMPD Facility database mapping
+54138,1GTDB,54138,GTG,,,CAMPD Facility database mapping
+54425,1,54425,GT1,,,CAMPD Facility database mapping
+54425,2,54425,GT2,,,CAMPD Facility database mapping
+54658,6,55833,CTP,,2008,"Matches CAMPD mapping of generator at plant of same name, changes plant ID in 2009"
+55833,6,55833,CTP,2009,,"Matches CAMPD mapping of generator at plant of same name, changes plant ID in 2009"
+55082,AA-001,55082,1,,,CAMPD Facility database mapping
+55082,AA-002,55082,2,,,CAMPD Facility database mapping
+55082,AA-003,55082,3,,,CAMPD Facility database mapping
+55082,AA-004,55082,4,,,CAMPD Facility database mapping
+55082,AA-005,55082,5,,,CAMPD Facility database mapping
+55082,AA-006,55082,6,,,CAMPD Facility database mapping
+55303,AA-001,55303,A001,,,CAMPD Facility database mapping
+55303,AA-002,55303,A002,,,CAMPD Facility database mapping
+55303,AA-003,55303,A003,,,CAMPD Facility database mapping
+55303,AA-004,55303,A004,,,CAMPD Facility database mapping
+55494,CT1,55494,CT3,,,CAMPD Facility database mapping
+55494,CT2,55494,CT4,,,CAMPD Facility database mapping
+55494,CT3,55494,CT1,,,CAMPD Facility database mapping
+55494,CT4,55494,CT2,,,CAMPD Facility database mapping
+55494,CT5,55494,CT5,,,CAMPD Facility database mapping
+55494,CT6,55494,CT6,,,CAMPD Facility database mapping
+55481,1,55481,GT1,,2012,Changes plant ID in 2013
+55481,1,55481,ST1,,2012,Changes plant ID in 2013
+55481,2,55481,GT2,,2012,Changes plant ID in 2013
+55481,2,55481,ST1,,2012,Changes plant ID in 2013
+55481,1,58557,GT1,2013,,Changes plant ID in 2013
+55481,1,58557,ST1,2013,,Changes plant ID in 2013
+55481,2,58557,GT2,2013,,Changes plant ID in 2013
+55481,2,58557,ST1,2013,,Changes plant ID in 2013
+10474,501,54995,17TG,,,Matched based on boiler_id and EIA-860 BGA table
+10474,502,54995,17TG,,,Matched based on boiler_id and EIA-860 BGA table
+10474,503,54995,17TG,,,Matched based on boiler_id and EIA-860 BGA table
+10474,504,54995,17TG,,,Matched based on boiler_id and EIA-860 BGA table
+591,11,591,CHCH,,,Matched based on fuel consumption and nameplate cap
+591,14,591,CHCH,,,Matched based on fuel consumption and nameplate cap
+55064,1,55064,UNIT2,,,Matched base on nameplate cap
+55120,CTG-1,10789,GEN1,,,Matched based on fuel consumption
+55120,CTG-2,10789,GEN1,,,Matched based on fuel consumption
+55279,AGS10,55279,CT10,,,CAMPD generator mapping matches generator name and nameplate cap
+55733,CT01,55733,FT01,,,Matched based on generator_id and nameplate cap
+3454,1,3454,1,,,CAMPD Facility database mapping
+3454,2,3454,2,,,CAMPD Facility database mapping
+3454,3,3454,3,,,CAMPD Facility database mapping
+666,CT3,666,GT3,,,CAMPD Facility database mapping
+645,BBCT2,645,GT2,,,CAMPD Facility database mapping
+645,BBCT3,645,GT3,,,CAMPD Facility database mapping

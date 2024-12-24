@@ -1,4 +1,9 @@
 plant_id_eia,updated_energy_source_code,basis
+1743,OBS,fuel heat content
+1745,OBS,fuel heat content
+10167,OG,fuel heat content
+10208,DFO,fuel heat content
+10360,SUB,fuel heat content
 10426,DFO,fuel heat content
 50305,RC,fuel heat content
 50473,MSB,plant type (phosphate) and fuel heat content

@@ -5,7 +5,12 @@ import warnings
 from pathlib import Path
 
 from oge.column_checks import get_dtypes, apply_dtypes
-from oge.filepaths import downloads_folder, reference_table_folder, outputs_folder
+from oge.filepaths import (
+    downloads_folder,
+    reference_table_folder,
+    outputs_folder,
+    pudl_folder,
+)
 import oge.validation as validation
 from oge.logging_util import get_logger
 from oge.constants import (
@@ -14,12 +19,13 @@ from oge.constants import (
     earliest_data_year,
     earliest_validated_year,
     latest_validated_year,
+    current_early_release_year,
 )
 
 logger = get_logger(__name__)
 
 # initialize the pudl_engine
-PUDL_ENGINE = sa.create_engine("sqlite:///" + downloads_folder("pudl/pudl.sqlite"))
+PUDL_ENGINE = sa.create_engine("sqlite:///" + pudl_folder("pudl.sqlite"))
 
 
 def load_cems_data(year: int) -> pd.DataFrame:
@@ -51,15 +57,18 @@ def load_cems_data(year: int) -> pd.DataFrame:
 
     # load the CEMS data
     cems = pd.read_parquet(
-        downloads_folder("pudl/core_epacems__hourly_emissions.parquet"),
+        pudl_folder("core_epacems__hourly_emissions.parquet"),
         filters=[["year", "==", year]],
         columns=cems_columns,
     )
     # convert to tz-naive datetime to allow for dtype application
     cems = apply_dtypes(cems)
 
+    # strip leading zeros from emissions unit id
+    cems["emissions_unit_id_epa"] = cems["emissions_unit_id_epa"].str.lstrip("0")
+
     # update the plant_id_eia column using manual matches
-    cems = update_epa_to_eia_map(cems)
+    cems = update_epa_to_eia_map(cems, year)
 
     cems = cems.rename(
         columns={
@@ -129,13 +138,23 @@ def load_cems_ids() -> pd.DataFrame:
     # duplicates before concatenating the next year to the dataframe
     cems_ids = []
     # The `constants.earliest_data_year` is 2005
-    for year in range(earliest_data_year, latest_validated_year + 1):
+    for year in range(
+        earliest_data_year, max(latest_validated_year, current_early_release_year) + 1
+    ):
         cems_id_year = pd.read_parquet(
-            downloads_folder("pudl/core_epacems__hourly_emissions.parquet"),
+            pudl_folder("core_epacems__hourly_emissions.parquet"),
             filters=[["year", "==", year]],
             columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
         ).drop_duplicates()
+        cems_id_year = apply_dtypes(cems_id_year)
+        # strip leading zeros from emissions unit id
+        cems_id_year["emissions_unit_id_epa"] = cems_id_year[
+            "emissions_unit_id_epa"
+        ].str.lstrip("0")
+        # update the plant_id_eia column using manual matches
+        cems_id_year = update_epa_to_eia_map(cems_id_year, year)
         cems_ids.append(cems_id_year)
+        # only keep new ids for the given year
         cems_ids = [pd.concat(cems_ids, axis=0).drop_duplicates()]
 
     cems_ids = (
@@ -145,9 +164,6 @@ def load_cems_ids() -> pd.DataFrame:
     )
 
     cems_ids = apply_dtypes(cems_ids)
-
-    # update the plant_id_eia column using manual matches
-    cems_ids = update_epa_to_eia_map(cems_ids)
 
     return cems_ids[["plant_id_eia", "emissions_unit_id_epa"]]
 
@@ -189,7 +205,10 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     # this avoids using potentially preliminary early-release data
     complete_gens = complete_gens[
         (complete_gens["report_date"].dt.year >= earliest_data_year)
-        & (complete_gens["report_date"].dt.year <= latest_validated_year)
+        & (
+            complete_gens["report_date"].dt.year
+            <= max(latest_validated_year, current_early_release_year)
+        )
     ]
 
     # for any retired gens, forward fill the most recently available unit_id_pudl to
@@ -225,7 +244,10 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     under_construction_status_codes = ["U", "V", "TS"]
     complete_gens = complete_gens[
         ~(
-            (complete_gens["report_date"].dt.year < latest_validated_year)
+            (
+                complete_gens["report_date"].dt.year
+                < max(latest_validated_year, current_early_release_year)
+            )
             & (
                 complete_gens["operational_status_code"].isin(
                     under_construction_status_codes
@@ -251,7 +273,10 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
         ~(
             (complete_gens["generator_operating_date"].isna())
             & (complete_gens["generator_retirement_date"].isna())
-            & (complete_gens["report_date"].dt.year < latest_validated_year)
+            & (
+                complete_gens["report_date"].dt.year
+                < max(latest_validated_year, current_early_release_year)
+            )
             & (complete_gens["operational_status_code"] != "TS")
         )
     ]
@@ -259,7 +284,7 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     ####################
     # merge into complete_gens and fill missing operating dates with the EIA-860 data
     generator_data_from_eia860 = load_raw_eia860_generator_dates_and_unit_ids(
-        latest_validated_year
+        max(latest_validated_year, current_early_release_year)
     )
     complete_gens = complete_gens.merge(
         generator_data_from_eia860,
@@ -301,9 +326,17 @@ def load_raw_eia860_plant_geographical_info(year: int) -> pd.DataFrame:
     """
     # load geographic information from the raw EIA-860 file to supplement missing
     # information from pudl
+    if (year == current_early_release_year) and (
+        current_early_release_year != latest_validated_year
+    ):
+        filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}_Early_Release.xlsx"
+        header_row = 2
+    else:
+        filepath = f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"
+        header_row = 1
     plant_geographical_eia860 = pd.read_excel(
-        downloads_folder(f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"),
-        header=1,
+        downloads_folder(filepath),
+        header=header_row,
         usecols=[
             "Plant Code",
             "Plant Name",
@@ -351,9 +384,17 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     """
     # load operating dates from the raw EIA-860 file to supplement missing operating
     # dates from pudl
+    if (year == current_early_release_year) and (
+        current_early_release_year != latest_validated_year
+    ):
+        filepath = f"eia860/eia860{year}ER/3_1_Generator_Y{year}_Early_Release.xlsx"
+        header_row = 2
+    else:
+        filepath = f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
+        header_row = 1
     generator_op_dates_eia860 = pd.read_excel(
-        downloads_folder(f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"),
-        header=1,
+        downloads_folder(filepath),
+        header=header_row,
         sheet_name="Operable",
         usecols=[
             "Plant Code",
@@ -383,9 +424,9 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     # load unit codes for proposed generators
     proposed_unit_ids_eia860 = (
         pd.read_excel(
-            downloads_folder(f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"),
+            downloads_folder(filepath),
             sheet_name="Proposed",
-            header=1,
+            header=header_row,
             usecols=["Plant Code", "Generator ID", "Unit Code"],
         )
         .dropna(subset="Unit Code")
@@ -423,78 +464,16 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     return generator_data_from_eia860
 
 
-def load_cems_gross_generation(start_year: int, end_year: int) -> pd.DataFrame:
-    """Loads hourly CEMS gross generation data for multiple years.
-
-    Args:
-        start_year (int): a four-digit year.
-        end_year (int): a four-digit year
-
-    Returns:
-        pd.DataFrame: CEMS gross generation data over the required year aggregated by
-            plant, unit and month.
-    """
-
-    # specify the columns to use from the CEMS database
-    cems_columns = [
-        "plant_id_epa",
-        "plant_id_eia",
-        "emissions_unit_id_epa",
-        "operating_datetime_utc",
-        "operating_time_hours",
-        "gross_load_mw",
-    ]
-
-    # load cems data
-    cems = pd.read_parquet(
-        downloads_folder("pudl/core_epacems__hourly_emissions.parquet"),
-        filters=[["year", ">=", start_year], ["year", "<=", end_year]],
-        columns=cems_columns,
-    )
-    # convert to tz-naive datetime to allow for dtype application
-    cems = apply_dtypes(cems)
-
-    # update the plant_id_eia column using manual matches
-    cems = update_epa_to_eia_map(cems)
-
-    # only keep values when the plant was operating
-    # this will help speed up calculations and allow us to add this data back later
-    cems = cems[(cems["gross_load_mw"] > 0) | (cems["operating_time_hours"] > 0)]
-
-    # rename the heat content column to use the convention used in the EIA data
-    cems = cems.rename(
-        columns={
-            "operating_datetime_utc": "datetime_utc",
-            "gross_load_mw": "gross_generation_mwh",
-        }
-    )
-
-    # add a report date
-    cems = add_report_date(cems)
-
-    cems = cems[
-        [
-            "plant_id_eia",
-            "emissions_unit_id_epa",
-            "report_date",
-            "gross_generation_mwh",
-        ]
-    ]
-
-    # group data by plant, unit, month
-    cems = cems.groupby(
-        ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
-    ).sum()
-
-    return cems
-
-
-def update_epa_to_eia_map(cems_df: pd.DataFrame) -> pd.DataFrame:
+def update_epa_to_eia_map(cems_df: pd.DataFrame, year: int) -> pd.DataFrame:
     """Updates the plant_id_eia column in the CEMS data frame loaded from pudl based
-    on the manual epa_eia_crosswalk_manual table
+    on the manual epa_eia_crosswalk_manual table.
+
+    This is meant to be applied on a single year of CEMS data at a time, since EPA-EIA
+    mappings can change from year to year
 
     Args:
         cems_df (pd.DataFrame): input CEMS data frame.
+        year (int): used to filter to the correct mapping for the current year
 
     Returns:
         pd.DataFrame: CEMS data frame with updated plant_id_eia column.
@@ -505,10 +484,18 @@ def update_epa_to_eia_map(cems_df: pd.DataFrame) -> pd.DataFrame:
         dtype=get_dtypes(),
     ).drop(columns=["notes"])
 
-    # only keep rows where the epa and eia plant ids don't match
-    manual_plant_map = manual_plant_map.loc[
-        manual_plant_map["plant_id_epa"] != manual_plant_map["plant_id_eia"],
-        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"],
+    # if no start_year or end_year is specified, fill with numbers to help with filtering
+    manual_plant_map["start_year"] = manual_plant_map["start_year"].fillna(0)
+    manual_plant_map["end_year"] = manual_plant_map["end_year"].fillna(9999)
+
+    # only keep mappings that are valid for the current year
+    manual_plant_map = manual_plant_map[
+        (year >= manual_plant_map["start_year"])
+        & (year <= manual_plant_map["end_year"])
+    ].drop(columns=["start_year", "end_year"])
+
+    manual_plant_map = manual_plant_map[
+        ["plant_id_epa", "emissions_unit_id_epa", "plant_id_eia"]
     ].drop_duplicates()
 
     # merge into the cems data
@@ -699,8 +686,10 @@ def load_pudl_table(
 def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
     """Read in the EPA-EIA Crosswalk table downloaded from the EPA website.
 
-    This is only used in OGE to access the CAMD_FUEL_TYPE column, which is dropped from
-    the PUDL version of the table.
+    This is only used data_cleaning.assign_fuel_type_to_cems() to access the
+    CAMD_FUEL_TYPE column, which is dropped from the PUDL version of the table.
+    This is also used in data_cleaning.remove_non_grid_connected_plants() to identify
+    the units that CAMD identified as NGC.
 
     Args:
         year (int): a four-digit year.
@@ -719,11 +708,13 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
             "EIA_BOILER_ID",
             "EIA_FUEL_TYPE",
             "CAMD_FUEL_TYPE",
+            "MATCH_TYPE_GEN",
         ],
     )
 
     # remove leading zeros from the generator id and emissions_unit_id_epa
     crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
+    crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # some eia plant ids are missing. Let us assume that the EIA and EPA plant ids
     # match in this case
@@ -743,6 +734,7 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
             "EIA_BOILER_ID": "boiler_id",
             "EIA_FUEL_TYPE": "energy_source_code_eia",
             "CAMD_FUEL_TYPE": "energy_source_code_epa",
+            "MATCH_TYPE_GEN": "epa_match_type",
         }
     )
 
@@ -816,6 +808,8 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
 def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
     """Read in the manual EPA-EIA Crosswalk table.
 
+    This is currently only used for subplant identification
+
     Args:
         year (int): a four-digit year.
 
@@ -824,6 +818,9 @@ def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
     """
 
     crosswalk = load_pudl_table("core_epa__assn_eia_epacamd")
+    crosswalk["emissions_unit_id_epa"] = crosswalk["emissions_unit_id_epa"].str.lstrip(
+        "0"
+    )
 
     # load manually inputted data
     crosswalk_manual = pd.read_csv(
@@ -1152,47 +1149,59 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
         )
 
     if year >= 2012:
-        # Handle filename changes across years.
-        schedule_8_filename = {
-            2012: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-            ),
-            2013: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_PartsA-D_EnvData_2013_Final_Revision.xlsx"
-            ),
-            2014: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-            ),
-            2015: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-            ),
-            2016: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-            ),
-            2017: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
-            ),
-            2018: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx"
-            ),
-            2019: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-            ),
-            2020: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-            ),
-            2021: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
-            ),
-            2022: downloads_folder(
-                f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx"
-            ),
-        }[year]
+        if year <= latest_validated_year:
+            # Handle filename changes across years.
+            schedule_8_filename = {
+                2012: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+                ),
+                2013: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_PartsA-D_EnvData_2013_Final_Revision.xlsx"
+                ),
+                2014: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+                ),
+                2015: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+                ),
+                2016: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+                ),
+                2017: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
+                ),
+                2018: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx"
+                ),
+                2019: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+                ),
+                2020: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+                ),
+                2021: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final_Revision.xlsx"
+                ),
+                2022: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Final.xlsx"
+                ),
+                2023: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
+                ),
+            }[year]
+            header_row = 4
+        elif (year == current_early_release_year) and (
+            current_early_release_year != latest_validated_year
+        ):
+            schedule_8_filename = downloads_folder(
+                f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Early_Release.xlsx"
+            )
+            header_row = 5
 
         emissions_controls_eia923 = pd.read_excel(
             io=schedule_8_filename,
             sheet_name="8C Air Emissions Control Info",
-            header=4,
+            header=header_row,
             names=emissions_controls_eia923_names,
             dtype=get_dtypes(),
             na_values=".",

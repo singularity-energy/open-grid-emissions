@@ -5,11 +5,17 @@ import shutil
 import os
 
 import oge.load_data as load_data
-import oge.column_checks as column_checks
+from oge.column_checks import check_columns, DATA_COLUMNS
 import oge.validation as validation
 from oge.filepaths import outputs_folder, results_folder, data_folder
 from oge.logging_util import get_logger
-from oge.constants import ConversionFactors
+from oge.constants import (
+    ConversionFactors,
+    earliest_validated_year,
+    earliest_hourly_data_year,
+    latest_validated_year,
+    current_early_release_year,
+)
 
 logger = get_logger(__name__)
 
@@ -59,54 +65,113 @@ def prepare_files_for_upload(years: list):
     """
 
     for year in years:
-        zip_results_for_s3(year)
+        zip_results_for_s3()
         zip_data_for_zenodo(year)
 
 
-def zip_results_for_s3(year: int):
+def zip_results_for_s3():
     """Zips results directories that contain more than a single file for hosting on an
     Amazon S3 bucket.
 
-
-    Args:
-        year (int): a four-digit year indicating when the data were taken.
     """
     os.makedirs(data_folder("s3_upload"), exist_ok=True)
-    for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
-        for aggregation in ["hourly", "monthly", "annual"]:
+    historical_years = list(range(earliest_validated_year, earliest_hourly_data_year))
+    year_range = f"{earliest_validated_year}-{earliest_hourly_data_year-1}"
+    for data_type in ["power_sector_data", "plant_data"]:
+        for aggregation in ["monthly", "annual"]:
             for unit in ["metric_units", "us_units"]:
-                if (
-                    (data_type == "plant_data")
-                    & (aggregation == "hourly")
-                    & (unit == "metric_units")
-                ):
-                    # skip the metric hourly plant data since we do not create those outputs
-                    pass
-                else:
-                    logger.info(
-                        f"zipping {year}_{data_type}_{aggregation}_{unit} for s3"
+                logger.info(
+                    f"zipping {year_range}_{data_type}_{aggregation}_{unit} for s3"
+                )
+                for year in historical_years:
+                    # copy the annual file to a combined folder
+                    shutil.copytree(
+                        (results_folder(f"{year}/{data_type}/{aggregation}/{unit}")),
+                        data_folder(
+                            f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}/{year}"
+                        ),
                     )
-                    folder = (
-                        f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
+                # now create an archive
+                shutil.make_archive(
+                    data_folder(
+                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
+                    ),
+                    "zip",
+                    root_dir=data_folder(
+                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
+                    ),
+                )
+                shutil.rmtree(
+                    data_folder(
+                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
                     )
-                    shutil.make_archive(
-                        f"{data_folder()}/s3_upload/{year}_{data_type}_{aggregation}_{unit}",
-                        "zip",
-                        root_dir=folder,
-                        # base_dir="",
-                    )
+                )
     # move and rename the plant attributes files
-    shutil.copy(
-        f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
-        f"{data_folder()}/s3_upload/plant_static_attributes_{year}.csv",
+    os.makedirs(
+        data_folder(f"s3_upload/{year_range}_plant_attributes"),
+        exist_ok=True,
     )
-    # archive the data quality metrics
+    for year in historical_years:
+        # data quality metrics
+        shutil.copytree(
+            (results_folder(f"{year}/data_quality_metrics")),
+            data_folder(f"s3_upload/{year_range}_data_quality_metrics/{year}"),
+        )
+
+        shutil.copy(
+            results_folder(f"{year}/plant_data/plant_static_attributes.csv"),
+            data_folder(
+                f"s3_upload/{year_range}_plant_attributes/plant_static_attributes_{year}.csv"
+            ),
+        )
     shutil.make_archive(
-        f"{data_folder()}/s3_upload/{year}_data_quality_metrics",
+        data_folder(f"s3_upload/{year_range}_data_quality_metrics"),
         "zip",
-        root_dir=f"{results_folder()}/{year}/data_quality_metrics",
-        # base_dir="",
+        root_dir=data_folder(f"s3_upload/{year_range}_data_quality_metrics"),
     )
+    shutil.rmtree(data_folder(f"s3_upload/{year_range}_data_quality_metrics"))
+    shutil.make_archive(
+        data_folder(f"s3_upload/{year_range}_plant_attributes"),
+        "zip",
+        root_dir=data_folder(f"s3_upload/{year_range}_plant_attributes"),
+    )
+    shutil.rmtree(data_folder(f"s3_upload/{year_range}_plant_attributes"))
+    for year in range(2019, max(latest_validated_year, current_early_release_year) + 1):
+        for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
+            for aggregation in ["hourly", "monthly", "annual"]:
+                for unit in ["metric_units", "us_units"]:
+                    if (
+                        (data_type == "plant_data")
+                        & (aggregation == "hourly")
+                        & (unit == "metric_units")
+                    ):
+                        # skip the metric hourly plant data since we do not create those outputs
+                        pass
+                    else:
+                        logger.info(
+                            f"zipping {year}_{data_type}_{aggregation}_{unit} for s3"
+                        )
+                        folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
+                        shutil.make_archive(
+                            data_folder(
+                                f"s3_upload/{year}_{data_type}_{aggregation}_{unit}"
+                            ),
+                            "zip",
+                            root_dir=folder,
+                            # base_dir="",
+                        )
+        # move and rename the plant attributes files
+        shutil.copy(
+            f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
+            data_folder(f"s3_upload/plant_static_attributes_{year}.csv"),
+        )
+        # archive the data quality metrics
+        shutil.make_archive(
+            data_folder(f"s3_upload/{year}_data_quality_metrics"),
+            "zip",
+            root_dir=f"{results_folder()}/{year}/data_quality_metrics",
+            # base_dir="",
+        )
 
 
 def zip_data_for_zenodo(year: int):
@@ -139,7 +204,7 @@ def output_intermediate_data(
         year (int): a four-digit year indicating when the data were taken.
         skip_outputs (bool): whether to save data or not.
     """
-    column_checks.check_columns(df, file_name)
+    check_columns(df, file_name)
     if not skip_outputs:
         logger.info(f"Exporting {file_name} to data/outputs")
         df.to_csv(
@@ -222,85 +287,94 @@ def output_data_quality_metrics(
         )
 
 
-def output_plant_data(
-    df: pd.DataFrame,
+def write_plant_data_to_results(
+    monthly_subplant_data: pd.DataFrame,
     year: int,
     path_prefix: str,
+    plant_part: str,
     resolution: str,
     skip_outputs: bool,
     plant_attributes: pd.DataFrame,
 ):
-    """Helper function for plant-level output. Different output will be produced for
-    real and shaped plants.
-
-    Note:
-        plant-level does not include rates, so all aggregation is summation.
+    """
+    Helper function to write subplant or plant data at the monthly or annual resolution.
 
     Args:
-        df (pd.DataFrame): plant-level data both CEMS and synthetic.
+        monthly_subplant_data (pd.DataFrame): Combined monthly data for all subplants
         year (int): a four-digit year indicating when data were taken.
         path_prefix (str): name of base directory prefixing directory where data will
             be saved.
+        plant_part (str): either "plant" or "subplant"
         resolution (str): temporal resolution. Wither 'hourly', 'monthly' or 'annual'.
         skip_outputs (bool): whether to save data or not.
         plant_attributes (pd.DataFrame): the plant static attributes table.
     """
     if not skip_outputs:
-        if resolution == "hourly":
-            # output hourly data
-            validation.validate_unique_datetimes(
-                year, df, "individual_plant_data", ["plant_id_eia"]
+        groupby_cols = ["plant_id_eia"]
+        if plant_part == "subplant":
+            groupby_cols += ["subplant_id"]
+        if resolution == "monthly":
+            groupby_cols += ["report_date"]
+
+        # group data to specified groups
+        df = (
+            monthly_subplant_data.groupby(groupby_cols, dropna=False)
+            .sum(numeric_only=True)
+            .reset_index()
+        )
+
+        # add some basic plant data to the annual plant output table
+        if resolution == "annual" and plant_part == "plant":
+            df = df.merge(
+                plant_attributes[
+                    [
+                        "plant_id_eia",
+                        "plant_name_eia",
+                        "fuel_category",
+                        "capacity_mw",
+                        "ba_code",
+                        "city",
+                        "county",
+                        "state",
+                    ]
+                ],
+                how="left",
+                on="plant_id_eia",
+                validate="m:1",
             )
-            validation.check_for_complete_hourly_timeseries(
-                df, "individual_plant_data", ["plant_id_eia"], "year"
-            )
-            # Separately save real and aggregate plants
-            output_to_results(
-                df[df.plant_id_eia > 900000],
-                year,
-                "shaped_fleet_data",
-                "plant_data/hourly/",
-                path_prefix,
-                skip_outputs,
-            )
-            output_to_results(
-                df[df.plant_id_eia < 900000],
-                year,
-                "individual_plant_data",
-                "plant_data/hourly/",
-                path_prefix,
-                skip_outputs,
-            )
-        elif resolution == "monthly":
-            # output monthly data
-            output_to_results(
-                df,
-                year,
-                "plant_data",
-                "plant_data/monthly/",
-                path_prefix,
-                skip_outputs,
-            )
-        elif resolution == "annual":
-            # output annual data
-            df = (
-                df.groupby(["plant_id_eia"], dropna=False)
-                .sum(numeric_only=True)
-                .reset_index()
-            )
-            # check for anomalous looking co2 rates
-            validation.check_for_anomalous_co2_factors(
-                df, plant_attributes, year, min_threshold=10, max_threshold=15000
-            )
-            # Separately save real and aggregate plants
-            output_to_results(
-                df,
-                year,
-                "plant_data",
-                "plant_data/annual/",
-                path_prefix,
-                skip_outputs,
-            )
+
+            # rearrange columns
+            df = df[
+                [
+                    "plant_id_eia",
+                    "plant_name_eia",
+                    "fuel_category",
+                    "capacity_mw",
+                    "ba_code",
+                    "city",
+                    "county",
+                    "state",
+                ]
+                + DATA_COLUMNS
+            ]
+
+        # calculate emission rates
+        df = add_generated_emission_rate_columns(df)
+
+        # check for anomalous looking co2 rates
+        validation.check_for_anomalous_co2_factors(
+            df, plant_attributes, year, min_threshold=10, max_threshold=15000
+        )
+
+        # output monthly data
+        output_to_results(
+            df,
+            year,
+            file_name=f"{plant_part}_data",
+            subfolder=f"plant_data/{resolution}/",
+            path_prefix=path_prefix,
+            skip_outputs=skip_outputs,
+        )
 
 
 def convert_results(df: pd.DataFrame) -> pd.DataFrame:
@@ -333,10 +407,10 @@ def convert_results(df: pd.DataFrame) -> pd.DataFrame:
     return converted
 
 
-def write_generated_averages(
+def write_national_fleet_averages(
     ba_fuel_data: pd.DataFrame, year: int, path_prefix: str, skip_outputs: bool
 ):
-    """Outputs generated averaged emission.
+    """Outputs annual, national-average fleet-level emissions data
 
     Args:
         ba_fuel_data (pd.DataFrame): plant data aggregated by BA and fuel type.
@@ -346,33 +420,30 @@ def write_generated_averages(
         skip_outputs (bool): whether to save data or not.
     """
     if not skip_outputs:
-        fuel_type_production = (
-            ba_fuel_data.groupby(["fuel_category"]).sum(numeric_only=True).reset_index()
+        # sum all of the columns by fuel before calculating emission rates
+        national_avg = (
+            ba_fuel_data.groupby(["fuel_category"])[DATA_COLUMNS]
+            .sum(numeric_only=True)
+            .reset_index()
         )
 
         # Add row for total
-        total_production = fuel_type_production.sum(numeric_only=True).to_frame().T
-        total_production.loc[0, "fuel_category"] = "total"
-        production = pd.concat([fuel_type_production, total_production], axis=0)
+        national_total = pd.DataFrame(national_avg[DATA_COLUMNS].sum()).T
+        national_total["fuel_category"] = "total"
 
-        # Calculate rates
-        for emission_type in ["_for_electricity", "_for_electricity_adjusted"]:
-            for emission in ["co2", "ch4", "n2o", "co2e", "nox", "so2"]:
-                production[f"generated_{emission}_rate_lb_per_mwh{emission_type}"] = (
-                    (
-                        production[f"{emission}_mass_lb{emission_type}"]
-                        / production["net_generation_mwh"]
-                    )
-                    .replace(np.inf, np.NaN)
-                    .replace(-np.inf, np.NaN)
-                    .fillna(0)
-                )
+        # concat the totals to the fuel-specific totals
+        national_avg = pd.concat(
+            [national_avg, national_total], axis=0, ignore_index=True
+        )
 
-        output_intermediate_data(
-            production,
-            "annual_generation_averages_by_fuel",
-            path_prefix,
+        national_avg = add_generated_emission_rate_columns(national_avg)
+
+        output_to_results(
+            national_avg,
             year,
+            "US",
+            "power_sector_data/annual/",
+            path_prefix,
             skip_outputs,
         )
 
@@ -453,37 +524,7 @@ def write_plant_metadata(
         .drop_duplicates(subset=["plant_id_eia", "subplant_id", "report_date"])
     )
 
-    # For monthly only: specify which synthetic plant we were aggregated to
-    monthly_eia_meta = monthly_eia_meta.merge(
-        plant_static_attributes[["plant_id_eia", "shaped_plant_id"]],
-        how="left",
-        on="plant_id_eia",
-        validate="m:1",  # There can be multiple subplants for each plant
-    )
-
     monthly_eia_meta["data_source"] = "EIA"
-
-    # merge in the net generation method and hourly profile from the shaped metadata
-    shaped_eia_data_meta = shaped_eia_data.copy()[
-        ["plant_id_eia", "report_date", "profile_method"]
-    ].drop_duplicates(subset=["plant_id_eia", "report_date"])
-    shaped_eia_data_meta = shaped_eia_data_meta.rename(
-        columns={"plant_id_eia": "shaped_plant_id"}
-    )
-    shaped_eia_data_meta["net_generation_method"] = shaped_eia_data_meta[
-        "profile_method"
-    ]
-    shaped_eia_data_meta = shaped_eia_data_meta.rename(
-        columns={"profile_method": "hourly_profile_source"}
-    )
-    monthly_eia_meta = monthly_eia_meta.merge(
-        shaped_eia_data_meta,
-        how="left",
-        on=["shaped_plant_id", "report_date"],
-        validate="m:1",  # There can be multiple subplants for each plant
-    )
-
-    monthly_eia_meta = monthly_eia_meta.drop(columns=["shaped_plant_id"])
 
     # concat the metadata into a one file and export
     metadata = pd.concat(
@@ -504,7 +545,7 @@ def write_plant_metadata(
         year=year,
     )
 
-    column_checks.check_columns(metadata, "plant_metadata")
+    check_columns(metadata, "plant_metadata")
 
     if not skip_outputs:
         metadata.to_csv(
@@ -545,67 +586,38 @@ def round_table(table: pd.DataFrame) -> pd.DataFrame:
 
 
 def write_power_sector_results(
-    ba_fuel_data: pd.DataFrame,
+    fleet_data: pd.DataFrame,
     year: int,
     path_prefix: str,
     skip_outputs: bool,
     include_hourly: bool,
+    include_monthly: bool,
+    include_annual: bool,
 ):
     """Helper function to write combined data by BA
 
     Args:
-        ba_fuel_data (pd.DataFrame): plant data aggregated by BA and fuel type.
+        fleet_data (pd.DataFrame): subplant data aggregated by BA and fuel type.
         year (int): a four-digit year indicating when data were taken.
         path_prefix (str): name of base directory prefixing directory where data will
             be saved.
         skip_outputs (bool): whether to save power sector results or not.
-        include_hourly (bool): whether to include hourly results in addition to
-            monthly and yearly results
+        include_hourly (bool): whether to include hourly results.
+        include_monthly (bool): whether to include monthly results.
+        include_annual (bool): whether to include annual results.
     """
 
-    data_columns = [
-        "net_generation_mwh",
-        "fuel_consumed_mmbtu",
-        "fuel_consumed_for_electricity_mmbtu",
-        "co2_mass_lb",
-        "ch4_mass_lb",
-        "n2o_mass_lb",
-        "co2e_mass_lb",
-        "nox_mass_lb",
-        "so2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "ch4_mass_lb_for_electricity",
-        "n2o_mass_lb_for_electricity",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb_for_electricity",
-        "co2_mass_lb_adjusted",
-        "ch4_mass_lb_adjusted",
-        "n2o_mass_lb_adjusted",
-        "co2e_mass_lb_adjusted",
-        "nox_mass_lb_adjusted",
-        "so2_mass_lb_adjusted",
-        "co2_mass_lb_for_electricity_adjusted",
-        "ch4_mass_lb_for_electricity_adjusted",
-        "n2o_mass_lb_for_electricity_adjusted",
-        "co2e_mass_lb_for_electricity_adjusted",
-        "nox_mass_lb_for_electricity_adjusted",
-        "so2_mass_lb_for_electricity_adjusted",
-    ]
-
     if not skip_outputs:
-        for ba in list(ba_fuel_data.ba_code.unique()):
+        for ba in list(fleet_data.ba_code.unique()):
             if not isinstance(ba, str):
                 logger.warning(
-                    f"not aggregating {sum(ba_fuel_data.ba_code.isna())} plants "
+                    f"not aggregating {sum(fleet_data.ba_code.isna())} plants "
                     f"with numeric BA {ba}"
                 )
                 continue
 
             # filter the data for a single BA
-            ba_table = ba_fuel_data[ba_fuel_data["ba_code"] == ba].drop(
-                columns="ba_code"
-            )
+            ba_table = fleet_data[fleet_data["ba_code"] == ba].drop(columns="ba_code")
 
             if include_hourly:
                 # convert the datetime_utc column back to a datetime
@@ -624,7 +636,7 @@ def write_power_sector_results(
                 # datetime_utc for the hourly calculations
                 ba_total = (
                     ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
-                        data_columns
+                        DATA_COLUMNS
                     ]
                     .sum()
                     .reset_index()
@@ -658,7 +670,7 @@ def write_power_sector_results(
                 # re-order columns
                 ba_table_hourly = ba_table_hourly[
                     ["fuel_category", "datetime_local", "datetime_utc"]
-                    + data_columns
+                    + DATA_COLUMNS
                     + GENERATED_EMISSION_RATE_COLS
                 ]
 
@@ -684,9 +696,9 @@ def write_power_sector_results(
                     path_prefix,
                     skip_outputs,
                 )
-            else:
+            elif include_monthly or include_annual:
                 ba_total = (
-                    ba_table.groupby(["report_date"], dropna=False)[data_columns]
+                    ba_table.groupby(["report_date"], dropna=False)[DATA_COLUMNS]
                     .sum()
                     .reset_index()
                 )
@@ -695,47 +707,33 @@ def write_power_sector_results(
                 # concat the totals to the fuel-specific totals
                 ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
 
-            # aggregate data to monthly
-            ba_table_monthly = (
-                ba_table.groupby(["fuel_category", "report_date"], dropna=False)
-                .sum(numeric_only=True)
-                .reset_index()
-            )
-            ba_table_monthly = add_generated_emission_rate_columns(ba_table_monthly)
-            # re-order columns
-            ba_table_monthly = ba_table_monthly[
-                ["fuel_category", "report_date"]
-                + data_columns
-                + GENERATED_EMISSION_RATE_COLS
-            ]
-            output_to_results(
-                ba_table_monthly,
-                year,
-                ba,
-                "power_sector_data/monthly/",
-                path_prefix,
-                skip_outputs,
-            )
+                agg = {}
+                if include_monthly:
+                    agg["monthly"] = ["fuel_category", "report_date"]
 
-            # aggregate data to annual
-            ba_table_annual = (
-                ba_table.groupby(["fuel_category"], dropna=False)
-                .sum(numeric_only=True)
-                .reset_index()
-            )
-            ba_table_annual = add_generated_emission_rate_columns(ba_table_annual)
-            # re-order columns
-            ba_table_annual = ba_table_annual[
-                ["fuel_category"] + data_columns + GENERATED_EMISSION_RATE_COLS
-            ]
-            output_to_results(
-                ba_table_annual,
-                year,
-                ba,
-                "power_sector_data/annual/",
-                path_prefix,
-                skip_outputs,
-            )
+                if include_annual:
+                    agg["annual"] = ["fuel_category"]
+
+                for agg_level, groupby_cols in agg.items():
+                    # aggregate data
+                    ba_table = (
+                        ba_table.groupby(groupby_cols, dropna=False)
+                        .sum(numeric_only=True)
+                        .reset_index()
+                    )
+                    ba_table = add_generated_emission_rate_columns(ba_table)
+                    # re-order columns
+                    ba_table = ba_table[
+                        groupby_cols + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS
+                    ]
+                    output_to_results(
+                        ba_table,
+                        year,
+                        ba,
+                        f"power_sector_data/{agg_level}/",
+                        path_prefix,
+                        skip_outputs,
+                    )
 
 
 def add_generated_emission_rate_columns(df: pd.DataFrame) -> pd.DataFrame:

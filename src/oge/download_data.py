@@ -7,8 +7,9 @@ import shutil
 import tarfile
 import zipfile
 
-from oge.filepaths import downloads_folder, data_folder
+from oge.filepaths import downloads_folder, data_folder, get_pudl_build_version
 from oge.logging_util import get_logger
+from oge.constants import current_early_release_year, latest_validated_year
 
 logger = get_logger(__name__)
 
@@ -89,7 +90,7 @@ def download_helper(
     return True
 
 
-def download_pudl_data(source: str = "aws"):
+def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version()):
     """Downloads the pudl database. OGE currently supports two sources: zenodo and aws
     (i.e. nightly builds). For more information about data sources see:
     https://catalystcoop-pudl.readthedocs.io/en/latest/data_access.html#data-access
@@ -107,44 +108,62 @@ def download_pudl_data(source: str = "aws"):
     Args:
         source (str, optional): where to download pudl from, either 'aws' or 'zenodo'.
             Defaults to 'aws'.
+        build (str): whether to download the "stable" or "nightly" build
 
     Raises:
+        ValueError: if `build` is neither 'stable' or 'nightly'.
         ValueError: if `source` is neither 'aws' or 'zenodo'.
     """
-    os.makedirs(downloads_folder("pudl"), exist_ok=True)
+    if build not in ["stable", "nightly"]:
+        raise ValueError(f"pudl build must be 'stable' or 'nightly', not {build}")
+    os.makedirs(downloads_folder(f"pudl/{build}"), exist_ok=True)
 
     if source == "aws":
-        # define the urls
-        pudl_db_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/stable/pudl.sqlite.gz"
-        epacems_parquet_url = "https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/stable/core_epacems__hourly_emissions.parquet"
-
         # download the pudl sqlite database
-        if not os.path.exists(downloads_folder("pudl/pudl.sqlite")):
-            output_filepath = downloads_folder("pudl/pudl.sqlite")
+        if not os.path.exists(downloads_folder(f"pudl/{build}/pudl.sqlite")):
+            output_filepath = downloads_folder(f"pudl/{build}/pudl.sqlite")
+            pudl_db_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/pudl.sqlite.zip"
             download_helper(
                 pudl_db_url,
-                download_path=output_filepath + ".gz",
+                download_path=output_filepath + ".zip",
                 output_path=output_filepath,
-                requires_gzip=True,
+                requires_unzip=True,
                 should_clean=True,
             )
+            # move the sqlite file from the folder it was extracted into
+            os.makedirs(downloads_folder(f"pudl/{build}/tmp"), exist_ok=True)
+            shutil.move(
+                src=(output_filepath + "/pudl.sqlite"),
+                dst=downloads_folder(f"pudl/{build}/tmp/pudl.sqlite"),
+            )
+            os.rmdir(output_filepath)
+            shutil.move(
+                downloads_folder(f"pudl/{build}/tmp/pudl.sqlite"), output_filepath
+            )
+            os.rmdir(downloads_folder(f"pudl/{build}/tmp"))
 
             # add a version file
-            with open(downloads_folder("pudl/pudl_sqlite_version.txt"), "w+") as v:
+            with open(
+                downloads_folder(f"pudl/{build}/pudl_sqlite_version.txt"), "w+"
+            ) as v:
                 v.write(f"{datetime.date.today()}")
         else:
-            with open(downloads_folder("pudl/pudl_sqlite_version.txt"), "r") as f:
+            with open(
+                downloads_folder(f"pudl/{build}/pudl_sqlite_version.txt"), "r"
+            ) as f:
                 existing_version = f.readlines()[0].replace("\n", "")
             logger.info(
                 f"Using stable build version of PUDL sqlite database downloaded {existing_version}"
             )
 
+        # download the epacems parquet file
+        epacems_parquet_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/core_epacems__hourly_emissions.parquet"
         if not os.path.exists(
-            downloads_folder("pudl/core_epacems__hourly_emissions.parquet")
+            downloads_folder(f"pudl/{build}/core_epacems__hourly_emissions.parquet")
         ):
             # download the epacems parquet
             output_filepath = downloads_folder(
-                "pudl/core_epacems__hourly_emissions.parquet"
+                f"pudl/{build}/core_epacems__hourly_emissions.parquet"
             )
             download_helper(
                 epacems_parquet_url,
@@ -152,11 +171,15 @@ def download_pudl_data(source: str = "aws"):
             )
 
             # add a version file
-            with open(downloads_folder("pudl/epacems_parquet_version.txt"), "w+") as v:
+            with open(
+                downloads_folder(f"pudl/{build}/epacems_parquet_version.txt"), "w+"
+            ) as v:
                 v.write(f"{datetime.date.today()}")
 
         else:
-            with open(downloads_folder("pudl/epacems_parquet_version.txt"), "r") as f:
+            with open(
+                downloads_folder(f"pudl/{build}/epacems_parquet_version.txt"), "r"
+            ) as f:
                 existing_version = f.readlines()[0].replace("\n", "")
             logger.info(
                 f"Using stable build version of PUDL epacems parquet file downloaded {existing_version}"
@@ -312,6 +335,7 @@ def download_raw_eia923(year: int):
         year (int): a four-digit year.
     """
     if year < 2008:
+        os.makedirs(downloads_folder("eia923"), exist_ok=True)
         logger.warning(
             "EIA-923 data is not available before 2008. "
             "Downloading EIA-906/920 files instead"
@@ -319,7 +343,12 @@ def download_raw_eia923(year: int):
         download_raw_eia_906_920(year)
     else:
         os.makedirs(downloads_folder("eia923"), exist_ok=True)
-        url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
+        if (year == current_early_release_year) and (
+            current_early_release_year != latest_validated_year
+        ):
+            url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}er.zip"
+        else:
+            url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
         archive_url = (
             f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
         )
@@ -378,7 +407,12 @@ def download_raw_eia860(year: int):
     if year < 2005:
         raise NotImplementedError(f"We haven't tested EIA-860 for '{year}'.")
     os.makedirs(downloads_folder("eia860"), exist_ok=True)
-    url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
+    if (year == current_early_release_year) and (
+        current_early_release_year != latest_validated_year
+    ):
+        url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}ER.zip"
+    else:
+        url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
     archive_url = (
         f"https://www.eia.gov/electricity/data/eia860/archive/xls/eia860{year}.zip"
     )

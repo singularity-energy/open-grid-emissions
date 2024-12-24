@@ -5,7 +5,7 @@ from pudl.etl.glue_assets import make_subplant_ids
 
 import oge.load_data as load_data
 import oge.validation as validation
-from oge.constants import latest_validated_year
+from oge.constants import latest_validated_year, current_early_release_year
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -33,7 +33,9 @@ def generate_subplant_ids() -> pd.DataFrame:
     cems_ids = load_data.load_cems_ids()
 
     # load the crosswalk and filter it by the data that actually exists in cems
-    crosswalk = load_data.load_epa_eia_crosswalk(latest_validated_year)
+    crosswalk = load_data.load_epa_eia_crosswalk(
+        max(latest_validated_year, current_early_release_year)
+    )
 
     # filter the crosswalk to drop any units that don't exist in CEMS
     filtered_crosswalk = epacamd_eia.filter_crosswalk(crosswalk, cems_ids)
@@ -82,6 +84,8 @@ def generate_subplant_ids() -> pd.DataFrame:
             "original_planned_generator_operating_date",
             "current_planned_generator_operating_date",
             "prime_mover_code",
+            "start_year",
+            "end_year",
         ]
     ]
 
@@ -140,6 +144,8 @@ def generate_subplant_ids() -> pd.DataFrame:
             "generator_retirement_date",
             "current_planned_generator_operating_date",
             "prime_mover_code",
+            "start_year",
+            "end_year",
         ]
     ].drop_duplicates(
         subset=[
@@ -161,7 +167,8 @@ def generate_subplant_ids() -> pd.DataFrame:
 
     # validate that there are no orphaned combined cycle plant parts in a subplant
     validation.check_for_orphaned_cc_part_in_subplant(
-        subplant_crosswalk_complete, latest_validated_year
+        subplant_crosswalk_complete,
+        max(latest_validated_year, current_early_release_year),
     )
 
     return subplant_crosswalk_complete

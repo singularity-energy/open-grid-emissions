@@ -14,6 +14,7 @@ from oge.constants import (
     chp_gross_thermal_output_efficiency,
     chp_useful_thermal_output_efficiency,
     nox_lb_per_mmbtu_flared_landfill_gas,
+    current_early_release_year,
 )
 
 logger = get_logger(__name__)
@@ -2072,6 +2073,43 @@ def adjust_so2_efs_for_fuel_sulfur_content(
         national_avg_fuel_sulfur_content = return_annual_national_fuel_sulfur_content(
             year
         )
+
+        # merge in annual average fuel sulfur content and use to fill missing values
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            national_avg_fuel_sulfur_content,
+            how="left",
+            on=[
+                "energy_source_code",
+            ],
+            validate="m:1",
+            suffixes=(None, "_national"),
+        )
+        uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
+            "sulfur_content_pct"
+        ].fillna(uncontrolled_so2_factors["sulfur_content_pct_national"])
+
+        # as a final backstop, use national-average, multi-year
+        # multiyear/national level from the past 5 years
+        national_multi_avg_fuel_sulfur_content = (
+            return_multiyear_national_fuel_sulfur_content(
+                range(current_early_release_year - 4, current_early_release_year + 1)
+            )
+        )
+
+        # merge in annual average fuel sulfur content and use to fill missing values
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            national_multi_avg_fuel_sulfur_content,
+            how="left",
+            on=[
+                "energy_source_code",
+            ],
+            validate="m:1",
+            suffixes=(None, "_national_multi"),
+        )
+        uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
+            "sulfur_content_pct"
+        ].fillna(uncontrolled_so2_factors["sulfur_content_pct_national_multi"])
+
     else:
         logger.info(
             f"Fuel sulfur content is not available for {year}. Using 2008-2012 "
@@ -2105,19 +2143,19 @@ def adjust_so2_efs_for_fuel_sulfur_content(
             return_multiyear_national_fuel_sulfur_content(range(2008, 2013))
         )
 
-    # merge in annual average fuel sulfur content and use to fill missing values
-    uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
-        national_avg_fuel_sulfur_content,
-        how="left",
-        on=[
-            "energy_source_code",
-        ],
-        validate="m:1",
-        suffixes=(None, "_national"),
-    )
-    uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
-        "sulfur_content_pct"
-    ].fillna(uncontrolled_so2_factors["sulfur_content_pct_national"])
+        # merge in annual average fuel sulfur content and use to fill missing values
+        uncontrolled_so2_factors = uncontrolled_so2_factors.merge(
+            national_avg_fuel_sulfur_content,
+            how="left",
+            on=[
+                "energy_source_code",
+            ],
+            validate="m:1",
+            suffixes=(None, "_national"),
+        )
+        uncontrolled_so2_factors["sulfur_content_pct"] = uncontrolled_so2_factors[
+            "sulfur_content_pct"
+        ].fillna(uncontrolled_so2_factors["sulfur_content_pct_national"])
 
     # check that we are not missing sulfur content for any generators that need it
     missing_sulfur_content = uncontrolled_so2_factors[
