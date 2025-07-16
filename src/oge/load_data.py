@@ -323,7 +323,7 @@ def load_raw_eia860_plant_geographical_info(year: int) -> pd.DataFrame:
     if (year == current_early_release_year) and (
         current_early_release_year != latest_validated_year
     ):
-        filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}_Early_Release.xlsx"
+        filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}__Early_Release.xlsx"
         header_row = 2
     else:
         filepath = f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"
@@ -1365,7 +1365,7 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
             current_early_release_year != latest_validated_year
         ):
             schedule_8_filename = downloads_folder(
-                f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Early_Release.xlsx"
+                f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Early Release.xlsx"
             )
             header_row = 5
 

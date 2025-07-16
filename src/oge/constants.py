@@ -18,8 +18,8 @@ latest_validated_year = 2023
 # available in July of the following year. This should not be updated to the next year
 # until ER data is available, so for part of the year, latest_validated_year will equal
 # current_early_release_year
-# TODO: Change this to 2024 around July 2025 (check PUDL to see when integrated)
-current_early_release_year = 2023
+# TODO: Change this to 2025 around July 2026 (check PUDL to see when integrated)
+current_early_release_year = 2024
 
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]

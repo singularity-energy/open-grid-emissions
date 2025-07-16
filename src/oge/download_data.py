@@ -303,7 +303,7 @@ def download_chalendar_files():
 
 
 def download_egrid_files():
-    """Downloads the egrid excel files from 2018-2022."""
+    """Downloads the egrid excel files from 2018-2023."""
     os.makedirs(downloads_folder("egrid"), exist_ok=True)
 
     # the 2018 and 2019 data are on a different directory than the newer files.
@@ -313,6 +313,7 @@ def download_egrid_files():
         2020: "https://www.epa.gov/system/files/documents/2022-09/eGRID2020_Data_v2.xlsx",
         2021: "https://www.epa.gov/system/files/documents/2023-01/eGRID2021_data.xlsx",
         2022: "https://www.epa.gov/system/files/documents/2024-01/egrid2022_data.xlsx",
+        2023: "https://www.epa.gov/system/files/documents/2025-06/egrid2023_data_rev2.xlsx",
     }
 
     for year, url in egrid_urls.items():
