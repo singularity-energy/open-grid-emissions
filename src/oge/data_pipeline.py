@@ -236,6 +236,9 @@ def main(args):
     plant_attributes = helpers.create_plant_attributes_table(
         cems, eia923_allocated, year, primary_fuel_table
     )
+    validation.test_for_missing_values(
+        plant_attributes, skip_cols=["plant_retirement_date"]
+    )
 
     # 6. Crosswalk CEMS and EIA data
     ####################################################################################
@@ -253,7 +256,7 @@ def main(args):
     )
     # output data quality metrics about annually-reported EIA-923 data
     output_data.output_data_quality_metrics(
-        validation.summarize_annually_reported_eia_data(eia923_allocated, year),
+        output_data.summarize_annually_reported_eia_data(eia923_allocated, year),
         "annually_reported_eia_data",
         path_prefix,
         args.skip_outputs,
@@ -373,7 +376,7 @@ def main(args):
         (eia923_allocated["hourly_data_source"] == "eia")
     ]
     output_data.output_data_quality_metrics(
-        validation.identify_percent_of_data_by_input_source(
+        output_data.identify_percent_of_data_by_input_source(
             cems,
             partial_cems_subplant,
             partial_cems_plant,
@@ -395,6 +398,9 @@ def main(args):
         .reset_index()
     )
     # combine and export plant data at monthly and annual level
+    validation.ensure_non_overlapping_data_from_all_sources(
+        cems, partial_cems_subplant, partial_cems_plant, monthly_eia_data_to_shape
+    )
     monthly_subplant_data = helpers.combine_subplant_data(
         cems,
         partial_cems_subplant,
@@ -635,6 +641,14 @@ def main(args):
         # Because EIA data is already aggregated to the fleet level, at this point, we
         # only want to combine CEMS data together. We pass a blank dataframe as the
         # EIA data
+        validation.ensure_non_overlapping_data_from_all_sources(
+            cems,
+            partial_cems_subplant,
+            partial_cems_plant,
+            eia_data=pd.DataFrame(
+                columns=["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
+            ),
+        )
         combined_cems_subplant_data = helpers.combine_subplant_data(
             cems,
             partial_cems_subplant,
@@ -643,7 +657,6 @@ def main(args):
                 columns=["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
             ),
             resolution="hourly",
-            validate=True,
         )
         # free memory back to python
         del (

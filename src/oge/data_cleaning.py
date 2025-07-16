@@ -1043,7 +1043,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     inventory_input_data_sources(cems, year)
 
     # Flag outliers in generation, fuel consumption and CO2 emission data
-    validation.check_for_outliers_in_cems_generation_fuel_and_co2_time_serie(cems)
+    validation.check_for_outliers_in_cems_generation_fuel_and_co2_time_series(cems)
 
     # TODO: identify and remove any hourly values that appear to be outliers
     # See: https://github.com/singularity-energy/open-grid-emissions/issues/50
