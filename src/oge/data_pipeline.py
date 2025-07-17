@@ -521,7 +521,9 @@ def main(args):
         del eia930_data
         # validate how well the wind and solar imputation methods work
         output_data.output_data_quality_metrics(
-            validation.validate_wind_solar_imputation(hourly_profiles, year),
+            impute_hourly_profiles.validate_wind_solar_imputation(
+                hourly_profiles, year
+            ),
             "wind_solar_profile_imputation_performance",
             path_prefix,
             args.skip_outputs,
