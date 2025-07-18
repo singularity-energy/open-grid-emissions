@@ -14,6 +14,7 @@ from oge.constants import (
     earliest_validated_year,
     latest_validated_year,
     current_early_release_year,
+    cancelled_or_proposed_status_codes,
 )
 from oge.filepaths import (
     downloads_folder,
@@ -220,7 +221,6 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     ]
 
     # remove generators that are proposed but not yet under construction, or cancelled
-    cancelled_or_proposed_status_codes = ["CN", "IP", "P", "L", "T"]
     complete_gens = complete_gens[
         ~complete_gens["operational_status_code"].isin(
             cancelled_or_proposed_status_codes
