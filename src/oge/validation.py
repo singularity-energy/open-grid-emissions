@@ -2,14 +2,12 @@ import pandas as pd
 import numpy as np
 
 import oge.load_data as load_data
-import oge.impute_hourly_profiles as impute_hourly_profiles
 from oge.anomaly_screening import flag_cems_outliers
 from oge.column_checks import get_dtypes
-from oge.helpers import create_plant_ba_table, assign_fleet_to_subplant_data
+from oge.helpers import create_plant_ba_table
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
 from oge.constants import (
-    CLEAN_FUELS,
     earliest_data_year,
     latest_validated_year,
     current_early_release_year,
@@ -38,8 +36,8 @@ def validate_year(year):
     Invalid year. The data pipeline has only been validated to work for years 
     {start}-{end}. 
     
-    Input data for {end+1} should be available from the EIA in Fall {end+2} and we 
-    will work to validate that the pipeline works with {end+1} data as soon as 
+    Input data for {end + 1} should be available from the EIA in Fall {end + 2} and we 
+    will work to validate that the pipeline works with {end + 1} data as soon as 
     possible after the data is released.
 
     If you are looking to run the pipeline with Early Release data, check that
@@ -518,38 +516,6 @@ def check_removed_data_is_empty(cems):
         logger.warning(
             "\n" + limit_error_output_df(check_that_data_is_zero).to_string()
         )
-
-
-def test_for_missing_subplant_id(df, plant_part):
-    """Checks if any records are missing a `subplant_id`."""
-    logger.info("Checking that all data has an associated `subplant_id`...  ")
-    missing_subplant_test = df[df["subplant_id"].isna()]
-    if not missing_subplant_test.empty:
-        logger.warning(
-            f"There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID"
-        )
-        logger.warning(
-            "\n"
-            + limit_error_output_df(
-                missing_subplant_test[
-                    ["plant_id_eia", plant_part, "subplant_id"]
-                    + [
-                        col
-                        for col in missing_subplant_test.columns
-                        if col
-                        in [
-                            "net_generation_mwh",
-                            "gross_generation_mwh",
-                            "fuel_consumed_mmbtu",
-                            "capacity_mw",
-                        ]
-                    ]
-                ].drop_duplicates()
-            ).to_string()
-        )
-    else:
-        logger.info("OK")
-    return missing_subplant_test
 
 
 def check_missing_or_zero_generation_matches(combined_gen_data, year):
@@ -1378,345 +1344,6 @@ def hourly_profile_source_metric(
     return profile_source
 
 
-def identify_percent_of_data_by_input_source(
-    cems: pd.DataFrame,
-    partial_cems_subplant: pd.DataFrame,
-    partial_cems_plant: pd.DataFrame,
-    eia_only_data: pd.DataFrame,
-    year: int,
-    plant_attributes: pd.DataFrame,
-    primary_fuel_table: pd.DataFrame,
-) -> pd.DataFrame:
-    """For each BA, identifies the percentage of input data (at the subplant level) from
-    one of 4 sources, for each data column:
-        - cems_hourly
-        - eia_annual
-        - eia_monthly
-        - eia_multiple
-
-    Args:
-        cems (pd.DataFrame): used to identify the data source
-        partial_cems_subplant (pd.DataFrame): used to identify the data source
-        partial_cems_plant (pd.DataFrame): used to identify the data source
-        eia_only_data (pd.DataFrame): used to identify the data source
-        year (int): the data year
-        plant_attributes (pd.DataFrame): used to assign fleet keys
-        primary_fuel_table (pd.DataFrame): used to assign fleet keys
-
-    Returns:
-        pd.DataFrame: Table of data source percentages
-    """
-
-    columns_to_use = [
-        "net_generation_mwh",
-        "emitting_net_generation_mwh",
-        "co2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "co2e_mass_lb",
-        "co2e_mass_lb_for_electricity",
-        "nox_mass_lb",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb",
-        "so2_mass_lb_for_electricity",
-    ]
-
-    # add data resolution column to data that is based on EIA
-    eia_only_data = identify_reporting_frequency(eia_only_data, year)
-    partial_cems_subplant = identify_reporting_frequency(partial_cems_subplant, year)
-    partial_cems_plant = identify_reporting_frequency(partial_cems_plant, year)
-
-    # add ba codes and plant primary fuel to all of the data
-    eia_only_data = assign_fleet_to_subplant_data(
-        eia_only_data, plant_attributes, primary_fuel_table, year
-    )
-    cems = assign_fleet_to_subplant_data(
-        cems, plant_attributes, primary_fuel_table, year, drop_primary_fuel_col=False
-    )
-    partial_cems_subplant = assign_fleet_to_subplant_data(
-        partial_cems_subplant,
-        plant_attributes,
-        primary_fuel_table,
-        year,
-        drop_primary_fuel_col=False,
-    )
-    partial_cems_plant = assign_fleet_to_subplant_data(
-        partial_cems_plant,
-        plant_attributes,
-        primary_fuel_table,
-        year,
-        drop_primary_fuel_col=False,
-    )
-
-    # add a column for fossil-based generation
-    # this copies the net generation data if the associated fuel is not clean or
-    # geothermal, and otherwise adds a zero use the generator-specific energy source
-    # code for the eia data, otherwise use the plant primary fuel
-    eia_only_data = eia_only_data.assign(
-        emitting_net_generation_mwh=lambda x: np.where(
-            ~x.energy_source_code.isin(CLEAN_FUELS + ["GEO"]),
-            x.net_generation_mwh,
-            0,
-        )
-    )
-    cems = cems.assign(
-        emitting_net_generation_mwh=lambda x: np.where(
-            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
-            x.net_generation_mwh,
-            0,
-        )
-    )
-    partial_cems_subplant = partial_cems_subplant.assign(
-        emitting_net_generation_mwh=lambda x: np.where(
-            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
-            x.net_generation_mwh,
-            0,
-        )
-    )
-    partial_cems_plant = partial_cems_plant.assign(
-        emitting_net_generation_mwh=lambda x: np.where(
-            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
-            x.net_generation_mwh,
-            0,
-        )
-    )
-
-    # associate each dataframe with a data source label
-    data_sources = {
-        "cems": cems,
-        "partial_cems_subplant": partial_cems_subplant,
-        "partial_cems_plant": partial_cems_plant,
-        "eia": eia_only_data,
-    }
-    # get a count of the number of observations (subplant-hours) from each source
-    source_of_input_data = []
-    for name, df in data_sources.items():
-        if len(df) == 0:  # Empty df. May occur when running `small`
-            logger.warning(f"data source {name} has zero entries")
-            continue
-        if name == "eia":
-            subplant_data = df.groupby(
-                ["ba_code", "plant_id_eia", "subplant_id", "eia_data_resolution"],
-                dropna=False,
-            )[columns_to_use].sum()
-            # because EIA data is not hourly, we have to multiply the number of subplants by the number of hours in a year
-            if year % 4 == 0:
-                hours_in_year = 8784
-            else:
-                hours_in_year = 8760
-            subplant_data["subplant_hours"] = hours_in_year
-            # group the data by resolution
-            subplant_data = (
-                subplant_data.reset_index()
-                .groupby(["ba_code", "eia_data_resolution"], dropna=False)[
-                    ["subplant_hours"] + columns_to_use
-                ]
-                .sum()
-                .reset_index()
-            )
-            subplant_data = subplant_data.rename(
-                columns={"eia_data_resolution": "source"}
-            )
-            subplant_data["source"] = subplant_data["source"].replace(
-                {
-                    "annual": "eia_annual",
-                    "monthly": "eia_monthly",
-                    "multiple": "eia_multiple",
-                }
-            )
-            source_of_input_data.append(subplant_data)
-        # for the partial cems data
-        elif (name == "partial_cems_subplant") | (name == "partial_cems_plant"):
-            subplant_data = df.groupby(
-                [
-                    "ba_code",
-                    "plant_id_eia",
-                    "subplant_id",
-                    "datetime_utc",
-                    "eia_data_resolution",
-                ],
-                dropna=False,
-            )[columns_to_use].sum()
-            subplant_data["subplant_hours"] = 1
-            # group the data by resolution
-            subplant_data = (
-                subplant_data.reset_index()
-                .groupby(["ba_code", "eia_data_resolution"], dropna=False)[
-                    ["subplant_hours"] + columns_to_use
-                ]
-                .sum()
-                .reset_index()
-            )
-            subplant_data = subplant_data.rename(
-                columns={"eia_data_resolution": "source"}
-            )
-            subplant_data["source"] = subplant_data["source"].replace(
-                {
-                    "annual": "eia_annual",
-                    "monthly": "eia_monthly",
-                    "multiple": "eia_multiple",
-                }
-            )
-            source_of_input_data.append(subplant_data)
-        # for the cems data
-        else:
-            subplant_data = df.groupby(
-                ["ba_code", "plant_id_eia", "subplant_id", "datetime_utc"], dropna=False
-            )[columns_to_use].sum()
-            subplant_data["subplant_hours"] = 1
-            subplant_data["source"] = "cems_hourly"
-            # group the data by resolution
-            subplant_data = (
-                subplant_data.reset_index()
-                .groupby(["ba_code", "source"], dropna=False)[
-                    ["subplant_hours"] + columns_to_use
-                ]
-                .sum()
-                .reset_index()
-            )
-            source_of_input_data.append(subplant_data)
-
-    # concat the dataframes together
-    source_of_input_data = pd.concat(source_of_input_data, axis=0)
-
-    # groupby and calculate percentages for the entire country
-    national_source = source_of_input_data.groupby("source").sum(numeric_only=True)
-    national_source = (national_source / national_source.sum(axis=0)).reset_index()
-    national_source["ba_code"] = "US Total"
-
-    # calculate percentages by ba
-    source_of_input_data = (
-        source_of_input_data.groupby(["ba_code", "source"]).sum(numeric_only=True)
-        / source_of_input_data.groupby(["ba_code"]).sum(numeric_only=True)
-    ).reset_index()
-    # concat the national data to the ba data
-    source_of_input_data = pd.concat([source_of_input_data, national_source], axis=0)
-
-    return source_of_input_data
-
-
-def identify_reporting_frequency(eia923_allocated, year):
-    """Identifies if EIA data was reported as an annual total or monthly totals.
-    Returns input dataframe with `eia_data_resolution` column added"""
-
-    # load data about the respondent frequency for each plant and merge into the EIA-923 data
-    plant_frequency = load_data.load_pudl_table(
-        "out_eia__yearly_plants",
-        year,
-        columns=["plant_id_eia", "reporting_frequency_code"],
-    )
-    plant_frequency["reporting_frequency_code"] = plant_frequency[
-        "reporting_frequency_code"
-    ].fillna("multiple")
-    # rename the column and recode the values
-    plant_frequency = plant_frequency.rename(
-        columns={"reporting_frequency_code": "eia_data_resolution"}
-    )
-    plant_frequency["eia_data_resolution"] = plant_frequency[
-        "eia_data_resolution"
-    ].replace({"A": "annual", "AM": "monthly", "M": "monthly"})
-    # merge the data resolution column into the EIA data
-    eia_data = eia923_allocated.merge(
-        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
-    )
-    return eia_data
-
-
-def summarize_annually_reported_eia_data(eia923_allocated, year):
-    """Creates table summarizing the percent of final data from annually-reported EIA data."""
-
-    columns_to_summarize = [
-        "fuel_consumed_mmbtu",
-        "net_generation_mwh",
-        "co2_mass_lb",
-        "co2_mass_lb_for_electricity",
-        "nox_mass_lb",
-        "nox_mass_lb_for_electricity",
-        "so2_mass_lb",
-        "so2_mass_lb_for_electricity",
-    ]
-
-    eia_data = identify_reporting_frequency(eia923_allocated, year)
-
-    data_from_annual = (
-        eia_data.groupby(["eia_data_resolution"], dropna=False)[
-            columns_to_summarize
-        ].sum()
-        / eia_data[columns_to_summarize].sum()
-        * 100
-    ).reset_index()
-
-    annual_eia_used = (
-        eia_data[eia_data["hourly_data_source"] != "cems"]
-        .groupby(["eia_data_resolution"], dropna=False)[columns_to_summarize]
-        .sum()
-        / eia_data[columns_to_summarize].sum()
-        * 100
-    ).reset_index()
-
-    multi_source_subplants = (
-        eia_data[["plant_id_eia", "subplant_id", "hourly_data_source"]]
-        .drop_duplicates()
-        .drop(columns="hourly_data_source")
-    )
-    multi_source_subplants = multi_source_subplants[
-        multi_source_subplants.duplicated(subset=["plant_id_eia", "subplant_id"])
-    ]
-    multi_source_subplants = eia_data.merge(
-        multi_source_subplants, how="inner", on=["plant_id_eia", "subplant_id"]
-    )
-    multi_source_summary = (
-        multi_source_subplants.groupby(["eia_data_resolution"], dropna=False)[
-            columns_to_summarize
-        ].sum()
-        / eia_data[columns_to_summarize].sum()
-        * 100
-    ).reset_index()
-
-    annual_data_summary = pd.concat(
-        [
-            pd.DataFrame(
-                data_from_annual.loc[
-                    data_from_annual["eia_data_resolution"] == "annual", :
-                ]
-                .set_index("eia_data_resolution")
-                .rename(
-                    index={
-                        "annual": "% of EIA-923 input data from EIA annual reporters"
-                    }
-                )
-                .round(2)
-            ),
-            pd.DataFrame(
-                annual_eia_used.loc[
-                    annual_eia_used["eia_data_resolution"] == "annual", :
-                ]
-                .set_index("eia_data_resolution")
-                .rename(index={"annual": "% of output data from EIA annual reporters"})
-                .round(2)
-            ),
-            pd.DataFrame(
-                multi_source_summary.loc[
-                    multi_source_summary["eia_data_resolution"] == "annual", :
-                ]
-                .set_index("eia_data_resolution")
-                .rename(
-                    index={
-                        "annual": "% of output data mixing CEMS and annually-reported EIA data"
-                    }
-                )
-                .round(2)
-            ),
-        ],
-        axis=0,
-    )
-
-    annual_data_summary.rename(columns={"eia_data_resolution": "category"})
-
-    annual_data_summary = annual_data_summary.reset_index()
-
-    return annual_data_summary
-
-
 def summarize_cems_measurement_quality(cems):
     """Creates a table summarizing what percent of CO2, SO2, and NOx mass in CEMS was measured or imputed from other hourly values"""
     cems_quality = cems[
@@ -1797,197 +1424,6 @@ def identify_cems_gtn_method(cems):
     return method_summary
 
 
-def validate_wind_solar_imputation(hourly_profiles, year):
-    """Creates a table showing cross-validaton results of the wind and solar profile imputation method"""
-
-    # calculate the results and merge together
-    diba_results = validate_diba_imputation_method(hourly_profiles, year)
-    nationaal_results = validate_national_imputation_method(hourly_profiles)
-
-    imputation_results = diba_results.merge(
-        nationaal_results, how="outer", on=["fuel_category", "ba_code"], validate="1:1"
-    )
-
-    return imputation_results
-
-
-def validate_diba_imputation_method(hourly_profiles, year):
-    """Validates the method for imputing missing wind and solar profiles.
-
-    Calculates an imputed profile for regions where we have actual wind and solar profiles,
-    then calculates how well each imputed profile is correlated with the actual profile.
-    Calculates the correlation for each month, then calculates an annual average correlation coefficient.
-    """
-
-    # only keep wind and solar data
-    data_to_validate = hourly_profiles[
-        (hourly_profiles["fuel_category"].isin(["wind", "solar"]))
-        & (~hourly_profiles["eia930_profile"].isna())
-    ]
-    data_to_validate = data_to_validate[
-        [
-            "ba_code",
-            "fuel_category",
-            "datetime_utc",
-            "datetime_local",
-            "report_date",
-            "eia930_profile",
-        ]
-    ]
-
-    profiles_to_impute = data_to_validate[
-        ["ba_code", "fuel_category", "report_date"]
-    ].drop_duplicates()
-
-    profiles_to_impute = profiles_to_impute[
-        profiles_to_impute["report_date"].dt.year == year
-    ]
-
-    dibas = load_data.load_diba_data(year)
-
-    # create an hourly datetime series in local time for each ba/fuel type
-    hourly_profiles_to_add = []
-
-    for index, row in profiles_to_impute.iterrows():
-        ba = row["ba_code"]
-        fuel = row["fuel_category"]
-        report_date = row["report_date"]
-
-        # for wind and solar, average the wind and solar generation profiles from
-        # nearby interconnected BAs
-        if fuel in ["wind", "solar"]:
-            # get a list of diba located in the same region and located in the same time zone
-            ba_dibas = list(
-                dibas.loc[
-                    (dibas.ba_code == ba)
-                    & (dibas.ba_region == dibas.diba_region)
-                    & (dibas.timezone_local == dibas.timezone_local_diba),
-                    "diba_code",
-                ].unique()
-            )
-            if len(ba_dibas) > 0:
-                df_temporary = impute_hourly_profiles.average_diba_wind_solar_profiles(
-                    data_to_validate, ba, fuel, report_date, ba_dibas, True
-                )
-
-                hourly_profiles_to_add.append(df_temporary)
-            # if there are no neighboring DIBAs, calculate a national average profile
-            else:
-                pass
-
-    hourly_profiles_to_add = pd.concat(
-        hourly_profiles_to_add, axis=0, ignore_index=True
-    )
-
-    # merge the imputed data with the actual data
-    compare_method = data_to_validate.merge(
-        hourly_profiles_to_add,
-        how="left",
-        on=[
-            "fuel_category",
-            "datetime_utc",
-            "datetime_local",
-            "report_date",
-            "ba_code",
-        ],
-        validate="1:1",
-    )
-
-    # calculate the correlation coefficient for each fleet-month
-    compare_method = (
-        compare_method.groupby(["fuel_category", "report_date", "ba_code"])
-        .corr(numeric_only=True)
-        .reset_index()
-    )
-    compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
-
-    # calculate the annual average correlation coefficent for each month
-    compare_method = (
-        compare_method.groupby(["fuel_category", "ba_code"])["imputed_profile"]
-        .mean()
-        .reset_index()
-    )
-
-    compare_method = compare_method.rename(
-        columns={"imputed_profile": "diba_method_correlation_coefficient"}
-    )
-
-    return compare_method
-
-
-def validate_national_imputation_method(hourly_profiles):
-    # only keep wind and solar data
-    data_to_validate = hourly_profiles[
-        (hourly_profiles["fuel_category"].isin(["wind", "solar"]))
-        & (~hourly_profiles["eia930_profile"].isna())
-    ]
-    data_to_validate = data_to_validate[
-        [
-            "ba_code",
-            "fuel_category",
-            "datetime_utc",
-            "datetime_local",
-            "report_date",
-            "eia930_profile",
-        ]
-    ]
-
-    profiles_to_impute = data_to_validate[
-        ["ba_code", "fuel_category", "report_date"]
-    ].drop_duplicates()
-
-    # create an hourly datetime series in local time for each ba/fuel type
-    hourly_profiles_to_add = []
-
-    for index, row in profiles_to_impute.iterrows():
-        ba = row["ba_code"]
-        fuel = row["fuel_category"]
-        report_date = row["report_date"]
-
-        # for wind and solar, average the wind and solar generation profiles from
-        # nearby interconnected BAs
-        if fuel in ["wind", "solar"]:
-            # get a list of diba located in the same region and located in the same time zone
-            df_temporary = impute_hourly_profiles.average_national_wind_solar_profiles(
-                data_to_validate, ba, fuel, report_date
-            )
-
-        hourly_profiles_to_add.append(df_temporary)
-
-    hourly_profiles_to_add = pd.concat(
-        hourly_profiles_to_add, axis=0, ignore_index=True
-    )
-
-    # merge the imputed data with the actual data
-    compare_method = data_to_validate.merge(
-        hourly_profiles_to_add,
-        how="left",
-        on=["fuel_category", "datetime_utc", "report_date", "ba_code"],
-        validate="1:1",
-    )
-
-    # calculate the correlation coefficient for each fleet-month
-    compare_method = (
-        compare_method.groupby(["fuel_category", "report_date", "ba_code"])
-        .corr(numeric_only=True)
-        .reset_index()
-    )
-    compare_method = compare_method[compare_method["level_3"] == "eia930_profile"]
-
-    # calculate the annual average correlation coefficent for each month
-    compare_method = (
-        compare_method.groupby(["fuel_category", "ba_code"])["imputed_profile"]
-        .mean()
-        .reset_index()
-    )
-
-    compare_method = compare_method.rename(
-        columns={"imputed_profile": "national_method_correlation_coefficient"}
-    )
-
-    return compare_method
-
-
 def check_for_anomalous_co2_factors(
     df, plant_attributes, year, min_threshold=10, max_threshold=15000
 ):
@@ -2055,7 +1491,7 @@ def check_for_anomalous_co2_factors(
         )
 
 
-def check_for_outliers_in_cems_generation_fuel_and_co2_time_serie(cems):
+def check_for_outliers_in_cems_generation_fuel_and_co2_time_series(cems):
     """Return for each plant amd emission unit combination in CEMS' generation, fuel
     consumption and CO2 emission data the number of global extreme and the mean
     deviation of the global extreme relative to the median value of the time series.
@@ -2232,7 +1668,7 @@ def test_for_outlier_heat_rates(df):
                     f"{len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
                 )
                 logger.warning(
-                    f'             median = {heat_rate_stats["50%"].round(2)}, max = {heat_rate_stats["max"].round(2)}, min = {heat_rate_stats["min"].round(2)}'
+                    f"             median = {heat_rate_stats['50%'].round(2)}, max = {heat_rate_stats['max'].round(2)}, min = {heat_rate_stats['min'].round(2)}"
                 )
                 heat_rate_test_all.append(heat_rate_test)
 
@@ -2271,7 +1707,7 @@ def test_gtn_results(df):
     gtn_test = df[df["net_generation_mwh"] > df["gross_generation_mwh"]]
     if not gtn_test.empty:
         logger.warning(
-            f"There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
+            f"There are {round(len(gtn_test) / len(df) * 100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
         )
     return gtn_test
 

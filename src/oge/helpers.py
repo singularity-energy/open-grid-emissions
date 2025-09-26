@@ -16,7 +16,6 @@ from oge.filepaths import reference_table_folder, outputs_folder, results_folder
 
 import oge.load_data as load_data
 from oge.logging_util import get_logger
-import oge.validation as validation
 
 logger = get_logger(__name__)
 
@@ -168,11 +167,6 @@ def create_plant_attributes_table(
     ]
     plant_attributes = plant_attributes[new_column_ordering]
 
-    # test for missing values
-    validation.test_for_missing_values(
-        plant_attributes, skip_cols=["plant_retirement_date"]
-    )
-
     return plant_attributes
 
 
@@ -252,7 +246,7 @@ def assign_fleet_to_subplant_data(
             plant_attributes_table to add to subplant_data. Defaults to [].
         drop_primary_fuel_col (bool): Whether to drop the ESC-level primary_fuel_col
             before returning the table. Can be set to False for use of this function
-            in validation.identify_percent_of_data_by_input_source() Defaults to True.
+            in output_data.identify_percent_of_data_by_input_source() Defaults to True.
 
     Raises:
         UserWarning: If a BA code or fuel type cannot be assigned to a subplant
@@ -409,7 +403,6 @@ def combine_subplant_data(
     partial_cems_plant: pd.DataFrame,
     eia_data: pd.DataFrame,
     resolution: str,
-    validate: bool = True,
 ) -> pd.DataFrame:
     """Combines subplant-level data from multiple sources into a single dataframe.
     Data can be returned at either the monthly or hourly resolution.
@@ -425,9 +418,6 @@ def combine_subplant_data(
         resolution (str): Whether to combine "hourly" data or "monthly" data. All input
             dataframes should have "datetime_utc" columns for the former, and
             "report_date" columns for the latter
-        validate (bool, optional): Whether to ensure non-overlapping data from all
-            sources. Sometimes not necessary based on whether this has already been
-            checked. Defaults to True.
 
     Raises:
         UserWarning: If acceptable option for resolution arg not passed
@@ -451,11 +441,6 @@ def combine_subplant_data(
         )
 
     ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
-
-    if validate:
-        validation.ensure_non_overlapping_data_from_all_sources(
-            cems, partial_cems_subplant, partial_cems_plant, eia_data
-        )
 
     # group data by subplant-month or subplant-hour and filter columns
     cems = (
@@ -1221,9 +1206,45 @@ def add_subplant_ids_to_df(
         on=["plant_id_eia", plant_part_to_map],
         validate=validate_merge,
     )
-    validation.test_for_missing_subplant_id(df, plant_part_to_map)
+    test_for_missing_subplant_id(df, plant_part_to_map)
 
     return df
+
+
+def test_for_missing_subplant_id(df, plant_part):
+    """Checks if any records are missing a `subplant_id`.
+
+    Moved this from validation since it is only used by the above function in helpers,
+    to avoid circular import issues
+    """
+    logger.info("Checking that all data has an associated `subplant_id`...  ")
+    missing_subplant_test = df[df["subplant_id"].isna()]
+    if not missing_subplant_test.empty:
+        logger.warning(
+            f"There are {len(missing_subplant_test)} records for {len(missing_subplant_test[['plant_id_eia']].drop_duplicates())} plants without a subplant ID"
+        )
+        missing_subplants = missing_subplant_test[
+            ["plant_id_eia", plant_part, "subplant_id"]
+            + [
+                col
+                for col in missing_subplant_test.columns
+                if col
+                in [
+                    "net_generation_mwh",
+                    "gross_generation_mwh",
+                    "fuel_consumed_mmbtu",
+                    "capacity_mw",
+                ]
+            ]
+        ].drop_duplicates()
+        if len(missing_subplants) > 200:
+            missing_subplants = pd.concat(
+                [missing_subplants.head(100), missing_subplants.tail(100)], axis=0
+            )
+        logger.warning("\n" + missing_subplants.to_string())
+    else:
+        logger.info("OK")
+    return missing_subplant_test
 
 
 def calculate_subplant_nameplate_capacity(year):

@@ -8,9 +8,11 @@ import oge.load_data as load_data
 from oge.column_checks import check_columns, DATA_COLUMNS
 import oge.validation as validation
 from oge.filepaths import outputs_folder, results_folder, data_folder
+from oge.helpers import assign_fleet_to_subplant_data
 from oge.logging_util import get_logger
 from oge.constants import (
     ConversionFactors,
+    CLEAN_FUELS,
     earliest_validated_year,
     earliest_hourly_data_year,
     latest_validated_year,
@@ -76,7 +78,7 @@ def zip_results_for_s3():
     """
     os.makedirs(data_folder("s3_upload"), exist_ok=True)
     historical_years = list(range(earliest_validated_year, earliest_hourly_data_year))
-    year_range = f"{earliest_validated_year}-{earliest_hourly_data_year-1}"
+    year_range = f"{earliest_validated_year}-{earliest_hourly_data_year - 1}"
     for data_type in ["power_sector_data", "plant_data"]:
         for aggregation in ["monthly", "annual"]:
             for unit in ["metric_units", "us_units"]:
@@ -764,3 +766,342 @@ def add_generated_emission_rate_columns(df: pd.DataFrame) -> pd.DataFrame:
             # Set negative rates to zero, following eGRID methodology
             df.loc[df[col_name] < 0, col_name] = 0
     return df
+
+
+def identify_percent_of_data_by_input_source(
+    cems: pd.DataFrame,
+    partial_cems_subplant: pd.DataFrame,
+    partial_cems_plant: pd.DataFrame,
+    eia_only_data: pd.DataFrame,
+    year: int,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+) -> pd.DataFrame:
+    """For each BA, identifies the percentage of input data (at the subplant level) from
+    one of 4 sources, for each data column:
+        - cems_hourly
+        - eia_annual
+        - eia_monthly
+        - eia_multiple
+
+    Args:
+        cems (pd.DataFrame): used to identify the data source
+        partial_cems_subplant (pd.DataFrame): used to identify the data source
+        partial_cems_plant (pd.DataFrame): used to identify the data source
+        eia_only_data (pd.DataFrame): used to identify the data source
+        year (int): the data year
+        plant_attributes (pd.DataFrame): used to assign fleet keys
+        primary_fuel_table (pd.DataFrame): used to assign fleet keys
+
+    Returns:
+        pd.DataFrame: Table of data source percentages
+    """
+
+    columns_to_use = [
+        "net_generation_mwh",
+        "emitting_net_generation_mwh",
+        "co2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "co2e_mass_lb",
+        "co2e_mass_lb_for_electricity",
+        "nox_mass_lb",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb",
+        "so2_mass_lb_for_electricity",
+    ]
+
+    # add data resolution column to data that is based on EIA
+    eia_only_data = identify_reporting_frequency(eia_only_data, year)
+    partial_cems_subplant = identify_reporting_frequency(partial_cems_subplant, year)
+    partial_cems_plant = identify_reporting_frequency(partial_cems_plant, year)
+
+    # add ba codes and plant primary fuel to all of the data
+    eia_only_data = assign_fleet_to_subplant_data(
+        eia_only_data, plant_attributes, primary_fuel_table, year
+    )
+    cems = assign_fleet_to_subplant_data(
+        cems, plant_attributes, primary_fuel_table, year, drop_primary_fuel_col=False
+    )
+    partial_cems_subplant = assign_fleet_to_subplant_data(
+        partial_cems_subplant,
+        plant_attributes,
+        primary_fuel_table,
+        year,
+        drop_primary_fuel_col=False,
+    )
+    partial_cems_plant = assign_fleet_to_subplant_data(
+        partial_cems_plant,
+        plant_attributes,
+        primary_fuel_table,
+        year,
+        drop_primary_fuel_col=False,
+    )
+
+    # add a column for fossil-based generation
+    # this copies the net generation data if the associated fuel is not clean or
+    # geothermal, and otherwise adds a zero use the generator-specific energy source
+    # code for the eia data, otherwise use the plant primary fuel
+    eia_only_data = eia_only_data.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.energy_source_code.isin(CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
+        )
+    )
+    cems = cems.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
+        )
+    )
+    partial_cems_subplant = partial_cems_subplant.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
+        )
+    )
+    partial_cems_plant = partial_cems_plant.assign(
+        emitting_net_generation_mwh=lambda x: np.where(
+            ~x.subplant_primary_fuel.isin(CLEAN_FUELS + ["GEO"]),
+            x.net_generation_mwh,
+            0,
+        )
+    )
+
+    # associate each dataframe with a data source label
+    data_sources = {
+        "cems": cems,
+        "partial_cems_subplant": partial_cems_subplant,
+        "partial_cems_plant": partial_cems_plant,
+        "eia": eia_only_data,
+    }
+    # get a count of the number of observations (subplant-hours) from each source
+    source_of_input_data = []
+    for name, df in data_sources.items():
+        if len(df) == 0:  # Empty df. May occur when running `small`
+            logger.warning(f"data source {name} has zero entries")
+            continue
+        if name == "eia":
+            subplant_data = df.groupby(
+                ["ba_code", "plant_id_eia", "subplant_id", "eia_data_resolution"],
+                dropna=False,
+            )[columns_to_use].sum()
+            # because EIA data is not hourly, we have to multiply the number of subplants by the number of hours in a year
+            if year % 4 == 0:
+                hours_in_year = 8784
+            else:
+                hours_in_year = 8760
+            subplant_data["subplant_hours"] = hours_in_year
+            # group the data by resolution
+            subplant_data = (
+                subplant_data.reset_index()
+                .groupby(["ba_code", "eia_data_resolution"], dropna=False)[
+                    ["subplant_hours"] + columns_to_use
+                ]
+                .sum()
+                .reset_index()
+            )
+            subplant_data = subplant_data.rename(
+                columns={"eia_data_resolution": "source"}
+            )
+            subplant_data["source"] = subplant_data["source"].replace(
+                {
+                    "annual": "eia_annual",
+                    "monthly": "eia_monthly",
+                    "multiple": "eia_multiple",
+                }
+            )
+            source_of_input_data.append(subplant_data)
+        # for the partial cems data
+        elif (name == "partial_cems_subplant") | (name == "partial_cems_plant"):
+            subplant_data = df.groupby(
+                [
+                    "ba_code",
+                    "plant_id_eia",
+                    "subplant_id",
+                    "datetime_utc",
+                    "eia_data_resolution",
+                ],
+                dropna=False,
+            )[columns_to_use].sum()
+            subplant_data["subplant_hours"] = 1
+            # group the data by resolution
+            subplant_data = (
+                subplant_data.reset_index()
+                .groupby(["ba_code", "eia_data_resolution"], dropna=False)[
+                    ["subplant_hours"] + columns_to_use
+                ]
+                .sum()
+                .reset_index()
+            )
+            subplant_data = subplant_data.rename(
+                columns={"eia_data_resolution": "source"}
+            )
+            subplant_data["source"] = subplant_data["source"].replace(
+                {
+                    "annual": "eia_annual",
+                    "monthly": "eia_monthly",
+                    "multiple": "eia_multiple",
+                }
+            )
+            source_of_input_data.append(subplant_data)
+        # for the cems data
+        else:
+            subplant_data = df.groupby(
+                ["ba_code", "plant_id_eia", "subplant_id", "datetime_utc"], dropna=False
+            )[columns_to_use].sum()
+            subplant_data["subplant_hours"] = 1
+            subplant_data["source"] = "cems_hourly"
+            # group the data by resolution
+            subplant_data = (
+                subplant_data.reset_index()
+                .groupby(["ba_code", "source"], dropna=False)[
+                    ["subplant_hours"] + columns_to_use
+                ]
+                .sum()
+                .reset_index()
+            )
+            source_of_input_data.append(subplant_data)
+
+    # concat the dataframes together
+    source_of_input_data = pd.concat(source_of_input_data, axis=0)
+
+    # groupby and calculate percentages for the entire country
+    national_source = source_of_input_data.groupby("source").sum(numeric_only=True)
+    national_source = (national_source / national_source.sum(axis=0)).reset_index()
+    national_source["ba_code"] = "US Total"
+
+    # calculate percentages by ba
+    source_of_input_data = (
+        source_of_input_data.groupby(["ba_code", "source"]).sum(numeric_only=True)
+        / source_of_input_data.groupby(["ba_code"]).sum(numeric_only=True)
+    ).reset_index()
+    # concat the national data to the ba data
+    source_of_input_data = pd.concat([source_of_input_data, national_source], axis=0)
+
+    return source_of_input_data
+
+
+def identify_reporting_frequency(eia923_allocated, year):
+    """Identifies if EIA data was reported as an annual total or monthly totals.
+    Returns input dataframe with `eia_data_resolution` column added"""
+
+    # load data about the respondent frequency for each plant and merge into the EIA-923 data
+    plant_frequency = load_data.load_pudl_table(
+        "out_eia__yearly_plants",
+        year,
+        columns=["plant_id_eia", "reporting_frequency_code"],
+    )
+    plant_frequency["reporting_frequency_code"] = plant_frequency[
+        "reporting_frequency_code"
+    ].fillna("multiple")
+    # rename the column and recode the values
+    plant_frequency = plant_frequency.rename(
+        columns={"reporting_frequency_code": "eia_data_resolution"}
+    )
+    plant_frequency["eia_data_resolution"] = plant_frequency[
+        "eia_data_resolution"
+    ].replace({"A": "annual", "AM": "monthly", "M": "monthly"})
+    # merge the data resolution column into the EIA data
+    eia_data = eia923_allocated.merge(
+        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
+    )
+    return eia_data
+
+
+def summarize_annually_reported_eia_data(eia923_allocated, year):
+    """Creates table summarizing the percent of final data from annually-reported EIA data."""
+
+    columns_to_summarize = [
+        "fuel_consumed_mmbtu",
+        "net_generation_mwh",
+        "co2_mass_lb",
+        "co2_mass_lb_for_electricity",
+        "nox_mass_lb",
+        "nox_mass_lb_for_electricity",
+        "so2_mass_lb",
+        "so2_mass_lb_for_electricity",
+    ]
+
+    eia_data = identify_reporting_frequency(eia923_allocated, year)
+
+    data_from_annual = (
+        eia_data.groupby(["eia_data_resolution"], dropna=False)[
+            columns_to_summarize
+        ].sum()
+        / eia_data[columns_to_summarize].sum()
+        * 100
+    ).reset_index()
+
+    annual_eia_used = (
+        eia_data[eia_data["hourly_data_source"] != "cems"]
+        .groupby(["eia_data_resolution"], dropna=False)[columns_to_summarize]
+        .sum()
+        / eia_data[columns_to_summarize].sum()
+        * 100
+    ).reset_index()
+
+    multi_source_subplants = (
+        eia_data[["plant_id_eia", "subplant_id", "hourly_data_source"]]
+        .drop_duplicates()
+        .drop(columns="hourly_data_source")
+    )
+    multi_source_subplants = multi_source_subplants[
+        multi_source_subplants.duplicated(subset=["plant_id_eia", "subplant_id"])
+    ]
+    multi_source_subplants = eia_data.merge(
+        multi_source_subplants, how="inner", on=["plant_id_eia", "subplant_id"]
+    )
+    multi_source_summary = (
+        multi_source_subplants.groupby(["eia_data_resolution"], dropna=False)[
+            columns_to_summarize
+        ].sum()
+        / eia_data[columns_to_summarize].sum()
+        * 100
+    ).reset_index()
+
+    annual_data_summary = pd.concat(
+        [
+            pd.DataFrame(
+                data_from_annual.loc[
+                    data_from_annual["eia_data_resolution"] == "annual", :
+                ]
+                .set_index("eia_data_resolution")
+                .rename(
+                    index={
+                        "annual": "% of EIA-923 input data from EIA annual reporters"
+                    }
+                )
+                .round(2)
+            ),
+            pd.DataFrame(
+                annual_eia_used.loc[
+                    annual_eia_used["eia_data_resolution"] == "annual", :
+                ]
+                .set_index("eia_data_resolution")
+                .rename(index={"annual": "% of output data from EIA annual reporters"})
+                .round(2)
+            ),
+            pd.DataFrame(
+                multi_source_summary.loc[
+                    multi_source_summary["eia_data_resolution"] == "annual", :
+                ]
+                .set_index("eia_data_resolution")
+                .rename(
+                    index={
+                        "annual": "% of output data mixing CEMS and annually-reported EIA data"
+                    }
+                )
+                .round(2)
+            ),
+        ],
+        axis=0,
+    )
+
+    annual_data_summary.rename(columns={"eia_data_resolution": "category"})
+
+    annual_data_summary = annual_data_summary.reset_index()
+
+    return annual_data_summary

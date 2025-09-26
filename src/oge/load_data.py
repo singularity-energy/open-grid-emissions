@@ -11,7 +11,6 @@ from oge.filepaths import (
     outputs_folder,
     pudl_folder,
 )
-import oge.validation as validation
 from oge.logging_util import get_logger
 from oge.constants import (
     CLEAN_FUELS,
@@ -116,10 +115,6 @@ def load_cems_data(year: int) -> pd.DataFrame:
             "nox_mass_measurement_code": "category",
             "so2_mass_measurement_code": "category",
         }
-    )
-
-    validation.validate_unique_datetimes(
-        year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
     )
 
     return cems
@@ -446,9 +441,9 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
 
     # create a numeric version of the ID, starting at 1
     generator_data_from_eia860["unit_id_eia_numeric"] = (
-        generator_data_from_eia860.groupby(
-            ["plant_id_eia"]
-        )["unit_id_eia"].transform(lambda x: pd.factorize(x)[0] + 1)
+        generator_data_from_eia860.groupby(["plant_id_eia"])["unit_id_eia"].transform(
+            lambda x: pd.factorize(x)[0] + 1
+        )
     )
 
     # unit_id_eia_numeric of 0 represents missing unit_id_eia, so we want to replace
