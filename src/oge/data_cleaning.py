@@ -1016,6 +1016,9 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     """
     # load the CEMS data
     cems = load_data.load_cems_data(year)
+    validation.validate_unique_datetimes(
+        year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
+    )
 
     cems = remove_negative_cems_data(cems, year)
 

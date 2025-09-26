@@ -11,7 +11,6 @@ from oge.filepaths import (
     outputs_folder,
     pudl_folder,
 )
-import oge.validation as validation
 from oge.logging_util import get_logger
 from oge.constants import (
     CLEAN_FUELS,
@@ -116,10 +115,6 @@ def load_cems_data(year: int) -> pd.DataFrame:
             "nox_mass_measurement_code": "category",
             "so2_mass_measurement_code": "category",
         }
-    )
-
-    validation.validate_unique_datetimes(
-        year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
     )
 
     return cems
