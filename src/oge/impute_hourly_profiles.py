@@ -586,8 +586,8 @@ def create_flat_profile(report_date, ba, fuel):
 
     df_temporary = pd.DataFrame(
         index=pd.date_range(
-            start=f"{year-1}-12-31 00:00:00",
-            end=f"{year+1}-01-01 23:00:00",
+            start=f"{year - 1}-12-31 00:00:00",
+            end=f"{year + 1}-01-01 23:00:00",
             freq="h",
             tz="UTC",
             name="datetime_utc",

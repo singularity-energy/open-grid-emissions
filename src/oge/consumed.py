@@ -445,12 +445,12 @@ class HourlyConsumed:
                     )
 
                 # Cut off emissions at 8 hours after UTC year
-                emissions = emissions[: f"{self.year+1}-01-01 08:00:00+00:00"]
+                emissions = emissions[: f"{self.year + 1}-01-01 08:00:00+00:00"]
                 rates[(adj, pol)] = emissions
 
         # Make generation data frame
         generation = pd.DataFrame(data=gens)
-        generation = generation[: f"{self.year+1}-01-01 08:00:00+00:00"]
+        generation = generation[: f"{self.year + 1}-01-01 08:00:00+00:00"]
 
         return rates, generation
 

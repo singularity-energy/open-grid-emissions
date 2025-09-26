@@ -142,9 +142,9 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     df.to_csv(raw_file)
 
     # if not small, scrape 2 months before start of year for rolling window cleaning
-    start = f"{year}0101T00Z" if small else f"{year-1}1001T00Z"
+    start = f"{year}0101T00Z" if small else f"{year - 1}1001T00Z"
     # Scrape 1 week if small, else 1 year (plus one day for timezone flexibility)
-    end = f"{year}0107T23Z" if small else f"{year+1}0101T23Z"
+    end = f"{year}0107T23Z" if small else f"{year + 1}0101T23Z"
     if small:
         df = df.loc[start:end]  # Don't worry about processing everything
 
@@ -217,7 +217,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     # only keep data for the single year we are interested, plus or minus one
     # day, to account for conversion to local time later
     data = data.loc[
-        (data.index >= f"{year-1}-12-31") & (data.index < f"{year+1}-01-02"), :
+        (data.index >= f"{year - 1}-12-31") & (data.index < f"{year + 1}-01-02"), :
     ]
 
     # remove columns for total net generation

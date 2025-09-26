@@ -78,7 +78,7 @@ def zip_results_for_s3():
     """
     os.makedirs(data_folder("s3_upload"), exist_ok=True)
     historical_years = list(range(earliest_validated_year, earliest_hourly_data_year))
-    year_range = f"{earliest_validated_year}-{earliest_hourly_data_year-1}"
+    year_range = f"{earliest_validated_year}-{earliest_hourly_data_year - 1}"
     for data_type in ["power_sector_data", "plant_data"]:
         for aggregation in ["monthly", "annual"]:
             for unit in ["metric_units", "us_units"]:

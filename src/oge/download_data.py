@@ -226,7 +226,7 @@ def download_pudl_from_zenodo(zenodo_url: str, pudl_version: str):
     with open(downloads_folder("pudl.tgz"), "wb") as fd:
         for chunk in r.iter_content(chunk_size=block_size):
             print(
-                f"Progress: {(round(downloaded/total_size_in_bytes*100,2))}%   \r",
+                f"Progress: {(round(downloaded / total_size_in_bytes * 100, 2))}%   \r",
                 end="",
             )
             fd.write(chunk)

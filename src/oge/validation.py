@@ -36,8 +36,8 @@ def validate_year(year):
     Invalid year. The data pipeline has only been validated to work for years 
     {start}-{end}. 
     
-    Input data for {end+1} should be available from the EIA in Fall {end+2} and we 
-    will work to validate that the pipeline works with {end+1} data as soon as 
+    Input data for {end + 1} should be available from the EIA in Fall {end + 2} and we 
+    will work to validate that the pipeline works with {end + 1} data as soon as 
     possible after the data is released.
 
     If you are looking to run the pipeline with Early Release data, check that
@@ -1668,7 +1668,7 @@ def test_for_outlier_heat_rates(df):
                     f"{len(heat_rate_test)} of {len(generators_with_pm)} records for {fuel_type} generators with {pm} prime mover have heat rate of zero or > {outlier_threshold.round(2)} mmbtu/MWh"
                 )
                 logger.warning(
-                    f'             median = {heat_rate_stats["50%"].round(2)}, max = {heat_rate_stats["max"].round(2)}, min = {heat_rate_stats["min"].round(2)}'
+                    f"             median = {heat_rate_stats['50%'].round(2)}, max = {heat_rate_stats['max'].round(2)}, min = {heat_rate_stats['min'].round(2)}"
                 )
                 heat_rate_test_all.append(heat_rate_test)
 
@@ -1707,7 +1707,7 @@ def test_gtn_results(df):
     gtn_test = df[df["net_generation_mwh"] > df["gross_generation_mwh"]]
     if not gtn_test.empty:
         logger.warning(
-            f"There are {round(len(gtn_test)/len(df)*100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
+            f"There are {round(len(gtn_test) / len(df) * 100, 1)}% of records where net generation > gross generation. See `gtn_test` for details"
         )
     return gtn_test
 
