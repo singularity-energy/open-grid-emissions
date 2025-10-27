@@ -9,24 +9,23 @@ Optional arguments for development are --small, --flat, and --skip_outputs
 
 import argparse
 import os
+import pandas as pd
 import shutil
 
-import pandas as pd
-
 # import local modules
-import oge.download_data as download_data
 import oge.data_cleaning as data_cleaning
-import oge.subplant_identification as subplant_identification
+import oge.consumed as consumed
+import oge.download_data as download_data
+import oge.eia930 as eia930
 import oge.emissions as emissions
 import oge.gross_to_net_generation as gross_to_net_generation
 import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
-import oge.eia930 as eia930
-import oge.validation as validation
 import oge.output_data as output_data
-import oge.consumed as consumed
-from oge.filepaths import downloads_folder, outputs_folder, results_folder
-from oge.logging_util import get_logger, configure_root_logger
+import oge.subplant_identification as subplant_identification
+import oge.validation as validation
+
+from oge import PUDL_ENGINE
 from oge.constants import (
     TIME_RESOLUTIONS,
     latest_validated_year,
@@ -34,6 +33,8 @@ from oge.constants import (
     earliest_hourly_data_year,
 )
 from oge.column_checks import DATA_COLUMNS
+from oge.filepaths import downloads_folder, outputs_folder, results_folder
+from oge.logging_util import get_logger, configure_root_logger
 
 
 def get_args() -> argparse.Namespace:
@@ -133,7 +134,8 @@ def main(args):
     ####################################################################################
     logger.info("1. Downloading data")
     # PUDL
-    download_data.download_pudl_data(source="aws")
+    if PUDL_ENGINE:
+        download_data.download_pudl_data(source="aws")
     logger.info(f"Using {os.getenv('PUDL_BUILD', default='stable')} PUDL build")
     # eGRID
     download_data.download_egrid_files()

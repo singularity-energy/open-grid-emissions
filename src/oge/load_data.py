@@ -1,17 +1,12 @@
-import pandas as pd
+import datetime
 import numpy as np
-import sqlalchemy as sa
+import pandas as pd
 import warnings
+
 from pathlib import Path
 
+from oge import PUDL_ENGINE
 from oge.column_checks import get_dtypes, apply_dtypes
-from oge.filepaths import (
-    downloads_folder,
-    reference_table_folder,
-    outputs_folder,
-    pudl_folder,
-)
-from oge.logging_util import get_logger
 from oge.constants import (
     CLEAN_FUELS,
     ConversionFactors,
@@ -20,11 +15,15 @@ from oge.constants import (
     latest_validated_year,
     current_early_release_year,
 )
+from oge.filepaths import (
+    downloads_folder,
+    outputs_folder,
+    pudl_folder,
+    reference_table_folder,
+)
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
-
-# initialize the pudl_engine
-PUDL_ENGINE = sa.create_engine("sqlite:///" + pudl_folder("pudl.sqlite"))
 
 
 def load_cems_data(year: int) -> pd.DataFrame:
@@ -627,7 +626,7 @@ def load_so2_emission_factors() -> pd.DataFrame:
 def load_pudl_table(
     table_name: str, year: int = None, columns: list[str] = None, end_year: int = None
 ) -> pd.DataFrame:
-    """Loads a table from the pudl database.
+    """Loads a table from the downloaded SQLite database or s3 parquet files.
 
     Args:
         table_name (str): one of the options specified in the data dictionary:
@@ -651,23 +650,52 @@ def load_pudl_table(
 
     if year is None:
         # load the table without filtering dates
-        table = pd.read_sql(
-            f"SELECT {columns_to_select} FROM {table_name}",
-            PUDL_ENGINE,
+        table = (
+            pd.read_sql(
+                f"SELECT {columns_to_select} FROM {table_name}",
+                PUDL_ENGINE,
+            )
+            if PUDL_ENGINE
+            else pd.read_parquet(
+                pudl_folder(f"{table_name}.parquet"),
+                columns=columns,
+            )
         )
     elif year is not None and end_year is None:
         # load the table for a single year
-        table = pd.read_sql(
-            f"SELECT {columns_to_select} FROM {table_name} WHERE \
+        table = (
+            pd.read_sql(
+                f"SELECT {columns_to_select} FROM {table_name} WHERE \
                 report_date >= '{year}-01-01' AND report_date < '{year + 1}-01-01'",
-            PUDL_ENGINE,
+                PUDL_ENGINE,
+            )
+            if PUDL_ENGINE
+            else pd.read_parquet(
+                pudl_folder(f"{table_name}.parquet"),
+                filters=[
+                    ("report_date", ">=", datetime.date(year, 1, 1)),
+                    ("report_date", "<", datetime.date(year + 1, 1, 1)),
+                ],
+                columns=columns,
+            )
         )
     else:
-        # load the for the specified years
-        table = pd.read_sql(
-            f"SELECT {columns_to_select} FROM {table_name} WHERE \
+        # load the table for the specified years
+        table = (
+            pd.read_sql(
+                f"SELECT {columns_to_select} FROM {table_name} WHERE \
                 report_date >= '{year}-01-01' AND report_date < '{end_year + 1}-01-01'",
-            PUDL_ENGINE,
+                PUDL_ENGINE,
+            )
+            if PUDL_ENGINE
+            else pd.read_parquet(
+                pudl_folder(f"{table_name}.parquet"),
+                filters=[
+                    ("report_date", ">=", datetime.date(year, 1, 1)),
+                    ("report_date", "<", datetime.date(end_year + 1, 1, 1)),
+                ],
+                columns=columns,
+            )
         )
 
     table = apply_dtypes(table)
