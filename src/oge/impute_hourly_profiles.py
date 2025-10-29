@@ -680,9 +680,9 @@ def impute_missing_hourly_profiles(
             # get a list of diba located in the same region and located in the same time zone
             ba_dibas = list(
                 dibas.loc[
-                    (dibas.ba_code == ba)
-                    & (dibas.ba_region == dibas.diba_region)
-                    & (dibas.timezone_local == dibas.timezone_local_diba),
+                    (dibas["ba_code"] == ba)
+                    & (dibas["ba_region"] == dibas["diba_region"])
+                    & (dibas["timezone_local"] == dibas["timezone_local_diba"]),
                     "diba_code",
                 ].unique()
             )
@@ -933,9 +933,9 @@ def validate_diba_imputation_method(hourly_profiles, year):
             # get a list of diba located in the same region and located in the same time zone
             ba_dibas = list(
                 dibas.loc[
-                    (dibas.ba_code == ba)
-                    & (dibas.ba_region == dibas.diba_region)
-                    & (dibas.timezone_local == dibas.timezone_local_diba),
+                    (dibas["ba_code"] == ba)
+                    & (dibas["ba_region"] == dibas["diba_region"])
+                    & (dibas["timezone_local"] == dibas["timezone_local_diba"]),
                     "diba_code",
                 ].unique()
             )
