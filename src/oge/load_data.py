@@ -622,7 +622,7 @@ def load_so2_emission_factors() -> pd.DataFrame:
     return df
 
 
-def load_pudl_table_from_sqlite_db(
+def load_pudl_table_from_local(
     table_name: str,
     columns: list[str] | None = None,
     datetime_column: str | None = None,
@@ -671,7 +671,7 @@ def load_pudl_table_from_sqlite_db(
     return table
 
 
-def load_pudl_table_from_parquet_file(
+def load_pudl_table_from_s3(
     table_name: str,
     datetime_column: str | None = None,
     columns: list[str] | None = None,
@@ -784,7 +784,7 @@ def load_pudl_table(
         end_datetime = end_dt if end_dt is not None else dt
 
     table = (
-        load_pudl_table_from_sqlite_db(
+        load_pudl_table_from_local(
             table_name,
             datetime_column=datetime_column,
             columns=columns,
@@ -792,7 +792,7 @@ def load_pudl_table(
             end_datetime=end_datetime,
         )
         if PUDL_ENGINE
-        else load_pudl_table_from_parquet_file(
+        else load_pudl_table_from_s3(
             table_name,
             datetime_column=datetime_column,
             columns=columns,
