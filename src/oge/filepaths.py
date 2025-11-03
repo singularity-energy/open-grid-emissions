@@ -4,8 +4,8 @@ import os
 from importlib.metadata import version
 
 
-def get_data_store():
-    """Set data location"""
+def get_oge_data_store():
+    """Get data location"""
     store = os.getenv("OGE_DATA_STORE")
     if store is None:
         return os.path.join(os.path.expanduser("~"), "open_grid_emissions_data")
@@ -20,8 +20,19 @@ def get_data_store():
         return f"s3://open-grid-emissions/open_grid_emissions_data/v{oge_data_version}"
 
 
+def get_pudl_data_store():
+    """Get PUDL data location"""
+    store = os.getenv("PUDL_DATA_STORE")
+    if store is None:
+        return os.path.join(downloads_folder(f"pudl/{get_pudl_build_version()}"))
+    elif store == "1" or store.lower() == "local":
+        return os.path.join(downloads_folder(f"pudl/{get_pudl_build_version()}"))
+    elif store == "2" or store.lower() == "s3":
+        return f"s3://pudl.catalyst.coop/{get_pudl_build_version()}"
+
+
 def get_pudl_build_version():
-    """get the pudl build version to access"""
+    """Get the pudl build version to access"""
     build = os.getenv("PUDL_BUILD")
     if build is None:
         return "stable"
@@ -41,29 +52,32 @@ def top_folder(rel=""):
 
 
 def reference_table_folder(rel=""):
+    """Returns a path relative to the `reference_tables` folder."""
     return os.path.join(top_folder("reference_tables"), rel).replace("\\", "/")
 
 
 def data_folder(rel=""):
     """Returns a path relative to the `data` folder."""
-    return os.path.join(get_data_store(), rel).replace("\\", "/")
+    return os.path.join(get_oge_data_store(), rel).replace("\\", "/")
 
 
 def downloads_folder(rel=""):
+    """Returns a path relative to the `downloads` folder."""
     return os.path.join(data_folder("downloads"), rel).replace("\\", "/")
 
 
 def pudl_folder(rel=""):
-    return os.path.join(
-        downloads_folder(f"pudl/{get_pudl_build_version()}"), rel
-    ).replace("\\", "/")
+    """Returns a path relative to the PUDL data folder."""
+    return os.path.join(get_pudl_data_store(), rel).replace("\\", "/")
 
 
 def outputs_folder(rel=""):
+    """Returns a path relative to the `outputs` folder."""
     return os.path.join(data_folder("outputs"), rel).replace("\\", "/")
 
 
 def results_folder(rel=""):
+    """Returns a path relative to the `results` folder."""
     return os.path.join(data_folder("results"), rel).replace("\\", "/")
 
 
