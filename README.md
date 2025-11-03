@@ -45,13 +45,13 @@ The pipeline can be run as follows:
 cd src/oge
 python data_pipeline.py --year 2023
 ```
-independently of the installation method you chose. Note that the pipeline uses input data from different external sources. For PUDL, you can set a `PUDL_DATA_STORE` environment variable to `s3` via `export PUDL_DATA_STORE='s3'` before calling the `data_pipeline.py` script or by adding the following to the `__init__.py` file in `src/oge`:
+independently of the installation method you chose. Note that the pipeline uses input data from different external sources. For PUDL, you can set a `PUDL_DATA_STORE` environment variable to `s3` via `export PUDL_DATA_STORE='s3'` for Bash (on Unix-like operating systems) for bash or `$Env:PUDL_DATA_STORE = 's3'` for PowerShell (on Windows) before calling the `data_pipeline.py` script or by adding the following to the `__init__.py` file in `src/oge`:
 ```python
 import os
 
 os.environ["PUDL_DATA_STORE"] = "s3"
 ```
-in order to directly load in memory the PUDL data needed to run the pipeline. If not set or set to `local`, the PUDL files will be downloaded on your disk during the first steps of the pipelin and then loaded in memory when needed.
+in order to directly load in memory the PUDL data needed to run the pipeline. If not set or set to `local`, the PUDL files will be downloaded on your disk during the first steps of the pipeline and then loaded in memory when needed.
 
 A more detailed walkthrough of these steps can be found below in the "Development Setup" section.
 
@@ -217,7 +217,7 @@ If you would like to run the full data pipeline to generate all intermediate out
 export PUDL_DATA_STORE="s3"
 python data_pipeline.py --year 2022
 ```
-where the environment variable `PUDL_DATA_STORE` is set to `s3`, meaning that PUDL's tables used throughout the code base will be loaded in memory from S3. If not set or set to `local`, files enclosing the PUDL tables will be first downloaded from S3 to your disk and then load in memory when needed. Instead of setting the environment variable in your terminal before running the pipeline, you can add the following:
+where the environment variable `PUDL_DATA_STORE` is set to `s3` (for the Bash command interpreter on Unix-like operating systems; if working on Windows), meaning that PUDL's tables used throughout the code base will be loaded in memory from S3. If not set or set to `local`, files enclosing the PUDL tables will be first downloaded from S3 to your disk and then load in memory when needed. Note that the `export` command for setting an environment variable is specific to the Bash command interpreter on Unix-like operating systems. If working with the Windows' PowerShell, the command is `$Env:PUDL_DATA_STORE = 's3'`. Independently of you operating system, the `PUDL_DATA_STORE` environment variable can be set by adding the following:
 ```python
 import os
 
