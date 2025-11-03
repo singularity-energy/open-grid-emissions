@@ -146,7 +146,7 @@ def main(args):
         download_data.download_chalendar_files()
     # We use balance files for imputing missing hourly profiles.
     # need last year for rolling data cleaning
-    download_data.download_eia930_data(years_to_download=[year, year - 1])
+    download_data.download_raw_eia930(years_to_download=[year, year - 1])
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(

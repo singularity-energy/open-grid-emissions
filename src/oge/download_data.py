@@ -291,7 +291,7 @@ def download_egrid_files():
         download_helper(url, filepath)
 
 
-def download_eia930_data(years_to_download: list[int]):
+def download_raw_eia930(years_to_download: list[int]):
     """Downloads the six month csv files from the EIA-930 website.
 
     Args:
