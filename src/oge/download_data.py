@@ -184,6 +184,31 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
             logger.info(
                 f"Using stable build version of PUDL epacems parquet file downloaded {existing_version}"
             )
+        # download the EIA-930 parquet files
+        eia930_tables = ["core_eia930__hourly_interchange"]
+        for table in eia930_tables:
+            eia930_parquet_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/{table}.parquet"
+            if not os.path.exists(downloads_folder(f"pudl/{build}/{table}.parquet")):
+                output_filepath = downloads_folder(f"pudl/{build}/{table}.parquet")
+                download_helper(
+                    eia930_parquet_url,
+                    download_path=output_filepath,
+                )
+
+                # add a version file
+                with open(
+                    downloads_folder(f"pudl/{build}/{table}_parquet_version.txt"), "w+"
+                ) as v:
+                    v.write(f"{datetime.date.today()}")
+
+            else:
+                with open(
+                    downloads_folder(f"pudl/{build}/{table}_parquet_version.txt"), "r"
+                ) as f:
+                    existing_version = f.readlines()[0].replace("\n", "")
+                logger.info(
+                    f"Using stable build version of PUDL {table} parquet file downloaded {existing_version}"
+                )
     elif source == "zenodo":
         # NOTE: This is the most recent available version as of 12/2/2023
         zenodo_url = "https://zenodo.org/record/7472137/files/pudl-v2022.11.30.tgz"
@@ -291,7 +316,7 @@ def download_egrid_files():
         download_helper(url, filepath)
 
 
-def download_eia930_data(years_to_download: list[int]):
+def download_raw_eia930(years_to_download: list[int]):
     """Downloads the six month csv files from the EIA-930 website.
 
     Args:
