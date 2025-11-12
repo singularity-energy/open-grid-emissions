@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import sqlalchemy as sa
 import warnings
 
 from pathlib import Path
@@ -653,20 +654,41 @@ def load_pudl_table_from_local(
             "end_datetime are provided"
         )
 
+    # Check if table exists in the database
+    inspector = sa.inspect(PUDL_ENGINE)
+
     if datetime_column is None:
         # No filtering on datetime
-        table = pd.read_sql(
-            f"SELECT {columns_to_select} FROM {table_name}",
-            PUDL_ENGINE,
+        table = (
+            pd.read_sql(
+                f"SELECT {columns_to_select} FROM {table_name}",
+                PUDL_ENGINE,
+            )
+            if inspector.has_table(table_name)
+            else pd.read_parquet(
+                pudl_folder(f"{table_name}.parquet"),
+                columns=columns,
+            )
         )
     else:
         # Filter on datetime
         start = start_datetime.strftime("%Y-%m-%d")
         end = end_datetime.strftime("%Y-%m-%d")
-        table = pd.read_sql(
-            f"SELECT {columns_to_select} FROM {table_name} WHERE \
+        table = (
+            pd.read_sql(
+                f"SELECT {columns_to_select} FROM {table_name} WHERE \
                 {datetime_column} >= '{start}' AND {datetime_column} <= '{end}'",
-            PUDL_ENGINE,
+                PUDL_ENGINE,
+            )
+            if inspector.has_table(table_name)
+            else pd.read_parquet(
+                pudl_folder(f"{table_name}.parquet"),
+                filters=[
+                    (datetime_column, ">=", start_datetime),
+                    (datetime_column, "<=", end_datetime),
+                ],
+                columns=columns,
+            )
         )
     return table
 
