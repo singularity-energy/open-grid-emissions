@@ -43,7 +43,7 @@ pip install .
 The pipeline can be run as follows:
 ```bash
 cd src/oge
-python data_pipeline.py --year 2023
+python data_pipeline.py --year 2024
 ```
 independently of the installation method you chose. Note that the pipeline uses input data from different external sources. For PUDL, you can set a `PUDL_DATA_STORE` environment variable to `s3` via `export PUDL_DATA_STORE='s3'` for Bash (on Unix-like operating systems) for bash or `$Env:PUDL_DATA_STORE = 's3'` for PowerShell (on Windows) before calling the `data_pipeline.py` script or by adding the following to the `__init__.py` file in `src/oge`:
 ```python
