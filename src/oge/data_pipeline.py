@@ -133,10 +133,10 @@ def main(args):
     # 1. Download data
     ####################################################################################
     logger.info("1. Downloading data")
+    logger.info(f"Using {os.getenv('PUDL_BUILD', default='stable')} PUDL build")
     # PUDL
     if PUDL_ENGINE:
         download_data.download_pudl_data(source="aws")
-    logger.info(f"Using {os.getenv('PUDL_BUILD', default='stable')} PUDL build")
     # eGRID
     download_data.download_egrid_files()
     # EIA-930
@@ -155,7 +155,8 @@ def main(args):
     # download the raw EIA-923 and EIA-860 files for use in NOx/SO2 calculations until
     # integrated into pudl
     download_data.download_raw_eia860(year)
-    # download eia860 from the latest validated year for use in subplant identification
+    # download raw EIA-860 from the latest validated year for use in subplant
+    # identification
     download_data.download_raw_eia860(
         max(latest_validated_year, current_early_release_year)
     )

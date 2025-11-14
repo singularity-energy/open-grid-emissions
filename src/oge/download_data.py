@@ -185,7 +185,11 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
                 f"Using stable build version of PUDL epacems parquet file downloaded {existing_version}"
             )
         # download the EIA-930 parquet files
-        eia930_tables = ["core_eia930__hourly_interchange"]
+        eia930_tables = [
+            "core_eia930__hourly_interchange",
+            "core_eia930__hourly_net_generation_by_energy_source",
+            "out_eia930__hourly_operations",
+        ]
         for table in eia930_tables:
             eia930_parquet_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/{table}.parquet"
             if not os.path.exists(downloads_folder(f"pudl/{build}/{table}.parquet")):

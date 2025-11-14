@@ -21,6 +21,155 @@ from gridemissions.workflows import make_dataset  # noqa E402
 logger = get_logger(__name__)
 
 
+# Dictionary mapping the new energy sources in EIA-930 to existing ones
+new_to_existing_energy_sources = {
+    "coal": "coal",
+    "gas": "gas",
+    "hydro": "hydro",
+    "hydro_excluding_pumped_storage": "hydro",
+    "pumped_storage": "hydro",
+    "nuclear": "nuclear",
+    "oil": "oil",
+    "battery_storage": "other",
+    "geothermal": "other",
+    "other": "other",
+    "other_energy_storage": "other",
+    "unknown_energy_storage": "other",
+    "solar": "solar",
+    "solar_w_integrated_battery_storage": "solar",
+    "solar_wo_integrated_battery_storage": "solar",
+    "unknown": "unknown",
+    "wind": "wind",
+    "wind_w_integrated_battery_storage": "wind",
+    "wind_wo_integrated_battery_storage": "wind",
+}
+existing_energy_source_names_to_codes = {
+    "coal": "COL",
+    "gas": "NG",
+    "hydro": "WAT",
+    "nuclear": "NUC",
+    "oil": "OIL",
+    "other": "OTH",
+    "solar": "SUN",
+    "unknown": "UNK",
+    "wind": "WND",
+}
+
+
+def convert_balance_data_to_gridemissions_format(year: int):
+    """Convert PUDL's EIA-930 data to gridemissions format.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: balance data for each BA
+    """
+    # Set date range
+    # Need extra time at start and end for rolling data cleaning
+    start = pd.Timestamp(year - 1, 10, 1)
+    end = pd.Timestamp(year + 1, 1, 2)
+
+    # Load and transform data from PUDL
+    ## Hourly time series of balancing authority interchange.
+    interchange = load_data.load_pudl_table(
+        "core_eia930__hourly_interchange",
+        columns=[
+            "datetime_utc",
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+            "interchange_reported_mwh",
+        ],
+        dt=start,
+        end_dt=end,
+    ).pivot(
+        index="datetime_utc",
+        columns=[
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+        ],
+        values="interchange_reported_mwh",
+    )
+    interchange.columns = ["EBA.{}-{}.ID.H".format(*c) for c in interchange.columns]
+
+    ## Hourly time series of balancing authority net generation by energy source.
+    ## EIA-930 energy sources have changed and not all BAs started to utilize the new
+    ## energy source categories at the same time.
+    ## As a first step, we map the new energy sources to existing ones. This means that
+    ## all BAs, independently of when they started to report the new energy sources,
+    ## will have one solar, wind, hydro, and other category.
+    ## TODO: consider individual energy sources (e.g. geothermal, battery storage, etc.)
+    ## and BAs reporting new energy sources at different times.
+    net_generation = (
+        load_data.load_pudl_table(
+            "core_eia930__hourly_net_generation_by_energy_source",
+            columns=[
+                "datetime_utc",
+                "balancing_authority_code_eia",
+                "generation_energy_source",
+                "net_generation_adjusted_mwh",
+            ],
+            dt=start,
+            end_dt=end,
+        )
+        .astype(
+            {"generation_energy_source": "str"}
+        )  # to avoid a FutureWarning when using replace on CategoricalDtype
+        .replace({"generation_energy_source": new_to_existing_energy_sources})
+        .groupby(
+            ["datetime_utc", "balancing_authority_code_eia", "generation_energy_source"]
+        )["net_generation_adjusted_mwh"]
+        .sum()
+        .reset_index()
+        .pivot(
+            index="datetime_utc",
+            columns=["balancing_authority_code_eia", "generation_energy_source"],
+            values="net_generation_adjusted_mwh",
+        )
+    )
+    net_generation.columns = [
+        "EBA.{}-ALL.NG.{}.H".format(c[0], existing_energy_source_names_to_codes[c[1]])
+        for c in net_generation.columns
+    ]
+
+    ## Hourly time series of balancing authority net generation, interchange, and demand
+    ## with imputed demand.
+    operations = load_data.load_pudl_table(
+        "out_eia930__hourly_operations",
+        columns=[
+            "datetime_utc",
+            "balancing_authority_code_eia",
+            "net_generation_adjusted_mwh",
+            "interchange_adjusted_mwh",
+            "demand_adjusted_mwh",
+            "demand_imputed_pudl_mwh",
+        ],
+        dt=start,
+        end_dt=end,
+    ).pivot(
+        index="datetime_utc",
+        columns="balancing_authority_code_eia",
+        values=[
+            "net_generation_adjusted_mwh",
+            "interchange_adjusted_mwh",
+            "demand_imputed_pudl_mwh",
+        ],
+    )
+    operations.columns = [
+        "EBA.{}-ALL.NG.H".format(c[1])
+        if c[0] == "net_generation_adjusted_mwh"
+        else "EBA.{}-ALL.TI.H".format(c[1])
+        if c[0] == "interchange_adjusted_mwh"
+        else "EBA.{}-ALL.D.H".format(c[1])
+        for c in operations.columns
+    ]
+
+    # balance
+    balance = pd.concat([net_generation, operations, interchange], axis="columns")
+
+    return balance
+
+
 def convert_balance_file_to_gridemissions_format(year: int, small: bool = False):
     """Converts downloaded EIA-930 Balance files to gridemissions format."""
     files = [
