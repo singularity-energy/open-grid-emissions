@@ -383,12 +383,16 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     ):
         filepath = f"eia860/eia860{year}ER/3_1_Generator_Y{year}_Early_Release.xlsx"
         header_row = 2
+        footer_row = 1
     else:
         filepath = f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
         header_row = 1
+        footer_row = 1
+
     generator_op_dates_eia860 = pd.read_excel(
         downloads_folder(filepath),
         header=header_row,
+        skipfooter=footer_row,
         sheet_name="Operable",
         usecols=[
             "Plant Code",
@@ -401,18 +405,25 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
         columns={
             "Plant Code": "plant_id_eia",
             "Generator ID": "generator_id",
-            "Operating Month": "Month",
-            "Operating Year": "Year",
+            "Operating Month": "month",
+            "Operating Year": "year",
             "Unit Code": "unit_id_eia",
         }
     )
 
     # create a datetime column from the month and year
+    # Set " " to NA before converting to datetime
+    generator_op_dates_eia860["month"] = generator_op_dates_eia860["month"].replace(
+        " ", pd.NA
+    )
+    generator_op_dates_eia860["year"] = generator_op_dates_eia860["year"].replace(
+        " ", pd.NA
+    )
     generator_op_dates_eia860["operating_date_eia"] = pd.to_datetime(
-        generator_op_dates_eia860[["Year", "Month"]].assign(Day=1)
+        generator_op_dates_eia860[["year", "month"]].assign(Day=1)
     )
     generator_op_dates_eia860 = generator_op_dates_eia860.drop(
-        columns=["Month", "Year"]
+        columns=["month", "year"]
     )
 
     # load unit codes for proposed generators
@@ -796,9 +807,9 @@ def load_pudl_table(
         datetime_column = "report_date"
         start_datetime = pd.Timestamp(year, 1, 1)
         end_datetime = (
-            pd.Timestamp(end_year, 1, 1)
+            pd.Timestamp(end_year, 12, 1)
             if end_year is not None
-            else pd.Timestamp(year, 1, 1)
+            else pd.Timestamp(year, 12, 1)
         )
     if dt is not None:
         datetime_column = "datetime_utc"
