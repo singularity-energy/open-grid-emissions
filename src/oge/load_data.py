@@ -1370,6 +1370,9 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
                 2023: downloads_folder(
                     f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
                 ),
+                2024: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
+                ),
             }[year]
             header_row = 4
         elif (year == current_early_release_year) and (
