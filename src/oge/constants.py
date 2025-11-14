@@ -11,7 +11,7 @@ earliest_validated_year = 2005
 # profiles
 earliest_hourly_data_year = 2019
 # latest_validated_year is the most recent year for which OGE data has been published
-latest_validated_year = 2023
+latest_validated_year = 2024
 # current_early_release_year is the year for which non-final (early-release) data
 # is available from the EIA. This enables running the OGE pipeline for this year
 # EIA-860ER data is generally available in June and EIA-923ER data is generally
