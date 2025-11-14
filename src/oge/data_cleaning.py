@@ -57,7 +57,7 @@ def clean_eia923(
     # See: https://github.com/catalyst-cooperative/pudl/issues/3987
     # To fix this, we need to filter `gens` to remove data with a missing
     # "data_maturity" column
-    gens = gens[~gens["data_maturity"].isna()]
+    # gens = gens[~gens["data_maturity"].isna()]
 
     gf, bf, gen, bga, gens = allocate_gen_fuel.select_input_data(
         gf=gf, bf=bf, gen=gen, bga=bga, gens=gens
