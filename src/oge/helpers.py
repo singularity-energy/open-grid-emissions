@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from geopy.extra.rate_limiter import RateLimiter
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderUnavailable
 from timezonefinder import TimezoneFinder
@@ -1094,7 +1095,11 @@ def search_location_from_coordinates(latitude: float, longitude: float) -> tuple
     for i in range(0, 2):
         while True:
             try:
-                address = geolocator.reverse(f"{latitude}, {longitude}").raw["address"]
+                reverse_geolocate = RateLimiter(geolocator.reverse, min_delay_seconds=1)
+                location = reverse_geolocate(
+                    (latitude, longitude), exactly_one=True, timeout=10
+                )
+                address = location.raw["address"]
                 if address["country_code"] != "us":
                     return pd.NA, pd.NA, pd.NA
             except (ReadTimeoutError, GeocoderUnavailable) as error:
