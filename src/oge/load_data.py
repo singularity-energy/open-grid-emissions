@@ -14,6 +14,7 @@ from oge.constants import (
     earliest_validated_year,
     latest_validated_year,
     current_early_release_year,
+    cancelled_or_proposed_status_codes,
 )
 from oge.filepaths import (
     downloads_folder,
@@ -220,7 +221,6 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     ]
 
     # remove generators that are proposed but not yet under construction, or cancelled
-    cancelled_or_proposed_status_codes = ["CN", "IP", "P", "L", "T"]
     complete_gens = complete_gens[
         ~complete_gens["operational_status_code"].isin(
             cancelled_or_proposed_status_codes
@@ -323,7 +323,7 @@ def load_raw_eia860_plant_geographical_info(year: int) -> pd.DataFrame:
     if (year == current_early_release_year) and (
         current_early_release_year != latest_validated_year
     ):
-        filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}_Early_Release.xlsx"
+        filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}__Early_Release.xlsx"
         header_row = 2
     else:
         filepath = f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"
@@ -383,12 +383,16 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     ):
         filepath = f"eia860/eia860{year}ER/3_1_Generator_Y{year}_Early_Release.xlsx"
         header_row = 2
+        footer_row = 1
     else:
         filepath = f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
         header_row = 1
+        footer_row = 1
+
     generator_op_dates_eia860 = pd.read_excel(
         downloads_folder(filepath),
         header=header_row,
+        skipfooter=footer_row,
         sheet_name="Operable",
         usecols=[
             "Plant Code",
@@ -401,18 +405,25 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
         columns={
             "Plant Code": "plant_id_eia",
             "Generator ID": "generator_id",
-            "Operating Month": "Month",
-            "Operating Year": "Year",
+            "Operating Month": "month",
+            "Operating Year": "year",
             "Unit Code": "unit_id_eia",
         }
     )
 
     # create a datetime column from the month and year
+    # Set " " to NA before converting to datetime
+    generator_op_dates_eia860["month"] = generator_op_dates_eia860["month"].replace(
+        " ", pd.NA
+    )
+    generator_op_dates_eia860["year"] = generator_op_dates_eia860["year"].replace(
+        " ", pd.NA
+    )
     generator_op_dates_eia860["operating_date_eia"] = pd.to_datetime(
-        generator_op_dates_eia860[["Year", "Month"]].assign(Day=1)
+        generator_op_dates_eia860[["year", "month"]].assign(Day=1)
     )
     generator_op_dates_eia860 = generator_op_dates_eia860.drop(
-        columns=["Month", "Year"]
+        columns=["month", "year"]
     )
 
     # load unit codes for proposed generators
@@ -796,9 +807,9 @@ def load_pudl_table(
         datetime_column = "report_date"
         start_datetime = pd.Timestamp(year, 1, 1)
         end_datetime = (
-            pd.Timestamp(end_year, 1, 1)
+            pd.Timestamp(end_year, 12, 1)
             if end_year is not None
-            else pd.Timestamp(year, 1, 1)
+            else pd.Timestamp(year, 12, 1)
         )
     if dt is not None:
         datetime_column = "datetime_utc"
@@ -1359,13 +1370,16 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
                 2023: downloads_folder(
                     f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
                 ),
+                2024: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
+                ),
             }[year]
             header_row = 4
         elif (year == current_early_release_year) and (
             current_early_release_year != latest_validated_year
         ):
             schedule_8_filename = downloads_folder(
-                f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Early_Release.xlsx"
+                f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Early Release.xlsx"
             )
             header_row = 5
 

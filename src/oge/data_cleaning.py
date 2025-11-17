@@ -57,7 +57,7 @@ def clean_eia923(
     # See: https://github.com/catalyst-cooperative/pudl/issues/3987
     # To fix this, we need to filter `gens` to remove data with a missing
     # "data_maturity" column
-    gens = gens[~gens["data_maturity"].isna()]
+    # gens = gens[~gens["data_maturity"].isna()]
 
     gf, bf, gen, bga, gens = allocate_gen_fuel.select_input_data(
         gf=gf, bf=bf, gen=gen, bga=bga, gens=gens
@@ -853,6 +853,11 @@ def remove_plants(
         # df = manually_remove_steam_units(df)
         df = remove_unmapped_fuel(df, year)
         df = identify_and_remove_steam_only_units(df, year)
+
+    # remove plant with missing plant metadata in EIA-860, including name, BA and state
+    # TODO: remove when EIA fixes metadata
+    logger.info("Removing plant_id_eia 68815 due to missing plant metadata in EIA-860")
+    df = df.query("plant_id_eia != 68815")
 
     if distribution_connected_plants:
         pass

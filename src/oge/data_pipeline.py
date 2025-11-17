@@ -3,7 +3,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
-Optional arguments are --year (default 2022)
+Optional arguments are --year (default 2024)
 Optional arguments for development are --small, --flat, and --skip_outputs
 """
 
@@ -43,7 +43,7 @@ def get_args() -> argparse.Namespace:
     Returns dictionary of {arg_name: arg_value}
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--year", help="Year for analysis", default=2022, type=int)
+    parser.add_argument("--year", help="Year for analysis", default=2024, type=int)
     parser.add_argument(
         "--small",
         help=(
@@ -144,9 +144,6 @@ def main(args):
     # profiles
     if args.small or args.flat:
         download_data.download_chalendar_files()
-    # We use balance files for imputing missing hourly profiles.
-    # need last year for rolling data cleaning
-    download_data.download_raw_eia930(years_to_download=[year, year - 1])
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(

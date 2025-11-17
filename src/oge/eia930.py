@@ -286,7 +286,7 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     data_folder = outputs_folder(f"{path_prefix}/eia930/")
 
     # Format raw file
-    df = convert_balance_file_to_gridemissions_format(year, small=small)
+    df = convert_balance_data_to_gridemissions_format(year)
     raw_file = data_folder + "eia930_unadjusted_raw.csv"
     df.to_csv(raw_file)
 
