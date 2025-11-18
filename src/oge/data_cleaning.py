@@ -78,6 +78,52 @@ def clean_eia923(
     )
     """
 
+    # Remove plant/generator combinations not in EIA-860.
+    # This situation can occur because some generators present in the allocated EIA-923
+    # data are filtered out of EIA-860 based on their operational status codes (e.g.,
+    # 'CN', 'IP', 'P', 'L'). These codes are excluded from the EIA-860 generator list
+    # used for subplant assignments. As a result, plant/generator pairs may exist in
+    # the allocated EIA-923 data but not in EIA-860, so we remove them here to ensure
+    # consistency.
+    to_remove = set(
+        gen_fuel_allocated[["plant_id_eia", "generator_id"]]
+        .drop_duplicates()
+        .apply(tuple, axis=1)
+    ).difference(
+        set(
+            load_data.load_complete_eia_generators_for_subplants()[
+                ["plant_id_eia", "generator_id"]
+            ]
+            .drop_duplicates()
+            .apply(tuple, axis=1)
+        )
+    )
+    if len(to_remove) > 0:
+        # Check that we are not removing any generators with non-zero generation or
+        # fuel consumption
+        for p, g in to_remove:
+            gen_fuel_allocated_to_remove = gen_fuel_allocated[
+                (
+                    (gen_fuel_allocated["plant_id_eia"] == p)
+                    & (gen_fuel_allocated["generator_id"] == g)
+                )
+            ]
+            if (gen_fuel_allocated_to_remove["net_generation_mwh"] > 0).any() or (
+                gen_fuel_allocated_to_remove["fuel_consumed_mmbtu"] > 0
+            ).any():
+                continue
+            else:
+                logger.warning(
+                    f"Removing ({p},{g}) not in EIA-860 with zero generation and fuel "
+                    "consumption"
+                )
+                gen_fuel_allocated = gen_fuel_allocated[
+                    ~(
+                        (gen_fuel_allocated["plant_id_eia"] == p)
+                        & (gen_fuel_allocated["generator_id"] == g)
+                    )
+                ]
+
     # drop bad data where there is negative fuel consumption
     # NOTE(greg) this is in response to a specific issue with the input data for
     # plant 10613 in May 2022, where the data is reported incorrectly in the source
