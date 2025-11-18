@@ -78,6 +78,36 @@ def clean_eia923(
     )
     """
 
+    # Remove plant/generator combinations not in EIA-860.
+    # This situation can occur because some generators present in the allocated EIA-923
+    # data are filtered out of EIA-860 based on their operational status codes (e.g.,
+    # 'CN', 'IP', 'P', 'L'). These codes are excluded from the EIA-860 generator list
+    # used for subplant assignments. As a result, plant/generator pairs may exist in
+    # the allocated EIA-923 data but not in EIA-860, so we remove them here to ensure
+    # consistency.
+    to_remove = set(
+        gen_fuel_allocated[["plant_id_eia", "generator_id"]]
+        .drop_duplicates()
+        .apply(tuple, axis=1)
+    ).difference(
+        set(
+            load_data.load_complete_eia_generators_for_subplants()[
+                ["plant_id_eia", "generator_id"]
+            ]
+            .drop_duplicates()
+            .apply(tuple, axis=1)
+        )
+    )
+    if len(to_remove) > 0:
+        logger.info(
+            f"Removing {len(to_remove)} plant_id_eia/generator_id combinations not in EIA-860"
+        )
+        gen_fuel_allocated = gen_fuel_allocated[
+            ~gen_fuel_allocated[["plant_id_eia", "generator_id"]]
+            .apply(tuple, axis=1)
+            .isin(to_remove)
+        ]
+
     # drop bad data where there is negative fuel consumption
     # NOTE(greg) this is in response to a specific issue with the input data for
     # plant 10613 in May 2022, where the data is reported incorrectly in the source
