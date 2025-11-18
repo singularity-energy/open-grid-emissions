@@ -99,14 +99,30 @@ def clean_eia923(
         )
     )
     if len(to_remove) > 0:
-        logger.info(
-            f"Removing {len(to_remove)} plant_id_eia/generator_id combinations not in EIA-860"
-        )
-        gen_fuel_allocated = gen_fuel_allocated[
-            ~gen_fuel_allocated[["plant_id_eia", "generator_id"]]
-            .apply(tuple, axis=1)
-            .isin(to_remove)
-        ]
+        # Check that we are not removing any generators with non-zero generation or
+        # fuel consumption
+        for p, g in to_remove:
+            gen_fuel_allocated_to_remove = gen_fuel_allocated[
+                (
+                    (gen_fuel_allocated["plant_id_eia"] == p)
+                    & (gen_fuel_allocated["generator_id"] == g)
+                )
+            ]
+            if (gen_fuel_allocated_to_remove["net_generation_mwh"] > 0).any() or (
+                gen_fuel_allocated_to_remove["fuel_consumed_mmbtu"] > 0
+            ).any():
+                continue
+            else:
+                logger.warning(
+                    f"Removing ({p},{g}) not in EIA-860 with zero generation and fuel "
+                    "consumption"
+                )
+                gen_fuel_allocated = gen_fuel_allocated[
+                    ~(
+                        (gen_fuel_allocated["plant_id_eia"] == p)
+                        & (gen_fuel_allocated["generator_id"] == g)
+                    )
+                ]
 
     # drop bad data where there is negative fuel consumption
     # NOTE(greg) this is in response to a specific issue with the input data for
