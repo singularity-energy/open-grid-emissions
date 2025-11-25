@@ -1940,9 +1940,9 @@ def return_annual_national_fuel_sulfur_content(year: int) -> pd.DataFrame:
             suffixes=(None, "_fill"),
         )
         annual_avg_fuel_sulfur_content["sulfur_content_pct"] = (
-            annual_avg_fuel_sulfur_content[
-                "sulfur_content_pct"
-            ].fillna(annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"])
+            annual_avg_fuel_sulfur_content["sulfur_content_pct"].fillna(
+                annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"]
+            )
         )
         annual_avg_fuel_sulfur_content = annual_avg_fuel_sulfur_content.drop(
             columns=["sulfur_content_pct_fill"]
