@@ -1,3 +1,4 @@
+import gc
 import pandas as pd
 import numpy as np
 
@@ -109,7 +110,7 @@ def calculate_hourly_profiles(
         validate="m:1",
     )
     hourly_profiles.loc[(hourly_profiles["source"] == "both"), "cems_profile"] = np.NaN
-    hourly_profiles = hourly_profiles.drop(columns="source")
+    hourly_profiles.drop(columns="source", inplace=True)
 
     hourly_profiles = select_best_available_profile(hourly_profiles)
 
@@ -199,7 +200,7 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
     hourly_profiles.loc[
         hourly_profiles["negative_filter"] == "both", "residual_profile_filtered"
     ] = np.NaN
-    hourly_profiles = hourly_profiles.drop(columns=["negative_filter"])
+    hourly_profiles.drop(columns=["negative_filter"], inplace=True)
 
     # implement a filter on the shifted residual profile so that we don't use it if greater than the eia930 data
     shifted_filter = (
@@ -226,7 +227,7 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
     hourly_profiles.loc[
         hourly_profiles["shifted_filter"] == "both", "shifted_residual_profile_filtered"
     ] = np.NaN
-    hourly_profiles = hourly_profiles.drop(columns=["shifted_filter"])
+    hourly_profiles.drop(columns=["shifted_filter"], inplace=True)
 
     # pick the profile
 
@@ -264,12 +265,13 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
             "residual_profile_filtered": "residual_profile",
         }
     )
-    hourly_profiles = hourly_profiles.drop(
+    hourly_profiles.drop(
         columns=[
             "imputation_method",
             "residual_profile_filtered",
             "shifted_residual_profile_filtered",
-        ]
+        ],
+        inplace=True,
     )
 
     return hourly_profiles
@@ -311,7 +313,9 @@ def aggregate_cems_to_fleet_for_residual_calc(
     """
 
     # add the partial cems data
-    cems_agg = pd.concat([cems, partial_cems_subplant, partial_cems_plant], axis=0)
+    cems_agg = pd.concat(
+        [cems, partial_cems_subplant, partial_cems_plant], axis=0, copy=False
+    )
     validation.validate_unique_datetimes(
         year, cems_agg, "cems_for_residual", ["plant_id_eia", "subplant_id"]
     )
@@ -493,7 +497,7 @@ def calculate_scaled_residual(combined_data: pd.DataFrame) -> pd.DataFrame:
     """
     # Find scaling factor
     # only keep data where the cems data is greater than zero
-    scaling_factors = combined_data.copy()[combined_data["cems_profile"] > 0]
+    scaling_factors = combined_data[combined_data["cems_profile"] > 0].copy()
     # calculate the ratio of 930 net generation to cems net generation
     # if correct, ratio should be >=1
     scaling_factors["scaling_factor"] = (
@@ -540,7 +544,7 @@ def calculate_scaled_residual(combined_data: pd.DataFrame) -> pd.DataFrame:
 def calculate_shifted_residual(combined_data):
     # Find scaling factor
     # only keep data where the cems data is greater than zero
-    scaling_factors = combined_data.copy()[combined_data["cems_profile"] != 0]
+    scaling_factors = combined_data[combined_data["cems_profile"] != 0].copy()
     # calculate the ratio of 930 net generation to cems net generation
     # if correct, ratio should be >=1
     scaling_factors["shift_factor"] = (
@@ -723,10 +727,12 @@ def impute_missing_hourly_profiles(
         hourly_profiles_to_add.append(df_temporary)
 
     hourly_profiles_to_add = pd.concat(
-        hourly_profiles_to_add, axis=0, ignore_index=True
+        hourly_profiles_to_add, axis=0, ignore_index=True, copy=False
     )
 
-    hourly_profiles = pd.concat([residual_profiles, hourly_profiles_to_add], axis=0)
+    hourly_profiles = pd.concat(
+        [residual_profiles, hourly_profiles_to_add], axis=0, copy=False
+    )
 
     # convert to datetime64[s] format
     hourly_profiles["datetime_utc"] = (
@@ -795,7 +801,7 @@ def identify_missing_profiles(
     )
     # identify ba fuel months where there is no data in the available residual profiles
     missing_profiles = missing_profiles[missing_profiles.source == "left_only"]
-    missing_profiles = missing_profiles.drop(columns="source")
+    missing_profiles.drop(columns="source", inplace=True)
     missing_profiles = missing_profiles.sort_values(by=MONTHLY_GROUP_COLUMNS)
 
     return missing_profiles
@@ -805,7 +811,7 @@ def average_diba_wind_solar_profiles(
     residual_profiles, ba, fuel, report_date, ba_dibas, validation_run=False
 ):
     # calculate the average generation profile for the fuel in all neighboring DIBAs
-    df_temporary = residual_profiles.copy()[
+    df_temporary = residual_profiles[
         (residual_profiles["ba_code"].isin(ba_dibas))
         & (residual_profiles["fuel_category"] == fuel)
         & (residual_profiles["report_date"] == report_date)
@@ -835,10 +841,10 @@ def average_diba_wind_solar_profiles(
 
 
 def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_date):
-    df_temporary = residual_profiles.copy()[
+    df_temporary = residual_profiles[
         (residual_profiles["fuel_category"] == fuel)
         & (residual_profiles["report_date"] == report_date)
-    ]
+    ].copy()
     # strip the time zone information so we can group by local time
     df_temporary["datetime_local"] = df_temporary["datetime_local"].str[:-6]
     df_temporary = (
@@ -950,7 +956,7 @@ def validate_diba_imputation_method(hourly_profiles, year):
                 pass
 
     hourly_profiles_to_add = pd.concat(
-        hourly_profiles_to_add, axis=0, ignore_index=True
+        hourly_profiles_to_add, axis=0, ignore_index=True, copy=False
     )
 
     # merge the imputed data with the actual data
@@ -1029,7 +1035,7 @@ def validate_national_imputation_method(hourly_profiles):
         hourly_profiles_to_add.append(df_temporary)
 
     hourly_profiles_to_add = pd.concat(
-        hourly_profiles_to_add, axis=0, ignore_index=True
+        hourly_profiles_to_add, axis=0, ignore_index=True, copy=False
     )
 
     # merge the imputed data with the actual data
@@ -1129,7 +1135,7 @@ def add_cems_backstop_profile(
         validate="m:1",
     )
     cems_ba_fuel = cems_ba_fuel[cems_ba_fuel["n_unique_plants"] > 3]
-    cems_ba_fuel = cems_ba_fuel.drop(columns=["n_unique_plants"])
+    cems_ba_fuel.drop(columns=["n_unique_plants"], inplace=True)
 
     # remove months where there is zero generation reported
     months_with_zero_data = (
@@ -1151,7 +1157,7 @@ def add_cems_backstop_profile(
         validate="m:1",
     )
     cems_ba_fuel = cems_ba_fuel[cems_ba_fuel["zero_filter"] != "both"]
-    cems_ba_fuel = cems_ba_fuel.drop(columns=["zero_filter", "report_date"])
+    cems_ba_fuel.drop(columns=["zero_filter", "report_date"], inplace=True)
 
     # remove duplicate datetime values
     cems_ba_fuel = (
@@ -1196,7 +1202,7 @@ def convert_profile_to_percent(hourly_profiles, group_keys, columns_to_convert):
         hourly_profiles[col] = (
             hourly_profiles[col] / hourly_profiles[f"{col}_monthly_total"]
         )
-        hourly_profiles = hourly_profiles.drop(columns=[f"{col}_monthly_total"])
+        hourly_profiles.drop(columns=[f"{col}_monthly_total"], inplace=True)
 
     return hourly_profiles
 
@@ -1273,6 +1279,9 @@ def combine_and_export_hourly_plant_data(
         copy=False,
     )[[col for col in cems.columns if col in all_columns]]
 
+    # Free memory after combining
+    gc.collect()
+
     # aggregate combined CEMS data to the plant level
     combined_cems_data = (
         combined_cems_data.groupby(
@@ -1309,6 +1318,7 @@ def combine_and_export_hourly_plant_data(
     ):
         logger.info(f"Shaping hourly plant data for {region}")
         # filter each of the data sources to the region
+        # Note: copy needed because we'll be modifying this subset
         eia_region = monthly_eia_data_to_shape[
             monthly_eia_data_to_shape[region_to_group] == region
         ].copy()
@@ -1342,6 +1352,7 @@ def combine_and_export_hourly_plant_data(
         )
 
         # filter the CEMS data to the region and combine it with the EIA data
+        # Note: copy needed because we'll be modifying this subset
         cems_region = combined_cems_data[
             combined_cems_data[region_to_group] == region
         ].copy()
@@ -1621,9 +1632,9 @@ def shape_partial_cems_plants(cems, eia923_allocated, year):
     SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
 
     # identify all of the partial cems plants and group by subplant-month
-    eia_data_to_shape = eia923_allocated.copy().loc[
+    eia_data_to_shape = eia923_allocated.loc[
         eia923_allocated.hourly_data_source == "partial_cems_plant"
-    ]
+    ].copy()
 
     # if there is no data in the partial cems dataframe, skip.
     if len(eia_data_to_shape) > 0:
@@ -1737,9 +1748,10 @@ def shape_partial_cems_plants(cems, eia923_allocated, year):
                 shaped_partial_plants[col] * shaped_partial_plants[profile_to_use]
             )
 
-        # remove the intermediate columns
-        shaped_partial_plants = shaped_partial_plants.drop(
-            columns=["generation_profile", "fuel_profile", "flat_profile"]
+        # remove the intermediate columns in-place
+        shaped_partial_plants.drop(
+            columns=["generation_profile", "fuel_profile", "flat_profile"],
+            inplace=True,
         )
 
         # validate that the shaping process did not alter the data
@@ -1771,9 +1783,9 @@ def shape_partial_cems_subplants(cems, eia923_allocated, year):
     SUBPLANT_KEYS = ["report_date", "plant_id_eia", "subplant_id"]
 
     # identify all of the partial cems plants and group by subplant-month
-    eia_data_to_shape = eia923_allocated.copy().loc[
+    eia_data_to_shape = eia923_allocated.loc[
         eia923_allocated.hourly_data_source == "partial_cems_subplant"
-    ]
+    ].copy()
     # if there is no data in the partial cems dataframe, skip.
     if len(eia_data_to_shape) > 0:
         eia_data_to_shape = (
@@ -1794,10 +1806,10 @@ def shape_partial_cems_subplants(cems, eia923_allocated, year):
             raise UserWarning(
                 " At least one subplant-month identified as partial_cems does not exist in the cems data."
             )
-        partial_cems_data = (
-            cems[cems["data_source"] == "both"].copy().drop(columns=["data_source"])
-        )
-        cems = cems[cems["data_source"] == "left_only"].drop(columns=["data_source"])
+        partial_cems_data = cems[cems["data_source"] == "both"].copy()
+        partial_cems_data.drop(columns=["data_source"], inplace=True)
+        cems = cems[cems["data_source"] == "left_only"]
+        cems.drop(columns=["data_source"], inplace=True)
 
         # merge cems gross generation and fuel consumption totals into the EIA totals
         # these will be used to scale the EIA data
@@ -1935,8 +1947,10 @@ def shape_partial_cems_subplants(cems, eia923_allocated, year):
             group_keys=["plant_id_eia", "subplant_id"],
         )
 
-        partial_cems_shaped = partial_cems_shaped.drop(
-            columns=["steam_load_1000_lb", "gross_generation_mwh"]
+        partial_cems_shaped.drop(
+            columns=["steam_load_1000_lb", "gross_generation_mwh"],
+            errors="ignore",
+            inplace=True,
         )
 
         partial_cems_shaped = apply_dtypes(partial_cems_shaped)

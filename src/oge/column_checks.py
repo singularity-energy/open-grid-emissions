@@ -91,7 +91,7 @@ COLUMNS = {
         "gross_generation_mwh",
         "gtn_method",
         "net_generation_mwh",
-        "steam_load_1000_lb",
+        # "steam_load_1000_lb",
         "fuel_consumed_mmbtu",
         "fuel_consumed_for_electricity_mmbtu",
         "co2_mass_lb",

@@ -1,3 +1,4 @@
+import gc
 import pandas as pd
 import numpy as np
 
@@ -68,8 +69,8 @@ def calculate_ghg_emissions_from_fuel_consumption(
     for e in emissions_to_calc:
         df[f"{e}_mass_lb"] = df["fuel_consumed_mmbtu"] * df[f"{e}_lb_per_mmbtu"]
 
-    # drop intermediate columns
-    df = df.drop(columns=efs_to_use)
+    # drop intermediate columns in-place to avoid memory allocation issues
+    df.drop(columns=efs_to_use, inplace=True)
 
     return df
 
@@ -144,9 +145,9 @@ def add_geothermal_emission_factors(
             df[f"{e}_lb_per_mmbtu_geo"]
         )
 
-    # drop intermediate columns
-    for e in emissions_to_calc:
-        df = df.drop(columns=[f"{e}_lb_per_mmbtu_geo"])
+    # drop intermediate columns in-place to avoid memory allocation issues
+    cols_to_drop = [f"{e}_lb_per_mmbtu_geo" for e in emissions_to_calc]
+    df.drop(columns=cols_to_drop, inplace=True, errors="ignore")
 
     return df
 
@@ -326,7 +327,8 @@ def adjust_fuel_and_emissions_for_chp(df: pd.DataFrame) -> pd.DataFrame:
             df["so2_mass_lb_adjusted"] * df["electric_allocation_factor"]
         )
 
-    df = df.drop(columns=["electric_allocation_factor"])
+    # Drop in-place to avoid creating a copy of the large dataframe
+    df.drop(columns=["electric_allocation_factor"], inplace=True)
 
     validation.test_chp_allocation(df)
 
@@ -404,9 +406,9 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     ].clip(0, 1)
 
     # fill any missing factors with 1
-    df_subplant["electric_allocation_factor"] = df_subplant[
-        "electric_allocation_factor"
-    ].fillna(1)
+    df_subplant["electric_allocation_factor"] = (
+        df_subplant["electric_allocation_factor"].fillna(1).astype("float32")
+    )
 
     # merge the allocation factors back into the original dataframe
     df = df.merge(
@@ -707,15 +709,17 @@ def calculate_nox_from_fuel_consumption(
         {"nox_mass_lb": gen_fuel_allocated["controlled_nox_mass_lb"]}
     )
 
-    # remove intermediate columns
-    gen_fuel_allocated = gen_fuel_allocated.drop(
+    # remove intermediate columns in-place to avoid memory allocation issues
+    gen_fuel_allocated.drop(
         columns=[
             "nox_ef_lb_per_mmbtu",
             "controlled_annual_nox_ef_lb_per_mmbtu",
             "controlled_ozone_season_nox_ef_lb_per_mmbtu",
             "controlled_non_ozone_season_nox_ef_lb_per_mmbtu",
             "controlled_nox_mass_lb",
-        ]
+        ],
+        inplace=True,
+        errors="ignore",
     )
 
     return gen_fuel_allocated
@@ -740,9 +744,9 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
 
     # get a dataframe with all unique generator-pm-esc combinations for emitting energy
     # source types with data reported
-    gen_keys_for_nox = gen_fuel_allocated.copy()[
+    gen_keys_for_nox = gen_fuel_allocated[
         (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
-    ]
+    ].copy()
     gen_keys_for_nox = gen_keys_for_nox[
         [
             "report_date",
@@ -1337,13 +1341,9 @@ def associate_control_ids_with_boiler_id(
     counter = 1
 
     for pol in pollutant_order:
-        pol_control_id_assn = (
-            boiler_association_eia860[
-                boiler_association_eia860["emission_control_id_type"] == pol
-            ]
-            .copy()
-            .rename(columns={"emission_control_id_eia": f"{pol}_control_id_eia"})
-        )
+        pol_control_id_assn = boiler_association_eia860[
+            boiler_association_eia860["emission_control_id_type"] == pol
+        ].rename(columns={"emission_control_id_eia": f"{pol}_control_id_eia"})
 
         # if this is the first time through the loop
         if counter == 1:
@@ -1384,7 +1384,7 @@ def associate_control_ids_with_boiler_id(
                 validate="m:m",
             )
             # add this data back to the original dataframe
-            df = pd.concat([df, missing_boiler_id], axis=0)
+            df = pd.concat([df, missing_boiler_id], axis=0, copy=False)
 
     # if there are any missing boiler_ids, fill using the nox_control_id, which is
     # likely to match a boiler
@@ -1589,13 +1589,15 @@ def calculate_so2_from_fuel_consumption(
         1 - gen_fuel_allocated["so2_removal_efficiency_annual"]
     )
 
-    # remove intermediate columns
-    gen_fuel_allocated = gen_fuel_allocated.drop(
+    # remove intermediate columns in-place to avoid memory allocation issues
+    gen_fuel_allocated.drop(
         columns=[
             "so2_ef_lb_per_mmbtu",
             "so2_removal_efficiency_annual",
             "so2_removal_efficiency_at_full_load",
-        ]
+        ],
+        inplace=True,
+        errors="ignore",
     )
 
     return gen_fuel_allocated
@@ -1623,9 +1625,9 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
 
     # get a dataframe with all unique generator-pm-esc combinations for emitting
     # energy source types with data reported
-    gen_keys_for_so2 = gen_fuel_allocated.copy()[
+    gen_keys_for_so2 = gen_fuel_allocated[
         (gen_fuel_allocated["fuel_consumed_mmbtu"] > 0)
-    ]
+    ].copy()
     gen_keys_for_so2 = gen_keys_for_so2[
         [
             "report_date",
@@ -1814,7 +1816,9 @@ def return_multiyear_plant_fuel_sulfur_content(years: list[int]) -> pd.DataFrame
             source code averaged over `years`.
     """
     multiyear_avg_plant_specific_fuel_sulfur_content = (
-        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        pd.concat(
+            [load_plant_specific_fuel_sulfur_content(y) for y in years], copy=False
+        )
         .groupby(["plant_id_eia", "energy_source_code"], dropna=False)
         .mean(numeric_only=True)
         .reset_index()
@@ -1837,7 +1841,9 @@ def return_multiyear_state_fuel_sulfur_content(years: list[int]) -> pd.DataFrame
             code and state averaged over `years`.
     """
     multiyear_avg_state_fuel_sulfur_content = (
-        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        pd.concat(
+            [load_plant_specific_fuel_sulfur_content(y) for y in years], copy=False
+        )
         .drop(columns=["plant_id_eia"])
         .groupby(["energy_source_code", "state"], dropna=False)
         .mean(numeric_only=True)
@@ -1934,9 +1940,9 @@ def return_annual_national_fuel_sulfur_content(year: int) -> pd.DataFrame:
             suffixes=(None, "_fill"),
         )
         annual_avg_fuel_sulfur_content["sulfur_content_pct"] = (
-            annual_avg_fuel_sulfur_content["sulfur_content_pct"].fillna(
-                annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"]
-            )
+            annual_avg_fuel_sulfur_content[
+                "sulfur_content_pct"
+            ].fillna(annual_avg_fuel_sulfur_content["sulfur_content_pct_fill"])
         )
         annual_avg_fuel_sulfur_content = annual_avg_fuel_sulfur_content.drop(
             columns=["sulfur_content_pct_fill"]
@@ -1959,7 +1965,9 @@ def return_multiyear_national_fuel_sulfur_content(years: list[int]) -> pd.DataFr
             code averaged over `years`.
     """
     multiyear_avg_national_fuel_sulfur_content = (
-        pd.concat([load_plant_specific_fuel_sulfur_content(y) for y in years])
+        pd.concat(
+            [load_plant_specific_fuel_sulfur_content(y) for y in years], copy=False
+        )
         .drop(columns=["plant_id_eia", "state"])
         .groupby(["energy_source_code"], dropna=False)
         .mean(numeric_only=True)
@@ -2485,7 +2493,7 @@ def fill_cems_missing_co2(
 
     # for rows that have a successful fuel code match, move to a temporary dataframe
     # to hold the data
-    co2_to_fill = missing_co2.copy()[~missing_co2["energy_source_code"].isna()]
+    co2_to_fill = missing_co2[~missing_co2["energy_source_code"].isna()].copy()
     fill_index = co2_to_fill.index
 
     # calculate emissions based on fuel type
@@ -2514,5 +2522,6 @@ def fill_cems_missing_co2(
     # check that no non-missing co2 values were modified during filling
     validation.check_non_missing_cems_co2_values_unchanged(cems_original, cems)
     del cems_original
+    gc.collect()
 
     return cems

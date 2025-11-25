@@ -414,10 +414,13 @@ def create_primary_fuel_table(
     )
     primary_fuel_manual = primary_fuel_manual[primary_fuel_manual["year"] == year]
 
+    # Drop columns from manual table in-place before concatenation
+    primary_fuel_manual.drop(columns=["year", "notes"], inplace=True)
     primary_fuel_table = pd.concat(
-        [primary_fuel_table, primary_fuel_manual.drop(columns=["year", "notes"])],
+        [primary_fuel_table, primary_fuel_manual],
         axis=0,
         ignore_index=True,
+        copy=False,
     ).sort_values(by=["plant_id_eia", "subplant_id"])
 
     return primary_fuel_table
@@ -575,8 +578,8 @@ def calculate_capacity_based_primary_fuel(
             "report_date"
         ].transform("max")
     ]
-    # drop the report date column
-    gen_capacity = gen_capacity.drop(columns=["report_date"])
+    # drop the report date column in-place
+    gen_capacity.drop(columns=["report_date"], inplace=True)
 
     # only keep keys that exist in gen_fuel_allocated
     gen_capacity = gen_capacity.merge(
@@ -696,10 +699,12 @@ def add_under_construction_generator_ids_to_df(
     gen_cap_under_construction = gen_cap_under_construction[
         gen_cap_under_construction["copy"] != "both"
     ]
-    gen_cap_under_construction = gen_cap_under_construction.drop(columns="copy")
+    gen_cap_under_construction.drop(columns="copy", inplace=True)
 
     # add under construction plants to this
-    df = pd.concat([df, gen_cap_under_construction[columns_to_append]], axis=0)
+    df = pd.concat(
+        [df, gen_cap_under_construction[columns_to_append]], axis=0, copy=False
+    )
 
     return df
 
@@ -772,9 +777,9 @@ def add_recently_retired_generator_ids_to_df(
     ]
 
     gen_cap_recently_retired = pd.concat(
-        [gen_cap_recently_retired, silent_retirers], axis=0
+        [gen_cap_recently_retired, silent_retirers], axis=0, copy=False
     )
-    gen_cap_recently_retired = gen_cap_recently_retired.drop(columns=["report_date"])
+    gen_cap_recently_retired.drop(columns=["report_date"], inplace=True)
 
     # add subplant_ids
     logger.info("Adding subplant_id to gen_cap_recently_retired")
@@ -802,10 +807,12 @@ def add_recently_retired_generator_ids_to_df(
     gen_cap_recently_retired = gen_cap_recently_retired[
         gen_cap_recently_retired["copy"] != "both"
     ]
-    gen_cap_recently_retired = gen_cap_recently_retired.drop(columns="copy")
+    gen_cap_recently_retired.drop(columns="copy", inplace=True)
 
     # add under construction plants to this
-    df = pd.concat([df, gen_cap_recently_retired[columns_to_append]], axis=0)
+    df = pd.concat(
+        [df, gen_cap_recently_retired[columns_to_append]], axis=0, copy=False
+    )
 
     return df
 
@@ -815,7 +822,21 @@ def calculate_subplant_efs(gen_fuel_allocated):
     Calculates weighted emission factors for each subplant-month for filling in missing data.
     """
 
-    subplant_efs = gen_fuel_allocated.copy()
+    # Select only needed columns from gen_fuel_allocated to reduce memory
+    subplant_efs = gen_fuel_allocated[
+        [
+            "plant_id_eia",
+            "subplant_id",
+            "report_date",
+            "fuel_consumed_mmbtu",
+            "co2_mass_lb",
+            "ch4_mass_lb",
+            "n2o_mass_lb",
+            "co2e_mass_lb",
+            "nox_mass_lb",
+            "so2_mass_lb",
+        ]
+    ].copy()
 
     # calculate the total emissions and fuel consumption by subplant-month
     subplant_efs = subplant_efs.groupby(
@@ -962,7 +983,7 @@ def remove_non_grid_connected_plants(df: pd.DataFrame, year: int) -> pd.DataFram
             validate="m:1",
         )
         df = df[df["epa_match_type"] != "Manual CAMD Excluded"]
-        df = df.drop(columns=["epa_match_type"])
+        df.drop(columns=["epa_match_type"], inplace=True)
 
     # according to the egrid documentation, any plants that have an id of 88XXXX are
     # not grid connected only keep plants that dont have an id of 88XXXX
@@ -1056,7 +1077,7 @@ def remove_unmapped_fuel(cems: pd.DataFrame, year: int) -> pd.DataFrame:
             indicator="fuel_only_unmapped",
         )
         cems = cems[cems["fuel_only_unmapped"] != "both"]
-        cems = cems.drop(columns="fuel_only_unmapped")
+        cems.drop(columns="fuel_only_unmapped", inplace=True)
 
     return cems
 
@@ -1300,7 +1321,7 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
             indicator="unmapped_steam",
         )
         cems = cems[cems["unmapped_steam"] != "both"]
-        cems = cems.drop(columns="unmapped_steam")
+        cems.drop(columns="unmapped_steam", inplace=True)
 
     # flag units that report non-zero steam output and are mapped to a generator. We
     # are still not entirely certain how to interpret steam data in CEMS, so its
@@ -1679,8 +1700,8 @@ def fillna_with_missing_strings(df, column_to_fill, filler_column):
     df[filler_column] = df[filler_column].fillna("MISSING")
     # fill missing values
     df[column_to_fill] = df[column_to_fill].fillna(df[filler_column])
-    # drop the filler column
-    df = df.drop(columns=[filler_column])
+    # drop the filler column in-place
+    df.drop(columns=[filler_column], inplace=True)
     # convert the missing string back into a missing value
     df[column_to_fill] = df[column_to_fill].replace("MISSING", np.NaN)
 
@@ -1735,9 +1756,8 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     gf = gf[gf["num_fuels"] == 1]
 
     # clean up the columns
-    gf = gf.rename(columns={"energy_source_code": "energy_source_code_single"}).drop(
-        columns=["num_fuels", "fuel_consumed_mmbtu"]
-    )
+    gf = gf.rename(columns={"energy_source_code": "energy_source_code_single"})
+    gf.drop(columns=["num_fuels", "fuel_consumed_mmbtu"], inplace=True)
     gf["report_date"] = pd.to_datetime(gf["report_date"]).astype("datetime64[s]")
 
     # merge this data into the df
@@ -1793,8 +1813,8 @@ def remove_cems_with_zero_monthly_data(cems):
 
     validation.check_removed_data_is_empty(cems)
     cems = cems[cems["missing_data_flag"] != "remove"]
-    # drop the missing data flag column
-    cems = cems.drop(columns="missing_data_flag")
+    # drop the missing data flag column in-place
+    cems.drop(columns="missing_data_flag", inplace=True)
 
     return cems
 
@@ -1874,8 +1894,8 @@ def adjust_cems_for_chp(cems, eia923_allocated):
         cems["fuel_consumed_mmbtu"] * cems["subplant_fuel_ratio"]
     )
 
-    # remove intermediate columns
-    cems = cems.drop(columns=["subplant_fuel_ratio", "plant_fuel_ratio"])
+    # remove intermediate columns in-place
+    cems.drop(columns=["subplant_fuel_ratio", "plant_fuel_ratio"], inplace=True)
 
     # add adjusted emissions columns
     cems = emissions.adjust_fuel_and_emissions_for_chp(cems)
@@ -1911,6 +1931,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
         eia923_allocated with new column `hourly_data_source`
     """
 
+    # Note: We copy here to avoid modifying the original dataframe passed by the caller
     all_data = eia923_allocated.copy()
 
     # create a binary column indicating whether any data was reported in 923
@@ -1939,7 +1960,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
 
     # for the remaining plants, identify the hourly data source as EIA
     all_data["hourly_data_source"] = all_data["hourly_data_source"].fillna("eia")
-    all_data = all_data.drop(columns=["reported_eia923"])
+    all_data.drop(columns=["reported_eia923"], inplace=True)
 
     # identify the partial cems plants
     all_data = identify_partial_cems_plants(all_data)
@@ -2116,8 +2137,8 @@ def identify_partial_cems_plants(all_data):
         (partial_plant["eia_data"] > 0) & (partial_plant["cems_data"] > 0)
     ]
 
-    # drop intermediate columns
-    partial_plant = partial_plant.drop(columns=["eia_data", "cems_data"])
+    # drop intermediate columns in-place
+    partial_plant.drop(columns=["eia_data", "cems_data"], inplace=True)
 
     # merge this data into all_data
     all_data = all_data.merge(
@@ -2171,13 +2192,14 @@ def identify_partial_cems_plants(all_data):
             f"ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
         )
 
-    # remove the intermediate indicator column
-    all_data = all_data.drop(
+    # remove the intermediate indicator columns in-place
+    all_data.drop(
         columns=[
             "partial_plant",
             "eia_data",
             "cems_data",
         ],
+        inplace=True,
     )
 
     return all_data
@@ -2197,9 +2219,8 @@ def filter_unique_cems_data(cems, partial_cems):
         validate="m:1",
     )
 
-    filtered_cems = filtered_cems[filtered_cems["source"] == "left_only"].drop(
-        columns=["source"]
-    )
+    filtered_cems = filtered_cems[filtered_cems["source"] == "left_only"]
+    filtered_cems.drop(columns=["source"], inplace=True)
 
     return filtered_cems
 
@@ -2269,7 +2290,7 @@ def aggregate_cems_to_subplant(cems):
 
     cems_columns_to_aggregate = [
         "gross_generation_mwh",
-        "steam_load_1000_lb",
+        # "steam_load_1000_lb",
         "fuel_consumed_mmbtu",
         "co2_mass_lb",
         "ch4_mass_lb",

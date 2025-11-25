@@ -8,6 +8,7 @@ Optional arguments for development are --small, --flat, and --skip_outputs
 """
 
 import argparse
+import gc
 import os
 import pandas as pd
 import shutil
@@ -170,6 +171,7 @@ def main(args):
         year,
         skip_outputs=False,  # always output the crosswalk because it is loaded later
     )
+    del subplant_crosswalk
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
@@ -210,6 +212,7 @@ def main(args):
     cems = data_cleaning.clean_cems(
         year, args.small, primary_fuel_table, subplant_emission_factors
     )
+    del subplant_emission_factors
     # output data quality metrics about measured vs imputed CEMS data
     output_data.output_data_quality_metrics(
         validation.summarize_cems_measurement_quality(cems),
@@ -225,6 +228,18 @@ def main(args):
         path_prefix,
         year,
         args.skip_outputs,
+    )
+
+    # remove emissions measurement quality columns and steam load columns to reduce memory
+    # NOTE: steam load columns may be used in the future
+    cems.drop(
+        columns=[
+            "steam_load_1000_lb",
+            "co2_mass_measurement_code",
+            "nox_mass_measurement_code",
+            "so2_mass_measurement_code",
+        ],
+        inplace=True,
     )
 
     # calculate biomass-adjusted emissions while cems data is at the unit level
@@ -343,6 +358,7 @@ def main(args):
         year,
         args.skip_outputs,
     )
+    del gtn_conversions
 
     # 10. Adjust CEMS emission data for CHP
     ####################################################################################
@@ -467,6 +483,7 @@ def main(args):
     # free up memory
     del monthly_subplant_data
     del fleet_data
+    gc.collect()
 
     # calculate hourly outputs for years after 2019
     if year >= earliest_hourly_data_year:
@@ -519,6 +536,7 @@ def main(args):
             use_flat=args.flat,
         )
         del eia930_data
+        gc.collect()
         # validate how well the wind and solar imputation methods work
         output_data.output_data_quality_metrics(
             impute_hourly_profiles.validate_wind_solar_imputation(
@@ -574,6 +592,8 @@ def main(args):
             year,
             fuel_category_col_for_shaping="fuel_category_for_shaping",
         )
+        del hourly_profiles
+        gc.collect()
 
         output_data.output_data_quality_metrics(
             validation.hourly_profile_source_metric(
@@ -607,6 +627,7 @@ def main(args):
             year,
             group_keys=["ba_code", "fuel_category"],
         )
+        del monthly_eia_fleet_data
 
         # write metadata outputs
         output_data.write_plant_metadata(
@@ -620,6 +641,8 @@ def main(args):
             args.skip_outputs,
             year,
         )
+        del eia923_allocated
+        gc.collect()
         # group shaped data by fleet, since the fuel category used for shaping might
         # not match the fuel category for fleet aggregation
         shaped_eia_fleet_data = (
@@ -666,6 +689,7 @@ def main(args):
             partial_cems_subplant,
             partial_cems_plant,
         )
+        gc.collect()
         # export to a csv.
         validation.validate_unique_datetimes(
             year,
@@ -684,12 +708,18 @@ def main(args):
             combined_cems_subplant_data, plant_attributes, primary_fuel_table, year
         )
         del combined_cems_subplant_data
+        del plant_attributes
+        del primary_fuel_table
+        gc.collect()
 
         # combine fleet-level CEMS data and EIA data into a single df and group
         # fleets together
         combined_fleet_data = pd.concat(
-            [cems_fleet_data, shaped_eia_fleet_data], axis=0
+            [cems_fleet_data, shaped_eia_fleet_data], axis=0, copy=False
         )
+        del cems_fleet_data
+        del shaped_eia_fleet_data
+        gc.collect()
         combined_fleet_data = (
             combined_fleet_data.groupby(
                 ["ba_code", "fuel_category", "datetime_utc", "report_date"],
