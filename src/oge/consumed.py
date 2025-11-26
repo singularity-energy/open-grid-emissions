@@ -16,24 +16,6 @@ from oge.output_data import (
 
 logger = get_logger(__name__)
 
-""" For these BAs, there are significant and systematic differences
-between our net_generation_mwh and EIA-930 net generation and interchange,
-so we cannot combine our net generation and 930 interchange to get net_consumed.
-Instead, we use 930 demand as net_consumed. Note: there may be issues with the 930
-demand! But it is better than combining inconsistent generation and interchange,
-which results in unreasonable profiles with many negative hours.
-"""
-# Identify the BAs for which we need to use demand data for the consumed calculation
-# To identify these, run the pipeline, and if the validation checks raise any negative
-# consumed emissions rates for a region, add those to this list.
-BA_930_INCONSISTENCY = {
-    2019: ["CPLW", "EEI"],
-    2020: ["CPLW", "EEI"],
-    2021: ["CPLW", "GCPD"],
-    2022: ["CPLW", "GCPD", "HST"],
-    2023: ["CPLW"],
-    2024: ["CPLW", "SEC", "SWPP"],
-}
 
 # Defined in output_data, written to each BA file
 EMISSION_COLS = [
@@ -294,15 +276,11 @@ class HourlyConsumed:
         for ba in self.regions:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
-            if ba in BA_930_INCONSISTENCY[self.year]:
-                logger.warning(f"Using D instead of (G-TI) for consumed calc in {ba}")
-                self.results[ba]["net_consumed_mwh"] = self.eia930.df[
-                    KEYS["E"]["D"] % ba
-                ][self.generation.index]
-            else:
-                self.results[ba]["net_consumed_mwh"] = (
-                    self.generation[ba] - self.eia930.df[KEYS["E"]["TI"] % ba]
-                )[self.generation.index]
+
+            self.results[ba]["net_consumed_mwh"] = self.eia930.df[KEYS["E"]["D"] % ba][
+                self.generation.index
+            ]
+
             for pol in POLLUTANTS:
                 for adj in ADJUSTMENTS:
                     self.results[ba][get_column(pol, adjustment=adj)] = (
