@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import sys
 
-from distutils.version import LooseVersion
+from packaging.version import Version
 
 from gridemissions.load import BaData
 from gridemissions.eia_api import KEYS, SRC
@@ -55,7 +55,7 @@ POLLUTANTS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 ADJUSTMENTS = ["for_electricity", "for_electricity_adjusted"]
 
 
-def get_column(poll: str, adjustment: str, ba: str = "") -> str:
+def get_pollutant_mass_column_name(poll: str, adjustment: str, ba: str = "") -> str:
     """Get name of pollutant mass column.
 
     Args:
@@ -76,7 +76,7 @@ def get_column(poll: str, adjustment: str, ba: str = "") -> str:
     return column
 
 
-def get_rate_column(
+def get_pollutant_rate_column_name(
     poll: str, adjustment: str, generated: bool = True, ba: str = ""
 ) -> str:
     """Get name of pollutant rate column.
@@ -129,7 +129,7 @@ def get_average_emission_factors(prefix: str) -> dict[str, dict[str, dict[str, f
         for adjustment in ADJUSTMENTS:
             efs[pol][adjustment] = {}
             for fuel in SRC:
-                column = get_rate_column(pol, adjustment, generated=True)
+                column = get_pollutant_rate_column_name(pol, adjustment, generated=True)
                 if FUEL_TYPE_MAP[fuel] not in genavg.index:
                     logger.warning(
                         f"fuel {FUEL_TYPE_MAP[fuel]} not found in US fleet average "
@@ -142,19 +142,19 @@ def get_average_emission_factors(prefix: str) -> dict[str, dict[str, dict[str, f
 
 
 def consumption_emissions(
-    F: np.array, P: np.array, ID: np.array
-) -> tuple[np.array, int]:
+    F: np.ndarray, P: np.ndarray, ID: np.ndarray
+) -> tuple[np.ndarray, int]:
     """Form and solve linear system to compute consumption emissions
 
     From GRIDEMISSIONS: https://github.com/jdechalendar/gridemissions
 
     Args:
-        F (np.array): emission vector.
-        P (np.array): generation vector.
-        ID (np.array): interchange matrix.
+        F (np.ndarray): emission vector.
+        P (np.ndarray): generation vector.
+        ID (np.ndarray): interchange matrix.
 
     Returns:
-        tuple[np.array, int]: intensity consumption emissions vector and number of
+        tuple[np.ndarray, int]: intensity consumption emissions vector and number of
             perturbed nodes
 
     Notes:
@@ -172,7 +172,7 @@ def consumption_emissions(
 
     # numpy version must be high enough, otherwise np.linalg.cond fails on a matrix with
     # only zeros.
-    assert LooseVersion(np.__version__) >= LooseVersion("1.15.1")
+    assert Version(np.__version__) >= Version("1.15.1")
 
     # Create and solve linear system
     Imp = (-ID).clip(min=0)  # trade matrix reports exports - we want imports
@@ -227,14 +227,14 @@ class HourlyConsumed:
         self.eia930.df[self.eia930.df.abs() < 1.5] = 0
 
         # Emission factors for non-US bas
-        self.default_factors = get_average_emission_factors(prefix, year)
+        self.default_factors = get_average_emission_factors(prefix)
 
         # Look up lists of BAs with specific requirements
         self.import_regions, self.generation_regions = self._get_special_regions()
 
-        # Load generated rates, save to self.generated
+        # Load generated pollutant mass emissions and generation for import-only BAs
         self.pollutant_mass_emissions, self.generation = (
-            self._load_pollutant_mass_emissions_and_generation()
+            self._load_pollutant_mass_emissions_and_generation_for_import_only_regions()
         )
 
         # Identify shared BAs
@@ -264,7 +264,7 @@ class HourlyConsumed:
             self.ba_ref[self.ba_ref["ba_category"] == "generation_only"].index
         )
 
-        # Get Get regions that interchange with U.S. regions but whose generation and
+        # Get regions that interchange with U.S. regions but whose generation and
         # emissions need to be derived from EIA-930
         import_only = [
             b
@@ -274,7 +274,7 @@ class HourlyConsumed:
         return import_only, generation_only
 
     def _build_results(self) -> dict[str, pd.DataFrame]:
-        """Builds result dataframe per output file.
+        """Builds result data frame per output file.
 
         Returns:
             dict[str, pd.DataFrame]: mapping of BA code to result dataframe.
@@ -283,8 +283,10 @@ class HourlyConsumed:
         cols = []
         for pol in POLLUTANTS:
             for adj in ADJUSTMENTS:
-                cols.append(get_rate_column(pol, adjustment=adj, generated=False))
-                cols.append(get_column(pol, adjustment=adj))
+                cols.append(
+                    get_pollutant_rate_column_name(pol, adjustment=adj, generated=False)
+                )
+                cols.append(get_pollutant_mass_column_name(pol, adjustment=adj))
         cols.append("net_consumed_mwh")
         for ba in self.regions:
             results[ba] = pd.DataFrame(
@@ -309,15 +311,26 @@ class HourlyConsumed:
             if (ba in self.import_regions) or (ba in self.generation_regions):
                 continue
 
+            # Add hourly consumed electricity taken as hourly EIA-930 demand to data
+            # frame. This will be used to calculate monthly and annual consumed
+            # emission rates from hourly ones.
+            # Will be dropped from final output files
             self.results[ba]["net_consumed_mwh"] = self.eia930.df[KEYS["E"]["D"] % ba][
                 self.generation.index
             ]
 
+            # Add hourly mass emissions taken as hourly consumed
+            # electricity multiplied by consumed emission rate to data frame.
+            # Will be dropped from final output files
             for pol in POLLUTANTS:
                 for adj in ADJUSTMENTS:
-                    self.results[ba][get_column(pol, adjustment=adj)] = (
+                    self.results[ba][
+                        get_pollutant_mass_column_name(pol, adjustment=adj)
+                    ] = (
                         self.results[ba][
-                            get_rate_column(pol, adjustment=adj, generated=False)
+                            get_pollutant_rate_column_name(
+                                pol, adjustment=adj, generated=False
+                            )
                         ]
                         * self.results[ba]["net_consumed_mwh"]
                     )
@@ -334,7 +347,7 @@ class HourlyConsumed:
                 )
                 time_dat = time_dat.reset_index()  # move datetime_utc to column
                 time_dat = time_dat[
-                    time_dat.datetime_local.dt.year == self.year
+                    time_dat["datetime_local"].dt.year == self.year
                 ]  # keep year of local data
 
                 if time_resolution == "hourly":
@@ -346,7 +359,7 @@ class HourlyConsumed:
                             f"{len(missing_hours)} hours are missing in {ba} consumed data"
                         )
                 elif time_resolution == "monthly":
-                    time_dat["month"] = time_dat.datetime_local.dt.month
+                    time_dat["month"] = time_dat["datetime_local"].dt.month
                     # Aggregate to appropriate resolution
                     time_dat = (
                         time_dat.groupby("month")[EMISSION_COLS + ["net_consumed_mwh"]]
@@ -355,7 +368,7 @@ class HourlyConsumed:
                     )
                     time_cols = ["month"]
                 elif time_resolution == "annual":
-                    time_dat["year"] = time_dat.datetime_local.dt.year
+                    time_dat["year"] = time_dat["datetime_local"].dt.year
                     # Aggregate to appropriate resolution
                     time_dat = (
                         time_dat.groupby("year")[EMISSION_COLS + ["net_consumed_mwh"]]
@@ -364,14 +377,18 @@ class HourlyConsumed:
                     )
                     time_cols = ["year"]
 
-                # Calculate rates from summed emissions, consumption
-                for pol in POLLUTANTS:
-                    for adj in ADJUSTMENTS:
-                        rate_col = get_rate_column(pol, adj, generated=False)
-                        emission_col = get_column(pol, adj)
-                        time_dat[rate_col] = (
-                            time_dat[emission_col] / time_dat["net_consumed_mwh"]
-                        )
+                # Calculate rates from summed mass emissions and consumed electricity
+                # for aggregated time resolutions.
+                if time_resolution != "hourly":
+                    for pol in POLLUTANTS:
+                        for adj in ADJUSTMENTS:
+                            rate_col = get_pollutant_rate_column_name(
+                                pol, adj, generated=False
+                            )
+                            emission_col = get_pollutant_mass_column_name(pol, adj)
+                            time_dat[rate_col] = (
+                                time_dat[emission_col] / time_dat["net_consumed_mwh"]
+                            )
 
                 # Output
                 output_to_results(
@@ -413,7 +430,7 @@ class HourlyConsumed:
 
         return temp.sort_index()
 
-    def _load_pollutant_mass_emissions_and_generation(
+    def _load_pollutant_mass_emissions_and_generation_for_import_only_regions(
         self,
     ) -> tuple[dict[tuple[str, str], pd.DataFrame], pd.DataFrame]:
         """Get pollutant mass emissions and generation for import-only BAs.
@@ -443,7 +460,7 @@ class HourlyConsumed:
                 for pol in POLLUTANTS:
                     ba_mass_emissions = mass_emissions.get((adj, pol), {})
                     ba_mass_emissions[ba_name] = self._impute_border_hours(
-                        ba[get_column(pol, adjustment=adj)]
+                        ba[get_pollutant_mass_column_name(pol, adjustment=adj)]
                     )
                     mass_emissions[(adj, pol)] = ba_mass_emissions
             ba_generation[ba_name] = self._impute_border_hours(ba["net_generation_mwh"])
@@ -484,7 +501,7 @@ class HourlyConsumed:
 
     def build_matrices(
         self, pol: str, adj: str, date: pd.Timestamp
-    ) -> tuple[np.array, np.array, np.array]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Build interchange matrix, emission vector, and generation vector for a given
         timestamp.
 
@@ -494,7 +511,7 @@ class HourlyConsumed:
             date (pd.Timestamp): timestamp for which to build matrices.
 
         Returns:
-            tuple[np.array, np.array, np.array]: interchange matrix, emission vector,
+            tuple[np.ndarray, np.ndarray, np.ndarray]: interchange matrix, emission vector,
                 and generation vector.
         """
         # Build transmission matrix from cleaned EIA-930 data
@@ -534,7 +551,9 @@ class HourlyConsumed:
         for pol in POLLUTANTS:
             for adj in ADJUSTMENTS:
                 total_failed = 0
-                col = get_rate_column(pol, adjustment=adj, generated=False)
+                col = get_pollutant_rate_column_name(
+                    pol, adjustment=adj, generated=False
+                )
                 logger.info(f"Solving consumed {pol} {adj} emissions...")
                 # Calculate emissions
                 for date in self.generation.index:
