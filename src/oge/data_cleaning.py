@@ -57,6 +57,8 @@ def clean_eia923(
     # See: https://github.com/catalyst-cooperative/pudl/issues/3987
     # To fix this, we need to filter `gens` to remove data with a missing
     # "data_maturity" column
+    # (As of 11/27/25) this is no longer needed, since these generators should be filtered out 
+    # in the cleaning proces
     # gens = gens[~gens["data_maturity"].isna()]
 
     gf, bf, gen, bga, gens = allocate_gen_fuel.select_input_data(
@@ -1162,7 +1164,8 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     # fill reported zeros with EIA-923 data due to the issues that exist with the method
     # EIA uses to allocate annual data to months. In the future, we could use monthly-
     # reported EIA data since this is directly reported by the generator.
-    # cems = remove_cems_with_zero_monthly_data(cems)
+    # NOTE (11/27/25) re-adding this filter to reduce memory issues in the pipeline.
+    cems = remove_cems_with_zero_monthly_data(cems)
 
     validation.test_for_negative_values(cems, year)
     validation.validate_unique_datetimes(
