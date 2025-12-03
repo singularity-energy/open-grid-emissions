@@ -416,12 +416,19 @@ def create_primary_fuel_table(
 
     # Drop columns from manual table in-place before concatenation
     primary_fuel_manual.drop(columns=["year", "notes"], inplace=True)
-    primary_fuel_table = pd.concat(
-        [primary_fuel_table, primary_fuel_manual],
-        axis=0,
-        ignore_index=True,
-        copy=False,
-    ).sort_values(by=["plant_id_eia", "subplant_id"])
+
+    # Only concatenate if primary_fuel_manual is not empty
+    if not primary_fuel_manual.empty:
+        primary_fuel_table = pd.concat(
+            [primary_fuel_table, primary_fuel_manual],
+            axis=0,
+            ignore_index=True,
+            copy=False,
+        ).sort_values(by=["plant_id_eia", "subplant_id"])
+    else:
+        primary_fuel_table = primary_fuel_table.sort_values(
+            by=["plant_id_eia", "subplant_id"]
+        )
 
     return primary_fuel_table
 

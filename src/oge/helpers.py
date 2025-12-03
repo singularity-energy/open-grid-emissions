@@ -472,13 +472,23 @@ def combine_subplant_data(
         .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
     )
 
-    # concat together
-    combined_subplant_data = pd.concat(
-        [cems, partial_cems_subplant, partial_cems_plant, eia_data],
-        axis=0,
-        ignore_index=True,
-        copy=False,
-    )
+    # concat together - filter out empty dataframes to avoid FutureWarning
+    df_to_concat = [
+        df
+        for df in [cems, partial_cems_subplant, partial_cems_plant, eia_data]
+        if not df.empty
+    ]
+
+    if df_to_concat:
+        combined_subplant_data = pd.concat(
+            df_to_concat,
+            axis=0,
+            ignore_index=True,
+            copy=False,
+        )
+    else:
+        # If all dataframes are empty, create an empty dataframe with the expected columns
+        combined_subplant_data = pd.DataFrame(columns=ALL_COLUMNS)
 
     # re-order the columns
     combined_subplant_data = combined_subplant_data[ALL_COLUMNS]
