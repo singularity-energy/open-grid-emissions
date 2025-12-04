@@ -517,7 +517,6 @@ def main(args):
         # until we can fix the physics reconciliation, we need to apply some
         # post-processing steps
         eia930_data = eia930.remove_imputed_ones(eia930_data)
-        eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
         # 14. Calculate hourly profiles for monthly EIA data
         ################################################################################

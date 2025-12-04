@@ -291,7 +291,7 @@ def aggregate_cems_to_fleet_for_residual_calc(
     """Utility function for trying different BA aggregations in 930 and 923 data
 
     Args:
-         cems (pd.DataFrame): Hourly, unit-level or subplant-level CEMS data
+        cems (pd.DataFrame): Hourly, unit-level or subplant-level CEMS data
         partial_cems_subplant (pd.DataFrame): Hourly data for partial-subplant CEMS
             subplants
         partial_cems_plant (pd.DataFrame): Hourly data for partial-plant CEMS subplants
