@@ -179,7 +179,7 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
         pd.DataFrame: hourly_profiles with a new "profile" column added
     """
 
-    # create a filtered version of the residual profile, removing months where the 
+    # create a filtered version of the residual profile, removing months where the
     # residual contains negative values
     residual_filter = (
         hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])[
@@ -203,7 +203,7 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
     ] = np.NaN
     hourly_profiles.drop(columns=["negative_filter"], inplace=True)
 
-    # implement a filter on the shifted residual profile so that we don't use it if 
+    # implement a filter on the shifted residual profile so that we don't use it if
     # greater than the eia930 data
     shifted_filter = (
         hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])

@@ -60,7 +60,7 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     We use np.isclose() to identify any values that are off by more than 1e-9% different
     from the total input generation or fuel.
     """
-    gf = load_data.load_pudl_table("out_eia923__generation_fuel_combined", year)
+    gf = load_data.load_pudl_table("out_eia923__monthly_generation_fuel_combined", year)
     plant_total_gf = gf.groupby(["plant_id_eia", "energy_source_code"], dropna=False)[
         [
             "net_generation_mwh",
@@ -79,60 +79,46 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
         ]
     ].sum(min_count=1)
 
-    id2ba = create_plant_ba_table(year).set_index("plant_id_eia")["ba_code"].to_dict()
-
-    symmetric_difference = set(plant_total_gf.index).symmetric_difference(
-        set(plant_total_alloc.index)
+    mismatched_allocation = plant_total_gf.merge(
+        plant_total_alloc,
+        how="outer",
+        on=["plant_id_eia", "energy_source_code"],
+        validate="1:1",
+        suffixes=("_gf", "_alloc"),
+        indicator="source_table",
     )
-    if len(symmetric_difference) > 0:
-        logger.warning(
-            f"There are {len(symmetric_difference)} plant/fuel combinations that are "
-            "either in EIA-923 Input or allocated EIA-923 but not in both"
+    mismatched_allocation = mismatched_allocation[
+        mismatched_allocation[
+            [
+                "net_generation_mwh_gf",
+                "fuel_consumed_mmbtu_gf",
+                "fuel_consumed_for_electricity_mmbtu_gf",
+                "net_generation_mwh_alloc",
+                "fuel_consumed_mmbtu_alloc",
+                "fuel_consumed_for_electricity_mmbtu_alloc",
+            ]
+        ].sum(axis=1)
+        != 0
+    ]
+    mismatched_allocation["source_table"] = mismatched_allocation["source_table"].map(
+        {"left_only": "input_gf", "right_only": "allocated_gf", "both": "both"}
+    )
+    mismatched_allocation = mismatched_allocation[
+        ~np.isclose(
+            mismatched_allocation["net_generation_mwh_gf"],
+            mismatched_allocation["net_generation_mwh_alloc"],
+            atol=0.0001,
         )
-        input_minus_allocated = list(
-            set(plant_total_gf.index).difference(set(plant_total_alloc.index))
+        | ~np.isclose(
+            mismatched_allocation["fuel_consumed_mmbtu_gf"],
+            mismatched_allocation["fuel_consumed_mmbtu_alloc"],
+            atol=0.0001,
         )
-        if len(input_minus_allocated) > 0:
-            non_zero_or_missing = (
-                plant_total_gf.loc[input_minus_allocated]
-                .sum(axis=1)
-                .replace(0, np.NAN)
-                .notna()
-                .sum()
-            )
-            logger.warning(
-                f"There are {len(input_minus_allocated)} plant/fuel combinations in "
-                "EIA-923 Input but not in allocated EIA-923. There are "
-                f"{non_zero_or_missing} rows with non-zero or missing values"
-            )
-        allocated_minus_input = list(
-            set(plant_total_alloc.index).difference(set(plant_total_gf.index))
+        | ~np.isclose(
+            mismatched_allocation["fuel_consumed_for_electricity_mmbtu_gf"],
+            mismatched_allocation["fuel_consumed_for_electricity_mmbtu_alloc"],
+            atol=0.0001,
         )
-        if len(allocated_minus_input) > 0:
-            non_zero_or_missing = (
-                plant_total_alloc.loc[allocated_minus_input]
-                .sum(axis=1)
-                .replace(0, np.NAN)
-                .notna()
-                .sum()
-            )
-            logger.warning(
-                f"There are {len(allocated_minus_input)} plant/fuel combinations in "
-                "allocated EIA-923 but not in EIA-923 Input. There are "
-                f"{non_zero_or_missing} rows with non-zero or missing values"
-            )
-
-    # Align the 2 data frames.
-    plant_total_gf, plant_total_alloc = plant_total_gf.align(plant_total_alloc)
-    # Calculate the percentage difference between the values
-    # Replace 0s with small sentinel value to prevent missing values from divide by zero
-    plant_total_diff = (
-        plant_total_alloc.fillna(0) - plant_total_gf.fillna(0)
-    ) / plant_total_gf.fillna(0).replace(0, 0.00001).dropna(how="all", axis=0)
-    # Flag rows where the absolute percentage difference is greater than our threshold
-    mismatched_allocation = plant_total_diff[
-        (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0, atol=0.0001))
-        | (~np.isclose(plant_total_diff["net_generation_mwh"], 0, atol=0.0001))
     ]
 
     if len(mismatched_allocation) > 0:
@@ -141,35 +127,7 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
             "non-zero (missing) net generation or fuel consumed that are different "
             "in allocated EIA-923 and EIA-923 Input"
         )
-        mismatched_ba_code = [
-            id2ba[i]
-            for i in mismatched_allocation.index.get_level_values("plant_id_eia")
-        ]
-        logger.warning("Percentage Difference:")
-        logger.warning(
-            "\n"
-            + limit_error_output_df(
-                mismatched_allocation.assign(ba_code=mismatched_ba_code)
-            ).to_string()
-        )
-        logger.warning("EIA-923 Input Totals:")
-        logger.warning(
-            "\n"
-            + limit_error_output_df(
-                plant_total_gf.loc[mismatched_allocation.index, :].assign(
-                    ba_code=mismatched_ba_code
-                )
-            ).to_string()
-        )
-        logger.warning("Allocated Totals:")
-        logger.warning(
-            "\n"
-            + limit_error_output_df(
-                plant_total_alloc.loc[mismatched_allocation.index, :].assign(
-                    ba_code=mismatched_ba_code
-                )
-            ).to_string()
-        )
+        logger.warning("\n" + limit_error_output_df(mismatched_allocation).to_string())
 
 
 def flag_possible_primary_fuel_mismatches(plant_primary_fuel, year):

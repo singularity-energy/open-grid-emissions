@@ -57,7 +57,7 @@ def clean_eia923(
     # See: https://github.com/catalyst-cooperative/pudl/issues/3987
     # To fix this, we need to filter `gens` to remove data with a missing
     # "data_maturity" column
-    # (As of 11/27/25) this is no longer needed, since these generators should be filtered out 
+    # (As of 11/27/25) this is no longer needed, since these generators should be filtered out
     # in the cleaning proces
     # gens = gens[~gens["data_maturity"].isna()]
 
