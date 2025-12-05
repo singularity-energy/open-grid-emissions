@@ -122,6 +122,29 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     ]
 
     if len(mismatched_allocation) > 0:
+        # rearrange columnes and shorten column names
+        mismatched_allocation = mismatched_allocation[
+            [
+                "net_generation_mwh_gf",
+                "fuel_consumed_mmbtu_gf",
+                "fuel_consumed_for_electricity_mmbtu_gf",
+                "net_generation_mwh_alloc",
+                "fuel_consumed_mmbtu_alloc",
+                "fuel_consumed_for_electricity_mmbtu_alloc",
+                "source_table",
+            ]
+        ]
+        mismatched_allocation = mismatched_allocation.rename(
+            columns={
+                "net_generation_mwh_gf": "gen_gf",
+                "net_generation_mwh_alloc": "gen_alloc",
+                "fuel_consumed_mmbtu_gf": "fuel_gf",
+                "fuel_consumed_mmbtu_alloc": "fuel_alloc",
+                "fuel_consumed_for_electricity_mmbtu_gf": "e_fuel_gf",
+                "fuel_consumed_for_electricity_mmbtu_alloc": "e_fuel_alloc",
+            }
+        )
+
         logger.warning(
             f"There are {len(mismatched_allocation)} plant/fuel combinations with "
             "non-zero (missing) net generation or fuel consumed that are different "

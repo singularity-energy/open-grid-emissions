@@ -1109,8 +1109,15 @@ def search_location_from_coordinates(latitude: float, longitude: float) -> tuple
                 location = reverse_geolocate(
                     (latitude, longitude), exactly_one=True, timeout=10
                 )
-                address = location.raw["address"]
-                if address["country_code"] != "us":
+                try:
+                    address = location.raw["address"]
+                    if address["country_code"] != "us":
+                        return pd.NA, pd.NA, pd.NA
+                # location has no attribute "raw" if no internet connection
+                except AttributeError:
+                    logger.error(
+                        "No internet connection available, skipping coordinate lookup"
+                    )
                     return pd.NA, pd.NA, pd.NA
             except (ReadTimeoutError, GeocoderUnavailable) as error:
                 if i < 1:
