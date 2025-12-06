@@ -219,7 +219,7 @@ def flag_possible_primary_fuel_mismatches(plant_primary_fuel, year):
         )
 
 
-def test_for_negative_values(df, year, small: bool = False):
+def test_for_negative_values(df, year):
     """Checks that there are no unexpected negative values in the data."""
     logger.info("Checking that fuel and emissions values are positive...  ")
     columns_that_can_be_negative = ["net_generation_mwh"]
@@ -292,18 +292,13 @@ def test_for_negative_values(df, year, small: bool = False):
             else:
                 pass
     if negative_warnings > 0:
-        if small:
-            logger.warning(
-                " Found negative values during small run, these may be fixed with full data"
-            )
-        else:
-            logger.error("The above negative values are errors and must be fixed!")
+        logger.error("The above negative values are errors and must be fixed!")
     else:
         logger.info("OK")
     return negative_test
 
 
-def test_for_missing_values(df, small: bool = False, skip_cols: list = []):
+def test_for_missing_values(df, skip_cols: list = []):
     """Checks that there are no unexpected missing values in the output data."""
     logger.info("Checking that no values are missing...  ")
     missing_warnings = 0
@@ -316,12 +311,7 @@ def test_for_missing_values(df, small: bool = False, skip_cols: list = []):
             )
             missing_warnings += 1
     if missing_warnings > 0:
-        if small:
-            logger.warning(
-                "Found missing values during small run, these may be fixed with full data"
-            )
-        else:
-            logger.error("The above missing values are errors and must be fixed")
+        logger.error("The above missing values are errors and must be fixed")
     else:
         logger.info("OK")
     return missing_test
@@ -522,6 +512,8 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
         unique_subplants = len(
             missing_gross_gen[["plant_id_eia", "subplant_id"]].drop_duplicates()
         )
+        # NOTE: this specific issue may be due to generators that report "AM" frequency
+        # data and EIA has allocated the generation to the wrong month
         logger.warning(
             f"There are {unique_subplants} subplants at {unique_plants} plants for which there is zero gross generation associated with positive net generation."
         )

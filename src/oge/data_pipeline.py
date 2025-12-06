@@ -4,7 +4,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
 Optional arguments are --year (default 2024)
-Optional arguments for development are --small, --flat, and --skip_outputs
+Optional arguments for development are --flat and --skip_outputs
 """
 
 import argparse
@@ -46,15 +46,6 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", help="Year for analysis", default=2024, type=int)
     parser.add_argument(
-        "--small",
-        help=(
-            "Run on subset of data for quicker testing, outputs to outputs/small and "
-            "results to results/small."
-        ),
-        default=False,
-        action=argparse.BooleanOptionalAction,
-    )
-    parser.add_argument(
         "--flat",
         help="Use flat hourly profiles?",
         default=False,
@@ -90,8 +81,7 @@ def main(args):
             "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
         )
     # 0. Set up directory structure
-    path_prefix = "" if not args.small else "small/"
-    path_prefix += "flat/" if args.flat else ""
+    path_prefix = "flat/" if args.flat else ""
     path_prefix += f"{year}/"
     os.makedirs(downloads_folder(), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
@@ -141,9 +131,8 @@ def main(args):
     # eGRID
     download_data.download_egrid_files()
     # EIA-930
-    # for `small` run, we'll only clean 1 week, so need chalander file for making
-    # profiles
-    if args.small or args.flat:
+    # for `flat` run, we need chalander file for making profiles
+    if args.flat:
         download_data.download_chalendar_files()
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
@@ -180,7 +169,7 @@ def main(args):
         eia923_allocated,
         primary_fuel_table,
         subplant_emission_factors,
-    ) = data_cleaning.clean_eia923(year, args.small)
+    ) = data_cleaning.clean_eia923(year)
     # output primary fuel table
     output_data.output_intermediate_data(
         primary_fuel_table,
@@ -209,9 +198,7 @@ def main(args):
     # 4. Clean Hourly Data from CEMS
     ####################################################################################
     logger.info("4. Cleaning CEMS data")
-    cems = data_cleaning.clean_cems(
-        year, args.small, primary_fuel_table, subplant_emission_factors
-    )
+    cems = data_cleaning.clean_cems(year, primary_fuel_table, subplant_emission_factors)
     del subplant_emission_factors
     # output data quality metrics about measured vs imputed CEMS data
     output_data.output_data_quality_metrics(
@@ -499,18 +486,17 @@ def main(args):
         elif not (
             os.path.exists(outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv"))
         ):
-            eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
+            eia930.clean_930(year, path_prefix=path_prefix)
         else:
             logger.info(
                 "Not re-running 930 cleaning. If you'd like to re-run, "
                 f"please delete data/outputs/{path_prefix}/eia930/"
             )
 
-        # If running small, we didn't clean the whole year, so need to use the
-        # Chalender file to build residual profiles.
+        # If running flat, we need to use the Chalender file to build residual profiles.
         clean_930_file = (
             downloads_folder("eia930/chalendar/EBA_elec.csv")
-            if (args.small or args.flat)
+            if args.flat
             else outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv")
         )
         eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
@@ -563,20 +549,19 @@ def main(args):
         # pipeline. Instead, this data is re-combined again using the aggregated shaped
         # plants in step 17.
         logger.info("15. Exporting Hourly Plant-level data for each BA")
-        if not args.small:
-            impute_hourly_profiles.combine_and_export_hourly_plant_data(
-                year,
-                cems,
-                partial_cems_subplant,
-                partial_cems_plant,
-                monthly_eia_data_to_shape,
-                plant_attributes,
-                primary_fuel_table,
-                hourly_profiles,
-                path_prefix,
-                args.skip_outputs,
-                region_to_group="ba_code",
-            )
+        impute_hourly_profiles.combine_and_export_hourly_plant_data(
+            year,
+            cems,
+            partial_cems_subplant,
+            partial_cems_plant,
+            monthly_eia_data_to_shape,
+            plant_attributes,
+            primary_fuel_table,
+            hourly_profiles,
+            path_prefix,
+            args.skip_outputs,
+            region_to_group="ba_code",
+        )
 
         # 16. Shape fleet-level data
         ################################################################################
@@ -750,7 +735,6 @@ def main(args):
             clean_930_file,
             path_prefix,
             year,
-            small=args.small,
             skip_outputs=args.skip_outputs,
         )
         hourly_consumed_calc.run()

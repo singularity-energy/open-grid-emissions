@@ -239,7 +239,6 @@ def output_to_results(
             units. Defaults to True.
     """
     # Always check columns that should not be negative.
-    small = "small" in path_prefix
     logger.info(f"Exporting {file_name} to data/results/{path_prefix}{subfolder}")
 
     if include_metric:
@@ -248,9 +247,9 @@ def output_to_results(
     df = round_table(df)
 
     # Check for negatives after rounding
-    validation.test_for_negative_values(df, year, small)
+    validation.test_for_negative_values(df, year)
     # Check that there are no missing values
-    validation.test_for_missing_values(df, small)
+    validation.test_for_missing_values(df)
 
     if not skip_outputs:
         df.to_csv(
@@ -880,7 +879,7 @@ def identify_percent_of_data_by_input_source(
     # get a count of the number of observations (subplant-hours) from each source
     source_of_input_data = []
     for name, df in data_sources.items():
-        if len(df) == 0:  # Empty df. May occur when running `small`
+        if len(df) == 0:  # Empty df
             logger.warning(f"data source {name} has zero entries")
             continue
         if name == "eia":

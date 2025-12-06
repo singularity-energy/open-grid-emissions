@@ -22,7 +22,6 @@ logger = get_logger(__name__)
 
 def clean_eia923(
     year: int,
-    small: bool,
     calculate_nox_emissions: bool = True,
     calculate_so2_emissions: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -31,7 +30,6 @@ def clean_eia923(
 
     Args:
         year (int): year to consider.
-        small (bool): should a subset of data be considered.
         calculate_nox_emissions (bool, optional): whether or not clculate NOx emission
             from fuel consumption. Defaults to True.
         calculate_so2_emissions (bool, optional): whether or not clculate So2 emission
@@ -184,9 +182,6 @@ def clean_eia923(
 
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated, year)
-
-    if small:
-        gen_fuel_allocated = smallerize_test_data(df=gen_fuel_allocated, random_seed=42)
 
     # calculate co2 emissions for each generator-fuel based on allocated fuel
     # consumption
@@ -1091,7 +1086,7 @@ def remove_unmapped_fuel(cems: pd.DataFrame, year: int) -> pd.DataFrame:
     return cems
 
 
-def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_factors):
+def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
     """
     Coordinating function for all of the cems data cleaning
     """
@@ -1102,9 +1097,6 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     )
 
     cems = remove_negative_cems_data(cems, year)
-
-    if small:
-        cems = smallerize_test_data(df=cems, random_seed=42)
 
     # remove non-grid connected plants
     cems = remove_plants(
@@ -1165,7 +1157,7 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     # EIA uses to allocate annual data to months. In the future, we could use monthly-
     # reported EIA data since this is directly reported by the generator.
     # NOTE (11/27/25) re-adding this filter to reduce memory issues in the pipeline.
-    cems = remove_cems_with_zero_monthly_data(cems)
+    #cems = remove_cems_with_zero_monthly_data(cems)
 
     validation.test_for_negative_values(cems, year)
     validation.validate_unique_datetimes(
@@ -1218,21 +1210,6 @@ def remove_negative_cems_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
             cems.loc[cems[column] < 0, column] = np.NaN
 
     return cems
-
-
-def smallerize_test_data(df, random_seed=None):
-    logger.info("Randomly selecting 5% of plants for faster test run.")
-    # Select 5% of plants
-    selected_plants = df.plant_id_eia.unique()
-    if random_seed is not None:
-        np.random.seed(random_seed)
-    selected_plants = np.random.choice(
-        selected_plants, size=int(len(selected_plants) * 0.05), replace=False
-    )
-    # Filter for selected plants
-    df = df[df.plant_id_eia.isin(selected_plants)]
-
-    return df
 
 
 def manually_remove_steam_units(df):
