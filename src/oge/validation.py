@@ -520,16 +520,18 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
         logger.warning(
             "\n"
             + limit_error_output_df(
-                missing_gross_gen[
-                    [
-                        "plant_id_eia",
-                        "subplant_id",
-                        "report_date",
-                        "gross_generation_mwh",
-                        "net_generation_mwh",
-                        "data_source",
+                identify_reporting_frequency(
+                    missing_gross_gen[
+                        [
+                            "plant_id_eia",
+                            "subplant_id",
+                            "report_date",
+                            "gross_generation_mwh",
+                            "net_generation_mwh",
+                            "data_source",
+                        ]
                     ]
-                ]
+                )
             )
             .merge(
                 create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
@@ -551,16 +553,18 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
         logger.warning(
             "\n"
             + limit_error_output_df(
-                missing_net_gen[
-                    [
-                        "plant_id_eia",
-                        "subplant_id",
-                        "report_date",
-                        "gross_generation_mwh",
-                        "net_generation_mwh",
-                        "data_source",
+                identify_reporting_frequency(
+                    missing_net_gen[
+                        [
+                            "plant_id_eia",
+                            "subplant_id",
+                            "report_date",
+                            "gross_generation_mwh",
+                            "net_generation_mwh",
+                            "data_source",
+                        ]
                     ]
-                ]
+                )
             )
             .merge(
                 create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
@@ -570,6 +574,33 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
             )
             .to_string()
         )
+
+
+def identify_reporting_frequency(eia923_allocated, year):
+    """Identifies if EIA data was reported as an annual total or monthly totals.
+    Returns input dataframe with `eia_data_resolution` column added"""
+
+    # load data about the respondent frequency for each plant and merge into the EIA-923 data
+    plant_frequency = load_data.load_pudl_table(
+        "out_eia__yearly_plants",
+        year,
+        columns=["plant_id_eia", "reporting_frequency_code"],
+    )
+    plant_frequency["reporting_frequency_code"] = plant_frequency[
+        "reporting_frequency_code"
+    ].fillna("multiple")
+    # rename the column and recode the values
+    plant_frequency = plant_frequency.rename(
+        columns={"reporting_frequency_code": "eia_data_resolution"}
+    )
+    plant_frequency["eia_data_resolution"] = plant_frequency[
+        "eia_data_resolution"
+    ].replace({"A": "annual", "AM": "monthly", "M": "monthly"})
+    # merge the data resolution column into the EIA data
+    eia_data = eia923_allocated.merge(
+        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
+    )
+    return eia_data
 
 
 def identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio, year):
@@ -672,7 +703,9 @@ def validate_gross_to_net_conversion(cems, eia923_allocated, year):
         )
         logger.warning(
             "\n"
-            + limit_error_output_df(cems_net_not_equal_to_eia)
+            + limit_error_output_df(
+                identify_reporting_frequency(cems_net_not_equal_to_eia)
+            )
             .merge(
                 create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
                 how="left",

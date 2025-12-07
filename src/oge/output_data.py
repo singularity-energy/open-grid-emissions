@@ -810,9 +810,13 @@ def identify_percent_of_data_by_input_source(
     ]
 
     # add data resolution column to data that is based on EIA
-    eia_only_data = identify_reporting_frequency(eia_only_data, year)
-    partial_cems_subplant = identify_reporting_frequency(partial_cems_subplant, year)
-    partial_cems_plant = identify_reporting_frequency(partial_cems_plant, year)
+    eia_only_data = validation.identify_reporting_frequency(eia_only_data, year)
+    partial_cems_subplant = validation.identify_reporting_frequency(
+        partial_cems_subplant, year
+    )
+    partial_cems_plant = validation.identify_reporting_frequency(
+        partial_cems_plant, year
+    )
 
     # add ba codes and plant primary fuel to all of the data
     eia_only_data = assign_fleet_to_subplant_data(
@@ -983,33 +987,6 @@ def identify_percent_of_data_by_input_source(
     return source_of_input_data
 
 
-def identify_reporting_frequency(eia923_allocated, year):
-    """Identifies if EIA data was reported as an annual total or monthly totals.
-    Returns input dataframe with `eia_data_resolution` column added"""
-
-    # load data about the respondent frequency for each plant and merge into the EIA-923 data
-    plant_frequency = load_data.load_pudl_table(
-        "out_eia__yearly_plants",
-        year,
-        columns=["plant_id_eia", "reporting_frequency_code"],
-    )
-    plant_frequency["reporting_frequency_code"] = plant_frequency[
-        "reporting_frequency_code"
-    ].fillna("multiple")
-    # rename the column and recode the values
-    plant_frequency = plant_frequency.rename(
-        columns={"reporting_frequency_code": "eia_data_resolution"}
-    )
-    plant_frequency["eia_data_resolution"] = plant_frequency[
-        "eia_data_resolution"
-    ].replace({"A": "annual", "AM": "monthly", "M": "monthly"})
-    # merge the data resolution column into the EIA data
-    eia_data = eia923_allocated.merge(
-        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
-    )
-    return eia_data
-
-
 def summarize_annually_reported_eia_data(eia923_allocated, year):
     """Creates table summarizing the percent of final data from annually-reported EIA data."""
 
@@ -1024,7 +1001,7 @@ def summarize_annually_reported_eia_data(eia923_allocated, year):
         "so2_mass_lb_for_electricity",
     ]
 
-    eia_data = identify_reporting_frequency(eia923_allocated, year)
+    eia_data = validation.identify_reporting_frequency(eia923_allocated, year)
 
     data_from_annual = (
         eia_data.groupby(["eia_data_resolution"], dropna=False)[

@@ -1157,7 +1157,7 @@ def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
     # EIA uses to allocate annual data to months. In the future, we could use monthly-
     # reported EIA data since this is directly reported by the generator.
     # NOTE (11/27/25) re-adding this filter to reduce memory issues in the pipeline.
-    #cems = remove_cems_with_zero_monthly_data(cems)
+    # cems = remove_cems_with_zero_monthly_data(cems)
 
     validation.test_for_negative_values(cems, year)
     validation.validate_unique_datetimes(
