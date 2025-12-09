@@ -179,7 +179,8 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
         pd.DataFrame: hourly_profiles with a new "profile" column added
     """
 
-    # create a filtered version of the residual profile, removing months where the residual contains negative values
+    # create a filtered version of the residual profile, removing months where the
+    # residual contains negative values
     residual_filter = (
         hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])[
             "residual_profile"
@@ -202,7 +203,8 @@ def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame
     ] = np.NaN
     hourly_profiles.drop(columns=["negative_filter"], inplace=True)
 
-    # implement a filter on the shifted residual profile so that we don't use it if greater than the eia930 data
+    # implement a filter on the shifted residual profile so that we don't use it if
+    # greater than the eia930 data
     shifted_filter = (
         hourly_profiles.groupby(["ba_code", "fuel_category", "report_date"])
         .sum(numeric_only=True)
@@ -1157,7 +1159,29 @@ def add_cems_backstop_profile(
         validate="m:1",
     )
     cems_ba_fuel = cems_ba_fuel[cems_ba_fuel["zero_filter"] != "both"]
-    cems_ba_fuel.drop(columns=["zero_filter", "report_date"], inplace=True)
+    cems_ba_fuel.drop(columns=["zero_filter"], inplace=True)
+
+    # remove months where the cems profile has negative values
+    months_with_negative_data = (
+        cems_ba_fuel.groupby(["ba_code", "fuel_category", "report_date"], dropna=False)[
+            "net_generation_mwh"
+        ]
+        .min()
+        .reset_index()
+    )
+    months_with_negative_data = months_with_negative_data.loc[
+        months_with_negative_data["net_generation_mwh"] < 0,
+        ["ba_code", "fuel_category", "report_date"],
+    ]
+    cems_ba_fuel = cems_ba_fuel.merge(
+        months_with_negative_data,
+        how="outer",
+        on=["ba_code", "fuel_category", "report_date"],
+        indicator="neg_filter",
+        validate="m:1",
+    )
+    cems_ba_fuel = cems_ba_fuel[cems_ba_fuel["neg_filter"] != "both"]
+    cems_ba_fuel.drop(columns=["neg_filter", "report_date"], inplace=True)
 
     # remove duplicate datetime values
     cems_ba_fuel = (

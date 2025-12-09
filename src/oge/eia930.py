@@ -170,7 +170,7 @@ def convert_balance_data_to_gridemissions_format(year: int):
     return balance
 
 
-def convert_balance_file_to_gridemissions_format(year: int, small: bool = False):
+def convert_balance_file_to_gridemissions_format(year: int):
     """Converts downloaded EIA-930 Balance files to gridemissions format."""
     files = [
         downloads_folder() + "eia930/EIA930_{}_{}_Jul_Dec.csv",
@@ -179,10 +179,6 @@ def convert_balance_file_to_gridemissions_format(year: int, small: bool = False)
     ]
 
     years = [year - 1, year, year]
-
-    if small:
-        files = [downloads_folder() + "eia930/EIA930_{}_{}_Jan_Jun.csv"]
-        years = [year]
 
     name_map = {
         "Total Interchange (MW)": "EBA.{}-ALL.TI.H",
@@ -274,7 +270,7 @@ def convert_balance_file_to_gridemissions_format(year: int, small: bool = False)
     return out
 
 
-def clean_930(year: int, small: bool = False, path_prefix: str = ""):
+def clean_930(year: int, path_prefix: str = ""):
     """
         Scrape and process EIA data.
 
@@ -290,12 +286,10 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     raw_file = data_folder + "eia930_unadjusted_raw.csv"
     df.to_csv(raw_file)
 
-    # if not small, scrape 2 months before start of year for rolling window cleaning
-    start = f"{year}0101T00Z" if small else f"{year - 1}1001T00Z"
-    # Scrape 1 week if small, else 1 year (plus one day for timezone flexibility)
-    end = f"{year}0107T23Z" if small else f"{year + 1}0101T23Z"
-    if small:
-        df = df.loc[start:end]  # Don't worry about processing everything
+    # scrape 2 months before start of year for rolling window cleaning
+    start = f"{year - 1}1001T00Z"
+    # Scrape 1 year (plus one day for timezone flexibility)
+    end = f"{year + 1}0101T23Z"
 
     # Adjust
     logger.info("Adjusting EIA-930 time stamps")

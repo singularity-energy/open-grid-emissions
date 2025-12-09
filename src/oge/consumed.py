@@ -210,12 +210,10 @@ class HourlyConsumed:
         eia930_file: str,
         prefix: str,
         year: int,
-        small: bool = False,
         skip_outputs: bool = False,
     ):
         self.prefix = prefix
         self.year = year
-        self.small = small
         self.skip_outputs = skip_outputs
 
         # 930 data
@@ -557,11 +555,6 @@ class HourlyConsumed:
                 logger.info(f"Solving consumed {pol} {adj} emissions...")
                 # Calculate emissions
                 for date in self.generation.index:
-                    if self.small and (
-                        date - self.generation.index[0] > pd.Timedelta(weeks=1)
-                    ):
-                        break  # only calculate one week if small run
-
                     E, G, ID = self.build_matrices(pol, adj, date)
                     # If we have NaNs, don't bother
                     if (

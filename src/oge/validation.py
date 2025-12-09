@@ -60,7 +60,7 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
     We use np.isclose() to identify any values that are off by more than 1e-9% different
     from the total input generation or fuel.
     """
-    gf = load_data.load_pudl_table("out_eia923__generation_fuel_combined", year)
+    gf = load_data.load_pudl_table("out_eia923__monthly_generation_fuel_combined", year)
     plant_total_gf = gf.groupby(["plant_id_eia", "energy_source_code"], dropna=False)[
         [
             "net_generation_mwh",
@@ -79,97 +79,78 @@ def check_allocated_gf_matches_input_gf(year, gen_fuel_allocated):
         ]
     ].sum(min_count=1)
 
-    id2ba = create_plant_ba_table(year).set_index("plant_id_eia")["ba_code"].to_dict()
-
-    symmetric_difference = set(plant_total_gf.index).symmetric_difference(
-        set(plant_total_alloc.index)
+    mismatched_allocation = plant_total_gf.merge(
+        plant_total_alloc,
+        how="outer",
+        on=["plant_id_eia", "energy_source_code"],
+        validate="1:1",
+        suffixes=("_gf", "_alloc"),
+        indicator="source_table",
     )
-    if len(symmetric_difference) > 0:
-        logger.warning(
-            f"There are {len(symmetric_difference)} plant/fuel combinations that are "
-            "either in EIA-923 Input or allocated EIA-923 but not in both"
+    mismatched_allocation = mismatched_allocation[
+        mismatched_allocation[
+            [
+                "net_generation_mwh_gf",
+                "fuel_consumed_mmbtu_gf",
+                "fuel_consumed_for_electricity_mmbtu_gf",
+                "net_generation_mwh_alloc",
+                "fuel_consumed_mmbtu_alloc",
+                "fuel_consumed_for_electricity_mmbtu_alloc",
+            ]
+        ].sum(axis=1)
+        != 0
+    ]
+    mismatched_allocation["source_table"] = mismatched_allocation["source_table"].map(
+        {"left_only": "input_gf", "right_only": "allocated_gf", "both": "both"}
+    )
+    mismatched_allocation = mismatched_allocation[
+        ~np.isclose(
+            mismatched_allocation["net_generation_mwh_gf"],
+            mismatched_allocation["net_generation_mwh_alloc"],
+            atol=0.0001,
         )
-        input_minus_allocated = list(
-            set(plant_total_gf.index).difference(set(plant_total_alloc.index))
+        | ~np.isclose(
+            mismatched_allocation["fuel_consumed_mmbtu_gf"],
+            mismatched_allocation["fuel_consumed_mmbtu_alloc"],
+            atol=0.0001,
         )
-        if len(input_minus_allocated) > 0:
-            non_zero_or_missing = (
-                plant_total_gf.loc[input_minus_allocated]
-                .sum(axis=1)
-                .replace(0, np.NAN)
-                .notna()
-                .sum()
-            )
-            logger.warning(
-                f"There are {len(input_minus_allocated)} plant/fuel combinations in "
-                "EIA-923 Input but not in allocated EIA-923. There are "
-                f"{non_zero_or_missing} rows with non-zero or missing values"
-            )
-        allocated_minus_input = list(
-            set(plant_total_alloc.index).difference(set(plant_total_gf.index))
+        | ~np.isclose(
+            mismatched_allocation["fuel_consumed_for_electricity_mmbtu_gf"],
+            mismatched_allocation["fuel_consumed_for_electricity_mmbtu_alloc"],
+            atol=0.0001,
         )
-        if len(allocated_minus_input) > 0:
-            non_zero_or_missing = (
-                plant_total_alloc.loc[allocated_minus_input]
-                .sum(axis=1)
-                .replace(0, np.NAN)
-                .notna()
-                .sum()
-            )
-            logger.warning(
-                f"There are {len(allocated_minus_input)} plant/fuel combinations in "
-                "allocated EIA-923 but not in EIA-923 Input. There are "
-                f"{non_zero_or_missing} rows with non-zero or missing values"
-            )
-
-    # Align the 2 data frames.
-    plant_total_gf, plant_total_alloc = plant_total_gf.align(plant_total_alloc)
-    # Calculate the percentage difference between the values
-    # Replace 0s with small sentinel value to prevent missing values from divide by zero
-    plant_total_diff = (
-        plant_total_alloc.fillna(0) - plant_total_gf.fillna(0)
-    ) / plant_total_gf.fillna(0).replace(0, 0.00001).dropna(how="all", axis=0)
-    # Flag rows where the absolute percentage difference is greater than our threshold
-    mismatched_allocation = plant_total_diff[
-        (~np.isclose(plant_total_diff["fuel_consumed_mmbtu"], 0, atol=0.0001))
-        | (~np.isclose(plant_total_diff["net_generation_mwh"], 0, atol=0.0001))
     ]
 
     if len(mismatched_allocation) > 0:
+        # rearrange columnes and shorten column names
+        mismatched_allocation = mismatched_allocation[
+            [
+                "net_generation_mwh_gf",
+                "fuel_consumed_mmbtu_gf",
+                "fuel_consumed_for_electricity_mmbtu_gf",
+                "net_generation_mwh_alloc",
+                "fuel_consumed_mmbtu_alloc",
+                "fuel_consumed_for_electricity_mmbtu_alloc",
+                "source_table",
+            ]
+        ]
+        mismatched_allocation = mismatched_allocation.rename(
+            columns={
+                "net_generation_mwh_gf": "gen_gf",
+                "net_generation_mwh_alloc": "gen_alloc",
+                "fuel_consumed_mmbtu_gf": "fuel_gf",
+                "fuel_consumed_mmbtu_alloc": "fuel_alloc",
+                "fuel_consumed_for_electricity_mmbtu_gf": "e_fuel_gf",
+                "fuel_consumed_for_electricity_mmbtu_alloc": "e_fuel_alloc",
+            }
+        )
+
         logger.warning(
             f"There are {len(mismatched_allocation)} plant/fuel combinations with "
             "non-zero (missing) net generation or fuel consumed that are different "
             "in allocated EIA-923 and EIA-923 Input"
         )
-        mismatched_ba_code = [
-            id2ba[i]
-            for i in mismatched_allocation.index.get_level_values("plant_id_eia")
-        ]
-        logger.warning("Percentage Difference:")
-        logger.warning(
-            "\n"
-            + limit_error_output_df(
-                mismatched_allocation.assign(ba_code=mismatched_ba_code)
-            ).to_string()
-        )
-        logger.warning("EIA-923 Input Totals:")
-        logger.warning(
-            "\n"
-            + limit_error_output_df(
-                plant_total_gf.loc[mismatched_allocation.index, :].assign(
-                    ba_code=mismatched_ba_code
-                )
-            ).to_string()
-        )
-        logger.warning("Allocated Totals:")
-        logger.warning(
-            "\n"
-            + limit_error_output_df(
-                plant_total_alloc.loc[mismatched_allocation.index, :].assign(
-                    ba_code=mismatched_ba_code
-                )
-            ).to_string()
-        )
+        logger.warning("\n" + limit_error_output_df(mismatched_allocation).to_string())
 
 
 def flag_possible_primary_fuel_mismatches(plant_primary_fuel, year):
@@ -238,7 +219,7 @@ def flag_possible_primary_fuel_mismatches(plant_primary_fuel, year):
         )
 
 
-def test_for_negative_values(df, year, small: bool = False):
+def test_for_negative_values(df, year):
     """Checks that there are no unexpected negative values in the data."""
     logger.info("Checking that fuel and emissions values are positive...  ")
     columns_that_can_be_negative = ["net_generation_mwh"]
@@ -311,18 +292,13 @@ def test_for_negative_values(df, year, small: bool = False):
             else:
                 pass
     if negative_warnings > 0:
-        if small:
-            logger.warning(
-                " Found negative values during small run, these may be fixed with full data"
-            )
-        else:
-            logger.error("The above negative values are errors and must be fixed!")
+        logger.error("The above negative values are errors and must be fixed!")
     else:
         logger.info("OK")
     return negative_test
 
 
-def test_for_missing_values(df, small: bool = False, skip_cols: list = []):
+def test_for_missing_values(df, skip_cols: list = []):
     """Checks that there are no unexpected missing values in the output data."""
     logger.info("Checking that no values are missing...  ")
     missing_warnings = 0
@@ -335,12 +311,7 @@ def test_for_missing_values(df, small: bool = False, skip_cols: list = []):
             )
             missing_warnings += 1
     if missing_warnings > 0:
-        if small:
-            logger.warning(
-                "Found missing values during small run, these may be fixed with full data"
-            )
-        else:
-            logger.error("The above missing values are errors and must be fixed")
+        logger.error("The above missing values are errors and must be fixed")
     else:
         logger.info("OK")
     return missing_test
@@ -541,22 +512,26 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
         unique_subplants = len(
             missing_gross_gen[["plant_id_eia", "subplant_id"]].drop_duplicates()
         )
+        # NOTE: this specific issue may be due to generators that report "AM" frequency
+        # data and EIA has allocated the generation to the wrong month
         logger.warning(
             f"There are {unique_subplants} subplants at {unique_plants} plants for which there is zero gross generation associated with positive net generation."
         )
         logger.warning(
             "\n"
             + limit_error_output_df(
-                missing_gross_gen[
-                    [
-                        "plant_id_eia",
-                        "subplant_id",
-                        "report_date",
-                        "gross_generation_mwh",
-                        "net_generation_mwh",
-                        "data_source",
+                identify_reporting_frequency(
+                    missing_gross_gen[
+                        [
+                            "plant_id_eia",
+                            "subplant_id",
+                            "report_date",
+                            "gross_generation_mwh",
+                            "net_generation_mwh",
+                            "data_source",
+                        ]
                     ]
-                ]
+                )
             )
             .merge(
                 create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
@@ -578,16 +553,18 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
         logger.warning(
             "\n"
             + limit_error_output_df(
-                missing_net_gen[
-                    [
-                        "plant_id_eia",
-                        "subplant_id",
-                        "report_date",
-                        "gross_generation_mwh",
-                        "net_generation_mwh",
-                        "data_source",
+                identify_reporting_frequency(
+                    missing_net_gen[
+                        [
+                            "plant_id_eia",
+                            "subplant_id",
+                            "report_date",
+                            "gross_generation_mwh",
+                            "net_generation_mwh",
+                            "data_source",
+                        ]
                     ]
-                ]
+                )
             )
             .merge(
                 create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
@@ -597,6 +574,33 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
             )
             .to_string()
         )
+
+
+def identify_reporting_frequency(eia923_allocated, year):
+    """Identifies if EIA data was reported as an annual total or monthly totals.
+    Returns input dataframe with `eia_data_resolution` column added"""
+
+    # load data about the respondent frequency for each plant and merge into the EIA-923 data
+    plant_frequency = load_data.load_pudl_table(
+        "out_eia__yearly_plants",
+        year,
+        columns=["plant_id_eia", "reporting_frequency_code"],
+    )
+    plant_frequency["reporting_frequency_code"] = plant_frequency[
+        "reporting_frequency_code"
+    ].fillna("multiple")
+    # rename the column and recode the values
+    plant_frequency = plant_frequency.rename(
+        columns={"reporting_frequency_code": "eia_data_resolution"}
+    )
+    plant_frequency["eia_data_resolution"] = plant_frequency[
+        "eia_data_resolution"
+    ].replace({"A": "annual", "AM": "monthly", "M": "monthly"})
+    # merge the data resolution column into the EIA data
+    eia_data = eia923_allocated.merge(
+        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
+    )
+    return eia_data
 
 
 def identify_anomalous_annual_plant_gtn_ratios(annual_plant_ratio, year):
@@ -699,7 +703,9 @@ def validate_gross_to_net_conversion(cems, eia923_allocated, year):
         )
         logger.warning(
             "\n"
-            + limit_error_output_df(cems_net_not_equal_to_eia)
+            + limit_error_output_df(
+                identify_reporting_frequency(cems_net_not_equal_to_eia)
+            )
             .merge(
                 create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],
                 how="left",
