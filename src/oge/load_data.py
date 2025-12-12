@@ -14,7 +14,7 @@ from oge.constants import (
     earliest_validated_year,
     latest_validated_year,
     current_early_release_year,
-    cancelled_or_proposed_status_codes,
+    cancelled_status_codes,
 )
 from oge.filepaths import (
     downloads_folder,
@@ -196,14 +196,8 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     )["report_date"].transform("min")
 
     # drop any data that was reported prior to the earliest year
-    # only keep data for years <= the year
-    # this avoids using potentially preliminary early-release data
     complete_gens = complete_gens[
         (complete_gens["report_date"].dt.year >= earliest_data_year)
-        & (
-            complete_gens["report_date"].dt.year
-            <= max(latest_validated_year, current_early_release_year)
-        )
     ]
 
     # for any retired gens, forward fill the most recently available unit_id_pudl to
@@ -223,7 +217,7 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     # remove generators that are proposed but not yet under construction, or cancelled
     complete_gens = complete_gens[
         ~complete_gens["operational_status_code"].isin(
-            cancelled_or_proposed_status_codes
+            cancelled_status_codes
         )
     ]
 
