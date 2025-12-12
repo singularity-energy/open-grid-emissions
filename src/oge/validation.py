@@ -530,7 +530,8 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
                             "net_generation_mwh",
                             "data_source",
                         ]
-                    ], year
+                    ],
+                    year,
                 )
             )
             .merge(
@@ -563,7 +564,8 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
                             "net_generation_mwh",
                             "data_source",
                         ]
-                    ], year
+                    ],
+                    year,
                 )
             )
             .merge(

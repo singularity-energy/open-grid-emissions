@@ -216,9 +216,7 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
 
     # remove generators that are proposed but not yet under construction, or cancelled
     complete_gens = complete_gens[
-        ~complete_gens["operational_status_code"].isin(
-            cancelled_status_codes
-        )
+        ~complete_gens["operational_status_code"].isin(cancelled_status_codes)
     ]
 
     # only keep the most recent entry for each generator

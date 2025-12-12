@@ -44,7 +44,7 @@ def clean_eia923(
             All three data frames are at the subplant level.
     """
     # Allocate fuel and generation across each generator-pm-energy source
-    
+    gf = load_data.load_pudl_table("out_eia923__monthly_generation_fuel_combined", year)
     bf = load_data.load_pudl_table("out_eia923__monthly_boiler_fuel", year)
     gen = load_data.load_pudl_table("out_eia923__monthly_generation", year)
     gens = load_data.load_pudl_table("out_eia__yearly_generators", year)
