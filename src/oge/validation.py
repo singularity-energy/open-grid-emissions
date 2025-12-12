@@ -530,7 +530,8 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
                             "net_generation_mwh",
                             "data_source",
                         ]
-                    ]
+                    ],
+                    year,
                 )
             )
             .merge(
@@ -563,7 +564,8 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
                             "net_generation_mwh",
                             "data_source",
                         ]
-                    ]
+                    ],
+                    year,
                 )
             )
             .merge(
@@ -704,7 +706,7 @@ def validate_gross_to_net_conversion(cems, eia923_allocated, year):
         logger.warning(
             "\n"
             + limit_error_output_df(
-                identify_reporting_frequency(cems_net_not_equal_to_eia)
+                identify_reporting_frequency(cems_net_not_equal_to_eia, year)
             )
             .merge(
                 create_plant_ba_table(year)[["plant_id_eia", "ba_code"]],

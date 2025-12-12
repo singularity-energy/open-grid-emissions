@@ -50,12 +50,9 @@ chp_gross_thermal_output_efficiency = 0.8
 chp_useful_thermal_output_efficiency = 0.75
 
 # the list of status codes we want to filter out
-cancelled_or_proposed_status_codes = [
+cancelled_status_codes = [
     "CN",  # Cancelled, but previously reported as planned
     "IP",  # Indefinitely postponed or no longer in resource plan
-    "P",  #  Planned but regulatory approvals not initiated
-    "L",  # Not under construction but site preparation underway
-    # "T",  # Regulatory approvals received, site preparation underway
 ]
 
 
