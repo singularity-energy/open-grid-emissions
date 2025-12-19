@@ -10,6 +10,7 @@ import oge.validation as validation
 import oge.output_data as output_data
 from oge.logging_util import get_logger
 from oge.helpers import assign_fleet_to_subplant_data
+from oge.data_cleaning import complete_hourly_timeseries
 
 logger = get_logger(__name__)
 
@@ -1400,6 +1401,13 @@ def combine_and_export_hourly_plant_data(
             combined_plant_data.groupby(key_columns, dropna=False)
             .sum(numeric_only=True)
             .reset_index()
+        )
+
+        combined_plant_data = complete_hourly_timeseries(
+            df=combined_plant_data,
+            year=year,
+            group_cols=["plant_id_eia"],
+            columns_to_fill_with_zero=data_columns_for_plant_export,
         )
 
         # round the data columns to two decimal places

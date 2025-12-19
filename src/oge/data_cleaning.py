@@ -1769,7 +1769,7 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     return df
 
 
-def remove_cems_with_zero_monthly_data(cems):
+def remove_cems_with_zero_monthly_data(cems, column_to_check: list[str]):
     """
     Identifies months where zero generation or heat inputare reported.
     from each unit and removes associated hours from CEMS so that these can be filled using the eia923 data
@@ -1779,41 +1779,159 @@ def remove_cems_with_zero_monthly_data(cems):
         cems df with hourly observations for months when no emissions reported removed
     """
     # calculate the totals reported in each month
-    cems_with_zero_monthly_emissions = cems.groupby(
-        ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
-    )[["gross_generation_mwh", "fuel_consumed_mmbtu"]].sum()
+    # NOTE: columns_to_check = ["gross_generation_mwh", "fuel_consumed_mmbtu"]
+    data_with_zero_monthly_values = cems.groupby(
+        ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+    )[column_to_check].sum()
     # identify unit-months where zero emissions reported
-    cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[
-        cems_with_zero_monthly_emissions.sum(axis=1) == 0
+    data_with_zero_monthly_values = data_with_zero_monthly_values[
+        data_with_zero_monthly_values.sum(axis=1) == 0
     ]
     # add a flag to these observations
-    cems_with_zero_monthly_emissions["missing_data_flag"] = "remove"
+    data_with_zero_monthly_values["zero_data_flag"] = "remove"
 
     # merge the missing data flag into the cems data
     cems = cems.merge(
-        cems_with_zero_monthly_emissions.reset_index()[
+        data_with_zero_monthly_values.reset_index()[
             [
                 "plant_id_eia",
-                "emissions_unit_id_epa",
+                "subplant_id",
                 "report_date",
-                "missing_data_flag",
+                "zero_data_flag",
             ]
         ],
         how="left",
-        on=["plant_id_eia", "emissions_unit_id_epa", "report_date"],
+        on=["plant_id_eia", "subplant_id", "report_date"],
         validate="m:1",
     )
+    # get a count of the number of observations with the missing data flag
+    num_observations_with_zero_data = len(cems[cems["zero_data_flag"] == "remove"])
+    # get a count of the total number of zero observations in the data
+    total_zero_observations = len(cems[cems[column_to_check].sum(axis=1) == 0])
     # remove any observations with the missing data flag
     logger.info(
-        f"Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+        f"{total_zero_observations / len(cems) * 100:.2f}% of rows in the data have zero values, and {num_observations_with_zero_data / total_zero_observations * 100:.2f}% of these represent complete months of zero data"
     )
 
     validation.check_removed_data_is_empty(cems)
-    cems = cems[cems["missing_data_flag"] != "remove"]
+    pre_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
+    # cems = cems[cems["zero_data_flag"] != "remove"]
+    # remove all zero obeservations
+    cems = cems[~(cems[column_to_check].sum(axis=1) == 0)]
+    post_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
+    logger.info(
+        f"Memory usage after removing zero data: {post_memory_usage_gb:.2f} GB ({(post_memory_usage_gb / pre_memory_usage_gb * 100):.2f}% of original)"
+    )
     # drop the missing data flag column in-place
-    cems.drop(columns="missing_data_flag", inplace=True)
+    cems.drop(columns="zero_data_flag", inplace=True)
 
     return cems
+
+
+def complete_hourly_timeseries(
+    df: pd.DataFrame,
+    year: int,
+    group_cols: list[str] = [],
+    columns_to_fill_with_zero: list[str] = [],
+    columns_to_bffill: list[str] = [],
+) -> pd.DataFrame:
+    """
+    Completes a hourly timeseries for each plantgroup in a given dataframe.
+
+
+    This function will create a complete timeseries for each group in the dataframe,
+    assuming the data is supposed to represent a complete year. It will create a complete
+    timeseries for each group in UTC time.
+
+    Args:
+        df: dataframe to complete the timeseries for
+        year: year to create a complete timeseries for (should match the local year of the data)
+        group_cols: columns to group by (one column must be "plant_id_eia")
+        columns_to_fill_with_zero: a list of columns (generally containing numeric data)
+            that should be filled with zero values for missing timestamps that are filled
+        columns_to_bffill: a list of columns that should be filled based on the values in the previous and next rows within each group (bbffill refers to both bfill and ffill)
+            in the previous and next rows within each group (bbffill refers to both bfill
+            and ffill)
+    Returns:
+        dataframe with complete timeseries
+    """
+
+    # check if there are any missing timestamps
+    expected_hours = 8784 if (year % 4 == 0) else 8760
+    test = df.groupby(group_cols)[["datetime_utc"]].count()
+    if len(test[test["datetime_utc"] < expected_hours]) < 0:
+        # get all unique groups for which to create complete timeseries
+        complete_timeseries = df[group_cols].drop_duplicates()
+
+        # merge in timezone data for each plant
+        plant_timezone = load_data.load_pudl_table(
+            "core_eia__entity_plants", columns=["plant_id_eia", "timezone"]
+        )
+        complete_timeseries = complete_timeseries.merge(
+            plant_timezone, on="plant_id_eia", how="left"
+        )
+
+        # localize the datetime_local column using the timezone column
+
+        timezones = complete_timeseries["timezone"].unique()
+
+        timeseries_for_timezones = []
+        for timezone in timezones:
+            timezone_df = pd.DataFrame(
+                data=pd.date_range(
+                    start=f"{year}-01-01 00:00:00",
+                    end=f"{year}-12-31 23:00:00",
+                    freq="h",
+                    tz=timezone,
+                    name="datetime_local",
+                )
+            )
+            timezone_df["datetime_utc"] = timezone_df["datetime_local"].dt.tz_convert(
+                "UTC"
+            )
+            timezone_df["report_date"] = (
+                timezone_df["datetime_local"].dt.to_period("M").dt.to_timestamp()
+            )
+            timezone_df = timezone_df.drop(columns=["datetime_local"])
+            timezone_df["timezone"] = timezone
+            timeseries_for_timezones.append(timezone_df)
+
+        timeseries_for_timezones = pd.concat(timeseries_for_timezones)
+        if "report_date" in group_cols:
+            complete_timeseries = complete_timeseries.merge(
+                timeseries_for_timezones, on=["timezone", "report_date"], how="left"
+            )
+        else:
+            complete_timeseries = complete_timeseries.merge(
+                timeseries_for_timezones.drop(columns=["report_date"]),
+                on=["timezone"],
+                how="left",
+            )
+        complete_timeseries = complete_timeseries.drop(columns=["timezone"])
+
+        # complete the timeseries in the original dataframe
+        pre_completion_size = len(df)
+        df = df.merge(
+            complete_timeseries, on=(group_cols + ["datetime_utc"]), how="outer"
+        ).sort_values(by=group_cols + ["datetime_utc"], ascending=True)
+
+        post_completion_size = len(df)
+        if post_completion_size != pre_completion_size:
+            logger.info(
+                f"complete_hourly_timeseries() added {post_completion_size - pre_completion_size} missing rows to the dataframe"
+            )
+
+        # fill values for missing timestamps
+        df[columns_to_fill_with_zero] = df[columns_to_fill_with_zero].fillna(0.0)
+
+        # forward and backfill columns within each group
+        df[columns_to_bffill] = (
+            df.groupby(group_cols)[columns_to_bffill].ffill().bfill()
+        )
+
+        return df
+    else:
+        return df
 
 
 def adjust_cems_for_chp(cems, eia923_allocated):
