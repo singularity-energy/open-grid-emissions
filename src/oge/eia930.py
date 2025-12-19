@@ -660,16 +660,10 @@ def manual_930_adjust(raw: pd.DataFrame) -> pd.DataFrame:
         cols,
     ].shift(1, freq="h")
     new.loc[
-        (
-            (raw.index >= "2023-11-01 00:00:00+00")
-            & (raw.index < "2024-12-01 00:00:00+00")
-        ),
+        (raw.index >= "2023-11-01 00:00:00+00"),
         cols,
     ] = new.loc[
-        (
-            (raw.index >= "2023-11-01 00:00:00+00")
-            & (raw.index < "2024-12-01 00:00:00+00")
-        ),
+        (raw.index >= "2023-11-01 00:00:00+00"),
         cols,
     ].shift(-1, freq="h")
     raw = raw.drop(columns=cols)
