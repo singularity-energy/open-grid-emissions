@@ -1159,16 +1159,6 @@ def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
         df=cems, year=year, include_co2=False, include_ch4=True, include_n2o=True
     )
 
-    # remove any observations from cems where zero operation is reported for an entire
-    # month. Although this data could be considered to be accurately reported, let's
-    # remove it so that we can double check against the eia data
-    # NOTE(12/22/23): We will treat reported zeros as actual data and not attempt to
-    # fill reported zeros with EIA-923 data due to the issues that exist with the method
-    # EIA uses to allocate annual data to months. In the future, we could use monthly-
-    # reported EIA data since this is directly reported by the generator.
-    # NOTE (11/27/25) re-adding this filter to reduce memory issues in the pipeline.
-    # cems = remove_cems_with_zero_monthly_data(cems)
-
     validation.test_for_negative_values(cems, year)
     validation.validate_unique_datetimes(
         year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
@@ -1769,58 +1759,70 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     return df
 
 
-def remove_cems_with_zero_monthly_data(cems, column_to_check: list[str]):
+def remove_cems_with_zero_monthly_data(
+    cems: pd.DataFrame, column_to_check: list[str], remove_all_zeros: bool = False
+) -> pd.DataFrame:
     """
     Identifies months where zero generation or heat inputare reported.
-    from each unit and removes associated hours from CEMS so that these can be filled using the eia923 data
-    Inputs:
-        cems: pandas dataframe of hourly cems data containing columns "plant_id_eia", "emissions_unit_id_epa" and "report_date"
+    from each unit and removes associated hours from CEMS so that these can be filled
+    using the eia923 data
+
+    Args:
+        cems (pd.DataFrame): pandas dataframe of hourly cems data containing columns
+            "plant_id_eia", "emissions_unit_id_epa" and "report_date"
+        column_to_check (list[str]): list of columns to check for zero values
+        remove_all_zeros (bool): if true, removes all rows where all values in `column_to_check` are zero,
+            if false, it only removes observations for months where all values in that
+            month are zero.
     Returns:
-        cems df with hourly observations for months when no emissions reported removed
+        pd.DataFrame: `cems` with hourly observations for months when no emissions
+            reported removed
     """
-    # calculate the totals reported in each month
-    # NOTE: columns_to_check = ["gross_generation_mwh", "fuel_consumed_mmbtu"]
-    data_with_zero_monthly_values = cems.groupby(
-        ["plant_id_eia", "subplant_id", "report_date"], dropna=False
-    )[column_to_check].sum()
-    # identify unit-months where zero emissions reported
-    data_with_zero_monthly_values = data_with_zero_monthly_values[
-        data_with_zero_monthly_values.sum(axis=1) == 0
-    ]
-    # add a flag to these observations
-    data_with_zero_monthly_values["zero_data_flag"] = "remove"
-
-    # merge the missing data flag into the cems data
-    cems = cems.merge(
-        data_with_zero_monthly_values.reset_index()[
-            [
-                "plant_id_eia",
-                "subplant_id",
-                "report_date",
-                "zero_data_flag",
-            ]
-        ],
-        how="left",
-        on=["plant_id_eia", "subplant_id", "report_date"],
-        validate="m:1",
-    )
-    # get a count of the number of observations with the missing data flag
-    num_observations_with_zero_data = len(cems[cems["zero_data_flag"] == "remove"])
-    # get a count of the total number of zero observations in the data
-    total_zero_observations = len(cems[cems[column_to_check].sum(axis=1) == 0])
-    # remove any observations with the missing data flag
-    logger.info(
-        f"{total_zero_observations / len(cems) * 100:.2f}% of rows in the data have zero values, and {num_observations_with_zero_data / total_zero_observations * 100:.2f}% of these represent complete months of zero data"
-    )
-
     validation.check_removed_data_is_empty(cems)
+    if remove_all_zeros:
+        rows_to_remove = cems[column_to_check].sum(axis=1) == 0
+    else:
+        # calculate the totals reported in each month
+        # NOTE: columns_to_check = ["gross_generation_mwh", "fuel_consumed_mmbtu"]
+        data_with_zero_monthly_values = cems.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )[column_to_check].sum()
+        # identify unit-months where zero emissions reported
+        data_with_zero_monthly_values = data_with_zero_monthly_values[
+            data_with_zero_monthly_values.sum(axis=1) == 0
+        ]
+        # add a flag to these observations
+        data_with_zero_monthly_values["zero_data_flag"] = "remove"
+
+        # merge the missing data flag into the cems data
+        cems = cems.merge(
+            data_with_zero_monthly_values.reset_index()[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "zero_data_flag",
+                ]
+            ],
+            how="left",
+            on=["plant_id_eia", "subplant_id", "report_date"],
+            validate="m:1",
+        )
+        rows_to_remove = cems["zero_data_flag"] == "remove"
+
+        # get a count of the total number of zero observations in the data
+        total_zero_observations = len(cems[rows_to_remove])
+        # remove any observations with the missing data flag
+        logger.info(
+            f"{total_zero_observations / len(cems) * 100:.2f}% of rows in the data have zero values that will be removed"
+        )
+
     pre_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
-    # cems = cems[cems["zero_data_flag"] != "remove"]
     # remove all zero obeservations
-    cems = cems[~(cems[column_to_check].sum(axis=1) == 0)]
+    cems = cems[~rows_to_remove]
     post_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
     logger.info(
-        f"Memory usage after removing zero data: {post_memory_usage_gb:.2f} GB ({(post_memory_usage_gb / pre_memory_usage_gb * 100):.2f}% of original)"
+        f"Removing zeros reduced dataframe memory use from  {pre_memory_usage_gb:.2f} GB to {post_memory_usage_gb:.2f} GB ({((post_memory_usage_gb - pre_memory_usage_gb) / pre_memory_usage_gb * 100):.2f}% reduction)"
     )
     # drop the missing data flag column in-place
     cems.drop(columns="zero_data_flag", inplace=True)
@@ -1862,16 +1864,16 @@ def complete_hourly_timeseries(
     18, we don't end up with overlapping timeseries.
 
     Args:
-        df: dataframe to complete the timeseries for
-        year: year to create a complete timeseries for (should match the local year of the data)
-        group_cols: columns to group by (one column must be "plant_id_eia")
-        columns_to_fill_with_zero: a list of columns (generally containing numeric data)
+        df (pd.DataFrame): dataframe to complete the timeseries for
+        year (int): year to create a complete timeseries for (should match the local year of the data)
+        group_cols (list[str]): columns to group by (one column must be "plant_id_eia")
+        columns_to_fill_with_zero (list[str]): a list of columns (generally containing numeric data)
             that should be filled with zero values for missing timestamps that are filled
-        columns_to_bffill: a list of columns that should be filled based on the values in the previous and next rows within each group (bbffill refers to both bfill and ffill)
-            in the previous and next rows within each group (bbffill refers to both bfill
-            and ffill)
+        columns_to_bffill (list[str]): a list of columns that should be filled based on
+            the values in the previous and next rows within each group (bbffill refers
+            to both bfill and ffill)
     Returns:
-        dataframe with complete timeseries
+        pd.DataFrame: dataframe with complete timeseries
     """
 
     # check if there are any missing timestamps
