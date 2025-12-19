@@ -467,10 +467,14 @@ def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
         logger.info("OK")
 
 
-def check_removed_data_is_empty(cems):
-    """Checks that the rows removed by
-    `data_cleaning.remove_cems_with_zero_monthly_data()` don't actually contain
-    non-zero data"""
+def check_removed_data_is_empty(cems: pd.DataFrame):
+    """
+    Checks that the rows removed by `data_cleaning.remove_cems_with_zero_monthly_data()`
+    don't actually contain non-zero data
+
+    Args:
+        cems (pd.DataFrame): The CEMS data to check
+    """
     columns_to_check = [
         "gross_generation_mwh",
         "steam_load_1000_lb",
@@ -1061,7 +1065,7 @@ def validate_unique_datetimes(year, df, df_name, keys):
 
 
 def check_for_complete_hourly_timeseries(
-    df: pd.DataFrame, df_name: str, keys: list[str], period: str, fix: bool = False
+    df: pd.DataFrame, df_name: str, keys: list[str], period: str
 ):
     """Validates that a timeseries contains complete hourly data.
 
