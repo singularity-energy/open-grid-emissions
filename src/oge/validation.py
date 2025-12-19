@@ -1065,7 +1065,7 @@ def validate_unique_datetimes(year, df, df_name, keys):
 
 
 def check_for_complete_hourly_timeseries(
-    df: pd.DataFrame, df_name: str, keys: list[str], period: str
+    df: pd.DataFrame, df_name: str, keys: list[str], period: str, fix: bool = False
 ):
     """Validates that a timeseries contains complete hourly data.
 
