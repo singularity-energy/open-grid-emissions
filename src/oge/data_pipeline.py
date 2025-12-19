@@ -169,6 +169,7 @@ def main(args):
         eia923_allocated,
         primary_fuel_table,
         subplant_emission_factors,
+        subplant_eia923,
     ) = data_cleaning.clean_eia923(year)
     # output primary fuel table
     output_data.output_intermediate_data(
@@ -178,6 +179,15 @@ def main(args):
         year,
         skip_outputs=False,
     )
+    # output subplant-level EIA-923 data
+    output_data.output_intermediate_data(
+        subplant_eia923,
+        "subplant_eia923",
+        path_prefix,
+        year,
+        skip_outputs=args.skip_outputs,
+    )
+    del subplant_eia923
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
         primary_fuel_table[

@@ -467,20 +467,26 @@ def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
         logger.info("OK")
 
 
-def check_removed_data_is_empty(cems):
-    """Checks that the rows removed by
-    `data_cleaning.remove_cems_with_zero_monthly_data()` don't actually contain
-    non-zero data"""
+def check_removed_data_is_empty(cems: pd.DataFrame):
+    """
+    Checks that the rows removed by `data_cleaning.remove_cems_with_zero_monthly_data()`
+    don't actually contain non-zero data
+
+    Args:
+        cems (pd.DataFrame): The CEMS data to check
+    """
+    columns_to_check = [
+        "gross_generation_mwh",
+        "steam_load_1000_lb",
+        "fuel_consumed_mmbtu",
+        "co2_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+    ]
+    # get a count of the number of observations with the zero data flag
     check_that_data_is_zero = cems.loc[
-        cems["missing_data_flag"] == "remove",
-        [
-            "gross_generation_mwh",
-            "steam_load_1000_lb",
-            "fuel_consumed_mmbtu",
-            "co2_mass_lb",
-            "nox_mass_lb",
-            "so2_mass_lb",
-        ],
+        cems["zero_data_flag"] == "remove",
+        [col for col in columns_to_check if col in cems.columns],
     ].sum(numeric_only=True)
     if check_that_data_is_zero.sum() > 0:
         logger.warning("Some data being removed has non-zero data associated with it:")
@@ -578,9 +584,16 @@ def check_missing_or_zero_generation_matches(combined_gen_data, year):
         )
 
 
-def identify_reporting_frequency(eia923_allocated, year):
+def identify_reporting_frequency(df: pd.DataFrame, year: int) -> pd.DataFrame:
     """Identifies if EIA data was reported as an annual total or monthly totals.
-    Returns input dataframe with `eia_data_resolution` column added"""
+
+    Args:
+        df (pd.DataFrame): the data to identify the reporting frequency of
+        year (int): the data year
+
+    Returns:
+        pd.DataFrame: df with the `eia_data_resolution` column added
+    """
 
     # load data about the respondent frequency for each plant and merge into the EIA-923 data
     plant_frequency = load_data.load_pudl_table(
@@ -599,9 +612,7 @@ def identify_reporting_frequency(eia923_allocated, year):
         "eia_data_resolution"
     ].replace({"A": "annual", "AM": "monthly", "M": "monthly"})
     # merge the data resolution column into the EIA data
-    eia_data = eia923_allocated.merge(
-        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
-    )
+    eia_data = df.merge(plant_frequency, how="left", on="plant_id_eia", validate="m:1")
     return eia_data
 
 
