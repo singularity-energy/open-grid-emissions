@@ -1878,7 +1878,7 @@ def complete_hourly_timeseries(
     expected_hours = 8784 if (year % 4 == 0) else 8760
     test = df.groupby(group_cols)[["datetime_utc"]].count()
     # only repair if it is needed, otherwise, skip this
-    if len(test[test["datetime_utc"] < expected_hours]) < 0:
+    if len(test[test["datetime_utc"] < expected_hours]) > 0:
         # get all unique groups for which to create complete timeseries
         complete_timeseries = df[group_cols].drop_duplicates()
 
