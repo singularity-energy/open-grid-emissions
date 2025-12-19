@@ -1824,8 +1824,9 @@ def remove_cems_with_zero_monthly_data(
     logger.info(
         f"Removing zeros reduced dataframe memory use from  {pre_memory_usage_gb:.2f} GB to {post_memory_usage_gb:.2f} GB ({((post_memory_usage_gb - pre_memory_usage_gb) / pre_memory_usage_gb * 100):.2f}% reduction)"
     )
-    # drop the missing data flag column in-place
-    cems.drop(columns="zero_data_flag", inplace=True)
+    if not remove_all_zeros:
+        # drop the missing data flag column in-place
+        cems.drop(columns="zero_data_flag", inplace=True)
 
     return cems
 
