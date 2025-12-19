@@ -683,7 +683,7 @@ def write_power_sector_results(
                 )
                 validation.check_for_complete_hourly_timeseries(
                     ba_table_hourly,
-                    "power sector hourly ba table",
+                    f"power sector hourly {ba} table",
                     ["fuel_category"],
                     "year",
                 )

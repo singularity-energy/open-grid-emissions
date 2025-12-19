@@ -226,6 +226,16 @@ def clean_eia923(
     # calculate weighted emission factors for each subplant-month
     subplant_emission_factors = calculate_subplant_efs(gen_fuel_allocated)
 
+    # before aggregating, output a table of allocated fuels for each subplant (for GRETA)
+    subplant_923 = (
+        gen_fuel_allocated.groupby(
+            by=["plant_id_eia", "subplant_id", "report_date", "energy_source_code"]
+        )[["net_generation_mwh", "fuel_consumed_mmbtu"]]
+        .sum()
+        .reset_index()
+    )
+    subplant_923 = validation.identify_reporting_frequency(subplant_923, year)
+
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = (
         gen_fuel_allocated.groupby(by=["report_date", "plant_id_eia", "generator_id"])[
@@ -277,7 +287,12 @@ def clean_eia923(
     # run validation checks on EIA-923 data
     validation.test_for_negative_values(gen_fuel_allocated, year)
 
-    return gen_fuel_allocated, primary_fuel_table, subplant_emission_factors
+    return (
+        gen_fuel_allocated,
+        primary_fuel_table,
+        subplant_emission_factors,
+        subplant_923,
+    )
 
 
 def update_energy_source_codes(df, year):

@@ -62,6 +62,15 @@ COLUMNS = {
         "energy_source_code",
         "hourly_data_source",
     },
+    "subplant_eia923": {
+        "plant_id_eia",
+        "subplant_id",
+        "report_date",
+        "energy_source_code",
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "eia_data_resolution",
+    },
     "cems_cleaned": {
         "plant_id_eia",
         "emissions_unit_id_epa",
