@@ -925,11 +925,6 @@ def remove_plants(
         df = remove_unmapped_fuel(df, year)
         df = identify_and_remove_steam_only_units(df, year)
 
-    # remove plant with missing plant metadata in EIA-860, including name, BA and state
-    # TODO: remove when EIA fixes metadata
-    logger.info("Removing plant_id_eia 68815 due to missing plant metadata in EIA-860")
-    df = df.query("plant_id_eia != 68815")
-
     if distribution_connected_plants:
         pass
 
