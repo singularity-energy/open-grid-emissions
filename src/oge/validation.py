@@ -608,9 +608,7 @@ def identify_reporting_frequency(df: pd.DataFrame, year: int) -> pd.DataFrame:
         "eia_data_resolution"
     ].replace({"A": "annual", "AM": "monthly", "M": "monthly"})
     # merge the data resolution column into the EIA data
-    eia_data = df.merge(
-        plant_frequency, how="left", on="plant_id_eia", validate="m:1"
-    )
+    eia_data = df.merge(plant_frequency, how="left", on="plant_id_eia", validate="m:1")
     return eia_data
 
 
