@@ -1843,6 +1843,24 @@ def complete_hourly_timeseries(
     assuming the data is supposed to represent a complete year. It will create a complete
     timeseries for each group in UTC time.
 
+    Because we are repairing the "datetime_utc" column, but the complete set of utc
+    timestamps for a year depends on the local timezone of the underlying data, we
+    have to consider the timezone of each plant_id_eia in the data, and assign the
+    appropriate complete timeseries to each. This approach is more robust than just
+    creating a complete date_range between the min and max datetimes already in the
+    timeseries, in case that timeseries is missing timestamps at the beginning or end
+    of the year.
+
+    If "report_date" is passed in as one of the `group_cols`, the behavior of this
+    function is that it will only complete timeseries for "report_date"s that already
+    exist in `df`. For example, if `df` only contained data for January-June, if
+    "report_date" is included, then this function will only repair hourly timeseries for
+    January-June, but will not add timestamps for July-December. If that same df were
+    passed in without "report_date" in the `group_cols`, the function would also add
+    hourly timestamps for July-December. This functionality exists so that when we repair
+    `combined_cems_subplant_data` before combining it with the shaped eia data in step
+    18, we don't end up with overlapping timeseries.
+
     Args:
         df: dataframe to complete the timeseries for
         year: year to create a complete timeseries for (should match the local year of the data)
@@ -1859,6 +1877,7 @@ def complete_hourly_timeseries(
     # check if there are any missing timestamps
     expected_hours = 8784 if (year % 4 == 0) else 8760
     test = df.groupby(group_cols)[["datetime_utc"]].count()
+    # only repair if it is needed, otherwise, skip this
     if len(test[test["datetime_utc"] < expected_hours]) < 0:
         # get all unique groups for which to create complete timeseries
         complete_timeseries = df[group_cols].drop_duplicates()
@@ -1872,11 +1891,13 @@ def complete_hourly_timeseries(
         )
 
         # localize the datetime_local column using the timezone column
-
+        # get a list of timezones to iterate through. Becuase pandas has trouble with
+        # tz localization and conversion if multiple tz's exist in a single column, we
+        # need to do these operations one at a time for each timezone, then concat them
         timezones = complete_timeseries["timezone"].unique()
-
         timeseries_for_timezones = []
         for timezone in timezones:
+            # first get the complete set of timestamps in local time
             timezone_df = pd.DataFrame(
                 data=pd.date_range(
                     start=f"{year}-01-01 00:00:00",
@@ -1886,6 +1907,7 @@ def complete_hourly_timeseries(
                     name="datetime_local",
                 )
             )
+            # now convert to UTC
             timezone_df["datetime_utc"] = timezone_df["datetime_local"].dt.tz_convert(
                 "UTC"
             )
@@ -1895,17 +1917,23 @@ def complete_hourly_timeseries(
             timezone_df = timezone_df.drop(columns=["datetime_local"])
             timezone_df["timezone"] = timezone
             timeseries_for_timezones.append(timezone_df)
-
         timeseries_for_timezones = pd.concat(timeseries_for_timezones)
+
+        # merge the complete timeseries for each timezone into the groups to create
+        # complete timeseries for each group
         if "report_date" in group_cols:
             complete_timeseries = complete_timeseries.merge(
-                timeseries_for_timezones, on=["timezone", "report_date"], how="left"
+                timeseries_for_timezones,
+                on=["timezone", "report_date"],
+                how="left",
+                validation="m:m",
             )
         else:
             complete_timeseries = complete_timeseries.merge(
                 timeseries_for_timezones.drop(columns=["report_date"]),
                 on=["timezone"],
                 how="left",
+                validation="m:m",
             )
         complete_timeseries = complete_timeseries.drop(columns=["timezone"])
 
@@ -1914,8 +1942,8 @@ def complete_hourly_timeseries(
         df = df.merge(
             complete_timeseries, on=(group_cols + ["datetime_utc"]), how="outer"
         ).sort_values(by=group_cols + ["datetime_utc"], ascending=True)
-
         post_completion_size = len(df)
+
         if post_completion_size != pre_completion_size:
             logger.info(
                 f"complete_hourly_timeseries() added {post_completion_size - pre_completion_size} missing rows to the dataframe"
@@ -1924,7 +1952,8 @@ def complete_hourly_timeseries(
         # fill values for missing timestamps
         df[columns_to_fill_with_zero] = df[columns_to_fill_with_zero].fillna(0.0)
 
-        # forward and backfill columns within each group
+        # forward and backfill columns within each group. This can be used for
+        # non-numeric columns
         df[columns_to_bffill] = (
             df.groupby(group_cols)[columns_to_bffill].ffill().bfill()
         )
