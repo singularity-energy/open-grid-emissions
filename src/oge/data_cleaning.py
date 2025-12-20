@@ -1929,14 +1929,14 @@ def complete_hourly_timeseries(
                 timeseries_for_timezones,
                 on=["timezone", "report_date"],
                 how="left",
-                validation="m:m",
+                validate="m:m",
             )
         else:
             complete_timeseries = complete_timeseries.merge(
                 timeseries_for_timezones.drop(columns=["report_date"]),
                 on=["timezone"],
                 how="left",
-                validation="m:m",
+                validate="m:m",
             )
         complete_timeseries = complete_timeseries.drop(columns=["timezone"])
 
