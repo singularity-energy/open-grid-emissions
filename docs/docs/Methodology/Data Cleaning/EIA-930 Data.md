@@ -3,16 +3,17 @@ stoplight-id: cleaning_eia930
 ---
 
 ## EIA-930 data
-
-We use EIA’s form 930 to calcualte hourly profiles for plants which do not report to CEMS and to calculate consumed emission rates. We use two of the many data types provided by EIA-930:
+All of the EIA-930 data used by OGE is loaded from tables created by the PUDL project. We use three of the many data types provided by EIA-930:
 
 * Hourly fuel-specific generation for each Balancing Authority (BA)
 * Hourly interchange between connected BAs
+* Hourly demand for each BA
+
+For the EIA-930 output tables published in PUDL, in addition to the original reported electricity demand, PUDL provide a column with anomalous and missing values replaced by imputed values. Check their [website](https://catalystcoop-pudl.readthedocs.io/en/latest/data_sources/eia930.html#notable-irregularities) for a detailed description of the imputation procedure.
 
 EIA has been collecting fuel-specific generation since July 2018, making this the newest of the data sources and the limiting factor in why our provided dataset begins in 2019. The data is provided to EIA from balancing authorities daily. There have been several reporting improvements since the beginning of collection, and some issues remain with the data reported to EIA from BAs. These issues include systematic issues with reported data and transient inconsistencies between data types and regions. We fix systematic issues using a correlation-based manual inspection process, then fix transient inconsistencies using the physics-based reconciliation process developed by [Chalendar and Benson (2021)](https://doi.org/10.1016/j.apenergy.2021.117761)
 
 ### Systematic data issues
-
 We identified two types of issues with the data: 1) data reported with the wrong timestamp and 2) data reported with the wrong sign (this issue was specific to interchange data). To identify the specific time periods, BAs, and data types with each of these issues, we performed iterative lagged and windowed correlation between data sets that we expected to be highly correlated, fixing issues as we found them.
 
 For generation data, we used CEMS data as a reference to identify BAs where EIA-930 data was reported using the wrong timestamp or in the wrong hour. CEMS data aggregated to the BA level should correlate with fossil fuel generation reported in EIA-930. Even if there are data issues with individual CEMS plants, these should not be widespread enough to cause the systemic offsets between CEMS and 930 data seen in balancing authorities with timestamp reporting issues after aggregating the many CEMS plants in large BAs.
@@ -34,27 +35,10 @@ After performing these corrections, we saw some non-zero lags in small BAs that 
 
 We have reported these timestamp issues with the EIA, which works with BAs on reporting. We will continue to monitor the data stream and remove our corrections for future data as the incoming data is fixed.
 
-**Summary of manual data cleaning steps**
+The manual adjustments performed can be found [here](https://github.com/singularity-energy/open-grid-emissions/blob/908bfcea07d00b38bfd7ac2503f947dea09b9595/src/oge/eia930.py#L577).
 
-* Adjustments to generation timestamps
-    * PJM: + 1 hour
-    * CISO: + 1 hour
-    * TEPC: + 1 hour
-    * SC: - 4 hours during daylight savings hours; -5 hours during standard hours
-* Adjustments to interchange timestamps
-    * PJM: + 4 hours during standard time, + 3 hours during daylight time
-    * TEPC: + 7 hours
-    * CFE has zero interchange, so the correlation looks strange/misleading
-* Flipped interchange sign (x -1)
-    * PJM-{CPLE, CPLW, DUK, LGEE, MISO, NYIS, TVA} before Oct 31, 2019, 4:00 UTC (this is all interchange partners except OVEC)
-    * PJM-OVEC, all time. Based on OVEC demand - generation, OVEC should be a net exporter to PJM
-* Other interchange issues
-    * AZPS-SEC interchange before June 1, 2020 does not agree with SEC-AZPS. We assume the SEC-AZPS interchange is correct, and use its inverse for AZPS-SEC prior to 7/1/2020, 3:00 UTC
-* Adjustments to all timestamps (after the above adjustments)
-        * - 1 hour to move from end-of-hour to start-of-hour
 
 ### Transient issues
-
 The procedure described above works only for major, systematic issues. However, EIA-930 data contains a multitude of smaller issues, including hours with missing data, hours with anomalously large or small data, or hours where data is physically impossible; for example, when the demand in a region is smaller than the sum of the region’s generation and import, or when the import from a region disagrees with the export from its neighbor.
 
 To fix these issues, we use the [gridemissions package](https://github.com/jdechalendar/gridemissions) developed by Jaques de Chalendar ([Chalendar and Benson, 2021](https://doi.org/10.1016/j.apenergy.2021.117761)). This package first performs a basic cleaning step where data outside of reasonable bounds is dropped, followed by a rolling cleaning step which drops anomalous values. Finally, the package performs an optimization algorithm to make the data physically consistent in each hour. Specifically, it finds the smallest set of adjustments to the data that ensure that demand in a region is the sum of generation and interchange into that region, and that interchange between each pair of neighboring regions agrees.
