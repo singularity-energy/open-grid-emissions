@@ -563,6 +563,7 @@ def get_dtypes() -> dict:
         "energy_source_2_transport_2": "string",
         "energy_source_2_transport_3": "string",
         "energy_source_code": "string",
+        "energy_source_code_num": "string",
         "energy_source_code_1": "string",
         "energy_source_code_2": "string",
         "energy_source_code_3": "string",
