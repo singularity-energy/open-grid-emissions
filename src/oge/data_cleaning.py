@@ -1915,7 +1915,10 @@ def complete_hourly_timeseries(
                 "UTC"
             )
             timezone_df["report_date"] = (
-                timezone_df["datetime_local"].dt.to_period("M").dt.to_timestamp()
+                timezone_df["datetime_local"]
+                .dt.tz_localize(None)
+                .dt.to_period("M")
+                .dt.to_timestamp()
             )
             timezone_df = timezone_df.drop(columns=["datetime_local"])
             timezone_df["timezone"] = timezone

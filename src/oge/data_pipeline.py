@@ -759,7 +759,7 @@ def main(args):
         )
         # Write US-average fleet data
         output_data.write_national_fleet_averages(
-            combined_fleet_data, year, path_prefix, args.skip_outputs
+            combined_fleet_data, year, path_prefix, skip_outputs=False
         )
 
         # 19. Calculate consumption-based emissions and write carbon accounting results

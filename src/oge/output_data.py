@@ -420,33 +420,30 @@ def write_national_fleet_averages(
             be saved.
         skip_outputs (bool): whether to save data or not.
     """
-    if not skip_outputs:
-        # sum all of the columns by fuel before calculating emission rates
-        national_avg = (
-            ba_fuel_data.groupby(["fuel_category"])[DATA_COLUMNS]
-            .sum(numeric_only=True)
-            .reset_index()
-        )
+    # sum all of the columns by fuel before calculating emission rates
+    national_avg = (
+        ba_fuel_data.groupby(["fuel_category"])[DATA_COLUMNS]
+        .sum(numeric_only=True)
+        .reset_index()
+    )
 
-        # Add row for total
-        national_total = pd.DataFrame(national_avg[DATA_COLUMNS].sum()).T
-        national_total["fuel_category"] = "total"
+    # Add row for total
+    national_total = pd.DataFrame(national_avg[DATA_COLUMNS].sum()).T
+    national_total["fuel_category"] = "total"
 
-        # concat the totals to the fuel-specific totals
-        national_avg = pd.concat(
-            [national_avg, national_total], axis=0, ignore_index=True
-        )
+    # concat the totals to the fuel-specific totals
+    national_avg = pd.concat([national_avg, national_total], axis=0, ignore_index=True)
 
-        national_avg = add_generated_emission_rate_columns(national_avg)
+    national_avg = add_generated_emission_rate_columns(national_avg)
 
-        output_to_results(
-            national_avg,
-            year,
-            "US",
-            "power_sector_data/annual/",
-            path_prefix,
-            skip_outputs,
-        )
+    output_to_results(
+        national_avg,
+        year,
+        "US",
+        "power_sector_data/annual/",
+        path_prefix,
+        skip_outputs,
+    )
 
 
 def write_plant_metadata(
@@ -608,133 +605,132 @@ def write_power_sector_results(
         include_annual (bool): whether to include annual results.
     """
 
-    if not skip_outputs:
-        for ba in list(fleet_data.ba_code.unique()):
-            if not isinstance(ba, str):
-                logger.warning(
-                    f"not aggregating {sum(fleet_data.ba_code.isna())} plants "
-                    f"with numeric BA {ba}"
-                )
-                continue
+    for ba in list(fleet_data.ba_code.unique()):
+        if not isinstance(ba, str):
+            logger.warning(
+                f"not aggregating {sum(fleet_data.ba_code.isna())} plants "
+                f"with numeric BA {ba}"
+            )
+            continue
 
-            # filter the data for a single BA
-            ba_table = fleet_data[fleet_data["ba_code"] == ba].drop(columns="ba_code")
+        # filter the data for a single BA
+        ba_table = fleet_data[fleet_data["ba_code"] == ba].drop(columns="ba_code")
 
-            if include_hourly:
-                # convert the datetime_utc column back to a datetime
-                ba_table["datetime_utc"] = (
-                    pd.to_datetime(ba_table["datetime_utc"])
-                    .dt.tz_localize(None)
-                    .astype("datetime64[s]")
-                    .dt.tz_localize("UTC")
-                )
+        if include_hourly:
+            # convert the datetime_utc column back to a datetime
+            ba_table["datetime_utc"] = (
+                pd.to_datetime(ba_table["datetime_utc"])
+                .dt.tz_localize(None)
+                .astype("datetime64[s]")
+                .dt.tz_localize("UTC")
+            )
 
-                # calculate a total for the BA
-                # grouping by datetime_utc and report_date will create some duplicate
-                # datetime_utc values for certain bas where there are plants located
-                # in multiple timezones the report date column is necessary for monthly
-                # aggregation, but we will have to remove it and group values by
-                # datetime_utc for the hourly calculations
-                ba_total = (
-                    ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
-                        DATA_COLUMNS
-                    ]
-                    .sum()
-                    .reset_index()
-                )
-                ba_total["fuel_category"] = "total"
-
-                # concat the totals to the fuel-specific totals
-                ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
-
-                # create a dataframe for the hourly values that groups duplicate
-                # datetime_utc values
-                ba_table_hourly = ba_table.copy().drop(columns=["report_date"])
-                ba_table_hourly = (
-                    ba_table_hourly.groupby(["fuel_category", "datetime_utc"])
-                    .sum()
-                    .reset_index()
-                )
-
-                # output the hourly data
-                ba_table_hourly = add_generated_emission_rate_columns(ba_table_hourly)
-
-                # create a local datetime column
-                try:
-                    local_tz = load_data.ba_timezone(ba, "local")
-                    ba_table_hourly["datetime_local"] = ba_table_hourly[
-                        "datetime_utc"
-                    ].dt.tz_convert(local_tz)
-                except ValueError:
-                    ba_table_hourly["datetime_local"] = pd.NaT
-
-                # re-order columns
-                ba_table_hourly = ba_table_hourly[
-                    ["fuel_category", "datetime_local", "datetime_utc"]
-                    + DATA_COLUMNS
-                    + GENERATED_EMISSION_RATE_COLS
+            # calculate a total for the BA
+            # grouping by datetime_utc and report_date will create some duplicate
+            # datetime_utc values for certain bas where there are plants located
+            # in multiple timezones the report date column is necessary for monthly
+            # aggregation, but we will have to remove it and group values by
+            # datetime_utc for the hourly calculations
+            ba_total = (
+                ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
+                    DATA_COLUMNS
                 ]
+                .sum()
+                .reset_index()
+            )
+            ba_total["fuel_category"] = "total"
 
-                validation.validate_unique_datetimes(
-                    year,
-                    df=ba_table_hourly,
-                    df_name="power sector hourly ba table",
-                    keys=["fuel_category"],
-                )
-                validation.check_for_complete_hourly_timeseries(
-                    ba_table_hourly,
-                    f"power sector hourly {ba} table",
-                    ["fuel_category"],
-                    "year",
-                )
+            # concat the totals to the fuel-specific totals
+            ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
 
-                # export to a csv
+            # create a dataframe for the hourly values that groups duplicate
+            # datetime_utc values
+            ba_table_hourly = ba_table.copy().drop(columns=["report_date"])
+            ba_table_hourly = (
+                ba_table_hourly.groupby(["fuel_category", "datetime_utc"])
+                .sum()
+                .reset_index()
+            )
+
+            # output the hourly data
+            ba_table_hourly = add_generated_emission_rate_columns(ba_table_hourly)
+
+            # create a local datetime column
+            try:
+                local_tz = load_data.ba_timezone(ba, "local")
+                ba_table_hourly["datetime_local"] = ba_table_hourly[
+                    "datetime_utc"
+                ].dt.tz_convert(local_tz)
+            except ValueError:
+                ba_table_hourly["datetime_local"] = pd.NaT
+
+            # re-order columns
+            ba_table_hourly = ba_table_hourly[
+                ["fuel_category", "datetime_local", "datetime_utc"]
+                + DATA_COLUMNS
+                + GENERATED_EMISSION_RATE_COLS
+            ]
+
+            validation.validate_unique_datetimes(
+                year,
+                df=ba_table_hourly,
+                df_name="power sector hourly ba table",
+                keys=["fuel_category"],
+            )
+            validation.check_for_complete_hourly_timeseries(
+                ba_table_hourly,
+                f"power sector hourly {ba} table",
+                ["fuel_category"],
+                "year",
+            )
+
+            # export to a csv
+            output_to_results(
+                ba_table_hourly,
+                year,
+                ba,
+                "power_sector_data/hourly/",
+                path_prefix,
+                skip_outputs,
+            )
+        elif include_monthly or include_annual:
+            ba_total = (
+                ba_table.groupby(["report_date"], dropna=False)[DATA_COLUMNS]
+                .sum()
+                .reset_index()
+            )
+            ba_total["fuel_category"] = "total"
+
+            # concat the totals to the fuel-specific totals
+            ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
+
+            agg = {}
+            if include_monthly:
+                agg["monthly"] = ["fuel_category", "report_date"]
+
+            if include_annual:
+                agg["annual"] = ["fuel_category"]
+
+            for agg_level, groupby_cols in agg.items():
+                # aggregate data
+                ba_table = (
+                    ba_table.groupby(groupby_cols, dropna=False)
+                    .sum(numeric_only=True)
+                    .reset_index()
+                )
+                ba_table = add_generated_emission_rate_columns(ba_table)
+                # re-order columns
+                ba_table = ba_table[
+                    groupby_cols + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS
+                ]
                 output_to_results(
-                    ba_table_hourly,
+                    ba_table,
                     year,
                     ba,
-                    "power_sector_data/hourly/",
+                    f"power_sector_data/{agg_level}/",
                     path_prefix,
                     skip_outputs,
                 )
-            elif include_monthly or include_annual:
-                ba_total = (
-                    ba_table.groupby(["report_date"], dropna=False)[DATA_COLUMNS]
-                    .sum()
-                    .reset_index()
-                )
-                ba_total["fuel_category"] = "total"
-
-                # concat the totals to the fuel-specific totals
-                ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
-
-                agg = {}
-                if include_monthly:
-                    agg["monthly"] = ["fuel_category", "report_date"]
-
-                if include_annual:
-                    agg["annual"] = ["fuel_category"]
-
-                for agg_level, groupby_cols in agg.items():
-                    # aggregate data
-                    ba_table = (
-                        ba_table.groupby(groupby_cols, dropna=False)
-                        .sum(numeric_only=True)
-                        .reset_index()
-                    )
-                    ba_table = add_generated_emission_rate_columns(ba_table)
-                    # re-order columns
-                    ba_table = ba_table[
-                        groupby_cols + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS
-                    ]
-                    output_to_results(
-                        ba_table,
-                        year,
-                        ba,
-                        f"power_sector_data/{agg_level}/",
-                        path_prefix,
-                        skip_outputs,
-                    )
 
 
 def add_generated_emission_rate_columns(df: pd.DataFrame) -> pd.DataFrame:
