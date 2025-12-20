@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oge"
-version = "0.6.1"
+version = "0.7.0"
 requires-python = ">=3.11,<3.12"
 readme = "README.md"
 authors = [
