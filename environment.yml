@@ -5,7 +5,6 @@ channels:
 dependencies:
   - cvxopt
   - cvxpy
-  - dask<2024.3.0
   - osqp
   - ipykernel
   - notebook
