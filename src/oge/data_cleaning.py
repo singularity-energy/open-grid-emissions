@@ -1159,16 +1159,6 @@ def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
         df=cems, year=year, include_co2=False, include_ch4=True, include_n2o=True
     )
 
-    # remove any observations from cems where zero operation is reported for an entire
-    # month. Although this data could be considered to be accurately reported, let's
-    # remove it so that we can double check against the eia data
-    # NOTE(12/22/23): We will treat reported zeros as actual data and not attempt to
-    # fill reported zeros with EIA-923 data due to the issues that exist with the method
-    # EIA uses to allocate annual data to months. In the future, we could use monthly-
-    # reported EIA data since this is directly reported by the generator.
-    # NOTE (11/27/25) re-adding this filter to reduce memory issues in the pipeline.
-    # cems = remove_cems_with_zero_monthly_data(cems)
-
     validation.test_for_negative_values(cems, year)
     validation.validate_unique_datetimes(
         year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
@@ -1769,51 +1759,214 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     return df
 
 
-def remove_cems_with_zero_monthly_data(cems):
+def remove_cems_with_zero_monthly_data(
+    cems: pd.DataFrame, column_to_check: list[str], remove_all_zeros: bool = False
+) -> pd.DataFrame:
     """
     Identifies months where zero generation or heat inputare reported.
-    from each unit and removes associated hours from CEMS so that these can be filled using the eia923 data
-    Inputs:
-        cems: pandas dataframe of hourly cems data containing columns "plant_id_eia", "emissions_unit_id_epa" and "report_date"
+    from each unit and removes associated hours from CEMS so that these can be filled
+    using the eia923 data
+
+    Args:
+        cems (pd.DataFrame): pandas dataframe of hourly cems data containing columns
+            "plant_id_eia", "emissions_unit_id_epa" and "report_date"
+        column_to_check (list[str]): list of columns to check for zero values
+        remove_all_zeros (bool): if true, removes all rows where all values in `column_to_check` are zero,
+            if false, it only removes observations for months where all values in that
+            month are zero.
     Returns:
-        cems df with hourly observations for months when no emissions reported removed
+        pd.DataFrame: `cems` with hourly observations for months when no emissions
+            reported removed
     """
-    # calculate the totals reported in each month
-    cems_with_zero_monthly_emissions = cems.groupby(
-        ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
-    )[["gross_generation_mwh", "fuel_consumed_mmbtu"]].sum()
-    # identify unit-months where zero emissions reported
-    cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[
-        cems_with_zero_monthly_emissions.sum(axis=1) == 0
-    ]
-    # add a flag to these observations
-    cems_with_zero_monthly_emissions["missing_data_flag"] = "remove"
+    if remove_all_zeros:
+        rows_to_remove = cems[column_to_check].sum(axis=1) == 0
+    else:
+        # calculate the totals reported in each month
+        # NOTE: columns_to_check = ["gross_generation_mwh", "fuel_consumed_mmbtu"]
+        data_with_zero_monthly_values = cems.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )[column_to_check].sum()
+        # identify unit-months where zero emissions reported
+        data_with_zero_monthly_values = data_with_zero_monthly_values[
+            data_with_zero_monthly_values.sum(axis=1) == 0
+        ]
+        # add a flag to these observations
+        data_with_zero_monthly_values["zero_data_flag"] = "remove"
 
-    # merge the missing data flag into the cems data
-    cems = cems.merge(
-        cems_with_zero_monthly_emissions.reset_index()[
-            [
-                "plant_id_eia",
-                "emissions_unit_id_epa",
-                "report_date",
-                "missing_data_flag",
-            ]
-        ],
-        how="left",
-        on=["plant_id_eia", "emissions_unit_id_epa", "report_date"],
-        validate="m:1",
-    )
-    # remove any observations with the missing data flag
+        # merge the missing data flag into the cems data
+        cems = cems.merge(
+            data_with_zero_monthly_values.reset_index()[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "zero_data_flag",
+                ]
+            ],
+            how="left",
+            on=["plant_id_eia", "subplant_id", "report_date"],
+            validate="m:1",
+        )
+        rows_to_remove = cems["zero_data_flag"] == "remove"
+
+        # get a count of the total number of zero observations in the data
+        total_zero_observations = len(cems[rows_to_remove])
+        # remove any observations with the missing data flag
+        logger.info(
+            f"{total_zero_observations / len(cems) * 100:.2f}% of rows in the data have zero values that will be removed"
+        )
+
+    validation.check_removed_data_is_empty(cems, rows_to_remove)
+    pre_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
+    # remove all zero obeservations
+    cems = cems[~rows_to_remove]
+    post_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
     logger.info(
-        f"Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+        f"Removing zeros reduced dataframe memory use from  {pre_memory_usage_gb:.2f} GB to {post_memory_usage_gb:.2f} GB ({((post_memory_usage_gb - pre_memory_usage_gb) / pre_memory_usage_gb * 100):.2f}% reduction)"
     )
-
-    validation.check_removed_data_is_empty(cems)
-    cems = cems[cems["missing_data_flag"] != "remove"]
-    # drop the missing data flag column in-place
-    cems.drop(columns="missing_data_flag", inplace=True)
+    if not remove_all_zeros:
+        # drop the missing data flag column in-place
+        cems.drop(columns="zero_data_flag", inplace=True)
 
     return cems
+
+
+def complete_hourly_timeseries(
+    df: pd.DataFrame,
+    year: int,
+    group_cols: list[str] = [],
+    columns_to_fill_with_zero: list[str] = [],
+    columns_to_bffill: list[str] = [],
+) -> pd.DataFrame:
+    """
+    Completes a hourly timeseries for each plantgroup in a given dataframe.
+
+
+    This function will create a complete timeseries for each group in the dataframe,
+    assuming the data is supposed to represent a complete year. It will create a complete
+    timeseries for each group in UTC time.
+
+    Because we are repairing the "datetime_utc" column, but the complete set of utc
+    timestamps for a year depends on the local timezone of the underlying data, we
+    have to consider the timezone of each plant_id_eia in the data, and assign the
+    appropriate complete timeseries to each. This approach is more robust than just
+    creating a complete date_range between the min and max datetimes already in the
+    timeseries, in case that timeseries is missing timestamps at the beginning or end
+    of the year.
+
+    If "report_date" is passed in as one of the `group_cols`, the behavior of this
+    function is that it will only complete timeseries for "report_date"s that already
+    exist in `df`. For example, if `df` only contained data for January-June, if
+    "report_date" is included, then this function will only repair hourly timeseries for
+    January-June, but will not add timestamps for July-December. If that same df were
+    passed in without "report_date" in the `group_cols`, the function would also add
+    hourly timestamps for July-December. This functionality exists so that when we repair
+    `combined_cems_subplant_data` before combining it with the shaped eia data in step
+    18, we don't end up with overlapping timeseries.
+
+    Args:
+        df (pd.DataFrame): dataframe to complete the timeseries for
+        year (int): year to create a complete timeseries for (should match the local year of the data)
+        group_cols (list[str]): columns to group by (one column must be "plant_id_eia")
+        columns_to_fill_with_zero (list[str]): a list of columns (generally containing numeric data)
+            that should be filled with zero values for missing timestamps that are filled
+        columns_to_bffill (list[str]): a list of columns that should be filled based on
+            the values in the previous and next rows within each group (bbffill refers
+            to both bfill and ffill)
+    Returns:
+        pd.DataFrame: dataframe with complete timeseries
+    """
+
+    # check if there are any missing timestamps
+    expected_hours = 8784 if (year % 4 == 0) else 8760
+    test = df.groupby(group_cols)[["datetime_utc"]].count()
+    # only repair if it is needed, otherwise, skip this
+    if len(test[test["datetime_utc"] < expected_hours]) > 0:
+        # get all unique groups for which to create complete timeseries
+        complete_timeseries = df[group_cols].drop_duplicates()
+
+        # merge in timezone data for each plant
+        plant_timezone = load_data.load_pudl_table(
+            "core_eia__entity_plants", columns=["plant_id_eia", "timezone"]
+        )
+        complete_timeseries = complete_timeseries.merge(
+            plant_timezone, on="plant_id_eia", how="left"
+        )
+
+        # localize the datetime_local column using the timezone column
+        # get a list of timezones to iterate through. Becuase pandas has trouble with
+        # tz localization and conversion if multiple tz's exist in a single column, we
+        # need to do these operations one at a time for each timezone, then concat them
+        timezones = complete_timeseries["timezone"].unique()
+        timeseries_for_timezones = []
+        for timezone in timezones:
+            # first get the complete set of timestamps in local time
+            timezone_df = pd.DataFrame(
+                data=pd.date_range(
+                    start=f"{year}-01-01 00:00:00",
+                    end=f"{year}-12-31 23:00:00",
+                    freq="h",
+                    tz=timezone,
+                    name="datetime_local",
+                )
+            )
+            # now convert to UTC
+            timezone_df["datetime_utc"] = timezone_df["datetime_local"].dt.tz_convert(
+                "UTC"
+            )
+            timezone_df["report_date"] = (
+                timezone_df["datetime_local"]
+                .dt.tz_localize(None)
+                .dt.to_period("M")
+                .dt.to_timestamp()
+            )
+            timezone_df = timezone_df.drop(columns=["datetime_local"])
+            timezone_df["timezone"] = timezone
+            timeseries_for_timezones.append(timezone_df)
+        timeseries_for_timezones = pd.concat(timeseries_for_timezones)
+
+        # merge the complete timeseries for each timezone into the groups to create
+        # complete timeseries for each group
+        if "report_date" in group_cols:
+            complete_timeseries = complete_timeseries.merge(
+                timeseries_for_timezones,
+                on=["timezone", "report_date"],
+                how="left",
+                validate="m:m",
+            )
+        else:
+            complete_timeseries = complete_timeseries.merge(
+                timeseries_for_timezones.drop(columns=["report_date"]),
+                on=["timezone"],
+                how="left",
+                validate="m:m",
+            )
+        complete_timeseries = complete_timeseries.drop(columns=["timezone"])
+
+        # complete the timeseries in the original dataframe
+        pre_completion_size = len(df)
+        df = df.merge(
+            complete_timeseries, on=(group_cols + ["datetime_utc"]), how="outer"
+        ).sort_values(by=group_cols + ["datetime_utc"], ascending=True)
+        post_completion_size = len(df)
+
+        if post_completion_size != pre_completion_size:
+            logger.info(
+                f"complete_hourly_timeseries() added {post_completion_size - pre_completion_size} missing rows to the dataframe"
+            )
+
+        # fill values for missing timestamps
+        df[columns_to_fill_with_zero] = df[columns_to_fill_with_zero].fillna(0.0)
+
+        # forward and backfill columns within each group. This can be used for
+        # non-numeric columns
+        df[columns_to_bffill] = (
+            df.groupby(group_cols)[columns_to_bffill].ffill().bfill()
+        )
+
+        return df
+    else:
+        return df
 
 
 def adjust_cems_for_chp(cems, eia923_allocated):

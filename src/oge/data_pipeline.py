@@ -377,6 +377,24 @@ def main(args):
         keys=["plant_id_eia", "subplant_id"],
         period="month",
     )
+    # now that GTN calculations are complete, we can remove zero observations from the
+    # cems data to free up memory
+    # dropping here means cems_subplant will contain missing timestamps
+    cems = data_cleaning.remove_cems_with_zero_monthly_data(
+        cems,
+        ["gross_generation_mwh", "net_generation_mwh", "fuel_consumed_mmbtu"],
+        remove_all_zeros=True,
+    )
+    partial_cems_plant = data_cleaning.remove_cems_with_zero_monthly_data(
+        partial_cems_plant,
+        ["net_generation_mwh", "fuel_consumed_mmbtu"],
+        remove_all_zeros=True,
+    )
+    partial_cems_subplant = data_cleaning.remove_cems_with_zero_monthly_data(
+        partial_cems_subplant,
+        ["net_generation_mwh", "fuel_consumed_mmbtu"],
+        remove_all_zeros=True,
+    )
     output_data.output_intermediate_data(
         cems, "cems_subplant", path_prefix, year, args.skip_outputs
     )
@@ -684,7 +702,13 @@ def main(args):
             partial_cems_plant,
         )
         gc.collect()
-        # export to a csv.
+        # ensure complete timeseries
+        combined_cems_subplant_data = data_cleaning.complete_hourly_timeseries(
+            combined_cems_subplant_data,
+            year,
+            group_cols=["plant_id_eia", "subplant_id"],
+            columns_to_fill_with_zero=DATA_COLUMNS,
+        )
         validation.validate_unique_datetimes(
             year,
             df=combined_cems_subplant_data,
@@ -735,7 +759,7 @@ def main(args):
         )
         # Write US-average fleet data
         output_data.write_national_fleet_averages(
-            combined_fleet_data, year, path_prefix, args.skip_outputs
+            combined_fleet_data, year, path_prefix, skip_outputs=False
         )
 
         # 19. Calculate consumption-based emissions and write carbon accounting results
