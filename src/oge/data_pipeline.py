@@ -706,7 +706,7 @@ def main(args):
         combined_cems_subplant_data = data_cleaning.complete_hourly_timeseries(
             combined_cems_subplant_data,
             year,
-            group_cols=["plant_id_eia", "subplant_id", "report_date"],
+            group_cols=["plant_id_eia", "subplant_id"],
             columns_to_fill_with_zero=DATA_COLUMNS,
         )
         validation.validate_unique_datetimes(
