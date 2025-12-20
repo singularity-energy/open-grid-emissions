@@ -467,13 +467,14 @@ def check_non_missing_cems_co2_values_unchanged(cems_original, cems):
         logger.info("OK")
 
 
-def check_removed_data_is_empty(cems: pd.DataFrame):
+def check_removed_data_is_empty(cems: pd.DataFrame, rows_to_remove: pd.Series) -> None:
     """
     Checks that the rows removed by `data_cleaning.remove_cems_with_zero_monthly_data()`
     don't actually contain non-zero data
 
     Args:
         cems (pd.DataFrame): The CEMS data to check
+        rows_to_remove (pd.Series): A boolean series of rows to remove
     """
     columns_to_check = [
         "gross_generation_mwh",
@@ -485,7 +486,7 @@ def check_removed_data_is_empty(cems: pd.DataFrame):
     ]
     # get a count of the number of observations with the zero data flag
     check_that_data_is_zero = cems.loc[
-        cems["zero_data_flag"] == "remove",
+        rows_to_remove,
         [col for col in columns_to_check if col in cems.columns],
     ].sum(numeric_only=True)
     if check_that_data_is_zero.sum() > 0:

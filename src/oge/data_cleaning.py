@@ -1778,7 +1778,6 @@ def remove_cems_with_zero_monthly_data(
         pd.DataFrame: `cems` with hourly observations for months when no emissions
             reported removed
     """
-    validation.check_removed_data_is_empty(cems)
     if remove_all_zeros:
         rows_to_remove = cems[column_to_check].sum(axis=1) == 0
     else:
@@ -1817,6 +1816,7 @@ def remove_cems_with_zero_monthly_data(
             f"{total_zero_observations / len(cems) * 100:.2f}% of rows in the data have zero values that will be removed"
         )
 
+    validation.check_removed_data_is_empty(cems, rows_to_remove)
     pre_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
     # remove all zero obeservations
     cems = cems[~rows_to_remove]
