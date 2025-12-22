@@ -1084,6 +1084,11 @@ def check_for_complete_hourly_timeseries(
         hourly data
     """
     # identify the year of the data
+    if df.empty or df.datetime_utc.isna().all():
+        logger.warning(
+            f"DataFrame {df_name} is empty or has no valid datetime values, skipping validation"
+        )
+        return
     year = df.datetime_utc.dt.year.mode()[0]
     if period == "year":
         # count the number of timestamps in each group
