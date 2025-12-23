@@ -664,7 +664,9 @@ def gross_to_net_regression(combined_gen_data, agg_level):
     # calculate the ratio for each plant and create a dataframe
     gtn_regression = (
         gen_data_for_regression.dropna()
-        .groupby(plant_aggregation_columns, dropna=False)
+        .groupby(plant_aggregation_columns, dropna=False)[
+            gen_data_for_regression.columns
+        ]
         .apply(model_gross_to_net)
     )
     gtn_regression = gtn_regression.dropna()

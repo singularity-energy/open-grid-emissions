@@ -43,9 +43,15 @@ pip install .
 The pipeline can be run as follows:
 ```bash
 cd src/oge
-python data_pipeline.py --year 2023
+python data_pipeline.py --year 2024
 ```
-independently of the installation method you chose.
+independently of the installation method you chose. Note that the pipeline uses input data from different external sources. For PUDL, you can set a `PUDL_DATA_STORE` environment variable to `s3` via `export PUDL_DATA_STORE='s3'` for Bash (on Unix-like operating systems) for bash or `$Env:PUDL_DATA_STORE = 's3'` for PowerShell (on Windows) before calling the `data_pipeline.py` script or by adding the following to the `__init__.py` file in `src/oge`:
+```python
+import os
+
+os.environ["PUDL_DATA_STORE"] = "s3"
+```
+in order to directly load in memory the PUDL data needed to run the pipeline. If not set or set to `local`, the PUDL files will be downloaded on your disk during the first steps of the pipeline and then loaded in memory when needed.
 
 A more detailed walkthrough of these steps can be found below in the "Development Setup" section.
 
@@ -59,7 +65,7 @@ Updated datasets will also be published whenever a new version of the open-grid-
 ### Running the pipeline with early release data
 The OGE pipeline can be used to generate data using Early Release EIA data as soon as it is integrated into the PUDL nightly builds. In order to do that, `constants.current_early_release_year` must be updated to the current early release year (such that `current_early_release_year` is 1 year greater than `latest_validated_year`). Early release data is typically available from EIA in June/July of the following year, and is integrated into PUDL shortly thereafter.
 
-In addition, you will need to download and use the pudl nightly build data until the data becomes available through a stable release. To do so, you need to set your `PUDL_BUILD` environment variable to "nightly". You can do this through the command line using `set PUDL_BUILD=nightly` (for Windows), or by adding the following to the `__init__.py` file in `src/oge`:
+In addition, you will need to use the PUDL nightly build data until the data becomes available through a stable release. To do so, you need to set your `PUDL_BUILD` environment variable to "nightly". You can do this through the command line using `set PUDL_BUILD=nightly` (for Windows), or by adding the following to the `__init__.py` file in `src/oge`:
 ```python
 import os
 
@@ -208,8 +214,16 @@ If you ever need to remove and reinstall the environment, run `pipenv --rm` from
 ### Running the complete data pipeline
 If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src/oge`, and run the following (replacing 2022 with whichever year you want to run):
 ```bash
+export PUDL_DATA_STORE="s3"
 python data_pipeline.py --year 2022
 ```
+where the environment variable `PUDL_DATA_STORE` is set to `s3` (for the Bash command interpreter on Unix-like operating systems; if working on Windows), meaning that PUDL's tables used throughout the code base will be loaded in memory from S3. If not set or set to `local`, files enclosing the PUDL tables will be first downloaded from S3 to your disk and then load in memory when needed. Note that the `export` command for setting an environment variable is specific to the Bash command interpreter on Unix-like operating systems. If working with the Windows' PowerShell, the command is `$Env:PUDL_DATA_STORE = 's3'`. Independently of you operating system, the `PUDL_DATA_STORE` environment variable can be set by adding the following:
+```python
+import os
+
+os.environ["PUDL_DATA_STORE"] = "s3"
+```
+to the `__init__.py` file in `src/oge`.
 
 ### Keeping the code updated
 From time to time, the code will be updated on GitHub. To ensure that you are keeping your local version of the code up to date, open git bash and follow these steps:

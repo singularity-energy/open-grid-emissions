@@ -11,15 +11,15 @@ earliest_validated_year = 2005
 # profiles
 earliest_hourly_data_year = 2019
 # latest_validated_year is the most recent year for which OGE data has been published
-latest_validated_year = 2023
+latest_validated_year = 2024
 # current_early_release_year is the year for which non-final (early-release) data
 # is available from the EIA. This enables running the OGE pipeline for this year
 # EIA-860ER data is generally available in June and EIA-923ER data is generally
 # available in July of the following year. This should not be updated to the next year
 # until ER data is available, so for part of the year, latest_validated_year will equal
 # current_early_release_year
-# TODO: Change this to 2024 around July 2025 (check PUDL to see when integrated)
-current_early_release_year = 2023
+# TODO: Change this to 2025 around July 2026 (check PUDL to see when integrated)
+current_early_release_year = 2024
 
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
@@ -48,6 +48,12 @@ nox_lb_per_mmbtu_flared_landfill_gas = 0.078
 # values assumed by eGRID for CHP efficiency
 chp_gross_thermal_output_efficiency = 0.8
 chp_useful_thermal_output_efficiency = 0.75
+
+# the list of status codes we want to filter out
+cancelled_status_codes = [
+    "CN",  # Cancelled, but previously reported as planned
+    "IP",  # Indefinitely postponed or no longer in resource plan
+]
 
 
 class ConversionFactors(float):

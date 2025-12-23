@@ -22,7 +22,6 @@ logger = get_logger(__name__)
 
 def clean_eia923(
     year: int,
-    small: bool,
     calculate_nox_emissions: bool = True,
     calculate_so2_emissions: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -31,7 +30,6 @@ def clean_eia923(
 
     Args:
         year (int): year to consider.
-        small (bool): should a subset of data be considered.
         calculate_nox_emissions (bool, optional): whether or not clculate NOx emission
             from fuel consumption. Defaults to True.
         calculate_so2_emissions (bool, optional): whether or not clculate So2 emission
@@ -57,7 +55,9 @@ def clean_eia923(
     # See: https://github.com/catalyst-cooperative/pudl/issues/3987
     # To fix this, we need to filter `gens` to remove data with a missing
     # "data_maturity" column
-    gens = gens[~gens["data_maturity"].isna()]
+    # (As of 11/27/25) this is no longer needed, since these generators should be filtered out
+    # in the cleaning proces
+    # gens = gens[~gens["data_maturity"].isna()]
 
     gf, bf, gen, bga, gens = allocate_gen_fuel.select_input_data(
         gf=gf, bf=bf, gen=gen, bga=bga, gens=gens
@@ -77,6 +77,52 @@ def clean_eia923(
         "out_eia923__monthly_generation_fuel_by_generator_energy_source", year
     )
     """
+
+    # Remove plant/generator combinations not in EIA-860.
+    # This situation can occur because some generators present in the allocated EIA-923
+    # data are filtered out of EIA-860 based on their operational status codes (e.g.,
+    # 'CN', 'IP', 'P', 'L'). These codes are excluded from the EIA-860 generator list
+    # used for subplant assignments. As a result, plant/generator pairs may exist in
+    # the allocated EIA-923 data but not in EIA-860, so we remove them here to ensure
+    # consistency.
+    to_remove = set(
+        gen_fuel_allocated[["plant_id_eia", "generator_id"]]
+        .drop_duplicates()
+        .apply(tuple, axis=1)
+    ).difference(
+        set(
+            load_data.load_complete_eia_generators_for_subplants()[
+                ["plant_id_eia", "generator_id"]
+            ]
+            .drop_duplicates()
+            .apply(tuple, axis=1)
+        )
+    )
+    if len(to_remove) > 0:
+        # Check that we are not removing any generators with non-zero generation or
+        # fuel consumption
+        for p, g in to_remove:
+            gen_fuel_allocated_to_remove = gen_fuel_allocated[
+                (
+                    (gen_fuel_allocated["plant_id_eia"] == p)
+                    & (gen_fuel_allocated["generator_id"] == g)
+                )
+            ]
+            if (gen_fuel_allocated_to_remove["net_generation_mwh"] > 0).any() or (
+                gen_fuel_allocated_to_remove["fuel_consumed_mmbtu"] > 0
+            ).any():
+                continue
+            else:
+                logger.warning(
+                    f"Removing ({p},{g}) not in EIA-860 with zero generation and fuel "
+                    "consumption"
+                )
+                gen_fuel_allocated = gen_fuel_allocated[
+                    ~(
+                        (gen_fuel_allocated["plant_id_eia"] == p)
+                        & (gen_fuel_allocated["generator_id"] == g)
+                    )
+                ]
 
     # drop bad data where there is negative fuel consumption
     # NOTE(greg) this is in response to a specific issue with the input data for
@@ -137,9 +183,6 @@ def clean_eia923(
     # create a table that identifies the primary fuel of each generator and plant
     primary_fuel_table = create_primary_fuel_table(gen_fuel_allocated, year)
 
-    if small:
-        gen_fuel_allocated = smallerize_test_data(df=gen_fuel_allocated, random_seed=42)
-
     # calculate co2 emissions for each generator-fuel based on allocated fuel
     # consumption
     gen_fuel_allocated = emissions.calculate_ghg_emissions_from_fuel_consumption(
@@ -182,6 +225,16 @@ def clean_eia923(
 
     # calculate weighted emission factors for each subplant-month
     subplant_emission_factors = calculate_subplant_efs(gen_fuel_allocated)
+
+    # before aggregating, output a table of allocated fuels for each subplant (for GRETA)
+    subplant_923 = (
+        gen_fuel_allocated.groupby(
+            by=["plant_id_eia", "subplant_id", "report_date", "energy_source_code"]
+        )[["net_generation_mwh", "fuel_consumed_mmbtu"]]
+        .sum()
+        .reset_index()
+    )
+    subplant_923 = validation.identify_reporting_frequency(subplant_923, year)
 
     # aggregate the allocated data to the generator level
     gen_fuel_allocated = (
@@ -234,7 +287,12 @@ def clean_eia923(
     # run validation checks on EIA-923 data
     validation.test_for_negative_values(gen_fuel_allocated, year)
 
-    return gen_fuel_allocated, primary_fuel_table, subplant_emission_factors
+    return (
+        gen_fuel_allocated,
+        primary_fuel_table,
+        subplant_emission_factors,
+        subplant_923,
+    )
 
 
 def update_energy_source_codes(df, year):
@@ -368,11 +426,21 @@ def create_primary_fuel_table(
     )
     primary_fuel_manual = primary_fuel_manual[primary_fuel_manual["year"] == year]
 
-    primary_fuel_table = pd.concat(
-        [primary_fuel_table, primary_fuel_manual.drop(columns=["year", "notes"])],
-        axis=0,
-        ignore_index=True,
-    ).sort_values(by=["plant_id_eia", "subplant_id"])
+    # Drop columns from manual table in-place before concatenation
+    primary_fuel_manual.drop(columns=["year", "notes"], inplace=True)
+
+    # Only concatenate if primary_fuel_manual is not empty
+    if not primary_fuel_manual.empty:
+        primary_fuel_table = pd.concat(
+            [primary_fuel_table, primary_fuel_manual],
+            axis=0,
+            ignore_index=True,
+            copy=False,
+        ).sort_values(by=["plant_id_eia", "subplant_id"])
+    else:
+        primary_fuel_table = primary_fuel_table.sort_values(
+            by=["plant_id_eia", "subplant_id"]
+        )
 
     return primary_fuel_table
 
@@ -529,8 +597,8 @@ def calculate_capacity_based_primary_fuel(
             "report_date"
         ].transform("max")
     ]
-    # drop the report date column
-    gen_capacity = gen_capacity.drop(columns=["report_date"])
+    # drop the report date column in-place
+    gen_capacity.drop(columns=["report_date"], inplace=True)
 
     # only keep keys that exist in gen_fuel_allocated
     gen_capacity = gen_capacity.merge(
@@ -650,10 +718,12 @@ def add_under_construction_generator_ids_to_df(
     gen_cap_under_construction = gen_cap_under_construction[
         gen_cap_under_construction["copy"] != "both"
     ]
-    gen_cap_under_construction = gen_cap_under_construction.drop(columns="copy")
+    gen_cap_under_construction.drop(columns="copy", inplace=True)
 
     # add under construction plants to this
-    df = pd.concat([df, gen_cap_under_construction[columns_to_append]], axis=0)
+    df = pd.concat(
+        [df, gen_cap_under_construction[columns_to_append]], axis=0, copy=False
+    )
 
     return df
 
@@ -726,9 +796,9 @@ def add_recently_retired_generator_ids_to_df(
     ]
 
     gen_cap_recently_retired = pd.concat(
-        [gen_cap_recently_retired, silent_retirers], axis=0
+        [gen_cap_recently_retired, silent_retirers], axis=0, copy=False
     )
-    gen_cap_recently_retired = gen_cap_recently_retired.drop(columns=["report_date"])
+    gen_cap_recently_retired.drop(columns=["report_date"], inplace=True)
 
     # add subplant_ids
     logger.info("Adding subplant_id to gen_cap_recently_retired")
@@ -756,10 +826,12 @@ def add_recently_retired_generator_ids_to_df(
     gen_cap_recently_retired = gen_cap_recently_retired[
         gen_cap_recently_retired["copy"] != "both"
     ]
-    gen_cap_recently_retired = gen_cap_recently_retired.drop(columns="copy")
+    gen_cap_recently_retired.drop(columns="copy", inplace=True)
 
     # add under construction plants to this
-    df = pd.concat([df, gen_cap_recently_retired[columns_to_append]], axis=0)
+    df = pd.concat(
+        [df, gen_cap_recently_retired[columns_to_append]], axis=0, copy=False
+    )
 
     return df
 
@@ -769,7 +841,21 @@ def calculate_subplant_efs(gen_fuel_allocated):
     Calculates weighted emission factors for each subplant-month for filling in missing data.
     """
 
-    subplant_efs = gen_fuel_allocated.copy()
+    # Select only needed columns from gen_fuel_allocated to reduce memory
+    subplant_efs = gen_fuel_allocated[
+        [
+            "plant_id_eia",
+            "subplant_id",
+            "report_date",
+            "fuel_consumed_mmbtu",
+            "co2_mass_lb",
+            "ch4_mass_lb",
+            "n2o_mass_lb",
+            "co2e_mass_lb",
+            "nox_mass_lb",
+            "so2_mass_lb",
+        ]
+    ].copy()
 
     # calculate the total emissions and fuel consumption by subplant-month
     subplant_efs = subplant_efs.groupby(
@@ -911,7 +997,7 @@ def remove_non_grid_connected_plants(df: pd.DataFrame, year: int) -> pd.DataFram
             validate="m:1",
         )
         df = df[df["epa_match_type"] != "Manual CAMD Excluded"]
-        df = df.drop(columns=["epa_match_type"])
+        df.drop(columns=["epa_match_type"], inplace=True)
 
     # according to the egrid documentation, any plants that have an id of 88XXXX are
     # not grid connected only keep plants that dont have an id of 88XXXX
@@ -1005,12 +1091,12 @@ def remove_unmapped_fuel(cems: pd.DataFrame, year: int) -> pd.DataFrame:
             indicator="fuel_only_unmapped",
         )
         cems = cems[cems["fuel_only_unmapped"] != "both"]
-        cems = cems.drop(columns="fuel_only_unmapped")
+        cems.drop(columns="fuel_only_unmapped", inplace=True)
 
     return cems
 
 
-def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_factors):
+def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
     """
     Coordinating function for all of the cems data cleaning
     """
@@ -1021,9 +1107,6 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
     )
 
     cems = remove_negative_cems_data(cems, year)
-
-    if small:
-        cems = smallerize_test_data(df=cems, random_seed=42)
 
     # remove non-grid connected plants
     cems = remove_plants(
@@ -1076,15 +1159,6 @@ def clean_cems(year: int, small: bool, primary_fuel_table, subplant_emission_fac
         df=cems, year=year, include_co2=False, include_ch4=True, include_n2o=True
     )
 
-    # remove any observations from cems where zero operation is reported for an entire
-    # month. Although this data could be considered to be accurately reported, let's
-    # remove it so that we can double check against the eia data
-    # NOTE(12/22/23): We will treat reported zeros as actual data and not attempt to
-    # fill reported zeros with EIA-923 data due to the issues that exist with the method
-    # EIA uses to allocate annual data to months. In the future, we could use monthly-
-    # reported EIA data since this is directly reported by the generator.
-    # cems = remove_cems_with_zero_monthly_data(cems)
-
     validation.test_for_negative_values(cems, year)
     validation.validate_unique_datetimes(
         year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
@@ -1136,21 +1210,6 @@ def remove_negative_cems_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
             cems.loc[cems[column] < 0, column] = np.NaN
 
     return cems
-
-
-def smallerize_test_data(df, random_seed=None):
-    logger.info("Randomly selecting 5% of plants for faster test run.")
-    # Select 5% of plants
-    selected_plants = df.plant_id_eia.unique()
-    if random_seed is not None:
-        np.random.seed(random_seed)
-    selected_plants = np.random.choice(
-        selected_plants, size=int(len(selected_plants) * 0.05), replace=False
-    )
-    # Filter for selected plants
-    df = df[df.plant_id_eia.isin(selected_plants)]
-
-    return df
 
 
 def manually_remove_steam_units(df):
@@ -1249,7 +1308,7 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
             indicator="unmapped_steam",
         )
         cems = cems[cems["unmapped_steam"] != "both"]
-        cems = cems.drop(columns="unmapped_steam")
+        cems.drop(columns="unmapped_steam", inplace=True)
 
     # flag units that report non-zero steam output and are mapped to a generator. We
     # are still not entirely certain how to interpret steam data in CEMS, so its
@@ -1628,8 +1687,8 @@ def fillna_with_missing_strings(df, column_to_fill, filler_column):
     df[filler_column] = df[filler_column].fillna("MISSING")
     # fill missing values
     df[column_to_fill] = df[column_to_fill].fillna(df[filler_column])
-    # drop the filler column
-    df = df.drop(columns=[filler_column])
+    # drop the filler column in-place
+    df.drop(columns=[filler_column], inplace=True)
     # convert the missing string back into a missing value
     df[column_to_fill] = df[column_to_fill].replace("MISSING", np.NaN)
 
@@ -1684,9 +1743,8 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     gf = gf[gf["num_fuels"] == 1]
 
     # clean up the columns
-    gf = gf.rename(columns={"energy_source_code": "energy_source_code_single"}).drop(
-        columns=["num_fuels", "fuel_consumed_mmbtu"]
-    )
+    gf = gf.rename(columns={"energy_source_code": "energy_source_code_single"})
+    gf.drop(columns=["num_fuels", "fuel_consumed_mmbtu"], inplace=True)
     gf["report_date"] = pd.to_datetime(gf["report_date"]).astype("datetime64[s]")
 
     # merge this data into the df
@@ -1701,51 +1759,214 @@ def fill_missing_fuel_for_single_fuel_plant_months(df, year):
     return df
 
 
-def remove_cems_with_zero_monthly_data(cems):
+def remove_cems_with_zero_monthly_data(
+    cems: pd.DataFrame, column_to_check: list[str], remove_all_zeros: bool = False
+) -> pd.DataFrame:
     """
     Identifies months where zero generation or heat inputare reported.
-    from each unit and removes associated hours from CEMS so that these can be filled using the eia923 data
-    Inputs:
-        cems: pandas dataframe of hourly cems data containing columns "plant_id_eia", "emissions_unit_id_epa" and "report_date"
+    from each unit and removes associated hours from CEMS so that these can be filled
+    using the eia923 data
+
+    Args:
+        cems (pd.DataFrame): pandas dataframe of hourly cems data containing columns
+            "plant_id_eia", "emissions_unit_id_epa" and "report_date"
+        column_to_check (list[str]): list of columns to check for zero values
+        remove_all_zeros (bool): if true, removes all rows where all values in `column_to_check` are zero,
+            if false, it only removes observations for months where all values in that
+            month are zero.
     Returns:
-        cems df with hourly observations for months when no emissions reported removed
+        pd.DataFrame: `cems` with hourly observations for months when no emissions
+            reported removed
     """
-    # calculate the totals reported in each month
-    cems_with_zero_monthly_emissions = cems.groupby(
-        ["plant_id_eia", "emissions_unit_id_epa", "report_date"], dropna=False
-    )[["gross_generation_mwh", "fuel_consumed_mmbtu"]].sum()
-    # identify unit-months where zero emissions reported
-    cems_with_zero_monthly_emissions = cems_with_zero_monthly_emissions[
-        cems_with_zero_monthly_emissions.sum(axis=1) == 0
-    ]
-    # add a flag to these observations
-    cems_with_zero_monthly_emissions["missing_data_flag"] = "remove"
+    if remove_all_zeros:
+        rows_to_remove = cems[column_to_check].sum(axis=1) == 0
+    else:
+        # calculate the totals reported in each month
+        # NOTE: columns_to_check = ["gross_generation_mwh", "fuel_consumed_mmbtu"]
+        data_with_zero_monthly_values = cems.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )[column_to_check].sum()
+        # identify unit-months where zero emissions reported
+        data_with_zero_monthly_values = data_with_zero_monthly_values[
+            data_with_zero_monthly_values.sum(axis=1) == 0
+        ]
+        # add a flag to these observations
+        data_with_zero_monthly_values["zero_data_flag"] = "remove"
 
-    # merge the missing data flag into the cems data
-    cems = cems.merge(
-        cems_with_zero_monthly_emissions.reset_index()[
-            [
-                "plant_id_eia",
-                "emissions_unit_id_epa",
-                "report_date",
-                "missing_data_flag",
-            ]
-        ],
-        how="left",
-        on=["plant_id_eia", "emissions_unit_id_epa", "report_date"],
-        validate="m:1",
-    )
-    # remove any observations with the missing data flag
+        # merge the missing data flag into the cems data
+        cems = cems.merge(
+            data_with_zero_monthly_values.reset_index()[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "report_date",
+                    "zero_data_flag",
+                ]
+            ],
+            how="left",
+            on=["plant_id_eia", "subplant_id", "report_date"],
+            validate="m:1",
+        )
+        rows_to_remove = cems["zero_data_flag"] == "remove"
+
+        # get a count of the total number of zero observations in the data
+        total_zero_observations = len(cems[rows_to_remove])
+        # remove any observations with the missing data flag
+        logger.info(
+            f"{total_zero_observations / len(cems) * 100:.2f}% of rows in the data have zero values that will be removed"
+        )
+
+    validation.check_removed_data_is_empty(cems, rows_to_remove)
+    pre_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
+    # remove all zero obeservations
+    cems = cems[~rows_to_remove]
+    post_memory_usage_gb = cems.memory_usage().sum() / 1_000_000_000
     logger.info(
-        f"Removing {len(cems[cems['missing_data_flag'] == 'remove'])} observations from cems for unit-months where no data reported"
+        f"Removing zeros reduced dataframe memory use from  {pre_memory_usage_gb:.2f} GB to {post_memory_usage_gb:.2f} GB ({((post_memory_usage_gb - pre_memory_usage_gb) / pre_memory_usage_gb * 100):.2f}% reduction)"
     )
-
-    validation.check_removed_data_is_empty(cems)
-    cems = cems[cems["missing_data_flag"] != "remove"]
-    # drop the missing data flag column
-    cems = cems.drop(columns="missing_data_flag")
+    if not remove_all_zeros:
+        # drop the missing data flag column in-place
+        cems.drop(columns="zero_data_flag", inplace=True)
 
     return cems
+
+
+def complete_hourly_timeseries(
+    df: pd.DataFrame,
+    year: int,
+    group_cols: list[str] = [],
+    columns_to_fill_with_zero: list[str] = [],
+    columns_to_bffill: list[str] = [],
+) -> pd.DataFrame:
+    """
+    Completes a hourly timeseries for each plantgroup in a given dataframe.
+
+
+    This function will create a complete timeseries for each group in the dataframe,
+    assuming the data is supposed to represent a complete year. It will create a complete
+    timeseries for each group in UTC time.
+
+    Because we are repairing the "datetime_utc" column, but the complete set of utc
+    timestamps for a year depends on the local timezone of the underlying data, we
+    have to consider the timezone of each plant_id_eia in the data, and assign the
+    appropriate complete timeseries to each. This approach is more robust than just
+    creating a complete date_range between the min and max datetimes already in the
+    timeseries, in case that timeseries is missing timestamps at the beginning or end
+    of the year.
+
+    If "report_date" is passed in as one of the `group_cols`, the behavior of this
+    function is that it will only complete timeseries for "report_date"s that already
+    exist in `df`. For example, if `df` only contained data for January-June, if
+    "report_date" is included, then this function will only repair hourly timeseries for
+    January-June, but will not add timestamps for July-December. If that same df were
+    passed in without "report_date" in the `group_cols`, the function would also add
+    hourly timestamps for July-December. This functionality exists so that when we repair
+    `combined_cems_subplant_data` before combining it with the shaped eia data in step
+    18, we don't end up with overlapping timeseries.
+
+    Args:
+        df (pd.DataFrame): dataframe to complete the timeseries for
+        year (int): year to create a complete timeseries for (should match the local year of the data)
+        group_cols (list[str]): columns to group by (one column must be "plant_id_eia")
+        columns_to_fill_with_zero (list[str]): a list of columns (generally containing numeric data)
+            that should be filled with zero values for missing timestamps that are filled
+        columns_to_bffill (list[str]): a list of columns that should be filled based on
+            the values in the previous and next rows within each group (bbffill refers
+            to both bfill and ffill)
+    Returns:
+        pd.DataFrame: dataframe with complete timeseries
+    """
+
+    # check if there are any missing timestamps
+    expected_hours = 8784 if (year % 4 == 0) else 8760
+    test = df.groupby(group_cols)[["datetime_utc"]].count()
+    # only repair if it is needed, otherwise, skip this
+    if len(test[test["datetime_utc"] < expected_hours]) > 0:
+        # get all unique groups for which to create complete timeseries
+        complete_timeseries = df[group_cols].drop_duplicates()
+
+        # merge in timezone data for each plant
+        plant_timezone = load_data.load_pudl_table(
+            "core_eia__entity_plants", columns=["plant_id_eia", "timezone"]
+        )
+        complete_timeseries = complete_timeseries.merge(
+            plant_timezone, on="plant_id_eia", how="left"
+        )
+
+        # localize the datetime_local column using the timezone column
+        # get a list of timezones to iterate through. Becuase pandas has trouble with
+        # tz localization and conversion if multiple tz's exist in a single column, we
+        # need to do these operations one at a time for each timezone, then concat them
+        timezones = complete_timeseries["timezone"].unique()
+        timeseries_for_timezones = []
+        for timezone in timezones:
+            # first get the complete set of timestamps in local time
+            timezone_df = pd.DataFrame(
+                data=pd.date_range(
+                    start=f"{year}-01-01 00:00:00",
+                    end=f"{year}-12-31 23:00:00",
+                    freq="h",
+                    tz=timezone,
+                    name="datetime_local",
+                )
+            )
+            # now convert to UTC
+            timezone_df["datetime_utc"] = timezone_df["datetime_local"].dt.tz_convert(
+                "UTC"
+            )
+            timezone_df["report_date"] = (
+                timezone_df["datetime_local"]
+                .dt.tz_localize(None)
+                .dt.to_period("M")
+                .dt.to_timestamp()
+            )
+            timezone_df = timezone_df.drop(columns=["datetime_local"])
+            timezone_df["timezone"] = timezone
+            timeseries_for_timezones.append(timezone_df)
+        timeseries_for_timezones = pd.concat(timeseries_for_timezones)
+
+        # merge the complete timeseries for each timezone into the groups to create
+        # complete timeseries for each group
+        if "report_date" in group_cols:
+            complete_timeseries = complete_timeseries.merge(
+                timeseries_for_timezones,
+                on=["timezone", "report_date"],
+                how="left",
+                validate="m:m",
+            )
+        else:
+            complete_timeseries = complete_timeseries.merge(
+                timeseries_for_timezones.drop(columns=["report_date"]),
+                on=["timezone"],
+                how="left",
+                validate="m:m",
+            )
+        complete_timeseries = complete_timeseries.drop(columns=["timezone"])
+
+        # complete the timeseries in the original dataframe
+        pre_completion_size = len(df)
+        df = df.merge(
+            complete_timeseries, on=(group_cols + ["datetime_utc"]), how="outer"
+        ).sort_values(by=group_cols + ["datetime_utc"], ascending=True)
+        post_completion_size = len(df)
+
+        if post_completion_size != pre_completion_size:
+            logger.info(
+                f"complete_hourly_timeseries() added {post_completion_size - pre_completion_size} missing rows to the dataframe"
+            )
+
+        # fill values for missing timestamps
+        df[columns_to_fill_with_zero] = df[columns_to_fill_with_zero].fillna(0.0)
+
+        # forward and backfill columns within each group. This can be used for
+        # non-numeric columns
+        df[columns_to_bffill] = (
+            df.groupby(group_cols)[columns_to_bffill].ffill().bfill()
+        )
+
+        return df
+    else:
+        return df
 
 
 def adjust_cems_for_chp(cems, eia923_allocated):
@@ -1823,8 +2044,8 @@ def adjust_cems_for_chp(cems, eia923_allocated):
         cems["fuel_consumed_mmbtu"] * cems["subplant_fuel_ratio"]
     )
 
-    # remove intermediate columns
-    cems = cems.drop(columns=["subplant_fuel_ratio", "plant_fuel_ratio"])
+    # remove intermediate columns in-place
+    cems.drop(columns=["subplant_fuel_ratio", "plant_fuel_ratio"], inplace=True)
 
     # add adjusted emissions columns
     cems = emissions.adjust_fuel_and_emissions_for_chp(cems)
@@ -1860,6 +2081,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
         eia923_allocated with new column `hourly_data_source`
     """
 
+    # Note: We copy here to avoid modifying the original dataframe passed by the caller
     all_data = eia923_allocated.copy()
 
     # create a binary column indicating whether any data was reported in 923
@@ -1888,7 +2110,7 @@ def identify_hourly_data_source(eia923_allocated, cems, year):
 
     # for the remaining plants, identify the hourly data source as EIA
     all_data["hourly_data_source"] = all_data["hourly_data_source"].fillna("eia")
-    all_data = all_data.drop(columns=["reported_eia923"])
+    all_data.drop(columns=["reported_eia923"], inplace=True)
 
     # identify the partial cems plants
     all_data = identify_partial_cems_plants(all_data)
@@ -2065,8 +2287,8 @@ def identify_partial_cems_plants(all_data):
         (partial_plant["eia_data"] > 0) & (partial_plant["cems_data"] > 0)
     ]
 
-    # drop intermediate columns
-    partial_plant = partial_plant.drop(columns=["eia_data", "cems_data"])
+    # drop intermediate columns in-place
+    partial_plant.drop(columns=["eia_data", "cems_data"], inplace=True)
 
     # merge this data into all_data
     all_data = all_data.merge(
@@ -2120,13 +2342,14 @@ def identify_partial_cems_plants(all_data):
             f"ERROR: {len(mixed_method_subplants)} subplant-months have multiple hourly methods assigned."
         )
 
-    # remove the intermediate indicator column
-    all_data = all_data.drop(
+    # remove the intermediate indicator columns in-place
+    all_data.drop(
         columns=[
             "partial_plant",
             "eia_data",
             "cems_data",
         ],
+        inplace=True,
     )
 
     return all_data
@@ -2146,9 +2369,8 @@ def filter_unique_cems_data(cems, partial_cems):
         validate="m:1",
     )
 
-    filtered_cems = filtered_cems[filtered_cems["source"] == "left_only"].drop(
-        columns=["source"]
-    )
+    filtered_cems = filtered_cems[filtered_cems["source"] == "left_only"]
+    filtered_cems.drop(columns=["source"], inplace=True)
 
     return filtered_cems
 
@@ -2218,7 +2440,7 @@ def aggregate_cems_to_subplant(cems):
 
     cems_columns_to_aggregate = [
         "gross_generation_mwh",
-        "steam_load_1000_lb",
+        # "steam_load_1000_lb",
         "fuel_consumed_mmbtu",
         "co2_mass_lb",
         "ch4_mass_lb",

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from geopy.extra.rate_limiter import RateLimiter
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderUnavailable
 from timezonefinder import TimezoneFinder
@@ -471,13 +472,23 @@ def combine_subplant_data(
         .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
     )
 
-    # concat together
-    combined_subplant_data = pd.concat(
-        [cems, partial_cems_subplant, partial_cems_plant, eia_data],
-        axis=0,
-        ignore_index=True,
-        copy=False,
-    )
+    # concat together - filter out empty dataframes to avoid FutureWarning
+    df_to_concat = [
+        df
+        for df in [cems, partial_cems_subplant, partial_cems_plant, eia_data]
+        if not df.empty
+    ]
+
+    if df_to_concat:
+        combined_subplant_data = pd.concat(
+            df_to_concat,
+            axis=0,
+            ignore_index=True,
+            copy=False,
+        )
+    else:
+        # If all dataframes are empty, create an empty dataframe with the expected columns
+        combined_subplant_data = pd.DataFrame(columns=ALL_COLUMNS)
 
     # re-order the columns
     combined_subplant_data = combined_subplant_data[ALL_COLUMNS]
@@ -1094,8 +1105,19 @@ def search_location_from_coordinates(latitude: float, longitude: float) -> tuple
     for i in range(0, 2):
         while True:
             try:
-                address = geolocator.reverse(f"{latitude}, {longitude}").raw["address"]
-                if address["country_code"] != "us":
+                reverse_geolocate = RateLimiter(geolocator.reverse, min_delay_seconds=1)
+                location = reverse_geolocate(
+                    (latitude, longitude), exactly_one=True, timeout=10
+                )
+                try:
+                    address = location.raw["address"]
+                    if address["country_code"] != "us":
+                        return pd.NA, pd.NA, pd.NA
+                # location has no attribute "raw" if no internet connection
+                except AttributeError:
+                    logger.error(
+                        "No internet connection available, skipping coordinate lookup"
+                    )
                     return pd.NA, pd.NA, pd.NA
             except (ReadTimeoutError, GeocoderUnavailable) as error:
                 if i < 1:

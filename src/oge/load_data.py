@@ -1,17 +1,12 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import sqlalchemy as sa
 import warnings
+
 from pathlib import Path
 
+from oge import PUDL_ENGINE
 from oge.column_checks import get_dtypes, apply_dtypes
-from oge.filepaths import (
-    downloads_folder,
-    reference_table_folder,
-    outputs_folder,
-    pudl_folder,
-)
-from oge.logging_util import get_logger
 from oge.constants import (
     CLEAN_FUELS,
     ConversionFactors,
@@ -19,12 +14,17 @@ from oge.constants import (
     earliest_validated_year,
     latest_validated_year,
     current_early_release_year,
+    cancelled_status_codes,
 )
+from oge.filepaths import (
+    downloads_folder,
+    outputs_folder,
+    pudl_folder,
+    reference_table_folder,
+)
+from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
-
-# initialize the pudl_engine
-PUDL_ENGINE = sa.create_engine("sqlite:///" + pudl_folder("pudl.sqlite"))
 
 
 def load_cems_data(year: int) -> pd.DataFrame:
@@ -196,14 +196,8 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     )["report_date"].transform("min")
 
     # drop any data that was reported prior to the earliest year
-    # only keep data for years <= the year
-    # this avoids using potentially preliminary early-release data
     complete_gens = complete_gens[
         (complete_gens["report_date"].dt.year >= earliest_data_year)
-        & (
-            complete_gens["report_date"].dt.year
-            <= max(latest_validated_year, current_early_release_year)
-        )
     ]
 
     # for any retired gens, forward fill the most recently available unit_id_pudl to
@@ -221,11 +215,8 @@ def load_complete_eia_generators_for_subplants() -> pd.DataFrame:
     ]
 
     # remove generators that are proposed but not yet under construction, or cancelled
-    cancelled_or_proposed_status_codes = ["CN", "IP", "P", "L", "T"]
     complete_gens = complete_gens[
-        ~complete_gens["operational_status_code"].isin(
-            cancelled_or_proposed_status_codes
-        )
+        ~complete_gens["operational_status_code"].isin(cancelled_status_codes)
     ]
 
     # only keep the most recent entry for each generator
@@ -324,7 +315,7 @@ def load_raw_eia860_plant_geographical_info(year: int) -> pd.DataFrame:
     if (year == current_early_release_year) and (
         current_early_release_year != latest_validated_year
     ):
-        filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}_Early_Release.xlsx"
+        filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}__Early_Release.xlsx"
         header_row = 2
     else:
         filepath = f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"
@@ -384,12 +375,16 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     ):
         filepath = f"eia860/eia860{year}ER/3_1_Generator_Y{year}_Early_Release.xlsx"
         header_row = 2
+        footer_row = 1
     else:
         filepath = f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
         header_row = 1
+        footer_row = 1
+
     generator_op_dates_eia860 = pd.read_excel(
         downloads_folder(filepath),
         header=header_row,
+        skipfooter=footer_row,
         sheet_name="Operable",
         usecols=[
             "Plant Code",
@@ -402,18 +397,25 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
         columns={
             "Plant Code": "plant_id_eia",
             "Generator ID": "generator_id",
-            "Operating Month": "Month",
-            "Operating Year": "Year",
+            "Operating Month": "month",
+            "Operating Year": "year",
             "Unit Code": "unit_id_eia",
         }
     )
 
     # create a datetime column from the month and year
+    # Set " " to NA before converting to datetime
+    generator_op_dates_eia860["month"] = generator_op_dates_eia860["month"].replace(
+        " ", pd.NA
+    )
+    generator_op_dates_eia860["year"] = generator_op_dates_eia860["year"].replace(
+        " ", pd.NA
+    )
     generator_op_dates_eia860["operating_date_eia"] = pd.to_datetime(
-        generator_op_dates_eia860[["Year", "Month"]].assign(Day=1)
+        generator_op_dates_eia860[["year", "month"]].assign(Day=1)
     )
     generator_op_dates_eia860 = generator_op_dates_eia860.drop(
-        columns=["Month", "Year"]
+        columns=["month", "year"]
     )
 
     # load unit codes for proposed generators
@@ -624,10 +626,134 @@ def load_so2_emission_factors() -> pd.DataFrame:
     return df
 
 
-def load_pudl_table(
-    table_name: str, year: int = None, columns: list[str] = None, end_year: int = None
+def load_pudl_table_from_local(
+    table_name: str,
+    columns: list[str] | None = None,
+    datetime_column: str | None = None,
+    start_datetime: pd.Timestamp | None = None,
+    end_datetime: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
-    """Loads a table from the pudl database.
+    """Load a table from the PUDL SQLite database.
+
+    Args:
+        table_name (str): the name of the table to load.
+        columns (list[str] | None, optional): the columns to select. Defaults to None.
+        datetime_column (str, optional): the name of the datetime column to filter on.
+            Defaults to None.
+        start_datetime (pd.Timestamp, optional): the start datetime for filtering.
+            Defaults to None.
+        end_datetime (pd.Timestamp, optional): the end datetime for filtering.
+            Defaults to None.
+
+    Returns:
+        pd.DataFrame: The loaded table.
+    """
+    columns_to_select = "*" if columns is None else ", ".join(columns)
+
+    # Validate datetime filtering parameters
+    if (datetime_column is None) != (start_datetime is None and end_datetime is None):
+        raise ValueError(
+            "datetime_column must be specified if and only if start_datetime and "
+            "end_datetime are provided"
+        )
+
+    # Check if table exists in the database
+    inspector = sa.inspect(PUDL_ENGINE)
+
+    if datetime_column is None:
+        # No filtering on datetime
+        table = (
+            pd.read_sql(
+                f"SELECT {columns_to_select} FROM {table_name}",
+                PUDL_ENGINE,
+            )
+            if inspector.has_table(table_name)
+            else pd.read_parquet(
+                pudl_folder(f"{table_name}.parquet"),
+                columns=columns,
+            )
+        )
+    else:
+        # Filter on datetime
+        start = start_datetime.strftime("%Y-%m-%d")
+        end = end_datetime.strftime("%Y-%m-%d")
+        table = (
+            pd.read_sql(
+                f"SELECT {columns_to_select} FROM {table_name} WHERE \
+                {datetime_column} >= '{start}' AND {datetime_column} <= '{end}'",
+                PUDL_ENGINE,
+            )
+            if inspector.has_table(table_name)
+            else pd.read_parquet(
+                pudl_folder(f"{table_name}.parquet"),
+                filters=[
+                    (datetime_column, ">=", start_datetime),
+                    (datetime_column, "<=", end_datetime),
+                ],
+                columns=columns,
+            )
+        )
+    return table
+
+
+def load_pudl_table_from_s3(
+    table_name: str,
+    datetime_column: str | None = None,
+    columns: list[str] | None = None,
+    start_datetime: pd.Timestamp | None = None,
+    end_datetime: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Load a table from a Parquet file.
+
+    Args:
+        table_name (str): the name of the table to load.
+        datetime_column (str, optional): the name of the datetime column to filter on.
+            Defaults to None.
+        columns (list[str] | None, optional): the columns to select. Defaults to None.
+        start_datetime (pd.Timestamp, optional): the start datetime for filtering.
+            Defaults to None.
+        end_datetime (pd.Timestamp, optional): the end datetime for filtering.
+            Defaults to None.
+
+    Returns:
+        pd.DataFrame: The loaded table.
+    """
+
+    # Validate datetime filtering parameters
+    if (datetime_column is None) != (start_datetime is None and end_datetime is None):
+        raise ValueError(
+            "datetime_column must be specified if and only if start_datetime and "
+            "end_datetime are provided"
+        )
+    if datetime_column is None:
+        # No filtering on datetime
+        table = pd.read_parquet(
+            pudl_folder(f"{table_name}.parquet"),
+            columns=columns,
+        )
+    else:
+        # Filter on datetime
+        filters = [
+            (datetime_column, ">=", start_datetime),
+            (datetime_column, "<=", end_datetime),
+        ]
+        table = pd.read_parquet(
+            pudl_folder(f"{table_name}.parquet"),
+            filters=filters,
+            columns=columns,
+        )
+    return table
+
+
+def load_pudl_table(
+    table_name: str,
+    year: int = None,
+    columns: list[str] = None,
+    end_year: int = None,
+    dt: pd.Timestamp = None,
+    end_dt: pd.Timestamp = None,
+) -> pd.DataFrame:
+    """Loads a table from the downloaded SQLite database or s3 parquet files.
 
     Args:
         table_name (str): one of the options specified in the data dictionary:
@@ -640,35 +766,65 @@ def load_pudl_table(
         columns (list[str], optional): Columns to return. If not specified, all columns
             will be returned. Defaults to None.
         end_year (int, optional): a four-digit year >= `year`. Defaults to None.
+        dt (pd.Timestamp, optional): a specific datetime to filter on. Defaults to None.
+        end_dt (pd.Timestamp, optional): a specific end datetime to filter on. Defaults
+            to None.
 
     Returns:
         pd.DataFrame: the required table.
     """
-    if columns is None:
-        columns_to_select = "*"
-    else:
-        columns_to_select = ", ".join(columns)
 
-    if year is None:
-        # load the table without filtering dates
-        table = pd.read_sql(
-            f"SELECT {columns_to_select} FROM {table_name}",
-            PUDL_ENGINE,
+    # Validate that year/end_year and dt/end_dt are not both specified
+    if (year is not None or end_year is not None) and (
+        dt is not None or end_dt is not None
+    ):
+        raise ValueError(
+            "Cannot specify both year-based ('year', 'end_year') and "
+            "datetime-based ('dt', 'end_dt') parameters. They are mutually exclusive."
         )
-    elif year is not None and end_year is None:
-        # load the table for a single year
-        table = pd.read_sql(
-            f"SELECT {columns_to_select} FROM {table_name} WHERE \
-                report_date >= '{year}-01-01' AND report_date < '{year + 1}-01-01'",
-            PUDL_ENGINE,
+
+    # Validate parameter dependencies
+    if (end_year is not None and year is None) or (end_dt is not None and dt is None):
+        raise ValueError(
+            "'end_year' cannot be specified without 'year' and "
+            "'end_dt' cannot be specified without 'dt'."
         )
-    else:
-        # load the for the specified years
-        table = pd.read_sql(
-            f"SELECT {columns_to_select} FROM {table_name} WHERE \
-                report_date >= '{year}-01-01' AND report_date < '{end_year + 1}-01-01'",
-            PUDL_ENGINE,
+
+    datetime_column = None
+    start_datetime = None
+    end_datetime = None
+
+    if year is not None:
+        # filter on report date
+        datetime_column = "report_date"
+        start_datetime = pd.Timestamp(year, 1, 1)
+        end_datetime = (
+            pd.Timestamp(end_year, 12, 1)
+            if end_year is not None
+            else pd.Timestamp(year, 12, 1)
         )
+    if dt is not None:
+        datetime_column = "datetime_utc"
+        start_datetime = dt
+        end_datetime = end_dt if end_dt is not None else dt
+
+    table = (
+        load_pudl_table_from_local(
+            table_name,
+            datetime_column=datetime_column,
+            columns=columns,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+        )
+        if PUDL_ENGINE
+        else load_pudl_table_from_s3(
+            table_name,
+            datetime_column=datetime_column,
+            columns=columns,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+        )
+    )
 
     table = apply_dtypes(table)
 
@@ -1035,21 +1191,44 @@ def load_diba_data(year: int) -> pd.DataFrame:
         pd.DataFrame: the table with DIBAs information
     """
     # load information about directly interconnected balancing authorities (DIBAs)
-    dibas = load_raw_eia930_data(year, "INTERCHANGE")
+    dibas = load_pudl_table(
+        "core_eia930__hourly_interchange", dt=pd.Timestamp(year, 1, 1)
+    )
+
+    # Set datetime_utc to the beginning of the hour and assign UTC timezone
+    dibas["datetime_utc"] = dibas["datetime_utc"] - pd.Timedelta(hours=1)
+
+    # load ba information to get regions, dropping Canada and Mexico.
+    ba_info = (
+        (
+            load_pudl_table(
+                "core_eia__codes_balancing_authorities",
+                columns=["code", "balancing_authority_region_code_eia"],
+            )
+            .dropna()
+            .query("balancing_authority_region_code_eia not in ['CAN', 'MEX']")
+        )
+        .set_index("code")["balancing_authority_region_code_eia"]
+        .to_dict()
+    )
+
+    # add region information
+    dibas["ba_region"] = dibas["balancing_authority_code_eia"].map(ba_info)
+    dibas["diba_region"] = dibas["balancing_authority_code_adjacent_eia"].map(ba_info)
+
+    # filter to relevant columns and drop duplicates
     dibas = dibas[
         [
-            "Balancing Authority",
-            "Directly Interconnected Balancing Authority",
-            "Region",
-            "DIBA Region",
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+            "ba_region",
+            "diba_region",
         ]
     ].drop_duplicates()
     dibas = dibas.rename(
         columns={
-            "Balancing Authority": "ba_code",
-            "Directly Interconnected Balancing Authority": "diba_code",
-            "Region": "ba_region",
-            "DIBA Region": "diba_region",
+            "balancing_authority_code_eia": "ba_code",
+            "balancing_authority_code_adjacent_eia": "diba_code",
         }
     )
 
@@ -1183,13 +1362,16 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
                 2023: downloads_folder(
                     f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
                 ),
+                2024: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
+                ),
             }[year]
             header_row = 4
         elif (year == current_early_release_year) and (
             current_early_release_year != latest_validated_year
         ):
             schedule_8_filename = downloads_folder(
-                f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Environmental_Information_{year}_Early_Release.xlsx"
+                f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Early Release.xlsx"
             )
             header_row = 5
 

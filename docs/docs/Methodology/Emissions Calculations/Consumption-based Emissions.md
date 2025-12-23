@@ -9,9 +9,9 @@ stoplight-id: consumed_emissions
 ## Consumption-based Emissions
 
 
-We use a multi-region input-output (MRIO) model to calculate consumption-based emissions for every balancing authority (BA). At each hour, the MIRO model solves a linear system setting generated emissions equal to the sum of consumed emissions and interchanged emissions across all regions. Generated emissions are given by our Open Grid Emissions dataset, and electricity interchange is given by EIA-930 data. From [Chalendar et al. (2019)](https://www.pnas.org/doi/full/10.1073/pnas.1912950116), the linear system is:
+We use a multi-region input-output (MRIO) model to calculate consumption-based emissions for every balancing authority (BA). At each hour, the MRIO model solves a linear system setting generated emissions equal to the sum of consumed emissions and interchanged emissions across all regions. Generated emissions are given by our Open Grid Emissions dataset, and electricity interchange is given by EIA-930 data. From [Chalendar et al. (2019)](https://www.pnas.org/doi/full/10.1073/pnas.1912950116), the linear system is:
 
-_x<sub>i</sub>_(_p<sub>i</sub>_+_U<sub>i</sub>_) - SUM<sub>j</sub>(_x<sub>j</sub>_u<sub>ij</sub>_) = _f<sub>i</sub>_
+_x<sub>i</sub>_(_p<sub>i</sub>_+_U<sub>i</sub>_) - <span>&Sigma;</span><sub>j</sub>(_x<sub>j</sub>_ _u<sub>ij</sub>_) = _f<sub>i</sub>_
 
 
 Where _i_ is a region, _x<sub>i</sub>_ is the consumed emission intensity in region _i_, _p<sub>i</sub>_ is the electricity produced in region _i_, _U<sub>i</sub>_ is the total import into region _i_, _u<sub>ij</sub>_ is the import from region _i_ to region _j_, and _f<sub>i</sub>_ is the total pollutant produced in region _i_.

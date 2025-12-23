@@ -21,8 +21,165 @@ from gridemissions.workflows import make_dataset  # noqa E402
 logger = get_logger(__name__)
 
 
-def convert_balance_file_to_gridemissions_format(year: int, small: bool = False):
-    """Converts downloaded EIA-930 Balance files to gridemissions format."""
+# Dictionary mapping the new energy sources in EIA-930 to existing ones
+new_to_existing_energy_sources = {
+    "coal": "coal",
+    "gas": "gas",
+    "hydro": "hydro",
+    "hydro_excluding_pumped_storage": "hydro",
+    "pumped_storage": "hydro",
+    "nuclear": "nuclear",
+    "oil": "oil",
+    "battery_storage": "other",
+    "geothermal": "other",
+    "other": "other",
+    "other_energy_storage": "other",
+    "unknown_energy_storage": "other",
+    "solar": "solar",
+    "solar_w_integrated_battery_storage": "solar",
+    "solar_wo_integrated_battery_storage": "solar",
+    "unknown": "unknown",
+    "wind": "wind",
+    "wind_w_integrated_battery_storage": "wind",
+    "wind_wo_integrated_battery_storage": "wind",
+}
+existing_energy_source_names_to_codes = {
+    "coal": "COL",
+    "gas": "NG",
+    "hydro": "WAT",
+    "nuclear": "NUC",
+    "oil": "OIL",
+    "other": "OTH",
+    "solar": "SUN",
+    "unknown": "UNK",
+    "wind": "WND",
+}
+
+
+def convert_balance_data_to_gridemissions_format(year: int) -> pd.DataFrame:
+    """Convert PUDL's EIA-930 data to gridemissions format.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: balance data for each BA
+    """
+    # Set date range
+    # Need extra time at start and end for rolling data cleaning
+    start = pd.Timestamp(year - 1, 10, 1)
+    end = pd.Timestamp(year + 1, 1, 2)
+
+    # Load and transform data from PUDL
+    ## Hourly time series of balancing authority interchange.
+    interchange = load_data.load_pudl_table(
+        "core_eia930__hourly_interchange",
+        columns=[
+            "datetime_utc",
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+            "interchange_reported_mwh",
+        ],
+        dt=start,
+        end_dt=end,
+    ).pivot(
+        index="datetime_utc",
+        columns=[
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+        ],
+        values="interchange_reported_mwh",
+    )
+    interchange.columns = ["EBA.{}-{}.ID.H".format(*c) for c in interchange.columns]
+
+    ## Hourly time series of balancing authority net generation by energy source.
+    ## EIA-930 energy sources have changed and not all BAs started to utilize the new
+    ## energy source categories at the same time.
+    ## As a first step, we map the new energy sources to existing ones. This means that
+    ## all BAs, independently of when they started to report the new energy sources,
+    ## will have one solar, wind, hydro, and other category.
+    ## TODO: consider individual energy sources (e.g. geothermal, battery storage, etc.)
+    ## and BAs reporting new energy sources at different times.
+    net_generation = (
+        load_data.load_pudl_table(
+            "core_eia930__hourly_net_generation_by_energy_source",
+            columns=[
+                "datetime_utc",
+                "balancing_authority_code_eia",
+                "generation_energy_source",
+                "net_generation_adjusted_mwh",
+            ],
+            dt=start,
+            end_dt=end,
+        )
+        .astype(
+            {"generation_energy_source": "str"}
+        )  # to avoid a FutureWarning when using replace on CategoricalDtype
+        .replace({"generation_energy_source": new_to_existing_energy_sources})
+        .groupby(
+            ["datetime_utc", "balancing_authority_code_eia", "generation_energy_source"]
+        )["net_generation_adjusted_mwh"]
+        .sum()
+        .reset_index()
+        .pivot(
+            index="datetime_utc",
+            columns=["balancing_authority_code_eia", "generation_energy_source"],
+            values="net_generation_adjusted_mwh",
+        )
+    )
+    net_generation.columns = [
+        "EBA.{}-ALL.NG.{}.H".format(c[0], existing_energy_source_names_to_codes[c[1]])
+        for c in net_generation.columns
+    ]
+
+    ## Hourly time series of balancing authority net generation, interchange, and demand
+    ## with imputed demand.
+    operations = load_data.load_pudl_table(
+        "out_eia930__hourly_operations",
+        columns=[
+            "datetime_utc",
+            "balancing_authority_code_eia",
+            "net_generation_adjusted_mwh",
+            "interchange_adjusted_mwh",
+            "demand_adjusted_mwh",
+            "demand_imputed_pudl_mwh",
+        ],
+        dt=start,
+        end_dt=end,
+    ).pivot(
+        index="datetime_utc",
+        columns="balancing_authority_code_eia",
+        values=[
+            "net_generation_adjusted_mwh",
+            "interchange_adjusted_mwh",
+            "demand_imputed_pudl_mwh",
+        ],
+    )
+    operations.columns = [
+        "EBA.{}-ALL.NG.H".format(c[1])
+        if c[0] == "net_generation_adjusted_mwh"
+        else "EBA.{}-ALL.TI.H".format(c[1])
+        if c[0] == "interchange_adjusted_mwh"
+        else "EBA.{}-ALL.D.H".format(c[1])
+        for c in operations.columns
+    ]
+
+    # balance
+    balance = pd.concat([net_generation, operations, interchange], axis="columns")
+
+    return balance
+
+
+def convert_balance_file_to_gridemissions_format(year: int) -> pd.DataFrame:
+    """Converts downloaded EIA-930 Balance files to gridemissions format.
+
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: balance data for each BA
+    """
     files = [
         downloads_folder() + "eia930/EIA930_{}_{}_Jul_Dec.csv",
         downloads_folder() + "eia930/EIA930_{}_{}_Jan_Jun.csv",
@@ -30,10 +187,6 @@ def convert_balance_file_to_gridemissions_format(year: int, small: bool = False)
     ]
 
     years = [year - 1, year, year]
-
-    if small:
-        files = [downloads_folder() + "eia930/EIA930_{}_{}_Jan_Jun.csv"]
-        years = [year]
 
     name_map = {
         "Total Interchange (MW)": "EBA.{}-ALL.TI.H",
@@ -125,28 +278,26 @@ def convert_balance_file_to_gridemissions_format(year: int, small: bool = False)
     return out
 
 
-def clean_930(year: int, small: bool = False, path_prefix: str = ""):
-    """
-        Scrape and process EIA data.
+def clean_930(year: int, path_prefix: str = ""):
+    """Scrape and process EIA-930 data.
 
-    Arguments:
-        `year`: Year to process. Prior years, downloaded from chalendar-hosted files, are used for rolling cleaning
-
+    Args:
+        year (int): a four-digit year.
+        path_prefix (str): path to folder enclosing the eia930 folder with files needed
+            for the physics-based data cleaning
     """
 
     data_folder = outputs_folder(f"{path_prefix}/eia930/")
 
     # Format raw file
-    df = convert_balance_file_to_gridemissions_format(year, small=small)
+    df = convert_balance_data_to_gridemissions_format(year)
     raw_file = data_folder + "eia930_unadjusted_raw.csv"
     df.to_csv(raw_file)
 
-    # if not small, scrape 2 months before start of year for rolling window cleaning
-    start = f"{year}0101T00Z" if small else f"{year - 1}1001T00Z"
-    # Scrape 1 week if small, else 1 year (plus one day for timezone flexibility)
-    end = f"{year}0107T23Z" if small else f"{year + 1}0101T23Z"
-    if small:
-        df = df.loc[start:end]  # Don't worry about processing everything
+    # scrape 2 months before start of year for rolling window cleaning
+    start = f"{year - 1}1001T00Z"
+    # Scrape 1 year (plus one day for timezone flexibility)
+    end = f"{year + 1}0101T23Z"
 
     # Adjust
     logger.info("Adjusting EIA-930 time stamps")
@@ -167,12 +318,16 @@ def clean_930(year: int, small: bool = False, path_prefix: str = ""):
     )
 
 
-def reformat_chalendar(raw):
-    """
-        reformat_chalendar
-    Reformat wide-format data (one row per time stamp) from Chalendar
-    to long (one row per data point)
-    Drop all columns that are not fuel-specific generation
+def reformat_chalendar(raw: pd.DataFrame) -> pd.DataFrame:
+    """Reformat wide-format data (one row per time stamp) from Chalendar to long (one
+    row per data point).
+
+    Args:
+        raw (pd.DataFrame): data frame to format.
+
+    Returns:
+        pd.DataFrame: formatted data frame. All columns that are not fuel-specific
+            generation are dropped.
     """
     # where we have variable (NG = net generation) and fuel type
     target_cols = [c for c in raw.columns if len(c.split(".")) == 5]
@@ -189,19 +344,36 @@ def reformat_chalendar(raw):
     logger.info("Dropping and renaming")
     cleaned = cleaned.drop(columns=["dtype", "var", "interval", "other BA"])
     cleaned = cleaned.rename(columns={"index": "datetime_utc"})
+
     return cleaned
 
 
-def load_chalendar(fname: str, year: int):
+def load_chalendar(fname: str, year: int) -> pd.DataFrame:
+    """Load Chalendar file.
+
+    Args:
+        fname (str): file path.
+        year (int): a four-digit year for filtering.
+
+    Returns:
+        pd.DataFrame: formatted data frame.
+    """
     raw = pd.read_csv(fname, index_col=0, parse_dates=True)
     raw = raw[raw.index.year == year]
+
     return reformat_chalendar(raw)
 
 
-def load_chalendar_for_pipeline(cleaned_data_filepath, year):
-    """
-    Loads and formats cleaned hourly net generation data
-    for use in the data pipeline
+def load_chalendar_for_pipeline(cleaned_data_filepath: str, year: int) -> pd.DataFrame:
+    """Loads and formats cleaned hourly net generation data for use in the data
+    pipeline.
+
+    Args:
+        cleaned_data_filepath (str): path to cleaned EIA-930 file:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: cleaned EIA-930 table formatted for use in data pipeline.
     """
     # read the data, only keeping net generation columns
     data = pd.read_csv(
@@ -289,7 +461,15 @@ def load_chalendar_for_pipeline(cleaned_data_filepath, year):
     return data
 
 
-def remove_imputed_ones(eia930_data):
+def remove_imputed_ones(eia930_data: pd.DataFrame) -> pd.DataFrame:
+    """Remove ones in data frame.
+
+    Args:
+        eia930_data (pd.DataFrame): EIA-930 table
+
+    Returns:
+        pd.DataFrame: input data frame with ones replace by zeros
+    """
     filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
 
     # replace all 1.0 values with zero
@@ -299,8 +479,15 @@ def remove_imputed_ones(eia930_data):
     return eia930_data
 
 
-def remove_months_with_zero_data(eia930_data):
-    # remove data where the entire month is zero
+def remove_months_with_zero_data(eia930_data: pd.DataFrame) -> pd.DataFrame:
+    """Remove rows in input data frames where the entire month has zero-generation.
+
+    Args:
+        eia930_data (pd.DataFrame): input data frame.
+
+    Returns:
+        pd.DataFrame: input data frame with months with zero generation removed.
+    """
     zero_data = (
         eia930_data.groupby(["ba_code", "fuel_category_eia930", "report_date"])
         .sum(numeric_only=True)
@@ -332,7 +519,7 @@ def remove_months_with_zero_data(eia930_data):
 ###########################################################
 
 
-def get_columns(ba: str, columns):
+def get_columns(ba: str, columns: list[str]) -> list:
     GEN_ID = "EBA.{}-ALL.NG.H"
     GEN_TYPE_ID = "EBA.{}-ALL.NG.{}.H"
     DEM_ID = "EBA.{}-ALL.D.H"
@@ -346,7 +533,7 @@ def get_columns(ba: str, columns):
     return cols
 
 
-def get_int_columns(ba1: str, columns, ba2: list = []):
+def get_int_columns(ba1: str, columns: list[str], ba2: list = []) -> list:
     INTER_ID = "EBA.{}-{}.ID.H"
     IT_ID = "EBA.{}-ALL.TI.H"
 
@@ -369,74 +556,75 @@ def get_int_columns(ba1: str, columns, ba2: list = []):
     return cols
 
 
-def manual_930_adjust(raw: pd.DataFrame):
-    """
-        manual_930_adjust
+def manual_930_adjust(raw: pd.DataFrame) -> pd.DataFrame:
+    """Adjust timestamps in EIA-930 timeseries.
 
-    Adjusts time stamps in 930 data. Assumes dataframe with timestamp index and
-    one column per series,
-    where column names correspond to EIA series IDs:
-        "EBA.%s-ALL.D.H",  # Demand
-        "EBA.%s-ALL.NG.H",  # Generation
-        "EBA.%s-ALL.NG.%s.H",  # Generation by fuel type
-        "EBA.%s-ALL.TI.H",  # Total Interchange
-        "EBA.%s-%s.ID.H",  # Interchange
+    Args:
+        raw (pd.DataFrame): data frame to adjust.
 
-    Adjustment Steps:
+    Returns:
+        pd.DataFrame: adjusted data frame.
 
-    - Make all end-of-hour
-        - Generation
-            - PJM: + 1 hour
-            - CISO: + 1 hour
-            - TEPC: + 1 hour
-            - SC: -4 hours during daylight savings hours; -5 hours during
-                standard hours (this happens to = the Eastern <-> UTC offset)
-                Fixed in BALANCE files starting Jan 1, 2021
-        - Interchange
-            - PJM: + 4 hours
-            - TEPC: + 7 hours
-            - IID:  + 4 hours
-        - Interchange sign
-            - PJM-{CPLE, CPLW, DUK, LGEE, MISO, NYIS, TVA} before
-                    Oct 31, 2019, 4:00 UTC
-                - this is all interchange partners except OVEC, and excluding
-                    total interchange
-        - Interchange mysterious
-            - AZPS - SRP flips gradually in Nov 2019, then abruptly back in June 2020.
-                throughout, SRP - AZPS remains constant around 3000 lb imported to AZPS from SRP
-                We assume SRP - AZPS is correct, and assign AZPS - SRP to be the inverse
-    - Make all start-of-hour
-        - Generation
-            - - 1 hour
+    Note:
+        Assumes dataframe with timestamp as indices and one column per series (wide
+        format), where column names correspond to EIA series IDs:
+            "EBA.%s-ALL.D.H",  # Demand
+            "EBA.%s-ALL.NG.H",  # Generation
+            "EBA.%s-ALL.NG.%s.H",  # Generation by fuel type
+            "EBA.%s-ALL.TI.H",  # Total Interchange
+            "EBA.%s-%s.ID.H",  # Interchange
+
+        Adjustment Steps:
+            - Make all end-of-hour
+                - Generation
+                    - PJM: + 1 hour.
+                    - CISO: + 1 hour before June 16, 2022.
+                            - 1 hour from November 1, 2023 to December 1, 2024.
+                    - TEPC: + 1 hour. Fixed after Nov 1, 2021.
+                    - SC: - 4 hours during daylight savings hours.
+                          - 5 hours during standard hours (this happens to be
+                          Eastern <-> UTC offset)
+                          Fixed after Jan 1, 2021
+                    - AVA: + 1 hour during daylight saving hours in 2024.
+                    - BANC: + 1 hour during first month of saving hours in 2024.
+                - Interchange
+                    - PJM: + 4 hours
+                    - TEPC: + 7 hours
+                    - IID:  + 4 hours
+                - Interchange sign flipped
+                    - PJM-{CPLE, CPLW, DUK, LGEE, MISO, NYIS, TVA} before 10/31/2019,
+                      4:00 UTC. This affects all interchange partners except OVEC, and
+                      excluding total interchange
+                - Other interchange
+                    - AZPS - SRP flips gradually in Nov 2019, then abruptly back in
+                      06/2020 throughout, SRP - AZPS remains constant around 3000 MWh
+                      imported to AZPS from SRP. We assume SRP - AZPS is correct, and
+                      assign AZPS - SRP to be the inverse
+            - Make all start-of-hour.
     """
     # SC offset = UTC <-> Eastern offset
+    # This issue was corrected after Dec 31, 2020
     sc_offsets = (
         raw.index.tz_convert("US/Eastern").to_series().apply(lambda s: s.utcoffset())
     )
-    # After Dec 31, 2020, the offset is 0
     sc_offsets["2020-12-31 00:00:00+00":] = timedelta(0)
     # make new data so we don't mess up other data indexing
     sc_dat = raw[get_columns("SC", raw.columns)].copy()
     sc_idx = pd.DatetimeIndex(sc_dat.index + sc_offsets)  # make shifted dates
     sc_dat.index = sc_idx  # use shifted dates
     sc_dat = sc_dat[~sc_dat.index.duplicated(keep="first")]
-    # exchange old rows with new
     raw = raw.drop(columns=sc_dat.columns)
     raw = pd.concat([raw, sc_dat], axis="columns")
 
     # PJM data reports start of hour instead of end of hour
-    # This issue is still active as of 5/18/2023
-    # we need to shift all data by +1 hour
     ba = "PJM"
     cols = get_columns(ba, raw.columns)
     new = raw[cols].shift(1, freq="h")
     raw = raw.drop(columns=cols)
     raw = pd.concat([raw, new], axis="columns")
 
-    # TEPC data reports start of hour instead of end of hour
-    # This issue may have been fixed but will be addressed in a future PR
-    # we need to shift all data by +1 hour
-    # This issue was corrected in the raw data on 2021-11-01
+    # TEPC data reports start of hour instead of end of hour. This issue was corrected
+    # after 2021-11-01
     ba = "TEPC"
     cols = get_columns(ba, raw.columns)
     new = raw[cols].copy()
@@ -447,8 +635,12 @@ def manual_930_adjust(raw: pd.DataFrame):
     raw = pd.concat([raw, new], axis="columns")
 
     # CISO reported start of hour data through June 13, 2022
-    # The June 14 data was corrected, but then the June 15 data went back to start of hour
-    # The data was permanantly fixed as of June 16
+    # June 14, 2022: end-of-hour
+    # June 15, 2022: start-of-hour
+    # June 16, 2022: end-of-hour
+    # November 1, 2023: end-of-hour + 1h
+    # December 1, 2024: lag leading to highest correlation is 6h. Could not be
+    # confirmed visually.
     ba = "CISO"
     cols = get_columns(ba, raw.columns)
     new = raw[cols].copy()
@@ -464,6 +656,57 @@ def manual_930_adjust(raw: pd.DataFrame):
         | (
             (raw.index >= "2022-06-15 07:00:00+00")
             & (raw.index < "2022-06-16 07:00:00+00")
+        ),
+        cols,
+    ].shift(1, freq="h")
+    new.loc[
+        (raw.index >= "2023-11-01 00:00:00+00"),
+        cols,
+    ] = new.loc[
+        (raw.index >= "2023-11-01 00:00:00+00"),
+        cols,
+    ].shift(-1, freq="h")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # AVA
+    # March 11, 2024: start-of-hour
+    # November 3, 2024: end of hour
+    ba = "AVA"
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].copy()
+    new.loc[
+        (
+            (raw.index >= "2024-03-11 07:00:00+00")
+            & (raw.index < "2024-11-03 00:00:00+00")
+        ),
+        cols,
+    ] = new.loc[
+        (
+            (raw.index >= "2024-03-11 07:00:00+00")
+            & (raw.index < "2024-11-03 00:00:00+00")
+        ),
+        cols,
+    ].shift(1, freq="h")
+    raw = raw.drop(columns=cols)
+    raw = pd.concat([raw, new], axis="columns")
+
+    # BANC
+    # March 10, 2024: start of hour
+    # April 1, 2024: end-of-hour
+    ba = "BANC"
+    cols = get_columns(ba, raw.columns)
+    new = raw[cols].copy()
+    new.loc[
+        (
+            (raw.index >= "2024-03-10 13:00:00+00")
+            & (raw.index < "2024-04-01 08:00:00+00")
+        ),
+        cols,
+    ] = new.loc[
+        (
+            (raw.index >= "2024-03-10 13:00:00+00")
+            & (raw.index < "2024-04-01 08:00:00+00")
         ),
         cols,
     ].shift(1, freq="h")

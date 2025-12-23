@@ -3,30 +3,30 @@ Entry point for creating final dataset and intermediate cleaned data products.
 
 Run from `src` as `python data_pipeline.py` after installing conda environment
 
-Optional arguments are --year (default 2022)
-Optional arguments for development are --small, --flat, and --skip_outputs
+Optional arguments are --year (default 2024)
+Optional arguments for development are --flat and --skip_outputs
 """
 
 import argparse
+import gc
 import os
+import pandas as pd
 import shutil
 
-import pandas as pd
-
 # import local modules
-import oge.download_data as download_data
 import oge.data_cleaning as data_cleaning
-import oge.subplant_identification as subplant_identification
+import oge.consumed as consumed
+import oge.download_data as download_data
+import oge.eia930 as eia930
 import oge.emissions as emissions
 import oge.gross_to_net_generation as gross_to_net_generation
 import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
-import oge.eia930 as eia930
-import oge.validation as validation
 import oge.output_data as output_data
-import oge.consumed as consumed
-from oge.filepaths import downloads_folder, outputs_folder, results_folder
-from oge.logging_util import get_logger, configure_root_logger
+import oge.subplant_identification as subplant_identification
+import oge.validation as validation
+
+from oge import PUDL_ENGINE
 from oge.constants import (
     TIME_RESOLUTIONS,
     latest_validated_year,
@@ -34,6 +34,8 @@ from oge.constants import (
     earliest_hourly_data_year,
 )
 from oge.column_checks import DATA_COLUMNS
+from oge.filepaths import downloads_folder, outputs_folder, results_folder
+from oge.logging_util import get_logger, configure_root_logger
 
 
 def get_args() -> argparse.Namespace:
@@ -42,16 +44,7 @@ def get_args() -> argparse.Namespace:
     Returns dictionary of {arg_name: arg_value}
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--year", help="Year for analysis", default=2022, type=int)
-    parser.add_argument(
-        "--small",
-        help=(
-            "Run on subset of data for quicker testing, outputs to outputs/small and "
-            "results to results/small."
-        ),
-        default=False,
-        action=argparse.BooleanOptionalAction,
-    )
+    parser.add_argument("--year", help="Year for analysis", default=2024, type=int)
     parser.add_argument(
         "--flat",
         help="Use flat hourly profiles?",
@@ -88,8 +81,7 @@ def main(args):
             "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
         )
     # 0. Set up directory structure
-    path_prefix = "" if not args.small else "small/"
-    path_prefix += "flat/" if args.flat else ""
+    path_prefix = "flat/" if args.flat else ""
     path_prefix += f"{year}/"
     os.makedirs(downloads_folder(), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
@@ -132,19 +124,16 @@ def main(args):
     # 1. Download data
     ####################################################################################
     logger.info("1. Downloading data")
-    # PUDL
-    download_data.download_pudl_data(source="aws")
     logger.info(f"Using {os.getenv('PUDL_BUILD', default='stable')} PUDL build")
+    # PUDL
+    if PUDL_ENGINE:
+        download_data.download_pudl_data(source="aws")
     # eGRID
     download_data.download_egrid_files()
     # EIA-930
-    # for `small` run, we'll only clean 1 week, so need chalander file for making
-    # profiles
-    if args.small or args.flat:
+    # for `flat` run, we need chalander file for making profiles
+    if args.flat:
         download_data.download_chalendar_files()
-    # We use balance files for imputing missing hourly profiles.
-    # need last year for rolling data cleaning
-    download_data.download_eia930_data(years_to_download=[year, year - 1])
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(
@@ -153,7 +142,8 @@ def main(args):
     # download the raw EIA-923 and EIA-860 files for use in NOx/SO2 calculations until
     # integrated into pudl
     download_data.download_raw_eia860(year)
-    # download eia860 from the latest validated year for use in subplant identification
+    # download raw EIA-860 from the latest validated year for use in subplant
+    # identification
     download_data.download_raw_eia860(
         max(latest_validated_year, current_early_release_year)
     )
@@ -170,6 +160,7 @@ def main(args):
         year,
         skip_outputs=False,  # always output the crosswalk because it is loaded later
     )
+    del subplant_crosswalk
 
     # 3. Clean EIA-923 Generation and Fuel Data at the Monthly Level
     ####################################################################################
@@ -178,7 +169,8 @@ def main(args):
         eia923_allocated,
         primary_fuel_table,
         subplant_emission_factors,
-    ) = data_cleaning.clean_eia923(year, args.small)
+        subplant_eia923,
+    ) = data_cleaning.clean_eia923(year)
     # output primary fuel table
     output_data.output_intermediate_data(
         primary_fuel_table,
@@ -187,6 +179,15 @@ def main(args):
         year,
         skip_outputs=False,
     )
+    # output subplant-level EIA-923 data
+    output_data.output_intermediate_data(
+        subplant_eia923,
+        "subplant_eia923",
+        path_prefix,
+        year,
+        skip_outputs=args.skip_outputs,
+    )
+    del subplant_eia923
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
         primary_fuel_table[
@@ -207,9 +208,8 @@ def main(args):
     # 4. Clean Hourly Data from CEMS
     ####################################################################################
     logger.info("4. Cleaning CEMS data")
-    cems = data_cleaning.clean_cems(
-        year, args.small, primary_fuel_table, subplant_emission_factors
-    )
+    cems = data_cleaning.clean_cems(year, primary_fuel_table, subplant_emission_factors)
+    del subplant_emission_factors
     # output data quality metrics about measured vs imputed CEMS data
     output_data.output_data_quality_metrics(
         validation.summarize_cems_measurement_quality(cems),
@@ -225,6 +225,18 @@ def main(args):
         path_prefix,
         year,
         args.skip_outputs,
+    )
+
+    # remove emissions measurement quality columns and steam load columns to reduce memory
+    # NOTE: steam load columns may be used in the future
+    cems.drop(
+        columns=[
+            "steam_load_1000_lb",
+            "co2_mass_measurement_code",
+            "nox_mass_measurement_code",
+            "so2_mass_measurement_code",
+        ],
+        inplace=True,
     )
 
     # calculate biomass-adjusted emissions while cems data is at the unit level
@@ -343,6 +355,7 @@ def main(args):
         year,
         args.skip_outputs,
     )
+    del gtn_conversions
 
     # 10. Adjust CEMS emission data for CHP
     ####################################################################################
@@ -363,6 +376,24 @@ def main(args):
         df_name="cems_subplant",
         keys=["plant_id_eia", "subplant_id"],
         period="month",
+    )
+    # now that GTN calculations are complete, we can remove zero observations from the
+    # cems data to free up memory
+    # dropping here means cems_subplant will contain missing timestamps
+    cems = data_cleaning.remove_cems_with_zero_monthly_data(
+        cems,
+        ["gross_generation_mwh", "net_generation_mwh", "fuel_consumed_mmbtu"],
+        remove_all_zeros=True,
+    )
+    partial_cems_plant = data_cleaning.remove_cems_with_zero_monthly_data(
+        partial_cems_plant,
+        ["net_generation_mwh", "fuel_consumed_mmbtu"],
+        remove_all_zeros=True,
+    )
+    partial_cems_subplant = data_cleaning.remove_cems_with_zero_monthly_data(
+        partial_cems_subplant,
+        ["net_generation_mwh", "fuel_consumed_mmbtu"],
+        remove_all_zeros=True,
     )
     output_data.output_intermediate_data(
         cems, "cems_subplant", path_prefix, year, args.skip_outputs
@@ -467,6 +498,7 @@ def main(args):
     # free up memory
     del monthly_subplant_data
     del fleet_data
+    gc.collect()
 
     # calculate hourly outputs for years after 2019
     if year >= earliest_hourly_data_year:
@@ -482,25 +514,23 @@ def main(args):
         elif not (
             os.path.exists(outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv"))
         ):
-            eia930.clean_930(year, small=args.small, path_prefix=path_prefix)
+            eia930.clean_930(year, path_prefix=path_prefix)
         else:
             logger.info(
                 "Not re-running 930 cleaning. If you'd like to re-run, "
                 f"please delete data/outputs/{path_prefix}/eia930/"
             )
 
-        # If running small, we didn't clean the whole year, so need to use the
-        # Chalender file to build residual profiles.
+        # If running flat, we need to use the Chalender file to build residual profiles.
         clean_930_file = (
             downloads_folder("eia930/chalendar/EBA_elec.csv")
-            if (args.small or args.flat)
+            if args.flat
             else outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv")
         )
         eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
         # until we can fix the physics reconciliation, we need to apply some
         # post-processing steps
         eia930_data = eia930.remove_imputed_ones(eia930_data)
-        eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
         # 14. Calculate hourly profiles for monthly EIA data
         ################################################################################
@@ -519,6 +549,7 @@ def main(args):
             use_flat=args.flat,
         )
         del eia930_data
+        gc.collect()
         # validate how well the wind and solar imputation methods work
         output_data.output_data_quality_metrics(
             impute_hourly_profiles.validate_wind_solar_imputation(
@@ -546,20 +577,19 @@ def main(args):
         # pipeline. Instead, this data is re-combined again using the aggregated shaped
         # plants in step 17.
         logger.info("15. Exporting Hourly Plant-level data for each BA")
-        if not args.small:
-            impute_hourly_profiles.combine_and_export_hourly_plant_data(
-                year,
-                cems,
-                partial_cems_subplant,
-                partial_cems_plant,
-                monthly_eia_data_to_shape,
-                plant_attributes,
-                primary_fuel_table,
-                hourly_profiles,
-                path_prefix,
-                args.skip_outputs,
-                region_to_group="ba_code",
-            )
+        impute_hourly_profiles.combine_and_export_hourly_plant_data(
+            year,
+            cems,
+            partial_cems_subplant,
+            partial_cems_plant,
+            monthly_eia_data_to_shape,
+            plant_attributes,
+            primary_fuel_table,
+            hourly_profiles,
+            path_prefix,
+            args.skip_outputs,
+            region_to_group="ba_code",
+        )
 
         # 16. Shape fleet-level data
         ################################################################################
@@ -574,6 +604,8 @@ def main(args):
             year,
             fuel_category_col_for_shaping="fuel_category_for_shaping",
         )
+        del hourly_profiles
+        gc.collect()
 
         output_data.output_data_quality_metrics(
             validation.hourly_profile_source_metric(
@@ -607,6 +639,7 @@ def main(args):
             year,
             group_keys=["ba_code", "fuel_category"],
         )
+        del monthly_eia_fleet_data
 
         # write metadata outputs
         output_data.write_plant_metadata(
@@ -620,6 +653,8 @@ def main(args):
             args.skip_outputs,
             year,
         )
+        del eia923_allocated
+        gc.collect()
         # group shaped data by fleet, since the fuel category used for shaping might
         # not match the fuel category for fleet aggregation
         shaped_eia_fleet_data = (
@@ -666,7 +701,14 @@ def main(args):
             partial_cems_subplant,
             partial_cems_plant,
         )
-        # export to a csv.
+        gc.collect()
+        # ensure complete timeseries
+        combined_cems_subplant_data = data_cleaning.complete_hourly_timeseries(
+            combined_cems_subplant_data,
+            year,
+            group_cols=["plant_id_eia", "subplant_id"],
+            columns_to_fill_with_zero=DATA_COLUMNS,
+        )
         validation.validate_unique_datetimes(
             year,
             df=combined_cems_subplant_data,
@@ -684,12 +726,18 @@ def main(args):
             combined_cems_subplant_data, plant_attributes, primary_fuel_table, year
         )
         del combined_cems_subplant_data
+        del plant_attributes
+        del primary_fuel_table
+        gc.collect()
 
         # combine fleet-level CEMS data and EIA data into a single df and group
         # fleets together
         combined_fleet_data = pd.concat(
-            [cems_fleet_data, shaped_eia_fleet_data], axis=0
+            [cems_fleet_data, shaped_eia_fleet_data], axis=0, copy=False
         )
+        del cems_fleet_data
+        del shaped_eia_fleet_data
+        gc.collect()
         combined_fleet_data = (
             combined_fleet_data.groupby(
                 ["ba_code", "fuel_category", "datetime_utc", "report_date"],
@@ -711,7 +759,7 @@ def main(args):
         )
         # Write US-average fleet data
         output_data.write_national_fleet_averages(
-            combined_fleet_data, year, path_prefix, args.skip_outputs
+            combined_fleet_data, year, path_prefix, skip_outputs=False
         )
 
         # 19. Calculate consumption-based emissions and write carbon accounting results
@@ -721,7 +769,6 @@ def main(args):
             clean_930_file,
             path_prefix,
             year,
-            small=args.small,
             skip_outputs=args.skip_outputs,
         )
         hourly_consumed_calc.run()
