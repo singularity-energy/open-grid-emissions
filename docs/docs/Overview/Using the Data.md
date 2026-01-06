@@ -12,7 +12,7 @@ Currently, 2005 is the earliest available year. Note that only monthly and annua
 
 ## Data Release Schedule
 
-In general, annual data releases will be published in Q4 of the following year (i.e. 2024 data should be published in Q4 of 2025)
+In general, annual data releases will be published in Q4 of the following year (i.e. 2025 data should be published in Q4 of 2026)
 
 Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2024 data was published in September 2025). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
 
