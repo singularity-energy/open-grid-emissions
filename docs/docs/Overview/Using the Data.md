@@ -6,15 +6,15 @@ stoplight-id: using_the_data
 
 ## Data Availability
 
-The latest release includes data for year 2005-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)).
+The latest release includes data for year 2005-2024 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)).
 
 Currently, 2005 is the earliest available year. Note that only monthly and annual data are available for year 2005-2018 because 2019 is the first year for which complete EIA-930 data is available (which is used to assign an hourly profile to non-CEMS data).
 
 ## Data Release Schedule
 
-In general, annual data releases will be published in Q4 of the following year (i.e. 2023 data should be published in Q4 of 2024)
+In general, annual data releases will be published in Q4 of the following year (i.e. 2024 data should be published in Q4 of 2025)
 
-Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2022 data was published in September 2023). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
+Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2024 data was published in September 2025). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
 
 Updated datasets will also be published whenever a new minor version of the open-grid-emissions code is released, usually representing methdological enhancements. These releases may happen mutliple times throughout a year.
 
