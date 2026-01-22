@@ -231,7 +231,7 @@ def main(args):
     # NOTE: steam load columns may be used in the future
     cems.drop(
         columns=[
-            "steam_load_1000_lb",
+            "steam_load_lbs",
             "co2_mass_measurement_code",
             "nox_mass_measurement_code",
             "so2_mass_measurement_code",
