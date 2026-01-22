@@ -478,7 +478,7 @@ def check_removed_data_is_empty(cems: pd.DataFrame, rows_to_remove: pd.Series) -
     """
     columns_to_check = [
         "gross_generation_mwh",
-        "steam_load_1000_lb",
+        "steam_load_lbs",
         "fuel_consumed_mmbtu",
         "co2_mass_lb",
         "nox_mass_lb",

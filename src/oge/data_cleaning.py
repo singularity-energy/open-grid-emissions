@@ -1020,7 +1020,7 @@ def remove_unmapped_fuel(cems: pd.DataFrame, year: int) -> pd.DataFrame:
     # calculate annual totals by unit
     annual_cems = (
         cems.groupby(["plant_id_eia", "emissions_unit_id_epa"], dropna=False)[
-            ["gross_generation_mwh", "steam_load_1000_lb", "fuel_consumed_mmbtu"]
+            ["gross_generation_mwh", "steam_load_lbs", "fuel_consumed_mmbtu"]
         ]
         .sum()
         .reset_index()
@@ -1064,7 +1064,7 @@ def remove_unmapped_fuel(cems: pd.DataFrame, year: int) -> pd.DataFrame:
     fuel_only_unmapped = annual_cems[
         (annual_cems["generator_id"].isna())
         & (annual_cems["gross_generation_mwh"] == 0)
-        & (annual_cems["steam_load_1000_lb"] == 0)
+        & (annual_cems["steam_load_lbs"] == 0)
         & (annual_cems["fuel_consumed_mmbtu"] > 0)
     ]
     if len(fuel_only_unmapped) > 0:
@@ -1257,7 +1257,7 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
     # calculate annual totals by unit
     annual_cems = (
         cems.groupby(["plant_id_eia", "emissions_unit_id_epa"], dropna=False)[
-            ["gross_generation_mwh", "steam_load_1000_lb", "fuel_consumed_mmbtu"]
+            ["gross_generation_mwh", "steam_load_lbs", "fuel_consumed_mmbtu"]
         ]
         .sum()
         .reset_index()
@@ -1284,7 +1284,7 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
     steam_only_unmapped = annual_cems[
         (annual_cems["generator_id"].isna())
         & (annual_cems["gross_generation_mwh"] == 0)
-        & (annual_cems["steam_load_1000_lb"] > 0)
+        & (annual_cems["steam_load_lbs"] > 0)
         & (annual_cems["fuel_consumed_mmbtu"] > 0)
     ]
     if len(steam_only_unmapped) > 0:
@@ -1314,7 +1314,7 @@ def identify_and_remove_steam_only_units(cems: pd.DataFrame, year: int) -> pd.Da
     # are still not entirely certain how to interpret steam data in CEMS, so its
     # inclusion could result in potentially anomalous results
     mapped_steam = annual_cems[
-        (annual_cems["steam_load_1000_lb"] > 0) & (~annual_cems["generator_id"].isna())
+        (annual_cems["steam_load_lbs"] > 0) & (~annual_cems["generator_id"].isna())
     ]
     if len(mapped_steam) > 0:
         logger.warning(
@@ -2440,7 +2440,7 @@ def aggregate_cems_to_subplant(cems):
 
     cems_columns_to_aggregate = [
         "gross_generation_mwh",
-        # "steam_load_1000_lb",
+        # "steam_load_lbs",
         "fuel_consumed_mmbtu",
         "co2_mass_lb",
         "ch4_mass_lb",
