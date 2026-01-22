@@ -44,7 +44,7 @@ def load_cems_data(year: int) -> pd.DataFrame:
         "operating_datetime_utc",
         "operating_time_hours",
         "gross_load_mw",
-        "steam_load_1000_lbs",
+        "steam_load_lbs",
         "co2_mass_tons",
         "co2_mass_measurement_code",
         "nox_mass_lbs",
@@ -73,7 +73,6 @@ def load_cems_data(year: int) -> pd.DataFrame:
         columns={
             "operating_datetime_utc": "datetime_utc",
             "heat_content_mmbtu": "fuel_consumed_mmbtu",
-            "steam_load_1000_lbs": "steam_load_1000_lb",
             "nox_mass_lbs": "nox_mass_lb",
             "so2_mass_lbs": "so2_mass_lb",
             "gross_load_mw": "gross_generation_mwh",  # we will convert this to mwh
@@ -81,7 +80,7 @@ def load_cems_data(year: int) -> pd.DataFrame:
     )
 
     # fill any missing values for steam load with zero
-    cems["steam_load_1000_lb"] = cems["steam_load_1000_lb"].fillna(0)
+    cems["steam_load_lbs"] = cems["steam_load_lbs"].fillna(0)
 
     # convert co2 mass in tons to lb
     cems["co2_mass_lb"] = cems["co2_mass_tons"] * ConversionFactors.short_ton_to_lbs
@@ -94,7 +93,7 @@ def load_cems_data(year: int) -> pd.DataFrame:
             "datetime_utc",
             "operating_time_hours",
             "gross_generation_mwh",
-            "steam_load_1000_lb",
+            "steam_load_lbs",
             "fuel_consumed_mmbtu",
             "co2_mass_lb",
             "nox_mass_lb",

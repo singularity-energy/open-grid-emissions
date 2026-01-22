@@ -1980,7 +1980,7 @@ def shape_partial_cems_subplants(cems, eia923_allocated, year):
         )
 
         partial_cems_shaped.drop(
-            columns=["steam_load_1000_lb", "gross_generation_mwh"],
+            columns=["steam_load_lbs", "gross_generation_mwh"],
             errors="ignore",
             inplace=True,
         )
