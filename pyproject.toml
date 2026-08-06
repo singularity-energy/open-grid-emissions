@@ -25,7 +25,7 @@ dependencies = [
   "osqp",
   "numpy",
   "openpyxl",
-  "pandas",
+  "pandas>=2.2,<3",
   "pyarrow",
   "qdldl",
   "requests",
