@@ -9,7 +9,7 @@ from oge.filepaths import reference_table_folder
 import oge.validation as validation
 import oge.output_data as output_data
 from oge.logging_util import get_logger
-from oge.helpers import assign_fleet_to_subplant_data
+from oge.helpers import assign_fleet_to_subplant_data, create_local_year_timestamps
 from oge.data_cleaning import complete_hourly_timeseries
 
 logger = get_logger(__name__)
@@ -1204,6 +1204,133 @@ def add_cems_backstop_profile(
     return hourly_profiles
 
 
+def expand_hourly_profiles_to_plant_timezones(
+    hourly_profiles: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    year: int,
+) -> pd.DataFrame:
+    """Builds absolute hourly profiles for each non-native plant timezone in each BA.
+
+    `hourly_profiles` represents each BA's hourly generation shape on the BA's own
+    local calendar. But a "complete year" of hourly data means a different set of UTC
+    timestamps in each timezone, so plants located in a different timezone than their
+    BA need monthly EIA data shaped using a profile aligned to their own local
+    calendar, not the BA's.
+
+    For each (ba_code, fuel_category) present in `hourly_profiles`, this reassembles
+    the BA's absolute profile onto every additional timezone actually used by a plant
+    assigned to that BA, joining on "datetime_utc" so that hours near a local month
+    boundary borrow from the adjacent BA-local month. Hours at the true start/end of
+    the year, where no adjacent-year BA data exists to borrow from, are filled by
+    forward/backward filling within each (ba_code, fuel_category, timezone) group.
+
+    This function does not convert the resulting profiles to a percent of the monthly
+    total. Callers should concatenate this output with the BA's native-timezone
+    profiles and then run convert_profile_to_percent() on the combined table, so that
+    percent shares are computed using each timezone's own local calendar month.
+
+    Args:
+        hourly_profiles (pd.DataFrame): absolute (pre-percent) hourly profiles, with
+            "ba_code", "fuel_category", "datetime_utc", "report_date", "profile",
+            "flat_profile", and "profile_method" columns.
+        plant_attributes (pd.DataFrame): table with "plant_id_eia", "ba_code", and
+            "timezone" columns, used to identify which timezones are actually used by
+            plants in each BA.
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: absolute hourly profiles for each non-native (ba_code,
+            fuel_category, timezone) combination actually needed, with the same
+            columns as `hourly_profiles` plus a "timezone" column.
+    """
+    profile_columns = ["profile", "flat_profile"]
+    fill_columns = profile_columns + ["profile_method"]
+    hourly_profiles = hourly_profiles[
+        ["ba_code", "fuel_category", "datetime_utc", "report_date"] + fill_columns
+    ].copy()
+
+    # identify which (ba_code, timezone) combinations are used by a plant but are not
+    # that ba's own native timezone, since only those need a reassembled profile
+    ba_native_timezone = load_data.load_ba_reference()[["ba_code", "timezone_local"]]
+    plant_timezones = plant_attributes[["ba_code", "timezone"]].dropna(
+        subset=["ba_code", "timezone"]
+    )
+    plant_timezones = plant_timezones.merge(
+        ba_native_timezone, how="left", on="ba_code", validate="m:1"
+    )
+    non_native_combos = plant_timezones.loc[
+        plant_timezones["timezone"] != plant_timezones["timezone_local"],
+        ["ba_code", "timezone"],
+    ].drop_duplicates()
+
+    expanded_profiles = []
+    for ba_code, timezone in non_native_combos.itertuples(index=False):
+        ba_profile = hourly_profiles.loc[hourly_profiles["ba_code"] == ba_code].drop(
+            columns=["ba_code", "report_date"]
+        )
+        if ba_profile.empty:
+            continue
+
+        # confirm the ba's own native profile has no gaps before reassembling, so
+        # that the ffill/bfill below only ever fills the true start/end-of-year
+        # edges introduced by reassembling onto a different timezone, rather than
+        # silently smoothing over an unrelated gap in the ba's own profile
+        expected_native_hours = 8784 if year % 4 == 0 else 8760
+        hours_per_fuel = ba_profile.groupby("fuel_category")["datetime_utc"].nunique()
+        incomplete_fuels = hours_per_fuel[hours_per_fuel != expected_native_hours]
+        if len(incomplete_fuels) > 0:
+            logger.warning(
+                f"hourly_profiles for ba_code {ba_code} is missing hours for fuel "
+                f"categories {list(incomplete_fuels.index)} before reassembling to "
+                "other plant timezones; the ffill/bfill below may fill more than "
+                "just the true year-edge hours"
+            )
+        missing_values = ba_profile[fill_columns].isna().any(axis=1)
+        if missing_values.any():
+            logger.warning(
+                f"hourly_profiles for ba_code {ba_code} has {missing_values.sum()} "
+                "hour(s) with missing profile values before reassembling to other "
+                "plant timezones; the ffill/bfill below may fill more than just "
+                "the true year-edge hours"
+            )
+
+        # build a local-year grid for every fuel category reported by this ba
+        local_timestamps = create_local_year_timestamps(year, timezone)
+        fuel_categories = pd.DataFrame(
+            {"fuel_category": ba_profile["fuel_category"].unique()}
+        )
+        local_timestamps = local_timestamps.merge(fuel_categories, how="cross")
+
+        # join in the ba's absolute profile by datetime_utc, so hours near a local
+        # month boundary borrow from the adjacent ba-local month
+        reassembled = local_timestamps.merge(
+            ba_profile,
+            how="left",
+            on=["fuel_category", "datetime_utc"],
+            validate="1:1",
+        ).sort_values(["fuel_category", "datetime_utc"])
+
+        # fill hours at the true start/end of the year, where no adjacent-year ba
+        # data exists to join against
+        # we use a simple forward/backward fill of the adjacent value.
+        reassembled[fill_columns] = (
+            reassembled.groupby("fuel_category", dropna=False)[fill_columns]
+            .ffill()
+            .bfill()
+        )
+
+        reassembled["ba_code"] = ba_code
+        reassembled["timezone"] = timezone
+        expanded_profiles.append(reassembled)
+
+    if len(expanded_profiles) == 0:
+        return hourly_profiles.iloc[0:0].assign(
+            timezone=pd.Series(dtype=hourly_profiles["ba_code"].dtype)
+        )
+
+    return pd.concat(expanded_profiles, ignore_index=True)
+
+
 def convert_profile_to_percent(hourly_profiles, group_keys, columns_to_convert):
     """converts hourly timeseries profiles from absolute mwh to percentage of monthly total mwh."""
     # convert the profile so that each hour is a percent of the monthly total
@@ -1335,6 +1462,15 @@ def combine_and_export_hourly_plant_data(
         ba_col="ba_code",
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
+    )
+
+    # add each plant's own timezone, so shaping can use a profile aligned to the
+    # plant's own local calendar rather than its ba's
+    monthly_eia_data_to_shape = monthly_eia_data_to_shape.merge(
+        plant_attributes[["plant_id_eia", "timezone"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
     )
 
     # for each region, shape the EIA-only data, combine with CEMS data, and export
@@ -1604,10 +1740,11 @@ def shape_monthly_eia_data_as_hourly(
                 "profile",
                 "flat_profile",
                 "profile_method",
+                "timezone",
             ]
         ].rename(columns={"fuel_category": fuel_category_col_for_shaping}),
         how="left",
-        on=["report_date", fuel_category_col_for_shaping, "ba_code"],
+        on=["report_date", fuel_category_col_for_shaping, "ba_code", "timezone"],
         validate="m:m",
     )
 

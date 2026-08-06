@@ -1368,3 +1368,41 @@ def create_subplant_attributes_table(
         results_folder(f"{path_prefix}plant_data/subplant_attributes.csv"),
         index=False,
     )
+
+
+def create_local_year_timestamps(year: int, timezone: str) -> pd.DataFrame:
+    """Creates a complete hourly timeseries for a single local year in a given timezone.
+
+    Builds an hourly datetime_local range from Jan 1 to Dec 31 of `year` in `timezone`,
+    then converts it to the corresponding UTC timestamps and local calendar month. This
+    represents what "a complete year" means for data reported on that timezone's local
+    calendar, as distinct from a complete UTC calendar year.
+
+    Args:
+        year (int): the year to create a complete local timeseries for.
+        timezone (str): a timezone name (e.g. "America/New_York") to localize the
+            timeseries to.
+
+    Returns:
+        pd.DataFrame: a dataframe with one row per local hour of `year`, containing
+            "datetime_utc" and "report_date" (the local calendar month) columns.
+    """
+    timezone_df = pd.DataFrame(
+        data=pd.date_range(
+            start=f"{year}-01-01 00:00:00",
+            end=f"{year}-12-31 23:00:00",
+            freq="h",
+            tz=timezone,
+            name="datetime_local",
+        )
+    )
+    timezone_df["datetime_utc"] = timezone_df["datetime_local"].dt.tz_convert("UTC")
+    timezone_df["report_date"] = (
+        timezone_df["datetime_local"]
+        .dt.tz_localize(None)
+        .dt.to_period("M")
+        .dt.to_timestamp()
+    )
+    timezone_df = timezone_df.drop(columns=["datetime_local"])
+
+    return timezone_df

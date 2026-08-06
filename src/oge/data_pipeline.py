@@ -22,6 +22,7 @@ import oge.emissions as emissions
 import oge.gross_to_net_generation as gross_to_net_generation
 import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
+import oge.load_data as load_data
 import oge.output_data as output_data
 import oge.subplant_identification as subplant_identification
 import oge.validation as validation
@@ -563,9 +564,28 @@ def main(args):
             hourly_profiles, "hourly_profiles", path_prefix, year, args.skip_outputs
         )
 
+        # tag each ba's own hourly profile with its native timezone, and build a
+        # reassembled absolute profile for every other timezone actually used by a
+        # plant in that ba, so that off-timezone plants can be shaped using a profile
+        # aligned to their own local calendar rather than the ba's
+        ba_native_timezone = load_data.load_ba_reference()[
+            ["ba_code", "timezone_local"]
+        ].rename(columns={"timezone_local": "timezone"})
+        hourly_profiles = hourly_profiles.merge(
+            ba_native_timezone, how="left", on="ba_code", validate="m:1"
+        )
+        non_native_profiles = (
+            impute_hourly_profiles.expand_hourly_profiles_to_plant_timezones(
+                hourly_profiles, plant_attributes, year
+            )
+        )
+        hourly_profiles = pd.concat(
+            [hourly_profiles, non_native_profiles], ignore_index=True
+        )
+
         hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
             hourly_profiles,
-            group_keys=["ba_code", "fuel_category", "profile_method"],
+            group_keys=["ba_code", "fuel_category", "profile_method", "timezone"],
             columns_to_convert=["profile", "flat_profile"],
         )
 
@@ -597,6 +617,11 @@ def main(args):
         # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
         monthly_eia_fleet_data = impute_hourly_profiles.aggregate_eia_data_to_fleet(
             monthly_eia_data_to_shape, plant_attributes, primary_fuel_table, year
+        )
+        # the fleet/power-sector product stays on the ba's own local calendar,
+        # regardless of the timezone of the individual plants that make it up
+        monthly_eia_fleet_data = monthly_eia_fleet_data.merge(
+            ba_native_timezone, how="left", on="ba_code", validate="m:1"
         )
         shaped_eia_fleet_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
             monthly_eia_fleet_data,
