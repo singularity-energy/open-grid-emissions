@@ -923,7 +923,7 @@ def load_boiler_firing_type(year: int) -> pd.DataFrame:
             "plant_id_eia",
             "boiler_id",
             "firing_type_1",
-            "wet_dry_bottom",
+            "wet_dry_bottom_code",
         ],
     )
 
@@ -936,9 +936,12 @@ def load_boiler_firing_type(year: int) -> pd.DataFrame:
         .str.lower()
     )
 
+    # Map EIA W/D codes to wet/dry/none used in our emission factor tables
+    wet_dry_bottom_eia = load_data.load_pudl_table("core_eia__codes_wet_dry_bottom")
     boiler_firing_type["wet_dry_bottom"] = (
-        boiler_firing_type["wet_dry_bottom"]
-        .replace({"D": "dry", "W": "wet"})
+        boiler_firing_type["wet_dry_bottom_code"]
+        .map(dict(zip(wet_dry_bottom_eia["code"], wet_dry_bottom_eia["label"])))
+        .str.replace("_bottom", "", regex=False)
         .fillna("none")
         .str.lower()
     )

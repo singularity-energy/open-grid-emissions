@@ -493,6 +493,7 @@ def get_dtypes() -> dict:
         "subplant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu": "string",
         "subplant_primary_fuel_from_mode": "string",
         "subplant_primary_fuel_from_net_generation_mwh": "string",
+        "wet_dry_bottom": "string",
     }
 
     pudl_dtypes = {
@@ -776,7 +777,7 @@ def get_dtypes() -> dict:
         "utility_name_eia": "string",
         "waste_heat_input_mmbtu_per_hour": "float64",
         "water_source": "string",
-        "wet_dry_bottom": "string",
+        "wet_dry_bottom_code": "string",
         "winter_capacity_estimate": "boolean",
         "winter_capacity_mw": "float32",
         "winter_estimated_capability_mw": "float32",
