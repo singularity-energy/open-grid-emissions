@@ -18,6 +18,7 @@ from oge.constants import (
 )
 from oge.filepaths import (
     downloads_folder,
+    find_downloaded_file,
     outputs_folder,
     pudl_folder,
     reference_table_folder,
@@ -314,13 +315,15 @@ def load_raw_eia860_plant_geographical_info(year: int) -> pd.DataFrame:
     if (year == current_early_release_year) and (
         current_early_release_year != latest_validated_year
     ):
-        filepath = f"eia860/eia860{year}ER/2___Plant_Y{year}__Early_Release.xlsx"
+        filepath = find_downloaded_file(
+            f"eia860/eia860{year}ER", f"2___Plant_Y{year}*.xlsx"
+        )
         header_row = 2
     else:
-        filepath = f"eia860/eia860{year}/2___Plant_Y{year}.xlsx"
+        filepath = downloads_folder(f"eia860/eia860{year}/2___Plant_Y{year}.xlsx")
         header_row = 1
     plant_geographical_eia860 = pd.read_excel(
-        downloads_folder(filepath),
+        filepath,
         header=header_row,
         usecols=[
             "Plant Code",
@@ -372,16 +375,20 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     if (year == current_early_release_year) and (
         current_early_release_year != latest_validated_year
     ):
-        filepath = f"eia860/eia860{year}ER/3_1_Generator_Y{year}_Early_Release.xlsx"
+        filepath = find_downloaded_file(
+            f"eia860/eia860{year}ER", f"3_1_Generator_Y{year}*.xlsx"
+        )
         header_row = 2
         footer_row = 1
     else:
-        filepath = f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
+        filepath = downloads_folder(
+            f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
+        )
         header_row = 1
         footer_row = 1
 
     generator_op_dates_eia860 = pd.read_excel(
-        downloads_folder(filepath),
+        filepath,
         header=header_row,
         skipfooter=footer_row,
         sheet_name="Operable",
@@ -420,7 +427,7 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     # load unit codes for proposed generators
     proposed_unit_ids_eia860 = (
         pd.read_excel(
-            downloads_folder(filepath),
+            filepath,
             sheet_name="Proposed",
             header=header_row,
             usecols=["Plant Code", "Generator ID", "Unit Code"],
@@ -1369,8 +1376,9 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
         elif (year == current_early_release_year) and (
             current_early_release_year != latest_validated_year
         ):
-            schedule_8_filename = downloads_folder(
-                f"eia923/f923_{year}er/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Early Release.xlsx"
+            schedule_8_filename = find_downloaded_file(
+                f"eia923/f923_{year}er",
+                f"EIA923_Schedule_8*{year}*Early*Release*.xlsx",
             )
             header_row = 5
 
