@@ -1893,7 +1893,7 @@ def complete_hourly_timeseries(
         "core_eia__entity_plants", columns=["plant_id_eia", "timezone"]
     )
     complete_timeseries = complete_timeseries.merge(
-        plant_timezone, on="plant_id_eia", how="left"
+        plant_timezone, on="plant_id_eia", how="left", validate="m:1"
     )
 
     # localize the datetime_local column using the timezone column
@@ -1959,7 +1959,9 @@ def complete_hourly_timeseries(
 
     # forward and backfill columns within each group. This can be used for
     # non-numeric columns
-    df[columns_to_bffill] = df.groupby(group_cols)[columns_to_bffill].ffill().bfill()
+    df[columns_to_bffill] = (
+        df.groupby(group_cols, dropna=False)[columns_to_bffill].ffill().bfill()
+    )
 
     return df
 

@@ -1222,7 +1222,12 @@ def expand_hourly_profiles_to_plant_timezones(
     assigned to that BA, joining on "datetime_utc" so that hours near a local month
     boundary borrow from the adjacent BA-local month. Hours at the true start/end of
     the year, where no adjacent-year BA data exists to borrow from, are filled by
-    forward/backward filling within each (ba_code, fuel_category, timezone) group.
+    forward/backward filling within each (ba_code, fuel_category, local_timezone_offset)
+    group. Only missing hours within edge_window_hours of the very start or end of
+    the year are eligible to be filled this way: if the BA's own profile has an
+    unrelated gap somewhere in the middle of the year (or a leading/trailing gap
+    wider than the window, which would indicate a timezone offset larger than
+    expected), those hours are left missing rather than silently smoothed over.
 
     This function does not convert the resulting profiles to a percent of the monthly
     total. Callers should concatenate this output with the BA's native-timezone
@@ -1232,100 +1237,159 @@ def expand_hourly_profiles_to_plant_timezones(
     Args:
         hourly_profiles (pd.DataFrame): absolute (pre-percent) hourly profiles, with
             "ba_code", "fuel_category", "datetime_utc", "report_date", "profile",
-            "flat_profile", and "profile_method" columns.
-        plant_attributes (pd.DataFrame): table with "plant_id_eia", "ba_code", and
-            "timezone" columns, used to identify which timezones are actually used by
-            plants in each BA.
+            "flat_profile", "profile_method", and "local_timezone_offset" (the ba's
+            own native offset, from helpers.add_local_timezone_offset()) columns.
+        plant_attributes (pd.DataFrame): table with "plant_id_eia", "ba_code",
+            "timezone", and "local_timezone_offset" (from
+            helpers.add_local_timezone_offset()) columns, used to identify which
+            timezones are actually used by plants in each BA.
         year (int): the data year.
 
     Returns:
         pd.DataFrame: absolute hourly profiles for each non-native (ba_code,
-            fuel_category, timezone) combination actually needed, with the same
-            columns as `hourly_profiles` plus a "timezone" column.
+            fuel_category, local_timezone_offset) combination actually needed, with
+            the same columns as `hourly_profiles`.
     """
+    # Widest number of hours a plant's local year could plausibly need to borrow from an
+    # adjacent calendar year at the true start/end-of-year edge, i.e. the largest
+    # realistic timezone offset between a ba and a plant assigned to it. Confirmed
+    # against real plant/ba assignments: the widest observed spread (MISO, spanning
+    # America/Los_Angeles to America/New_York) is 3 hours, so a 4-hour window always
+    # includes at least one hour with a real (non-missing) value to fill from.
+    edge_window_hours = 4
+
     profile_columns = ["profile", "flat_profile"]
     fill_columns = profile_columns + ["profile_method"]
+
+    # each ba's own native offset, straight from hourly_profiles's own tagging
+    ba_native_timezone = (
+        hourly_profiles[["ba_code", "local_timezone_offset"]]
+        .drop_duplicates()
+        .rename(columns={"local_timezone_offset": "ba_local_timezone_offset"})
+    )
     hourly_profiles = hourly_profiles[
         ["ba_code", "fuel_category", "datetime_utc", "report_date"] + fill_columns
     ].copy()
 
-    # identify which (ba_code, timezone) combinations are used by a plant but are not
-    # that ba's own native timezone, since only those need a reassembled profile
-    ba_native_timezone = load_data.load_ba_reference()[["ba_code", "timezone_local"]]
-    plant_timezones = plant_attributes[["ba_code", "timezone"]].dropna(
-        subset=["ba_code", "timezone"]
+    # identify which (ba_code, timezone) combinations are used by a plant but don't
+    # share their ba's own native offset. We keep the plant's raw timezone name
+    # (needed below to build its actual local-year grid) alongside its offset
+    # (needed to compare against the ba's native offset and to tag the output,
+    # since two different raw names can be the same physical timezone).
+    plant_timezones = (
+        plant_attributes[["ba_code", "timezone", "local_timezone_offset"]]
+        .dropna(subset=["ba_code", "timezone", "local_timezone_offset"])
+        .drop_duplicates()
+        .merge(ba_native_timezone, how="left", on="ba_code", validate="m:1")
     )
-    plant_timezones = plant_timezones.merge(
-        ba_native_timezone, how="left", on="ba_code", validate="m:1"
-    )
+    # keep one representative raw timezone name per (ba_code, local_timezone_offset):
+    # if two different raw names for the same ba happen to share the same offset
+    # (e.g. two Indiana zone spellings that are both Eastern-equivalent), we only
+    # need to reassemble one of them, since they'd produce identical rows
     non_native_combos = plant_timezones.loc[
-        plant_timezones["timezone"] != plant_timezones["timezone_local"],
-        ["ba_code", "timezone"],
-    ].drop_duplicates()
+        plant_timezones["local_timezone_offset"]
+        != plant_timezones["ba_local_timezone_offset"]
+    ].drop_duplicates(subset=["ba_code", "local_timezone_offset"])[
+        ["ba_code", "timezone", "local_timezone_offset"]
+    ]
 
     expanded_profiles = []
-    for ba_code, timezone in non_native_combos.itertuples(index=False):
+    for ba_code, group in non_native_combos.groupby("ba_code", dropna=False):
         ba_profile = hourly_profiles.loc[hourly_profiles["ba_code"] == ba_code].drop(
             columns=["ba_code", "report_date"]
         )
         if ba_profile.empty:
             continue
 
-        # confirm the ba's own native profile has no gaps before reassembling, so
-        # that the ffill/bfill below only ever fills the true start/end-of-year
-        # edges introduced by reassembling onto a different timezone, rather than
-        # silently smoothing over an unrelated gap in the ba's own profile
+        # confirm the ba's own native profile has no gaps before reassembling. The
+        # fill below is restricted to the first/last EDGE_WINDOW_HOURS of the year,
+        # so a gap here won't get silently smoothed over -- it will instead surface
+        # as missing values in the reassembled profile. This is a property of the
+        # ba's own native profile, so it only needs checking once per ba_code, not
+        # once per non-native timezone the ba happens to have.
         expected_native_hours = 8784 if year % 4 == 0 else 8760
-        hours_per_fuel = ba_profile.groupby("fuel_category")["datetime_utc"].nunique()
+        hours_per_fuel = ba_profile.groupby("fuel_category", dropna=False)[
+            "datetime_utc"
+        ].nunique()
         incomplete_fuels = hours_per_fuel[hours_per_fuel != expected_native_hours]
         if len(incomplete_fuels) > 0:
             logger.warning(
                 f"hourly_profiles for ba_code {ba_code} is missing hours for fuel "
                 f"categories {list(incomplete_fuels.index)} before reassembling to "
-                "other plant timezones; the ffill/bfill below may fill more than "
-                "just the true year-edge hours"
+                "other plant timezones; these hours will be missing (not filled) "
+                "in the reassembled profile, since only true year-edge hours are "
+                "filled"
             )
         missing_values = ba_profile[fill_columns].isna().any(axis=1)
         if missing_values.any():
             logger.warning(
                 f"hourly_profiles for ba_code {ba_code} has {missing_values.sum()} "
                 "hour(s) with missing profile values before reassembling to other "
-                "plant timezones; the ffill/bfill below may fill more than just "
-                "the true year-edge hours"
+                "plant timezones; these hours will be missing (not filled) in the "
+                "reassembled profile, since only true year-edge hours are filled"
             )
 
-        # build a local-year grid for every fuel category reported by this ba
-        local_timestamps = create_local_year_timestamps(year, timezone)
         fuel_categories = pd.DataFrame(
             {"fuel_category": ba_profile["fuel_category"].unique()}
         )
-        local_timestamps = local_timestamps.merge(fuel_categories, how="cross")
 
-        # join in the ba's absolute profile by datetime_utc, so hours near a local
-        # month boundary borrow from the adjacent ba-local month
-        reassembled = local_timestamps.merge(
-            ba_profile,
-            how="left",
-            on=["fuel_category", "datetime_utc"],
-            validate="1:1",
-        ).sort_values(["fuel_category", "datetime_utc"])
+        for timezone, local_timezone_offset in group[
+            ["timezone", "local_timezone_offset"]
+        ].itertuples(index=False):
+            # build a local-year grid for every fuel category reported by this ba
+            local_timestamps = create_local_year_timestamps(year, timezone).merge(
+                fuel_categories, how="cross"
+            )
 
-        # fill hours at the true start/end of the year, where no adjacent-year ba
-        # data exists to join against
-        # we use a simple forward/backward fill of the adjacent value.
-        reassembled[fill_columns] = (
-            reassembled.groupby("fuel_category", dropna=False)[fill_columns]
-            .ffill()
-            .bfill()
-        )
+            # join in the ba's absolute profile by datetime_utc, so hours near a
+            # local month boundary borrow from the adjacent ba-local month
+            reassembled = (
+                local_timestamps.merge(
+                    ba_profile,
+                    how="left",
+                    on=["fuel_category", "datetime_utc"],
+                    validate="1:1",
+                )
+                .sort_values(["fuel_category", "datetime_utc"])
+                .reset_index(drop=True)
+            )
 
-        reassembled["ba_code"] = ba_code
-        reassembled["timezone"] = timezone
-        expanded_profiles.append(reassembled)
+            # fill only missing hours within EDGE_WINDOW_HOURS of the true start/end
+            # of the year, where no adjacent-year ba data exists to join against,
+            # using a simple forward/backward fill of the adjacent value.
+            # Restricting the fill to this window (rather than filling any missing
+            # value in the group) means an unrelated gap in the ba's own profile --
+            # or a leading/trailing gap wider than expected -- stays missing here
+            # instead of being silently smoothed over.
+            is_missing = reassembled[fill_columns].isna().any(axis=1)
+            hours_from_start = reassembled.groupby(
+                "fuel_category", dropna=False
+            ).cumcount()
+            hours_from_end = (
+                reassembled[::-1]
+                .groupby("fuel_category", dropna=False)
+                .cumcount()[::-1]
+            )
+            edge_mask = is_missing & (
+                (hours_from_start < edge_window_hours)
+                | (hours_from_end < edge_window_hours)
+            )
+            filled = (
+                reassembled.groupby("fuel_category", dropna=False)[fill_columns]
+                .ffill()
+                .bfill()
+            )
+            reassembled.loc[edge_mask, fill_columns] = filled.loc[
+                edge_mask, fill_columns
+            ]
+
+            reassembled["ba_code"] = ba_code
+            reassembled["local_timezone_offset"] = local_timezone_offset
+            expanded_profiles.append(reassembled)
 
     if len(expanded_profiles) == 0:
         return hourly_profiles.iloc[0:0].assign(
-            timezone=pd.Series(dtype=hourly_profiles["ba_code"].dtype)
+            local_timezone_offset=pd.Series(dtype="timedelta64[ns]")
         )
 
     return pd.concat(expanded_profiles, ignore_index=True)
@@ -1392,6 +1456,11 @@ def combine_and_export_hourly_plant_data(
 
     All of the inputs are dataframes containing data from the data pipeline except for `region_to_group`
     `region_to_group` identifying whether "ba_code" or "state" should be used to group the data. "ba_code" is the default.
+
+    `plant_attributes` must have a "local_timezone_offset" column (from
+    helpers.add_local_timezone_offset()), matching the same column already present
+    on `hourly_profiles`, so that a plant's own timezone joins correctly against its
+    ba's native profile whenever the two refer to the same physical timezone.
     """
 
     # specify the names of the columns that we want to use to group the data
@@ -1464,10 +1533,14 @@ def combine_and_export_hourly_plant_data(
         fuel_category_col="fuel_category",
     )
 
-    # add each plant's own timezone, so shaping can use a profile aligned to the
-    # plant's own local calendar rather than its ba's
+    # add each plant's own local_timezone_offset, so shaping can use a profile
+    # aligned to the plant's own local calendar rather than its ba's. This is the
+    # same offset-based column already on hourly_profiles, so a plant whose
+    # timezone is equivalent to its ba's native timezone -- even under a different
+    # name, e.g. "America/Chicago" vs the legacy alias "US/Central" -- joins
+    # correctly against its ba's native profile without any extra mapping step.
     monthly_eia_data_to_shape = monthly_eia_data_to_shape.merge(
-        plant_attributes[["plant_id_eia", "timezone"]],
+        plant_attributes[["plant_id_eia", "local_timezone_offset"]],
         how="left",
         on="plant_id_eia",
         validate="m:1",
@@ -1740,11 +1813,16 @@ def shape_monthly_eia_data_as_hourly(
                 "profile",
                 "flat_profile",
                 "profile_method",
-                "timezone",
+                "local_timezone_offset",
             ]
         ].rename(columns={"fuel_category": fuel_category_col_for_shaping}),
         how="left",
-        on=["report_date", fuel_category_col_for_shaping, "ba_code", "timezone"],
+        on=[
+            "report_date",
+            fuel_category_col_for_shaping,
+            "ba_code",
+            "local_timezone_offset",
+        ],
         validate="m:m",
     )
 

@@ -564,19 +564,32 @@ def main(args):
             hourly_profiles, "hourly_profiles", path_prefix, year, args.skip_outputs
         )
 
-        # tag each ba's own hourly profile with its native timezone, and build a
-        # reassembled absolute profile for every other timezone actually used by a
-        # plant in that ba, so that off-timezone plants can be shaped using a profile
-        # aligned to their own local calendar rather than the ba's
-        ba_native_timezone = load_data.load_ba_reference()[
-            ["ba_code", "timezone_local"]
-        ].rename(columns={"timezone_local": "timezone"})
+        # tag each ba's own hourly profile with its native local_timezone_offset, and
+        # build a reassembled absolute profile for every other offset actually used
+        # by a plant in that ba, so that off-timezone plants can be shaped using a
+        # profile aligned to their own local calendar rather than the ba's.
+        # local_timezone_offset (see helpers.add_local_timezone_offset) is used
+        # instead of the raw timezone name as the merge key throughout, since
+        # ba_reference.csv's ba timezones use legacy aliases (e.g. "US/Eastern")
+        # while plant timezones use canonical IANA names (e.g. "America/New_York")
+        # that can refer to the exact same physical timezone -- comparing their
+        # standard-time offsets instead of the raw names collapses those onto the
+        # same value wherever they're equivalent.
+        ba_reference = helpers.add_local_timezone_offset(
+            load_data.load_ba_reference()[["ba_code", "timezone_local"]],
+            year,
+            timezone_col="timezone_local",
+        )
+        ba_native_timezone = ba_reference[["ba_code", "local_timezone_offset"]]
         hourly_profiles = hourly_profiles.merge(
             ba_native_timezone, how="left", on="ba_code", validate="m:1"
         )
+        plant_attributes_with_offset = helpers.add_local_timezone_offset(
+            plant_attributes, year
+        )
         non_native_profiles = (
             impute_hourly_profiles.expand_hourly_profiles_to_plant_timezones(
-                hourly_profiles, plant_attributes, year
+                hourly_profiles, plant_attributes_with_offset, year
             )
         )
         hourly_profiles = pd.concat(
@@ -585,7 +598,7 @@ def main(args):
 
         hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
             hourly_profiles,
-            group_keys=["ba_code", "fuel_category", "profile_method", "timezone"],
+            group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
             columns_to_convert=["profile", "flat_profile"],
         )
 
@@ -603,7 +616,7 @@ def main(args):
             partial_cems_subplant,
             partial_cems_plant,
             monthly_eia_data_to_shape,
-            plant_attributes,
+            plant_attributes_with_offset,
             primary_fuel_table,
             hourly_profiles,
             path_prefix,
