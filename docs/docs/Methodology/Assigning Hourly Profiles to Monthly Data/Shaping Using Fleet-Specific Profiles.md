@@ -74,6 +74,14 @@ Once an hourly profile for each fleet-month has been calculated, it is converted
 
 When exporting hourly, plant-level data, we export hourly data for each individual plant. However, this data is too large to hold in memory, so this data is created for each BA and then exported. When calculating hourly, fleet-level outputs, we first aggregate the EIA-923 data to the fleet level before assigning a shape. 
 
+### Local timezones and hourly profiles
+
+Each BA-fuel hourly profile is calculated and expressed on the BA's own local calendar (the timezone the BA uses when reporting to EIA-930). However, a BA may span multiple timezones, so will contain plants whose local timezone does not match the reporting timezone of the BA. This mismatch means that any plant whose timezone does not match the BA's timezone will end up with an hour at the beginning or end of the year that is missing a profile.
+
+For fleet-level (power sector) outputs, we always use the BA's own local timezone, since these outputs are aggregated to the BA level regardless of the timezones of the individual plants that make them up.
+
+For plant-level outputs, using the BA's local timezone for every plant would mean that a plant located in a different timezone than its BA is assigned an hourly profile whose month and year boundaries don't line up with that plant's own local time (for example, a plant in `America/New_York` located within a `US/Central`-reporting BA). To keep plant-level exports internally consistent, plants located in a different timezone than their BA are shaped using their BA's profile reassembled onto their own local timezone: the BA's absolute (pre-percentage) hourly values are matched to the plant's own local months, borrowing values from the adjacent BA-local month where a local month boundary falls in the middle of a BA month, and are only then converted to a percentage of the plant's own local-month total. This ensures that a plant's hourly, monthly, and annual totals are always calculated within a single, consistent local year, rather than a mix of two different local years.
+
 ## Future Work, Known Issues, and Open Questions
 - Infer missing hourly profiles for hydro generation ([details](https://github.com/singularity-energy/open-grid-emissions/issues/37))
 - Infer hourly profiles for energy storage charge and discharge ([details](https://github.com/singularity-energy/open-grid-emissions/issues/59))
