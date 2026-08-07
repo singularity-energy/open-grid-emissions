@@ -84,6 +84,8 @@ For plant-level outputs, using the BA's local timezone for every plant would mea
 
 At the true start and end of the year, there is no adjacent-year BA data to borrow from (the pipeline only ever holds one year of data at a time), so these hours are instead forward/backward-filled from the nearest available hour. This fill is deliberately bounded to a small number of hours (wide enough to cover the largest timezone offset actually seen between a BA and its plants): if a plant's own profile is missing more hours than that at the edge, or has a gap somewhere else in the year, those hours are left missing rather than silently filled, so a genuine data problem stays visible instead of being masked.
 
+For BA-level outputs, plant data is aggregated to the BA level. Because some BAs have plants that span multiple timezones, this would result in the BA timeseries having more hours than the BA local time year. Thus, only the hours in the BA local time are kept. One limitation of this approach is that the edge hours (the first and last hour of the year), will only contain data for the subset of plants that were generating in that BA's local time. In other words, that hour may have incomplete data. To address this, the data pipeline would have to ingest data from several hours on either side of the current year. 
+
 ## Future Work, Known Issues, and Open Questions
 - Infer missing hourly profiles for hydro generation ([details](https://github.com/singularity-energy/open-grid-emissions/issues/37))
 - Infer hourly profiles for energy storage charge and discharge ([details](https://github.com/singularity-energy/open-grid-emissions/issues/59))

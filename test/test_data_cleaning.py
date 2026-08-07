@@ -78,3 +78,60 @@ def test_complete_hourly_timeseries_already_correct_grid_is_unchanged(
     assert len(result) == 8760
     assert set(result["datetime_utc"]) == set(eastern_grid["datetime_utc"])
     assert (result["net_generation_mwh"] == 1.0).all()
+
+
+def test_filter_to_ba_local_year_drops_union_of_timezones():
+    """Reproduces the power-sector "8761 hours" bug: a ba (e.g. SOCO) has real CEMS
+    data from plants in two different physical timezones (Central and Eastern), each
+    already completed onto its own local year (unchanged, via complete_hourly_
+    timeseries). Summing them together to the ba level spans the union of both local
+    years -- one extra hour -- unless the result is filtered down to the ba's own
+    native local year.
+    """
+    year = 2025
+    central_grid = helpers.create_local_year_timestamps(year, "US/Central")
+    eastern_grid = helpers.create_local_year_timestamps(year, "America/New_York")
+
+    # plant 1 (physically Central) and plant 2 (physically Eastern), both assigned
+    # to SOCO, each already completed onto its own local year
+    fleet_data = pd.concat(
+        [
+            pd.DataFrame(
+                {
+                    "ba_code": "SOCO",
+                    "datetime_utc": central_grid["datetime_utc"],
+                    "net_generation_mwh": 1.0,
+                }
+            ),
+            pd.DataFrame(
+                {
+                    "ba_code": "SOCO",
+                    "datetime_utc": eastern_grid["datetime_utc"],
+                    "net_generation_mwh": 1.0,
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    fleet_data = (
+        fleet_data.groupby(["ba_code", "datetime_utc"], dropna=False)[
+            "net_generation_mwh"
+        ]
+        .sum()
+        .reset_index()
+    )
+    assert len(fleet_data) == 8761  # the union of both local years
+
+    ba_timezone_lookup = pd.DataFrame(
+        {"ba_code": ["SOCO"], "timezone_local": ["US/Central"]}
+    )
+    with patch.object(
+        data_cleaning.load_data, "load_ba_reference", return_value=ba_timezone_lookup
+    ):
+        result = data_cleaning.filter_to_ba_local_year(fleet_data, year)
+
+    assert len(result) == 8760
+    assert set(result["datetime_utc"]) == set(central_grid["datetime_utc"])
+    # the eastern-only edge hour is dropped, but every hour on soco's own local
+    # year keeps its real (summed) value, including the eastern plant's overlap
+    assert (result["net_generation_mwh"] > 0).all()

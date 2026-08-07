@@ -1966,6 +1966,51 @@ def complete_hourly_timeseries(
     return df
 
 
+def filter_to_ba_local_year(df: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Filters an hourly, ba-level dataframe down to each ba's own complete local year.
+
+    Plant-level hourly data is completed onto each plant's own physical timezone (see
+    complete_hourly_timeseries), which is correct for the plant-level product. But a
+    ba can have plants in more than one physical timezone (e.g. SOCO reports as
+    US/Central but has some plants in America/New_York); once that plant-level data
+    is aggregated up to the ba level, the result can span the union of two different
+    local years -- an extra hour or two at the year boundary -- rather than a single,
+    consistent ba-local year.
+
+    Since every plant is already completed (and zero-filled for genuine gaps) onto
+    its own local year before aggregation, any hour in a ba's own local year that's
+    covered by at least one of its plants already has a real (possibly zero) value in
+    the aggregate. So the fix is a simple filter rather than a further reindex: keep
+    only the rows that fall within each ba's own native local year (from
+    ba_reference.csv's "timezone_local"), dropping whatever hours the union of its
+    plants' local years added beyond that.
+
+    Args:
+        df (pd.DataFrame): hourly, ba-level dataframe with "ba_code" and
+            "datetime_utc" columns.
+        year (int): the year to filter each ba to its own local year for.
+
+    Returns:
+        pd.DataFrame: `df` filtered to only the rows within each ba's own local year.
+    """
+    ba_reference = load_data.load_ba_reference()[["ba_code", "timezone_local"]]
+
+    timeseries_for_timezones = []
+    for timezone in ba_reference["timezone_local"].unique():
+        timezone_df = create_local_year_timestamps(year, timezone)[["datetime_utc"]]
+        timezone_df["timezone_local"] = timezone
+        timeseries_for_timezones.append(timezone_df)
+    timeseries_for_timezones = pd.concat(timeseries_for_timezones, ignore_index=True)
+
+    ba_local_year_hours = ba_reference.merge(
+        timeseries_for_timezones, on="timezone_local", how="left", validate="1:m"
+    )[["ba_code", "datetime_utc"]]
+
+    return df.merge(
+        ba_local_year_hours, on=["ba_code", "datetime_utc"], how="inner", validate="m:1"
+    )
+
+
 def adjust_cems_for_chp(cems, eia923_allocated):
     """
     Adjusts CEMS fuel consumption and emissions data for CHP.

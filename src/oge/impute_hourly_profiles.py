@@ -9,7 +9,11 @@ from oge.filepaths import reference_table_folder
 import oge.validation as validation
 import oge.output_data as output_data
 from oge.logging_util import get_logger
-from oge.helpers import assign_fleet_to_subplant_data, create_local_year_timestamps
+from oge.helpers import (
+    add_local_timezone_offset,
+    assign_fleet_to_subplant_data,
+    create_local_year_timestamps,
+)
 from oge.data_cleaning import complete_hourly_timeseries
 
 logger = get_logger(__name__)
@@ -844,15 +848,60 @@ def average_diba_wind_solar_profiles(
 
 
 def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_date):
+    """Imputes a missing wind/solar profile for a BA-fuel-month from the national
+    average local-standard-time profile, for use when no neighboring DIBA has usable
+    data.
+
+    Averages the EIA-930 residual profile across all BAs by naive local STANDARD
+    time (each BA's own fixed, non-DST UTC offset), rather than by naive prevailing
+    (DST-observing) local time, so that e.g. every BA's own standard-time 2pm gets
+    averaged with every other BA's own standard-time 2pm. Standard time has a fixed
+    offset from UTC year-round, so converting to and from it is a simple, bijective
+    shift with no DST ambiguous ("fall back") or nonexistent ("spring forward") hour
+    to resolve, unlike prevailing local time. This also avoids an artificial one-hour
+    jump in the shape of the profile itself for any month straddling a DST
+    transition: wind/solar output tracks the sun, which does not observe DST, so a
+    profile keyed to prevailing local time would discontinuously shift relative to
+    actual daylight right at the transition, while one keyed to standard time does
+    not.
+
+    Args:
+        residual_profiles (pd.DataFrame): EIA-930 residual profiles for all BAs, with
+            "ba_code", "fuel_category", "report_date", "datetime_utc", and
+            "eia930_profile" columns.
+        ba (str): the BA code to impute a profile for.
+        fuel (str): the fuel category to impute a profile for.
+        report_date (pd.Timestamp): the month to impute a profile for.
+
+    Returns:
+        pd.DataFrame: the imputed national-average profile for `ba`/`fuel`/
+            `report_date`, with "datetime_utc", "datetime_local", "imputed_profile",
+            "ba_code", and "imputation_method" columns.
+    """
     df_temporary = residual_profiles[
         (residual_profiles["fuel_category"] == fuel)
         & (residual_profiles["report_date"] == report_date)
     ].copy()
-    # strip the time zone information so we can group by local time
-    df_temporary["datetime_local"] = df_temporary["datetime_local"].str[:-6]
+
+    # convert each row's utc time to its own ba's local standard time (no DST)
+    # before averaging by clock time, instead of each ba's naive prevailing local
+    # time
+    ba_offsets = add_local_timezone_offset(
+        load_data.load_ba_reference()[["ba_code", "timezone_local"]],
+        report_date.year,
+        timezone_col="timezone_local",
+    )[["ba_code", "local_timezone_offset"]]
+    df_temporary = df_temporary.merge(
+        ba_offsets, on="ba_code", how="left", validate="m:1"
+    )
+    df_temporary["datetime_local_standard"] = (
+        df_temporary["datetime_utc"].dt.tz_localize(None)
+        + df_temporary["local_timezone_offset"]
+    )
+
     df_temporary = (
         df_temporary.groupby(
-            ["fuel_category", "datetime_local", "report_date"],
+            ["fuel_category", "datetime_local_standard", "report_date"],
             dropna=False,
         )["eia930_profile"]
         .mean()
@@ -862,20 +911,21 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     df_temporary["imputation_method"] = "national_average"
     df_temporary = df_temporary.rename(columns={"eia930_profile": "imputed_profile"})
 
-    # re-localize the datetime_local
+    # convert the averaged standard-time-of-day profile back to `ba`'s own timeline.
+    # standard-time arithmetic is a fixed, bijective offset in both directions, so
+    # unlike prevailing local time, this recovers exactly one real datetime_utc per
+    # row with no ambiguous or nonexistent hour to handle
+    ba_offset = ba_offsets.loc[
+        ba_offsets["ba_code"] == ba, "local_timezone_offset"
+    ].iloc[0]
+    df_temporary["datetime_utc"] = (
+        df_temporary["datetime_local_standard"] - ba_offset
+    ).dt.tz_localize("UTC")
     local_tz = load_data.ba_timezone(ba, "local")
-    df_temporary["datetime_local"] = pd.to_datetime(
-        df_temporary["datetime_local"]
-    ).astype("datetime64[s]")
-    df_temporary["datetime_local"] = (
-        df_temporary["datetime_local"]
-        .dt.tz_localize(local_tz, nonexistent="NaT", ambiguous="NaT")
-        .ffill()
+    df_temporary["datetime_local"] = df_temporary["datetime_utc"].dt.tz_convert(
+        local_tz
     )
-    df_temporary["datetime_utc"] = df_temporary["datetime_local"].dt.tz_convert("UTC")
-
-    # drop duplicate datetimes around DST
-    df_temporary = df_temporary.drop_duplicates(subset=["datetime_utc"], keep="first")
+    df_temporary = df_temporary.drop(columns=["datetime_local_standard"])
 
     return df_temporary
 

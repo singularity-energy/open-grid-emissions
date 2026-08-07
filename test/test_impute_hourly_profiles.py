@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pandas as pd
 import pytest
 
@@ -9,6 +11,94 @@ def _offset(timezone, year=2025):
     """The standard-time UTC offset for a timezone name, matching what
     helpers.add_local_timezone_offset() would compute for the same (timezone, year)."""
     return pd.Timestamp(year, 1, 1, tz=timezone).utcoffset()
+
+
+def test_average_national_wind_solar_profiles_no_dst_ambiguity_or_gap():
+    """Averaging by local STANDARD time (a fixed, year-round UTC offset) rather than
+    naive prevailing local time means converting to and from it is always a simple
+    bijective shift. This reproduces the DST "fall back" transition that used to make
+    one naive prevailing-local hour ambiguous (GRIS's US/Central falls back on
+    2025-11-02) and confirms every real hour now round-trips through the national
+    average exactly once, with no duplicated or dropped hour.
+    """
+    report_date = pd.Timestamp("2025-11-01")
+    hours = pd.date_range(
+        "2025-11-01 22:00:00", "2025-11-02 10:00:00", freq="h", tz="UTC"
+    )
+    residual_profiles = pd.DataFrame(
+        {
+            "ba_code": "GRIS",
+            "fuel_category": "wind",
+            "report_date": report_date,
+            "datetime_utc": hours,
+            "eia930_profile": 1.0,
+        }
+    )
+    ba_timezone_lookup = pd.DataFrame(
+        {"ba_code": ["GRIS"], "timezone_local": ["US/Central"]}
+    )
+
+    with patch.object(
+        impute_hourly_profiles.load_data,
+        "load_ba_reference",
+        return_value=ba_timezone_lookup,
+    ):
+        result = impute_hourly_profiles.average_national_wind_solar_profiles(
+            residual_profiles, "GRIS", "wind", report_date
+        )
+
+    assert len(result) == len(hours)
+    assert not result["datetime_utc"].duplicated().any()
+    assert set(result["datetime_utc"]) == set(hours)
+
+
+def test_average_national_wind_solar_profiles_groups_by_standard_time():
+    """Averaging must group bas by local STANDARD time, not naive prevailing local
+    time. During a DST month, a DST-observing ba's prevailing offset differs from its
+    standard offset while a non-DST ba's (e.g. Arizona) does not, so grouping by
+    prevailing time would misalign the two bas; grouping by standard time correctly
+    aligns them onto the same clock slot.
+    """
+    report_date = pd.Timestamp("2025-07-01")  # DST is in effect for US/Central
+    residual_profiles = pd.DataFrame(
+        {
+            "ba_code": ["GRIS", "AZPS"],
+            "fuel_category": "wind",
+            "report_date": report_date,
+            # 1 real utc hour apart, but the same local STANDARD time in both zones
+            # (US/Central is UTC-6 standard; America/Phoenix is UTC-7 year-round,
+            # since Arizona does not observe DST)
+            "datetime_utc": pd.to_datetime(
+                ["2025-07-01 07:00:00", "2025-07-01 08:00:00"], utc=True
+            ),
+            "eia930_profile": [2.0, 4.0],
+        }
+    )
+    ba_timezone_lookup = pd.DataFrame(
+        {
+            "ba_code": ["GRIS", "AZPS"],
+            "timezone_local": ["US/Central", "America/Phoenix"],
+        }
+    )
+
+    with patch.object(
+        impute_hourly_profiles.load_data,
+        "load_ba_reference",
+        return_value=ba_timezone_lookup,
+    ):
+        result = impute_hourly_profiles.average_national_wind_solar_profiles(
+            residual_profiles, "GRIS", "wind", report_date
+        )
+
+    # both rows land on local standard time 2025-07-01 01:00:00, so they're
+    # averaged into a single row rather than kept separate
+    assert len(result) == 1
+    assert result["imputed_profile"].iloc[0] == 3.0
+    # reconstructed onto GRIS's own timeline using its standard (not summer
+    # prevailing) offset: 01:00 standard time - (-6h) = 07:00 utc
+    assert result["datetime_utc"].iloc[0] == pd.Timestamp(
+        "2025-07-01 07:00:00", tz="UTC"
+    )
 
 
 def test_create_local_year_timestamps_non_leap_year():

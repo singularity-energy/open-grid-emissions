@@ -785,6 +785,13 @@ def main(args):
             .reset_index()
         )
 
+        # a ba can span more than one plant timezone, so summing plants that were each
+        # completed onto their own local year can span the union of two local years.
+        # filter down to each ba's own native local year
+        combined_fleet_data = data_cleaning.filter_to_ba_local_year(
+            combined_fleet_data, year
+        )
+
         # Output final data: per-ba hourly generation and rate
         output_data.write_power_sector_results(
             combined_fleet_data,
