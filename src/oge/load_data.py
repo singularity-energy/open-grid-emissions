@@ -381,9 +381,7 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
         header_row = 2
         footer_row = 1
     else:
-        filepath = downloads_folder(
-            f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx"
-        )
+        filepath = downloads_folder(f"eia860/eia860{year}/3_1_Generator_Y{year}.xlsx")
         header_row = 1
         footer_row = 1
 

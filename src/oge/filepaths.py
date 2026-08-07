@@ -90,9 +90,7 @@ def find_downloaded_file(relative_dir: str, pattern: str) -> str:
     directory = downloads_folder(relative_dir)
     matches = glob.glob(os.path.join(directory, pattern))
     if not matches:
-        raise FileNotFoundError(
-            f"No file matching '{pattern}' found in {directory}"
-        )
+        raise FileNotFoundError(f"No file matching '{pattern}' found in {directory}")
     matches.sort(key=lambda path: (len(os.path.basename(path)), path))
     return matches[0].replace("\\", "/")
 
