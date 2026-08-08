@@ -677,6 +677,12 @@ def impute_missing_hourly_profiles(
     # this will help us fill profiles using data from nearby BAs
     dibas = load_data.load_diba_data(year)
 
+    # calculate the national-average wind/solar profile once for the whole year,
+    # rather than recomputing it for every (ba, fuel, month) that needs it
+    national_average_profiles = calculate_national_average_wind_solar_profiles(
+        residual_profiles, year
+    )
+
     # create an hourly datetime series in local time for each ba/fuel type
     hourly_profiles_to_add = []
 
@@ -699,12 +705,18 @@ def impute_missing_hourly_profiles(
             )
             if len(ba_dibas) > 0:
                 df_temporary = average_diba_wind_solar_profiles(
-                    residual_profiles, ba, fuel, report_date, ba_dibas
+                    residual_profiles,
+                    ba,
+                    fuel,
+                    report_date,
+                    ba_dibas,
+                    national_average_profiles,
+                    year,
                 )
             # if there are no neighboring DIBAs, calculate a national average profile
             else:
-                df_temporary = average_national_wind_solar_profiles(
-                    residual_profiles, ba, fuel, report_date
+                df_temporary = get_national_average_profile_for_fuel_month(
+                    national_average_profiles, ba, fuel, report_date, year
                 )
 
         # certain fuels we assume would be operated as baseload
@@ -815,8 +827,45 @@ def identify_missing_profiles(
 
 
 def average_diba_wind_solar_profiles(
-    residual_profiles, ba, fuel, report_date, ba_dibas, validation_run=False
+    residual_profiles,
+    ba,
+    fuel,
+    report_date,
+    ba_dibas,
+    national_average_profiles,
+    year,
+    validation_run=False,
 ):
+    """Imputes a missing wind/solar profile for a BA-fuel-month by averaging the
+    EIA-930 residual profile of its neighboring directly-interconnected BAs (DIBAs).
+
+    Falls back to the precomputed national-average profile (see
+    get_national_average_profile_for_fuel_month) when none of `ba_dibas` has usable
+    data for this fuel-month, unless `validation_run` is set, in which case the
+    fallback is skipped so that cross-validation only scores the DIBA method itself.
+
+    Args:
+        residual_profiles (pd.DataFrame): EIA-930 residual profiles for all BAs, with
+            "ba_code", "fuel_category", "datetime_utc", "datetime_local",
+            "report_date", and "eia930_profile" columns.
+        ba (str): the BA code to impute a profile for.
+        fuel (str): the fuel category to impute a profile for.
+        report_date (pd.Timestamp): the month to impute a profile for.
+        ba_dibas (list[str]): BA codes of `ba`'s directly-interconnected neighbors in
+            the same region and timezone.
+        national_average_profiles (pd.DataFrame): from
+            calculate_national_average_wind_solar_profiles(), used for the
+            no-DIBA-data fallback.
+        year (int): the data year, used for the no-DIBA-data fallback.
+        validation_run (bool, optional): if True, skip the national-average fallback
+            even when no DIBA data is available, so cross-validation only scores the
+            DIBA method itself. Defaults to False.
+
+    Returns:
+        pd.DataFrame: the imputed profile for `ba`/`fuel`/`report_date`, with
+            "datetime_utc", "datetime_local", "report_date", "fuel_category",
+            "imputed_profile", "ba_code", and "imputation_method" columns.
+    """
     # calculate the average generation profile for the fuel in all neighboring DIBAs
     df_temporary = residual_profiles[
         (residual_profiles["ba_code"].isin(ba_dibas))
@@ -826,8 +875,8 @@ def average_diba_wind_solar_profiles(
     if len(df_temporary) == 0 and not validation_run:
         # if this error is raised, we might have to implement an approach that uses average values for the wider region
         logger.warning(f"There is no {fuel} data in the DIBAs for {ba}: {ba_dibas}")
-        df_temporary = average_national_wind_solar_profiles(
-            residual_profiles, ba, fuel, report_date
+        df_temporary = get_national_average_profile_for_fuel_month(
+            national_average_profiles, ba, fuel, report_date, year
         )
     else:
         df_temporary = (
@@ -847,40 +896,42 @@ def average_diba_wind_solar_profiles(
     return df_temporary
 
 
-def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_date):
-    """Imputes a missing wind/solar profile for a BA-fuel-month from the national
-    average local-standard-time profile, for use when no neighboring DIBA has usable
-    data.
+def calculate_national_average_wind_solar_profiles(
+    residual_profiles: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Calculates the national-average EIA-930 wind/solar profile for the whole year,
+    once, for use by get_national_average_profile_for_fuel_month() as a last-resort
+    imputation fallback when a ba has no usable residual profile of its own and no
+    neighboring DIBA data either.
 
-    Averages the EIA-930 residual profile across all BAs by naive local STANDARD
-    time (each BA's own fixed, non-DST UTC offset), rather than by naive prevailing
-    (DST-observing) local time, so that e.g. every BA's own standard-time 2pm gets
-    averaged with every other BA's own standard-time 2pm. Standard time has a fixed
-    offset from UTC year-round, so converting to and from it is a simple, bijective
-    shift with no DST ambiguous ("fall back") or nonexistent ("spring forward") hour
-    to resolve, unlike prevailing local time. This also avoids an artificial one-hour
-    jump in the shape of the profile itself for any month straddling a DST
-    transition: wind/solar output tracks the sun, which does not observe DST, so a
-    profile keyed to prevailing local time would discontinuously shift relative to
-    actual daylight right at the transition, while one keyed to standard time does
-    not.
+    Averages every ba's residual profile by local STANDARD time (each ba's own
+    fixed, non-DST UTC offset) across the whole year in a single pass, rather than
+    recomputing a fresh national average for every (ba, fuel, month) that happens to
+    need one. Standard time has a fixed offset from UTC year-round, so unlike naive
+    prevailing (DST-observing) local time, converting to and from it is always a
+    simple, bijective shift -- with no DST ambiguous ("fall back") or nonexistent
+    ("spring forward") hour to resolve, and no artificial one-hour jump in the shape
+    of the profile itself for a month straddling a DST transition (wind/solar output
+    tracks the sun, which does not observe DST). Computing this once for the whole
+    year, rather than once per (ba, fuel, month), also avoids a subtler bug: slicing
+    the national average by report_date -- itself a ba-relative tag, computed from
+    each ba's own prevailing local time -- while averaging by a different
+    (standard-time) offset let the same real hour get computed independently from
+    two different report_dates' worth of national data, producing duplicate
+    datetime_utc values downstream.
 
     Args:
         residual_profiles (pd.DataFrame): EIA-930 residual profiles for all BAs, with
-            "ba_code", "fuel_category", "report_date", "datetime_utc", and
-            "eia930_profile" columns.
-        ba (str): the BA code to impute a profile for.
-        fuel (str): the fuel category to impute a profile for.
-        report_date (pd.Timestamp): the month to impute a profile for.
+            "ba_code", "fuel_category", "datetime_utc", and "eia930_profile" columns.
+        year (int): the year to compute standard-time offsets for.
 
     Returns:
-        pd.DataFrame: the imputed national-average profile for `ba`/`fuel`/
-            `report_date`, with "datetime_utc", "datetime_local", "imputed_profile",
-            "ba_code", and "imputation_method" columns.
+        pd.DataFrame: one row per (fuel_category, datetime_local_standard) actually
+            reported nationally for wind or solar, with a "national_average_profile"
+            column.
     """
     df_temporary = residual_profiles[
-        (residual_profiles["fuel_category"] == fuel)
-        & (residual_profiles["report_date"] == report_date)
+        residual_profiles["fuel_category"].isin(["wind", "solar"])
     ].copy()
 
     # convert each row's utc time to its own ba's local standard time (no DST)
@@ -888,7 +939,7 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
     # time
     ba_offsets = add_local_timezone_offset(
         load_data.load_ba_reference()[["ba_code", "timezone_local"]],
-        report_date.year,
+        year,
         timezone_col="timezone_local",
     )[["ba_code", "local_timezone_offset"]]
     df_temporary = df_temporary.merge(
@@ -899,43 +950,145 @@ def average_national_wind_solar_profiles(residual_profiles, ba, fuel, report_dat
         + df_temporary["local_timezone_offset"]
     )
 
-    df_temporary = (
+    return (
         df_temporary.groupby(
-            ["fuel_category", "datetime_local_standard", "report_date"],
-            dropna=False,
+            ["fuel_category", "datetime_local_standard"], dropna=False
         )["eia930_profile"]
         .mean()
         .reset_index()
+        .rename(columns={"eia930_profile": "national_average_profile"})
     )
-    df_temporary["ba_code"] = ba
-    df_temporary["imputation_method"] = "national_average"
-    df_temporary = df_temporary.rename(columns={"eia930_profile": "imputed_profile"})
 
-    # convert the averaged standard-time-of-day profile back to `ba`'s own timeline.
-    # standard-time arithmetic is a fixed, bijective offset in both directions, so
-    # unlike prevailing local time, this recovers exactly one real datetime_utc per
-    # row with no ambiguous or nonexistent hour to handle
-    ba_offset = ba_offsets.loc[
-        ba_offsets["ba_code"] == ba, "local_timezone_offset"
-    ].iloc[0]
+
+def get_national_average_profile_for_fuel_month(
+    national_average_profiles, ba, fuel, report_date, year
+):
+    """Looks up `ba`'s imputed wind/solar profile for one month from the precomputed
+    national-average profile (see calculate_national_average_wind_solar_profiles),
+    for use when no neighboring DIBA has usable data.
+
+    Localizes the fuel's national-average profile -- indexed by naive local
+    standard time -- onto `ba`'s own timeline: recovering datetime_utc from
+    standard time is a simple, bijective offset (no DST ambiguity to resolve), and
+    converting that forward to `ba`'s own actual (DST-observing) local time is
+    always well-defined, so `report_date` and `datetime_local` can be computed
+    directly from it. The result is joined against `ba`'s own complete local year
+    so that a true gap at the very start/end of the year (where no adjacent-year
+    national data exists, since residual_profiles only ever holds a single year) is
+    filled from the nearest available hour, bounded to a small window so a genuine
+    gap elsewhere in the year stays missing instead of being silently smoothed
+    over -- then the result is filtered down to the requested month.
+
+    Args:
+        national_average_profiles (pd.DataFrame): from
+            calculate_national_average_wind_solar_profiles(), with "fuel_category",
+            "datetime_local_standard", and "national_average_profile" columns.
+        ba (str): the BA code to impute a profile for.
+        fuel (str): the fuel category to impute a profile for.
+        report_date (pd.Timestamp): the month to impute a profile for.
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: the imputed national-average profile for `ba`/`fuel`/
+            `report_date`, with "datetime_utc", "datetime_local", "report_date",
+            "fuel_category", "imputed_profile", "ba_code", and "imputation_method"
+            columns.
+    """
+    # widest number of hours ba's own local year could plausibly need to borrow
+    # from an adjacent calendar year at the true start/end-of-year edge, since
+    # residual_profiles only ever holds a single year of national data
+    edge_window_hours = 4
+
+    # ba's own fixed, non-DST offset -- the same quantity used to build
+    # national_average_profiles's "datetime_local_standard" axis, so subtracting it
+    # is a plain, bijective inverse (see calculate_national_average_wind_solar_
+    # profiles for why this is safe, unlike prevailing local time)
+    local_tz = load_data.ba_timezone(ba, "local")
+    ba_offset = pd.Timestamp(year, 1, 1, tz=local_tz).utcoffset()
+
+    df_temporary = national_average_profiles[
+        national_average_profiles["fuel_category"] == fuel
+    ].copy()
     df_temporary["datetime_utc"] = (
         df_temporary["datetime_local_standard"] - ba_offset
     ).dt.tz_localize("UTC")
-    local_tz = load_data.ba_timezone(ba, "local")
-    df_temporary["datetime_local"] = df_temporary["datetime_utc"].dt.tz_convert(
-        local_tz
-    )
-    df_temporary = df_temporary.drop(columns=["datetime_local_standard"])
 
-    return df_temporary
+    # join onto ba's own complete local year (every hour of `year` in ba's own
+    # prevailing calendar) so that any hour missing from the national average --
+    # only expected at the true start/end of the year, where residual_profiles has
+    # no adjacent-year data to draw from -- shows up as a row with a NaN profile
+    # rather than simply being absent
+    reassembled = (
+        create_local_year_timestamps(year, local_tz)
+        .merge(
+            df_temporary[["datetime_utc", "national_average_profile"]],
+            how="left",
+            on="datetime_utc",
+            validate="1:1",
+        )
+        .sort_values("datetime_utc")
+        .reset_index(drop=True)
+    )
+
+    # fill only missing hours within edge_window_hours of the true start/end of the
+    # year (found from the row's position, since reassembled is one full year
+    # sorted chronologically with a fresh 0..N-1 index). Restricting the fill to
+    # this window -- rather than filling any missing value -- means a genuine gap
+    # in national coverage elsewhere in the year stays missing instead of being
+    # silently smoothed over.
+    is_missing = reassembled["national_average_profile"].isna()
+    hours_from_start = reassembled.index.to_series()
+    hours_from_end = (len(reassembled) - 1) - hours_from_start
+    edge_mask = is_missing & (
+        (hours_from_start < edge_window_hours) | (hours_from_end < edge_window_hours)
+    )
+    # ffill/bfill the whole column to get each edge hour's nearest real neighbor,
+    # then only copy those candidate values in at the edge positions identified
+    # above -- this way a fill can never leak into a non-edge gap
+    filled = reassembled["national_average_profile"].ffill().bfill()
+    reassembled.loc[edge_mask, "national_average_profile"] = filled.loc[edge_mask]
+
+    # only now, with ba's own complete local year assembled, filter down to the
+    # requested month using report_date as computed for ba's own timeline (not
+    # passed through from whichever source bas contributed to the national average)
+    reassembled = reassembled[reassembled["report_date"] == report_date].copy()
+    reassembled["ba_code"] = ba
+    reassembled["fuel_category"] = fuel
+    reassembled["imputation_method"] = "national_average"
+    reassembled["datetime_local"] = reassembled["datetime_utc"].dt.tz_convert(local_tz)
+    reassembled = reassembled.rename(
+        columns={"national_average_profile": "imputed_profile"}
+    )
+
+    return reassembled
 
 
 def validate_wind_solar_imputation(hourly_profiles, year):
-    """Creates a table showing cross-validaton results of the wind and solar profile imputation method"""
+    """Coordinating function for cross-validating the wind/solar profile imputation
+    methods.
 
+    For every BA-fuel-month where we actually have a real EIA-930 profile, imputes a
+    profile as if that data were missing -- once using the DIBA-average method, once
+    using the national-average method -- and correlates each imputed profile against
+    the real one. This estimates how well each fallback method performs, using the
+    BA-fuel-months where we can check it against real data, as a proxy for its
+    performance on the BA-fuel-months where it's actually used (where no real
+    profile exists to validate against).
+
+    Args:
+        hourly_profiles (pd.DataFrame): hourly wind/solar profiles, with "ba_code",
+            "fuel_category", "datetime_utc", "datetime_local", "report_date", and
+            "eia930_profile" columns.
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: one row per (fuel_category, ba_code), with
+            "diba_method_correlation_coefficient" and
+            "national_method_correlation_coefficient" columns.
+    """
     # calculate the results and merge together
     diba_results = validate_diba_imputation_method(hourly_profiles, year)
-    nationaal_results = validate_national_imputation_method(hourly_profiles)
+    nationaal_results = validate_national_imputation_method(hourly_profiles, year)
 
     imputation_results = diba_results.merge(
         nationaal_results, how="outer", on=["fuel_category", "ba_code"], validate="1:1"
@@ -977,6 +1130,9 @@ def validate_diba_imputation_method(hourly_profiles, year):
     ]
 
     dibas = load_data.load_diba_data(year)
+    national_average_profiles = calculate_national_average_wind_solar_profiles(
+        data_to_validate, year
+    )
 
     # create an hourly datetime series in local time for each ba/fuel type
     hourly_profiles_to_add = []
@@ -1000,7 +1156,14 @@ def validate_diba_imputation_method(hourly_profiles, year):
             )
             if len(ba_dibas) > 0:
                 df_temporary = average_diba_wind_solar_profiles(
-                    data_to_validate, ba, fuel, report_date, ba_dibas, True
+                    data_to_validate,
+                    ba,
+                    fuel,
+                    report_date,
+                    ba_dibas,
+                    national_average_profiles,
+                    year,
+                    True,
                 )
 
                 hourly_profiles_to_add.append(df_temporary)
@@ -1048,7 +1211,7 @@ def validate_diba_imputation_method(hourly_profiles, year):
     return compare_method
 
 
-def validate_national_imputation_method(hourly_profiles):
+def validate_national_imputation_method(hourly_profiles, year):
     # only keep wind and solar data
     data_to_validate = hourly_profiles[
         (hourly_profiles["fuel_category"].isin(["wind", "solar"]))
@@ -1069,6 +1232,10 @@ def validate_national_imputation_method(hourly_profiles):
         ["ba_code", "fuel_category", "report_date"]
     ].drop_duplicates()
 
+    national_average_profiles = calculate_national_average_wind_solar_profiles(
+        data_to_validate, year
+    )
+
     # create an hourly datetime series in local time for each ba/fuel type
     hourly_profiles_to_add = []
 
@@ -1081,8 +1248,8 @@ def validate_national_imputation_method(hourly_profiles):
         # nearby interconnected BAs
         if fuel in ["wind", "solar"]:
             # get a list of diba located in the same region and located in the same time zone
-            df_temporary = average_national_wind_solar_profiles(
-                data_to_validate, ba, fuel, report_date
+            df_temporary = get_national_average_profile_for_fuel_month(
+                national_average_profiles, ba, fuel, report_date, year
             )
 
         hourly_profiles_to_add.append(df_temporary)

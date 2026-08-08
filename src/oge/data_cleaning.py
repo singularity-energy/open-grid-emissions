@@ -1945,7 +1945,7 @@ def complete_hourly_timeseries(
 
     if added_count > 0:
         logger.info(
-            f"complete_hourly_timeseries() added {added_count} missing rows to the dataframe"
+            f"{added_count / len(df) * 100:.2f}% of timestamps were missing and filled by complete_hourly_timeseries()"
         )
     if dropped_count > 0:
         logger.warning(
