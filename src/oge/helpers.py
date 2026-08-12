@@ -1368,3 +1368,82 @@ def create_subplant_attributes_table(
         results_folder(f"{path_prefix}plant_data/subplant_attributes.csv"),
         index=False,
     )
+
+
+def create_local_year_timestamps(year: int, timezone: str) -> pd.DataFrame:
+    """Creates a complete hourly timeseries for a single local year in a given timezone.
+
+    Builds an hourly datetime_local range from Jan 1 to Dec 31 of `year` in `timezone`,
+    then converts it to the corresponding UTC timestamps and local calendar month. This
+    represents what "a complete year" means for data reported on that timezone's local
+    calendar, as distinct from a complete UTC calendar year.
+
+    Args:
+        year (int): the year to create a complete local timeseries for.
+        timezone (str): a timezone name (e.g. "America/New_York") to localize the
+            timeseries to.
+
+    Returns:
+        pd.DataFrame: a dataframe with one row per local hour of `year`, containing
+            "datetime_utc" and "report_date" (the local calendar month) columns.
+    """
+    timezone_df = pd.DataFrame(
+        data=pd.date_range(
+            start=f"{year}-01-01 00:00:00",
+            end=f"{year}-12-31 23:00:00",
+            freq="h",
+            tz=timezone,
+            name="datetime_local",
+        )
+    )
+    timezone_df["datetime_utc"] = timezone_df["datetime_local"].dt.tz_convert("UTC")
+    timezone_df["report_date"] = (
+        timezone_df["datetime_local"]
+        .dt.tz_localize(None)
+        .dt.to_period("M")
+        .dt.to_timestamp()
+    )
+    timezone_df = timezone_df.drop(columns=["datetime_local"])
+
+    return timezone_df
+
+
+def add_local_timezone_offset(
+    df: pd.DataFrame, year: int, timezone_col: str = "timezone"
+) -> pd.DataFrame:
+    """Adds a "local_timezone_offset" column based on each row's standard-time UTC
+    offset for `year`.
+
+    Two timezone names produce the exact same set of UTC hours for a full local
+    year whenever they share the same standard-time (January) UTC offset,
+    regardless of whether either observes daylight saving time or on what dates:
+    a local year always starts and ends in standard time (DST is a summer-only
+    phenomenon in North America), so a full year's span is unaffected by
+    whatever happens to the clock in between. This is the same reasoning PUDL
+    uses to convert CEMS timestamps to UTC (see
+    pudl.transform.epacems._load_plant_utc_offset).
+
+    Using this offset as a merge key collapses a legacy alias (e.g.
+    ba_reference.csv's "US/Central") and its canonical IANA name (e.g.
+    "America/Chicago", used in core_eia__entity_plants) onto the same value,
+    while still correctly keeping timezones with genuinely different standard
+    offsets distinct -- without needing every caller to agree on a single
+    spelling of a given physical timezone.
+
+    Args:
+        df (pd.DataFrame): dataframe with a column of timezone name strings.
+        year (int): the year to compute standard-time offsets for.
+        timezone_col (str): name of the column containing timezone name strings.
+            Defaults to "timezone".
+
+    Returns:
+        pd.DataFrame: `df` with a new "local_timezone_offset" column (a pandas
+            Timedelta) added.
+    """
+    offsets = {
+        timezone: pd.Timestamp(year, 1, 1, tz=timezone).utcoffset()
+        for timezone in pd.unique(df[timezone_col].dropna())
+    }
+    df = df.copy()
+    df["local_timezone_offset"] = df[timezone_col].map(offsets)
+    return df

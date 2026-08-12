@@ -14,6 +14,7 @@ from oge.helpers import (
     create_plant_ba_table,
     add_subplant_ids_to_df,
     assign_fleet_to_subplant_data,
+    create_local_year_timestamps,
 )
 from oge.logging_util import get_logger
 
@@ -1864,6 +1865,13 @@ def complete_hourly_timeseries(
     `combined_cems_subplant_data` before combining it with the shaped eia data in step
     18, we don't end up with overlapping timeseries.
 
+    Every group is always reindexed onto its own complete local-year timeseries, even
+    if it already has the expected number of rows: a group can have the correct row
+    count but the wrong set of hours (e.g. if it was shaped onto another timezone's
+    local year), and only reindexing onto the actual expected hours can catch that. Any
+    row in `df` whose "datetime_utc" falls outside its group's complete local-year
+    timeseries is dropped (and logged), rather than being kept as an extra row.
+
     Args:
         df (pd.DataFrame): dataframe to complete the timeseries for
         year (int): year to create a complete timeseries for (should match the local year of the data)
@@ -1877,96 +1885,130 @@ def complete_hourly_timeseries(
         pd.DataFrame: dataframe with complete timeseries
     """
 
-    # check if there are any missing timestamps
-    expected_hours = 8784 if (year % 4 == 0) else 8760
-    test = df.groupby(group_cols)[["datetime_utc"]].count()
-    # only repair if it is needed, otherwise, skip this
-    if len(test[test["datetime_utc"] < expected_hours]) > 0:
-        # get all unique groups for which to create complete timeseries
-        complete_timeseries = df[group_cols].drop_duplicates()
+    # get all unique groups for which to create complete timeseries
+    complete_timeseries = df[group_cols].drop_duplicates()
 
-        # merge in timezone data for each plant
-        plant_timezone = load_data.load_pudl_table(
-            "core_eia__entity_plants", columns=["plant_id_eia", "timezone"]
-        )
+    # merge in timezone data for each plant
+    plant_timezone = load_data.load_pudl_table(
+        "core_eia__entity_plants", columns=["plant_id_eia", "timezone"]
+    )
+    complete_timeseries = complete_timeseries.merge(
+        plant_timezone, on="plant_id_eia", how="left", validate="m:1"
+    )
+
+    # localize the datetime_local column using the timezone column
+    # get a list of timezones to iterate through. Becuase pandas has trouble with
+    # tz localization and conversion if multiple tz's exist in a single column, we
+    # need to do these operations one at a time for each timezone, then concat them
+    timezones = complete_timeseries["timezone"].unique()
+    timeseries_for_timezones = []
+    for timezone in timezones:
+        timezone_df = create_local_year_timestamps(year, timezone)
+        timezone_df["timezone"] = timezone
+        timeseries_for_timezones.append(timezone_df)
+    timeseries_for_timezones = pd.concat(timeseries_for_timezones)
+
+    # merge the complete timeseries for each timezone into the groups to create
+    # complete timeseries for each group
+    if "report_date" in group_cols:
         complete_timeseries = complete_timeseries.merge(
-            plant_timezone, on="plant_id_eia", how="left"
+            timeseries_for_timezones,
+            on=["timezone", "report_date"],
+            how="left",
+            validate="m:m",
         )
-
-        # localize the datetime_local column using the timezone column
-        # get a list of timezones to iterate through. Becuase pandas has trouble with
-        # tz localization and conversion if multiple tz's exist in a single column, we
-        # need to do these operations one at a time for each timezone, then concat them
-        timezones = complete_timeseries["timezone"].unique()
-        timeseries_for_timezones = []
-        for timezone in timezones:
-            # first get the complete set of timestamps in local time
-            timezone_df = pd.DataFrame(
-                data=pd.date_range(
-                    start=f"{year}-01-01 00:00:00",
-                    end=f"{year}-12-31 23:00:00",
-                    freq="h",
-                    tz=timezone,
-                    name="datetime_local",
-                )
-            )
-            # now convert to UTC
-            timezone_df["datetime_utc"] = timezone_df["datetime_local"].dt.tz_convert(
-                "UTC"
-            )
-            timezone_df["report_date"] = (
-                timezone_df["datetime_local"]
-                .dt.tz_localize(None)
-                .dt.to_period("M")
-                .dt.to_timestamp()
-            )
-            timezone_df = timezone_df.drop(columns=["datetime_local"])
-            timezone_df["timezone"] = timezone
-            timeseries_for_timezones.append(timezone_df)
-        timeseries_for_timezones = pd.concat(timeseries_for_timezones)
-
-        # merge the complete timeseries for each timezone into the groups to create
-        # complete timeseries for each group
-        if "report_date" in group_cols:
-            complete_timeseries = complete_timeseries.merge(
-                timeseries_for_timezones,
-                on=["timezone", "report_date"],
-                how="left",
-                validate="m:m",
-            )
-        else:
-            complete_timeseries = complete_timeseries.merge(
-                timeseries_for_timezones.drop(columns=["report_date"]),
-                on=["timezone"],
-                how="left",
-                validate="m:m",
-            )
-        complete_timeseries = complete_timeseries.drop(columns=["timezone"])
-
-        # complete the timeseries in the original dataframe
-        pre_completion_size = len(df)
-        df = df.merge(
-            complete_timeseries, on=(group_cols + ["datetime_utc"]), how="outer"
-        ).sort_values(by=group_cols + ["datetime_utc"], ascending=True)
-        post_completion_size = len(df)
-
-        if post_completion_size != pre_completion_size:
-            logger.info(
-                f"complete_hourly_timeseries() added {post_completion_size - pre_completion_size} missing rows to the dataframe"
-            )
-
-        # fill values for missing timestamps
-        df[columns_to_fill_with_zero] = df[columns_to_fill_with_zero].fillna(0.0)
-
-        # forward and backfill columns within each group. This can be used for
-        # non-numeric columns
-        df[columns_to_bffill] = (
-            df.groupby(group_cols)[columns_to_bffill].ffill().bfill()
-        )
-
-        return df
     else:
-        return df
+        complete_timeseries = complete_timeseries.merge(
+            timeseries_for_timezones.drop(columns=["report_date"]),
+            on=["timezone"],
+            how="left",
+            validate="m:m",
+        )
+    complete_timeseries = complete_timeseries.drop(columns=["timezone"])
+
+    # reindex the original dataframe onto the complete timeseries for each group. This
+    # is a left join onto `complete_timeseries` (rather than an outer join) so that the
+    # result always matches the target grid: any row in `df` whose "datetime_utc" isn't
+    # part of its group's expected local year is dropped rather than kept as an extra
+    # row alongside the grid's own hours.
+    pre_completion_size = len(df)
+    df = complete_timeseries.merge(
+        df,
+        on=(group_cols + ["datetime_utc"]),
+        how="left",
+        validate="1:1",
+        indicator=True,
+    ).sort_values(by=group_cols + ["datetime_utc"], ascending=True)
+    added_count = (df["_merge"] == "left_only").sum()
+    dropped_count = pre_completion_size - (df["_merge"] == "both").sum()
+    df = df.drop(columns=["_merge"])
+
+    if added_count > 0:
+        logger.info(
+            f"{added_count / len(df) * 100:.2f}% of timestamps were missing and filled by complete_hourly_timeseries()"
+        )
+    if dropped_count > 0:
+        logger.warning(
+            f"complete_hourly_timeseries() dropped {dropped_count} rows from the "
+            "dataframe whose datetime_utc fell outside their group's expected "
+            f"{year} local-year timeseries"
+        )
+
+    # fill values for missing timestamps
+    df[columns_to_fill_with_zero] = df[columns_to_fill_with_zero].fillna(0.0)
+
+    # forward and backfill columns within each group. This can be used for
+    # non-numeric columns
+    df[columns_to_bffill] = (
+        df.groupby(group_cols, dropna=False)[columns_to_bffill].ffill().bfill()
+    )
+
+    return df
+
+
+def filter_to_ba_local_year(df: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Filters an hourly, ba-level dataframe down to each ba's own complete local year.
+
+    Plant-level hourly data is completed onto each plant's own physical timezone (see
+    complete_hourly_timeseries), which is correct for the plant-level product. But a
+    ba can have plants in more than one physical timezone (e.g. SOCO reports as
+    US/Central but has some plants in America/New_York); once that plant-level data
+    is aggregated up to the ba level, the result can span the union of two different
+    local years -- an extra hour or two at the year boundary -- rather than a single,
+    consistent ba-local year.
+
+    Since every plant is already completed (and zero-filled for genuine gaps) onto
+    its own local year before aggregation, any hour in a ba's own local year that's
+    covered by at least one of its plants already has a real (possibly zero) value in
+    the aggregate. So the fix is a simple filter rather than a further reindex: keep
+    only the rows that fall within each ba's own native local year (from
+    ba_reference.csv's "timezone_local"), dropping whatever hours the union of its
+    plants' local years added beyond that.
+
+    Args:
+        df (pd.DataFrame): hourly, ba-level dataframe with "ba_code" and
+            "datetime_utc" columns.
+        year (int): the year to filter each ba to its own local year for.
+
+    Returns:
+        pd.DataFrame: `df` filtered to only the rows within each ba's own local year.
+    """
+    ba_reference = load_data.load_ba_reference()[["ba_code", "timezone_local"]]
+
+    timeseries_for_timezones = []
+    for timezone in ba_reference["timezone_local"].unique():
+        timezone_df = create_local_year_timestamps(year, timezone)[["datetime_utc"]]
+        timezone_df["timezone_local"] = timezone
+        timeseries_for_timezones.append(timezone_df)
+    timeseries_for_timezones = pd.concat(timeseries_for_timezones, ignore_index=True)
+
+    ba_local_year_hours = ba_reference.merge(
+        timeseries_for_timezones, on="timezone_local", how="left", validate="1:m"
+    )[["ba_code", "datetime_utc"]]
+
+    return df.merge(
+        ba_local_year_hours, on=["ba_code", "datetime_utc"], how="inner", validate="m:1"
+    )
 
 
 def adjust_cems_for_chp(cems, eia923_allocated):

@@ -271,8 +271,6 @@ Currently, we trust CEMS gross generation data more than EIA-923 net generation 
 ### Some data outputs are missing complete monthly or hourly values
 Currently, there are a number of plants for which there may not be 12 reported monthly values or 8760 reported hourly values in the OGE outputs. These likely represent missing input data, but we are working to fill these missing timestamps and ensure that no data is being mistakenly dropped from the data pipeline.
 
-In some of the regional data, the validation checks flagged certain fuel types for which there are more than 8760 reported values in a year. This appears to result when a BA spans multiple time zones. We are investigating this in more detail to correct this issue.
-
 ### Some plants have extreme emission factors
 There are approximately 30 plants that have extremely high or low calculated emission rates. The extreme low values appear to mostly occur when a clean plant (eg nuclear) has a fossil-based backup generator that ocassionally runs, resulting in a small amount of emissions relative to the total generation. The extreme high values appear to mostly occur at natural gas and petroleum plants with a small amount of net generation. These may represent peaker plants or spinning reserves, which consume a large amount of fuel throughout the year, but generate only a small amount of net electricity. 
 

@@ -22,6 +22,7 @@ import oge.emissions as emissions
 import oge.gross_to_net_generation as gross_to_net_generation
 import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
+import oge.load_data as load_data
 import oge.output_data as output_data
 import oge.subplant_identification as subplant_identification
 import oge.validation as validation
@@ -563,9 +564,41 @@ def main(args):
             hourly_profiles, "hourly_profiles", path_prefix, year, args.skip_outputs
         )
 
+        # tag each ba's own hourly profile with its native local_timezone_offset, and
+        # build a reassembled absolute profile for every other offset actually used
+        # by a plant in that ba, so that off-timezone plants can be shaped using a
+        # profile aligned to their own local calendar rather than the ba's.
+        # local_timezone_offset (see helpers.add_local_timezone_offset) is used
+        # instead of the raw timezone name as the merge key throughout, since
+        # ba_reference.csv's ba timezones use legacy aliases (e.g. "US/Eastern")
+        # while plant timezones use canonical IANA names (e.g. "America/New_York")
+        # that can refer to the exact same physical timezone -- comparing their
+        # standard-time offsets instead of the raw names collapses those onto the
+        # same value wherever they're equivalent.
+        ba_reference = helpers.add_local_timezone_offset(
+            load_data.load_ba_reference()[["ba_code", "timezone_local"]],
+            year,
+            timezone_col="timezone_local",
+        )
+        ba_native_timezone = ba_reference[["ba_code", "local_timezone_offset"]]
+        hourly_profiles = hourly_profiles.merge(
+            ba_native_timezone, how="left", on="ba_code", validate="m:1"
+        )
+        plant_attributes_with_offset = helpers.add_local_timezone_offset(
+            plant_attributes, year
+        )
+        non_native_profiles = (
+            impute_hourly_profiles.expand_hourly_profiles_to_plant_timezones(
+                hourly_profiles, plant_attributes_with_offset, year
+            )
+        )
+        hourly_profiles = pd.concat(
+            [hourly_profiles, non_native_profiles], ignore_index=True
+        )
+
         hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
             hourly_profiles,
-            group_keys=["ba_code", "fuel_category", "profile_method"],
+            group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
             columns_to_convert=["profile", "flat_profile"],
         )
 
@@ -583,7 +616,7 @@ def main(args):
             partial_cems_subplant,
             partial_cems_plant,
             monthly_eia_data_to_shape,
-            plant_attributes,
+            plant_attributes_with_offset,
             primary_fuel_table,
             hourly_profiles,
             path_prefix,
@@ -591,34 +624,6 @@ def main(args):
             region_to_group="ba_code",
         )
 
-        # 16. Shape fleet-level data
-        ################################################################################
-        logger.info("16. Assigning hourly profiles to monthly EIA-923 data")
-        # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
-        monthly_eia_fleet_data = impute_hourly_profiles.aggregate_eia_data_to_fleet(
-            monthly_eia_data_to_shape, plant_attributes, primary_fuel_table, year
-        )
-        shaped_eia_fleet_data = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
-            monthly_eia_fleet_data,
-            hourly_profiles,
-            year,
-            fuel_category_col_for_shaping="fuel_category_for_shaping",
-        )
-        del hourly_profiles
-        gc.collect()
-
-        output_data.output_data_quality_metrics(
-            validation.hourly_profile_source_metric(
-                cems,
-                partial_cems_subplant,
-                partial_cems_plant,
-                shaped_eia_fleet_data,
-                plant_attributes,
-            ),
-            "hourly_profile_method",
-            path_prefix,
-            args.skip_outputs,
-        )
         # Export data
         output_data.output_intermediate_data(
             plant_attributes,
@@ -632,147 +637,207 @@ def main(args):
                 results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
                 index=False,
             )
-        # validate that the shaping did not alter data at the monthly level
-        validation.validate_shaped_totals(
-            shaped_eia_fleet_data,
-            monthly_eia_fleet_data,
-            year,
-            group_keys=["ba_code", "fuel_category"],
-        )
-        del monthly_eia_fleet_data
 
-        # write metadata outputs
-        output_data.write_plant_metadata(
-            plant_attributes,
-            eia923_allocated,
-            cems,
-            partial_cems_subplant,
-            partial_cems_plant,
-            shaped_eia_fleet_data,
-            path_prefix,
-            args.skip_outputs,
-            year,
-        )
-        del eia923_allocated
-        gc.collect()
-        # group shaped data by fleet, since the fuel category used for shaping might
-        # not match the fuel category for fleet aggregation
-        shaped_eia_fleet_data = (
-            shaped_eia_fleet_data.groupby(
-                [
-                    "ba_code",
-                    "fuel_category",
-                    "datetime_utc",
-                    "report_date",
-                ],
-                dropna=False,
-                sort=False,
-            )[DATA_COLUMNS]
-            .sum(numeric_only=True)
-            .reset_index()
-        )
+        # When running the early release pipeline, we do not want to output aggregated
+        # power sector or carbon accounting data because the plant-level data is
+        # incomplete (analysis of 2024 data revealed that the EIa-923 generation fuel
+        # table is missing about 6-7% of records representing about 2% of the total
+        # generation and fuel).
+        if year <= latest_validated_year:
+            # 16. Shape fleet-level data
+            ################################################################################
+            logger.info("16. Assigning hourly profiles to monthly EIA-923 data")
+            # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
+            monthly_eia_fleet_data = impute_hourly_profiles.aggregate_eia_data_to_fleet(
+                monthly_eia_data_to_shape, plant_attributes, primary_fuel_table, year
+            )
+            # the fleet/power-sector product stays on the ba's own local calendar,
+            # regardless of the timezone of the individual plants that make it up
+            monthly_eia_fleet_data = monthly_eia_fleet_data.merge(
+                ba_native_timezone, how="left", on="ba_code", validate="m:1"
+            )
+            shaped_eia_fleet_data = (
+                impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+                    monthly_eia_fleet_data,
+                    hourly_profiles,
+                    year,
+                    fuel_category_col_for_shaping="fuel_category_for_shaping",
+                )
+            )
+            del hourly_profiles
+            gc.collect()
 
-        # 17. Combine plant-level data from all sources
-        ################################################################################
-        logger.info("17. Combining hourly CEMS data")
-        # Because EIA data is already aggregated to the fleet level, at this point, we
-        # only want to combine CEMS data together. We pass a blank dataframe as the
-        # EIA data
-        validation.ensure_non_overlapping_data_from_all_sources(
-            cems,
-            partial_cems_subplant,
-            partial_cems_plant,
-            eia_data=pd.DataFrame(
-                columns=["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
-            ),
-        )
-        combined_cems_subplant_data = helpers.combine_subplant_data(
-            cems,
-            partial_cems_subplant,
-            partial_cems_plant,
-            eia_data=pd.DataFrame(
-                columns=["plant_id_eia", "subplant_id", "report_date", "datetime_utc"]
-            ),
-            resolution="hourly",
-        )
-        # free memory back to python
-        del (
-            cems,
-            partial_cems_subplant,
-            partial_cems_plant,
-        )
-        gc.collect()
-        # ensure complete timeseries
-        combined_cems_subplant_data = data_cleaning.complete_hourly_timeseries(
-            combined_cems_subplant_data,
-            year,
-            group_cols=["plant_id_eia", "subplant_id"],
-            columns_to_fill_with_zero=DATA_COLUMNS,
-        )
-        validation.validate_unique_datetimes(
-            year,
-            df=combined_cems_subplant_data,
-            df_name="combined_plant_data",
-            keys=["plant_id_eia", "subplant_id"],
-        )
+            output_data.output_data_quality_metrics(
+                validation.hourly_profile_source_metric(
+                    cems,
+                    partial_cems_subplant,
+                    partial_cems_plant,
+                    shaped_eia_fleet_data,
+                    plant_attributes,
+                ),
+                "hourly_profile_method",
+                path_prefix,
+                args.skip_outputs,
+            )
 
-        # 18. Aggregate CEMS data to fleet and write power sector results
-        ################################################################################
-        logger.info(
-            "18. Creating and exporting hourly, fleet-level power sector results"
-        )
-        # aggregate CEMS data to the fleet level
-        cems_fleet_data = data_cleaning.aggregate_subplant_data_to_fleet(
-            combined_cems_subplant_data, plant_attributes, primary_fuel_table, year
-        )
-        del combined_cems_subplant_data
-        del plant_attributes
-        del primary_fuel_table
-        gc.collect()
+            # validate that the shaping did not alter data at the monthly level
+            validation.validate_shaped_totals(
+                shaped_eia_fleet_data,
+                monthly_eia_fleet_data,
+                year,
+                group_keys=["ba_code", "fuel_category"],
+            )
+            del monthly_eia_fleet_data
 
-        # combine fleet-level CEMS data and EIA data into a single df and group
-        # fleets together
-        combined_fleet_data = pd.concat(
-            [cems_fleet_data, shaped_eia_fleet_data], axis=0, copy=False
-        )
-        del cems_fleet_data
-        del shaped_eia_fleet_data
-        gc.collect()
-        combined_fleet_data = (
-            combined_fleet_data.groupby(
-                ["ba_code", "fuel_category", "datetime_utc", "report_date"],
-                dropna=False,
-            )[data_cleaning.DATA_COLUMNS]
-            .sum()
-            .reset_index()
-        )
+            # write metadata outputs
+            output_data.write_plant_metadata(
+                plant_attributes,
+                eia923_allocated,
+                cems,
+                partial_cems_subplant,
+                partial_cems_plant,
+                shaped_eia_fleet_data,
+                path_prefix,
+                args.skip_outputs,
+                year,
+            )
+            del eia923_allocated
+            gc.collect()
+            # group shaped data by fleet, since the fuel category used for shaping might
+            # not match the fuel category for fleet aggregation
+            shaped_eia_fleet_data = (
+                shaped_eia_fleet_data.groupby(
+                    [
+                        "ba_code",
+                        "fuel_category",
+                        "datetime_utc",
+                        "report_date",
+                    ],
+                    dropna=False,
+                    sort=False,
+                )[DATA_COLUMNS]
+                .sum(numeric_only=True)
+                .reset_index()
+            )
 
-        # Output final data: per-ba hourly generation and rate
-        output_data.write_power_sector_results(
-            combined_fleet_data,
-            year,
-            path_prefix,
-            args.skip_outputs,
-            include_hourly=True,
-            include_monthly=False,
-            include_annual=False,
-        )
-        # Write US-average fleet data
-        output_data.write_national_fleet_averages(
-            combined_fleet_data, year, path_prefix, skip_outputs=False
-        )
+            # 17. Combine plant-level data from all sources
+            ################################################################################
+            logger.info("17. Combining hourly CEMS data")
+            # Because EIA data is already aggregated to the fleet level, at this point, we
+            # only want to combine CEMS data together. We pass a blank dataframe as the
+            # EIA data
+            validation.ensure_non_overlapping_data_from_all_sources(
+                cems,
+                partial_cems_subplant,
+                partial_cems_plant,
+                eia_data=pd.DataFrame(
+                    columns=[
+                        "plant_id_eia",
+                        "subplant_id",
+                        "report_date",
+                        "datetime_utc",
+                    ]
+                ),
+            )
+            combined_cems_subplant_data = helpers.combine_subplant_data(
+                cems,
+                partial_cems_subplant,
+                partial_cems_plant,
+                eia_data=pd.DataFrame(
+                    columns=[
+                        "plant_id_eia",
+                        "subplant_id",
+                        "report_date",
+                        "datetime_utc",
+                    ]
+                ),
+                resolution="hourly",
+            )
+            # free memory back to python
+            del (
+                cems,
+                partial_cems_subplant,
+                partial_cems_plant,
+            )
+            gc.collect()
+            # ensure complete timeseries
+            combined_cems_subplant_data = data_cleaning.complete_hourly_timeseries(
+                combined_cems_subplant_data,
+                year,
+                group_cols=["plant_id_eia", "subplant_id"],
+                columns_to_fill_with_zero=DATA_COLUMNS,
+            )
+            validation.validate_unique_datetimes(
+                year,
+                df=combined_cems_subplant_data,
+                df_name="combined_plant_data",
+                keys=["plant_id_eia", "subplant_id"],
+            )
 
-        # 19. Calculate consumption-based emissions and write carbon accounting results
-        ################################################################################
-        logger.info("19. Calculating and exporting consumption-based results")
-        hourly_consumed_calc = consumed.HourlyConsumed(
-            clean_930_file,
-            path_prefix,
-            year,
-            skip_outputs=args.skip_outputs,
-        )
-        hourly_consumed_calc.run()
-        hourly_consumed_calc.output_results()
+            # 18. Aggregate CEMS data to fleet and write power sector results
+            ################################################################################
+            logger.info(
+                "18. Creating and exporting hourly, fleet-level power sector results"
+            )
+            # aggregate CEMS data to the fleet level
+            cems_fleet_data = data_cleaning.aggregate_subplant_data_to_fleet(
+                combined_cems_subplant_data, plant_attributes, primary_fuel_table, year
+            )
+            del combined_cems_subplant_data
+            del plant_attributes
+            del primary_fuel_table
+            gc.collect()
+
+            # combine fleet-level CEMS data and EIA data into a single df and group
+            # fleets together
+            combined_fleet_data = pd.concat(
+                [cems_fleet_data, shaped_eia_fleet_data], axis=0, copy=False
+            )
+            del cems_fleet_data
+            del shaped_eia_fleet_data
+            gc.collect()
+            combined_fleet_data = (
+                combined_fleet_data.groupby(
+                    ["ba_code", "fuel_category", "datetime_utc", "report_date"],
+                    dropna=False,
+                )[data_cleaning.DATA_COLUMNS]
+                .sum()
+                .reset_index()
+            )
+
+            # a ba can span more than one plant timezone, so summing plants that were each
+            # completed onto their own local year can span the union of two local years.
+            # filter down to each ba's own native local year
+            combined_fleet_data = data_cleaning.filter_to_ba_local_year(
+                combined_fleet_data, year
+            )
+
+            # Output final data: per-ba hourly generation and rate
+            output_data.write_power_sector_results(
+                combined_fleet_data,
+                year,
+                path_prefix,
+                args.skip_outputs,
+                include_hourly=True,
+                include_monthly=False,
+                include_annual=False,
+            )
+            # Write US-average fleet data
+            output_data.write_national_fleet_averages(
+                combined_fleet_data, year, path_prefix, skip_outputs=False
+            )
+
+            # 19. Calculate consumption-based emissions and write carbon accounting results
+            ################################################################################
+            logger.info("19. Calculating and exporting consumption-based results")
+            hourly_consumed_calc = consumed.HourlyConsumed(
+                clean_930_file,
+                path_prefix,
+                year,
+                skip_outputs=args.skip_outputs,
+            )
+            hourly_consumed_calc.run()
+            hourly_consumed_calc.output_results()
 
 
 if __name__ == "__main__":
