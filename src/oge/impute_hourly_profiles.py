@@ -1479,7 +1479,9 @@ def get_shaped_plant_id_from_ba_fuel(df: pd.DataFrame) -> pd.DataFrame:
     df["ba_code"] = df["ba_code"].astype(str)
     # create a new column with the shaped plant ids
     df["shaped_plant_id"] = df.apply(
-        lambda row: f"9{ba_numbers[row['ba_code']]}{FUEL_NUMBERS[row['fuel_category_for_shaping']]}",
+        lambda row: (
+            f"9{ba_numbers[row['ba_code']]}{FUEL_NUMBERS[row['fuel_category_for_shaping']]}"
+        ),
         axis=1,
     )
     # convert to an int32 column

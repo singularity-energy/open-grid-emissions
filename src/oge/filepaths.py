@@ -1,5 +1,6 @@
 """Convenience functions for paths."""
 
+import glob
 import os
 from importlib.metadata import version
 
@@ -64,6 +65,34 @@ def data_folder(rel=""):
 def downloads_folder(rel=""):
     """Returns a path relative to the `downloads` folder."""
     return os.path.join(data_folder("downloads"), rel).replace("\\", "/")
+
+
+def find_downloaded_file(relative_dir: str, pattern: str) -> str:
+    """Resolve a downloaded file via glob, tolerating EIA filename drift.
+
+    EIA early-release (and sometimes final) workbooks vary underscore placement,
+    spacing, and optional release-date suffixes (e.g. ``_30JUN2026``). Callers
+    should pass a stable glob stem such as ``2___Plant_Y2025*.xlsx``.
+
+    If multiple files match, the shortest filename is preferred (usually the
+    version without a date suffix).
+
+    Args:
+        relative_dir: directory under ``downloads/`` (e.g. ``eia860/eia8602025ER``).
+        pattern: glob pattern matched against filenames in that directory.
+
+    Returns:
+        Absolute path to the matched file.
+
+    Raises:
+        FileNotFoundError: if no file matches ``pattern``.
+    """
+    directory = downloads_folder(relative_dir)
+    matches = glob.glob(os.path.join(directory, pattern))
+    if not matches:
+        raise FileNotFoundError(f"No file matching '{pattern}' found in {directory}")
+    matches.sort(key=lambda path: (len(os.path.basename(path)), path))
+    return matches[0].replace("\\", "/")
 
 
 def pudl_folder(rel=""):

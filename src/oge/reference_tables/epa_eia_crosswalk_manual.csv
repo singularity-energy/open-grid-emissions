@@ -523,3 +523,38 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 10682,GT5,10682,GT5,2008,,Changes plant ID in 2008
 10682,GT4,10682,ST4,2008,,Changes plant ID in 2008
 10682,GT5,10682,ST4,2008,,Changes plant ID in 2008
+160,5,160,GT5,,,CAMPD Facility database mapping
+160,6,160,GT6,,,CAMPD Facility database mapping
+3291,CT5,3291,GT5,,,CAMPD Facility database mapping
+3291,CT6,3291,GT6,,,CAMPD Facility database mapping
+3406,JCT21,3406,G21,,,CAMPD Facility database mapping
+3406,JCT22,3406,G22,,,CAMPD Facility database mapping
+3406,JCT23,3406,G23,,,CAMPD Facility database mapping
+3406,JCT24,3406,G24,,,CAMPD Facility database mapping
+3406,JCT25,3406,G25,,,CAMPD Facility database mapping
+3406,JCT26,3406,G26,,,CAMPD Facility database mapping
+3406,JCT27,3406,G27,,,CAMPD Facility database mapping
+3406,JCT28,3406,G28,,,CAMPD Facility database mapping
+3406,JCT29,3406,G29,,,CAMPD Facility database mapping
+3406,JCT30,3406,G30,,,CAMPD Facility database mapping
+6137,5,6137,6,,,CAMPD Facility database mapping
+6137,6,6137,7,,,CAMPD Facility database mapping
+6481,3SGA,6481,3,,,CAMPD Facility database mapping
+6481,4SGA,6481,4,,,CAMPD Facility database mapping
+55522,CT11,55522,CT11,,,CAMPD Facility database mapping
+55522,CT12,55522,CT12,,,CAMPD Facility database mapping
+57881,CT4,57881,4,,,CAMPD Facility database mapping
+57881,CT5,57881,5,,,CAMPD Facility database mapping
+64547,CT-1,64547,1,,,CAMPD Facility database mapping
+64547,CT-2,64547,2,,,CAMPD Facility database mapping
+66918,GT11,66918,GT11,,,CAMPD Facility database mapping
+66918,GT12,66918,GT12,,,CAMPD Facility database mapping
+66918,GT11,66918,STG,,,CAMPD Facility database mapping
+66918,GT12,66918,STG,,,CAMPD Facility database mapping
+68386,CT-1,68386,MPP_1,,,CAMPD Facility database mapping
+68386,CT-2,68386,MPP_2,,,CAMPD Facility database mapping
+68386,CT-3,68386,MPP_3,,,CAMPD Facility database mapping
+68386,CT-4,68386,MPP_4,,,CAMPD Facility database mapping
+68386,CT-5,68386,MPP_5,,,CAMPD Facility database mapping
+68386,CT-6,68386,MPP_6,,,CAMPD Facility database mapping
+

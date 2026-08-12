@@ -10,21 +10,18 @@ Please check out [our documentation](https://docs.singularity.energy/docs/open-g
 The Open Grid Emissions Dataset can be [downloaded here](https://singularity.energy/open-grid-emissions). An archive of previous versions of the dataset and intermediate data outputs (for research and validation purposes) can be found on [Zenodo](https://zenodo.org/communities/singularity-energy?page=1&size=20).
 
 ## Installing and running the data pipeline
-To manage the code environment necessary to run the OGE data pipeline, either `pipenv` or `conda` may be used. Currently, we utilize `pipenv` as our preferred environment manager for running the pipeline that is used for data releases, but `conda` will also work if you are more familiar with `conda`. 
+To manage the code environment necessary to run the OGE data pipeline, either `uv` or `conda` may be used. Currently, we utilize `uv` as our preferred environment manager for running the pipeline that is used for data releases, but `conda` will also work if you are more familiar with `conda`.
 
 First, navigate to the folder where you want to save the repository and run the following commands:
 
-### If you are using pipenv
-Note that this option requires to have Python and git installed on your machine.
+### If you are using uv
+Note that this option requires git installed on your machine. `uv` will install Python 3.11 automatically if needed.
 ```bash
-pip install pipenv
 git clone https://github.com/singularity-energy/open-grid-emissions.git
 cd open-grid-emissions
-pipenv sync
-pipenv shell
-pip install build
-python -m build
-pip install .
+uv sync
+uv run python -m build
+uv pip install .
 ```
 
 ### If you are using conda
@@ -120,7 +117,16 @@ All files downloaded/created as part of the pipeline are stored in your HOME dir
 - `$HOME/open_grid_emissions_data/results` contains all final output files that will be published
 
 ## Importing OGE as a Package in your Project
-OGE is not yet available on PyPi but can be installed from GitHub. For example, this can be done by adding `oge = {git="https://github.com/singularity-energy/open-grid-emissions.git"}` to your Pipfile if you are using `pipenv` for your project.
+OGE is not yet available on PyPi but can be installed from GitHub. For example, if you are using `uv` for your project, you can add the following to your `pyproject.toml`:
+```toml
+dependencies = [
+  "oge",
+]
+
+[tool.uv.sources]
+oge = { git = "https://github.com/singularity-energy/open-grid-emissions.git" }
+```
+Then run `uv sync` to install it.
 
 Note that you don't need to run the pipeline to generate the output data as these are available on Amazon Simple Storage Service (S3). Simply, set the `OGE_DATA_STORE` environment variable to `s3` in the **\_\_init\_\_.py** file of your project to fetch OGE data from Amazon S3.
 To summarize, your **\_\_init\_\_.py** file would then look like this:
@@ -169,15 +175,10 @@ pip install --editable .
 
 The open_grid_emissions conda environment should now be set up and ready to run.
 
-### Setup with pipenv
-#### Install python and git
-We recommend that you use Python 3.11. If you don't have Python installed, we recommend that you use [**pyenv**](https://github.com/pyenv/pyenv). It lets you easily switch between multiple versions of Python. You will also need to use git to clone the repository. It can be installed from https://git-scm.com/downloads,
+### Setup with uv
+#### Install git
+You will need to use git to clone the repository. It can be installed from https://git-scm.com/downloads.
 
-#### Install pipenv
-This can be done via:
-```bash
-pip install pipenv
-```
 
 #### Download the codebase
 As mentioned previously, clone the repository with:
@@ -192,24 +193,15 @@ cd open-grid-emissions
 #### Setup the environment
 In the root of the directory, create and activate the environment with:
 ```bash
-# set up virtual environment (use whichever version of python 3.11 you have installed)
-pipenv --python 3.11.4
-
-# if you have updated the pipfile and need to update pipfile.lock, run
-pipenv install
-# Otherwise, if you just want to install packages from the pipfile.lock, run
-pipenv sync
-
-# activate virtual environment
-pipenv shell
-
+# create the virtual environment and install dependencies from uv.lock
+# uv will install Python 3.11 automatically if needed
+uv sync
 # install an editable version of the oge package
-pip install build
-python -m build
-pip install –-editable .
+uv run python -m build
+uv pip install -e .
 ```
 
-If you ever need to remove and reinstall the environment, run `pipenv --rm` from the root directory then follow the directions above.
+If you ever need to remove and reinstall the environment, delete the `.venv` directory from the root of the repository, then follow the directions above.
 
 ### Running the complete data pipeline
 If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src/oge`, and run the following (replacing 2022 with whichever year you want to run):
