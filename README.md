@@ -79,6 +79,39 @@ There are many ways that you can contribute!
  - Contribute your subject matter expertise to the discussion about [open issues and questions](https://github.com/singularity-energy/open-grid-emissions/issues?q=is%3Aissue+is%3Aopen+label%3Aquestion)
  - Submit a pull request to help us fix open issues
 
+## LLM use policy
+NOTE: This policy was adapted from @catalyst-cooperative.
+
+If using an LLM, point it toward `CONTRIBUTING.md` in the top level of this repo to 
+guide its contributions. 
+
+1. **All PRs, internal and external, will be reviewed by a human.**
+
+  * We don’t want the code to grow faster than we can understand it.
+  * This is particularly important for data cleaning and subtle
+    domain-informed decision making.
+
+  That means we need to optimize work for ease of human review:
+
+  * Reviewers are humans - respect their time.
+  * Review is the bottleneck, so let's keep it going as smoothly as
+    possible.
+
+2. **When reviewing and self-reviewing, make a human synthesis of the
+   work - what changed? Why? What did you learn?**
+
+  * We need to make sure we understand what's going into the
+    codebase.
+  * We need to make sure domain-specific changes are well-considered.
+
+3. **When making a PR with some LLM-generated content, briefly describe
+   the usage of LLMs so we know what to expect.** Examples:
+
+  * "I used an LLM to generate these tests, and cleaned them up by hand."
+  * "I talked through my plan with an LLM, revised it, and then had it
+    implement the plan."
+
+
 ## Repository Structure
 ### Modules
 - `anomaly_screening`: classes use to flag timeseries for anomalies as proposed in Tyler H. Ruggles et al. Developing reliable hourly electricity demand data through screening and imputation (2020)
