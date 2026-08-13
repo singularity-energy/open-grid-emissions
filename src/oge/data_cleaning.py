@@ -1885,6 +1885,12 @@ def complete_hourly_timeseries(
         pd.DataFrame: dataframe with complete timeseries
     """
 
+    # if the dataframe is empty, return the dataframe
+    # this is necessary in case a small generation-only BA has no active generation
+    # in a year
+    if df.empty:
+        return df
+
     # get all unique groups for which to create complete timeseries
     complete_timeseries = df[group_cols].drop_duplicates()
 
