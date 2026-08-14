@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
+import requests
 
-from geopy.extra.rate_limiter import RateLimiter
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderUnavailable
 from timezonefinder import TimezoneFinder
@@ -22,6 +22,11 @@ logger = get_logger(__name__)
 
 tf = TimezoneFinder()
 geolocator = Nominatim(user_agent="oge")
+# reverse geocoding (coordinates -> state/county/city) uses the Census Bureau's free,
+# unrate-limited geocoder instead of Nominatim, since OGE only geocodes US locations
+CENSUS_GEOCODER_COORDINATES_URL = (
+    "https://geocoding.geo.census.gov/geocoder/geographies/coordinates"
+)
 
 
 def create_plant_attributes_table(
@@ -1076,22 +1081,26 @@ def add_missing_location(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def search_location_from_coordinates(latitude: float, longitude: float) -> tuple[str]:
-    """Get state, county, city at latitude/longitude.
+    """Get state, county, city at latitude/longitude using the Census Bureau geocoder.
 
     Example:
         >>> latitude = 33.458665
         >>> longitude = -87.35682
-        >>> location = geolocator.reverse(f"{latitude}, {longitude}").raw
-        >>> location
-        {'place_id': 149439, 'licence': 'Data © OpenStreetMap contributors,
-        ODbL 1.0. http://osm.org/copyright', 'osm_type': 'way', 'osm_id': 8885591,
-        'lat': '33.460586', 'lon': '-87.359444', 'class': 'highway',
-        'type': 'unclassified', 'place_rank': 26, 'importance': 0.10000999999999993,
-        'addresstype': 'road', 'name': 'County Road 38', 'display_name':
-        'County Road 38, Tuscaloosa County, Alabama, United States', 'address':
-        {'road': 'County Road 38', 'county': 'Tuscaloosa County', 'state': 'Alabama',
-        'ISO3166-2-lvl4': 'US-AL', 'country': 'United States', 'country_code': 'us'},
-        'boundingbox': ['33.4552300', '33.4758370', '-87.3873120', '-87.3589650']}
+        >>> geographies = requests.get(
+        ...     CENSUS_GEOCODER_COORDINATES_URL,
+        ...     params={
+        ...         "x": longitude,
+        ...         "y": latitude,
+        ...         "benchmark": "Public_AR_Current",
+        ...         "vintage": "Current_Current",
+        ...         "format": "json",
+        ...     },
+        ... ).json()["result"]["geographies"]
+        >>> geographies["States"][0]["STUSAB"]
+        'AL'
+        >>> geographies["Counties"][0]["BASENAME"]
+        'Tuscaloosa'
+
     Args:
         latitude (float): latitude of the location.
         longitude (float): longitude of the location.
@@ -1100,42 +1109,45 @@ def search_location_from_coordinates(latitude: float, longitude: float) -> tuple
         tuple[str]: state, county and city of the location.
     """
 
-    # try to look up the address. This often fails when contacting the server, so retry
-    # once. If it fails on the retry, return no value
+    # try to look up the geographies. This often fails when contacting the server, so
+    # retry once. If it fails on the retry, return no value
     for i in range(0, 2):
-        while True:
-            try:
-                reverse_geolocate = RateLimiter(geolocator.reverse, min_delay_seconds=1)
-                location = reverse_geolocate(
-                    (latitude, longitude), exactly_one=True, timeout=10
-                )
-                try:
-                    address = location.raw["address"]
-                    if address["country_code"] != "us":
-                        return pd.NA, pd.NA, pd.NA
-                # location has no attribute "raw" if no internet connection
-                except AttributeError:
-                    logger.error(
-                        "No internet connection available, skipping coordinate lookup"
-                    )
-                    return pd.NA, pd.NA, pd.NA
-            except (ReadTimeoutError, GeocoderUnavailable) as error:
-                if i < 1:
-                    logger.warning(f"{error} for reverse address lookup")
-                    continue
-                else:
-                    logger.warning(f"{error} for reverse address lookup, returning NA")
-                    return pd.NA, pd.NA, pd.NA
+        try:
+            response = requests.get(
+                CENSUS_GEOCODER_COORDINATES_URL,
+                params={
+                    "x": longitude,
+                    "y": latitude,
+                    "benchmark": "Public_AR_Current",
+                    "vintage": "Current_Current",
+                    "format": "json",
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+            geographies = response.json()["result"]["geographies"]
             break
+        except requests.exceptions.RequestException as error:
+            if i < 1:
+                logger.warning(f"{error} for reverse coordinate lookup")
+                continue
+            else:
+                logger.warning(f"{error} for reverse coordinate lookup, returning NA")
+                return pd.NA, pd.NA, pd.NA
 
-    # Check for State
-    state = (
-        address["ISO3166-2-lvl4"].split("-")[1]
-        if "ISO3166-2-lvl4" in address.keys()
+    # coordinates outside the US return an empty "geographies" dict
+    if not geographies.get("States"):
+        return pd.NA, pd.NA, pd.NA
+
+    state = geographies["States"][0]["STUSAB"]
+    county = (
+        geographies["Counties"][0]["BASENAME"] if geographies.get("Counties") else pd.NA
+    )
+    city = (
+        geographies["Incorporated Places"][0]["BASENAME"]
+        if geographies.get("Incorporated Places")
         else pd.NA
     )
-    county = address["county"].split(" ")[0] if "county" in address.keys() else pd.NA
-    city = address["city"] if "city" in address.keys() else pd.NA
     return state, county, city
 
 
