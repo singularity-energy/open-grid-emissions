@@ -1885,6 +1885,12 @@ def complete_hourly_timeseries(
         pd.DataFrame: dataframe with complete timeseries
     """
 
+    # if the dataframe is empty, return the dataframe
+    # this is necessary in case a small generation-only BA has no active generation
+    # in a year
+    if df.empty:
+        return df
+
     # get all unique groups for which to create complete timeseries
     complete_timeseries = df[group_cols].drop_duplicates()
 
@@ -1993,8 +1999,32 @@ def filter_to_ba_local_year(df: pd.DataFrame, year: int) -> pd.DataFrame:
     Returns:
         pd.DataFrame: `df` filtered to only the rows within each ba's own local year.
     """
+    # check that there are no missing ba_codes in df, since this would drop data at the
+    # end of this function
+    if len(df[df["ba_code"].isna()]) > 0:
+        raise ValueError(
+            "The df passed into filter_to_ba_local_year() has missing ba_codes."
+        )
+
     ba_reference = load_data.load_ba_reference()[["ba_code", "timezone_local"]]
 
+    # only keep BAs that appear in df
+    ba_codes_in_df = list(df["ba_code"].dropna().unique())
+    # raise an error if any BAs in df are not in ba_reference
+    missing_ba_codes = set(ba_codes_in_df) - set(ba_reference["ba_code"])
+    if missing_ba_codes:
+        raise ValueError(
+            f"The following BAs are missing from ba_reference: {missing_ba_codes}"
+        )
+    ba_reference = ba_reference[ba_reference["ba_code"].isin(ba_codes_in_df)]
+    # raise an error if any BAs are missing timezone_local
+    if len(ba_reference[ba_reference["timezone_local"].isna()]) > 0:
+        raise ValueError(
+            f"The following BAs are missing timezone_local: {ba_reference[ba_reference['timezone_local'].isna()]['ba_code'].unique()}"
+        )
+
+    # create a dataframe that has the complete hourly timeseries for each timezone in
+    # the ba_reference.
     timeseries_for_timezones = []
     for timezone in ba_reference["timezone_local"].unique():
         timezone_df = create_local_year_timestamps(year, timezone)[["datetime_utc"]]
@@ -2002,8 +2032,9 @@ def filter_to_ba_local_year(df: pd.DataFrame, year: int) -> pd.DataFrame:
         timeseries_for_timezones.append(timezone_df)
     timeseries_for_timezones = pd.concat(timeseries_for_timezones, ignore_index=True)
 
+    # this produces a dataframe with complete datetime_utc timestamps for each BA's local year
     ba_local_year_hours = ba_reference.merge(
-        timeseries_for_timezones, on="timezone_local", how="left", validate="1:m"
+        timeseries_for_timezones, on="timezone_local", how="left", validate="m:m"
     )[["ba_code", "datetime_utc"]]
 
     return df.merge(
