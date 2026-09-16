@@ -17,6 +17,10 @@ notebooks/.ipynb_checkpoints
 notebooks/*/.ipynb_checkpoints
 .hypothesis/
 
+# Local notebook data caches
+notebooks/explore_data/*.csv.zip
+.*_api_key
+
 # Mac junk
 .DS_Store
 
