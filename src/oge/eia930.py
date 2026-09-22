@@ -7,7 +7,6 @@ import oge.load_data as load_data
 from oge.column_checks import get_dtypes
 from oge.filepaths import (
     top_folder,
-    downloads_folder,
     outputs_folder,
     reference_table_folder,
 )
@@ -54,6 +53,46 @@ existing_energy_source_names_to_codes = {
     "unknown": "UNK",
     "wind": "WND",
 }
+
+
+def clean_930(year: int, path_prefix: str = ""):
+    """Scrape and process EIA-930 data.
+
+    Args:
+        year (int): a four-digit year.
+        path_prefix (str): path to folder enclosing the eia930 folder with files needed
+            for the physics-based data cleaning
+    """
+
+    data_folder = outputs_folder(f"{path_prefix}/eia930/")
+
+    # Format raw file
+    df = convert_balance_data_to_gridemissions_format(year)
+    raw_file = data_folder + "eia930_unadjusted_raw.csv"
+    df.to_csv(raw_file)
+
+    # scrape 2 months before start of year for rolling window cleaning
+    start = f"{year - 1}1001T00Z"
+    # Scrape 1 year (plus one day for timezone flexibility)
+    end = f"{year + 1}0101T23Z"
+
+    # Adjust
+    logger.info("Adjusting EIA-930 time stamps")
+    df = manual_930_adjust(df)
+    df.to_csv(data_folder + "eia930_raw.csv")  # Will be read by gridemissions workflow
+
+    # Run cleaning
+    logger.info("Running physics-based data cleaning")
+    make_dataset(
+        start,
+        end,
+        file_name="eia930",
+        tmp_folder=data_folder,
+        folder_hist=data_folder,
+        scrape=False,
+        add_ca_fuels=False,
+        calc_consumed=False,
+    )
 
 
 def convert_balance_data_to_gridemissions_format(year: int) -> pd.DataFrame:
@@ -168,200 +207,6 @@ def convert_balance_data_to_gridemissions_format(year: int) -> pd.DataFrame:
     balance = pd.concat([net_generation, operations, interchange], axis="columns")
 
     return balance
-
-
-def convert_balance_file_to_gridemissions_format(year: int) -> pd.DataFrame:
-    """Converts downloaded EIA-930 Balance files to gridemissions format.
-
-
-    Args:
-        year (int): a four-digit year.
-
-    Returns:
-        pd.DataFrame: balance data for each BA
-    """
-    files = [
-        downloads_folder() + "eia930/EIA930_{}_{}_Jul_Dec.csv",
-        downloads_folder() + "eia930/EIA930_{}_{}_Jan_Jun.csv",
-        downloads_folder() + "eia930/EIA930_{}_{}_Jul_Dec.csv",
-    ]
-
-    years = [year - 1, year, year]
-
-    name_map = {
-        "Total Interchange (MW)": "EBA.{}-ALL.TI.H",
-        "Interchange (MW)": "EBA.{}-{}.ID.H",
-        "Demand (MW) (Adjusted)": "EBA.{}-ALL.D.H",
-        "Net Generation (MW) (Adjusted)": "EBA.{}-ALL.NG.H",
-        "Net Generation (MW) from Coal": "EBA.{}-ALL.NG.COL.H",
-        "Net Generation (MW) from Natural Gas": "EBA.{}-ALL.NG.NG.H",
-        "Net Generation (MW) from Nuclear": "EBA.{}-ALL.NG.NUC.H",
-        "Net Generation (MW) from All Petroleum Products": "EBA.{}-ALL.NG.OIL.H",
-        "Net Generation (MW) from Hydropower and Pumped Storage": "EBA.{}-ALL.NG.WAT.H",
-        "Net Generation (MW) from Solar": "EBA.{}-ALL.NG.SUN.H",
-        "Net Generation (MW) from Wind": "EBA.{}-ALL.NG.WND.H",
-        "Net Generation (MW) from Other Fuel Sources": "EBA.{}-ALL.NG.OTH.H",
-        "Net Generation (MW) from Unknown Fuel Sources": "EBA.{}-ALL.NG.UNK.H",
-    }
-
-    out = pd.DataFrame()
-    for i, file in enumerate(files):
-        dat_file = file.format("BALANCE", years[i])
-        int_file = file.format("INTERCHANGE", years[i])
-
-        # Format balance files in series format (for gridemissions)
-        dat = pd.read_csv(
-            dat_file,
-            usecols=[
-                "Balancing Authority",
-                "UTC Time at End of Hour",
-                "Total Interchange (MW)",
-                "Demand (MW) (Adjusted)",
-                "Net Generation (MW) (Adjusted)",
-                "Net Generation (MW) from Coal",
-                "Net Generation (MW) from Natural Gas",
-                "Net Generation (MW) from Nuclear",
-                "Net Generation (MW) from All Petroleum Products",
-                "Net Generation (MW) from Hydropower and Pumped Storage",
-                "Net Generation (MW) from Solar",
-                "Net Generation (MW) from Wind",
-                "Net Generation (MW) from Other Fuel Sources",
-                "Net Generation (MW) from Unknown Fuel Sources",
-            ],
-            parse_dates=["UTC Time at End of Hour"],
-            thousands=",",
-        )
-        # Wide to long
-        dat = dat.melt(id_vars=["Balancing Authority", "UTC Time at End of Hour"])
-        # Find series name
-        dat["column"] = dat.apply(
-            lambda x: name_map[x.variable].format(x["Balancing Authority"]),
-            axis="columns",
-        )
-        # Long to wide
-        dat = dat[["UTC Time at End of Hour", "value", "column"]].pivot(
-            index="UTC Time at End of Hour", columns="column", values="value"
-        )
-
-        # Now for interchange
-        int = pd.read_csv(
-            int_file,
-            usecols=[
-                "Balancing Authority",
-                "Directly Interconnected Balancing Authority",
-                "Interchange (MW)",
-                "UTC Time at End of Hour",
-            ],
-            parse_dates=["UTC Time at End of Hour"],
-            thousands=",",
-        )
-        int["column"] = int.apply(
-            lambda x: name_map["Interchange (MW)"].format(
-                x["Balancing Authority"],
-                x["Directly Interconnected Balancing Authority"],
-            ),
-            axis="columns",
-        )
-        int = int[["UTC Time at End of Hour", "column", "Interchange (MW)"]].pivot(
-            index="UTC Time at End of Hour", columns="column", values="Interchange (MW)"
-        )
-
-        # Combine
-        dat = pd.concat([dat, int], axis="columns")
-        out = pd.concat([out, dat], axis="index")
-
-    out.index = out.index.tz_localize("UTC")
-    # Balance files are all inclusive, so hours at boundaries (July 1, Jan 1) are duplicated.
-    # Drop those duplicate rows
-    out = out[~out.index.duplicated(keep="first")]
-
-    return out
-
-
-def clean_930(year: int, path_prefix: str = ""):
-    """Scrape and process EIA-930 data.
-
-    Args:
-        year (int): a four-digit year.
-        path_prefix (str): path to folder enclosing the eia930 folder with files needed
-            for the physics-based data cleaning
-    """
-
-    data_folder = outputs_folder(f"{path_prefix}/eia930/")
-
-    # Format raw file
-    df = convert_balance_data_to_gridemissions_format(year)
-    raw_file = data_folder + "eia930_unadjusted_raw.csv"
-    df.to_csv(raw_file)
-
-    # scrape 2 months before start of year for rolling window cleaning
-    start = f"{year - 1}1001T00Z"
-    # Scrape 1 year (plus one day for timezone flexibility)
-    end = f"{year + 1}0101T23Z"
-
-    # Adjust
-    logger.info("Adjusting EIA-930 time stamps")
-    df = manual_930_adjust(df)
-    df.to_csv(data_folder + "eia930_raw.csv")  # Will be read by gridemissions workflow
-
-    # Run cleaning
-    logger.info("Running physics-based data cleaning")
-    make_dataset(
-        start,
-        end,
-        file_name="eia930",
-        tmp_folder=data_folder,
-        folder_hist=data_folder,
-        scrape=False,
-        add_ca_fuels=False,
-        calc_consumed=False,
-    )
-
-
-def reformat_chalendar(raw: pd.DataFrame) -> pd.DataFrame:
-    """Reformat wide-format data (one row per time stamp) from Chalendar to long (one
-    row per data point).
-
-    Args:
-        raw (pd.DataFrame): data frame to format.
-
-    Returns:
-        pd.DataFrame: formatted data frame. All columns that are not fuel-specific
-            generation are dropped.
-    """
-    # where we have variable (NG = net generation) and fuel type
-    target_cols = [c for c in raw.columns if len(c.split(".")) == 5]
-    logger.info("Filtering")
-    cleaned = (
-        raw.loc[:, target_cols]
-        .melt(ignore_index=False, value_name="generation", var_name="variable")
-        .reset_index()
-    )
-    logger.info("Expanding cols")
-    cleaned[["dtype", "BA", "other BA", "var", "fuel", "interval"]] = cleaned[
-        "variable"
-    ].str.split(r"[.-]", expand=True, regex=True)
-    logger.info("Dropping and renaming")
-    cleaned = cleaned.drop(columns=["dtype", "var", "interval", "other BA"])
-    cleaned = cleaned.rename(columns={"index": "datetime_utc"})
-
-    return cleaned
-
-
-def load_chalendar(fname: str, year: int) -> pd.DataFrame:
-    """Load Chalendar file.
-
-    Args:
-        fname (str): file path.
-        year (int): a four-digit year for filtering.
-
-    Returns:
-        pd.DataFrame: formatted data frame.
-    """
-    raw = pd.read_csv(fname, index_col=0, parse_dates=True)
-    raw = raw[raw.index.year == year]
-
-    return reformat_chalendar(raw)
 
 
 def load_chalendar_for_pipeline(cleaned_data_filepath: str, year: int) -> pd.DataFrame:
@@ -479,81 +324,10 @@ def remove_imputed_ones(eia930_data: pd.DataFrame) -> pd.DataFrame:
     return eia930_data
 
 
-def remove_months_with_zero_data(eia930_data: pd.DataFrame) -> pd.DataFrame:
-    """Remove rows in input data frames where the entire month has zero-generation.
-
-    Args:
-        eia930_data (pd.DataFrame): input data frame.
-
-    Returns:
-        pd.DataFrame: input data frame with months with zero generation removed.
-    """
-    zero_data = (
-        eia930_data.groupby(["ba_code", "fuel_category_eia930", "report_date"])
-        .sum(numeric_only=True)
-        .reset_index()
-    )
-
-    zero_data = zero_data[zero_data["net_generation_mwh_930"] == 0].drop(
-        columns="net_generation_mwh_930"
-    )
-
-    # filter these ba-fuel-months out of the eia930 data
-    eia930_data = eia930_data.merge(
-        zero_data,
-        how="outer",
-        on=["ba_code", "fuel_category_eia930", "report_date"],
-        indicator="zero_filter",
-        validate="m:1",
-    )
-    eia930_data = eia930_data[eia930_data["zero_filter"] == "left_only"].drop(
-        columns="zero_filter"
-    )
-
-    return eia930_data
-
-
 ###########################################################
 # Code for adjusting 930 data in gridemissions format
 #
 ###########################################################
-
-
-def get_columns(ba: str, columns: list[str]) -> list:
-    GEN_ID = "EBA.{}-ALL.NG.H"
-    GEN_TYPE_ID = "EBA.{}-ALL.NG.{}.H"
-    DEM_ID = "EBA.{}-ALL.D.H"
-    SRC = ["COL", "NG", "NUC", "OIL", "OTH", "SUN", "UNK", "WAT", "WND", "GEO", "BIO"]
-
-    cols = [
-        GEN_TYPE_ID.format(ba, f) for f in SRC if GEN_TYPE_ID.format(ba, f) in columns
-    ]
-    cols.append(GEN_ID.format(ba))
-    cols.append(DEM_ID.format(ba))
-    return cols
-
-
-def get_int_columns(ba1: str, columns: list[str], ba2: list = []) -> list:
-    INTER_ID = "EBA.{}-{}.ID.H"
-    IT_ID = "EBA.{}-ALL.TI.H"
-
-    # Looking for everyone, including ALL
-    if ba2 == []:
-        other_cols = [
-            c
-            for c in columns
-            if re.split(r"[-.]", c)[1] == ba1 and re.split(r"[-.]", c)[2] != "ALL"
-        ]
-        ba2 = [re.split(r"[-.]", c)[2] for c in other_cols]
-        ba2.append("ALL")
-
-    cols = [
-        INTER_ID.format(ba1, ba) for ba in ba2 if (INTER_ID.format(ba1, ba) in columns)
-    ]
-    if "ALL" in ba2:
-        if IT_ID.format(ba1) in columns:  # CFE lacks "ALL" interchange
-            cols.append(IT_ID.format(ba1))
-    return cols
 
 
 def manual_930_adjust(raw: pd.DataFrame) -> pd.DataFrame:
@@ -783,3 +557,40 @@ def manual_930_adjust(raw: pd.DataFrame) -> pd.DataFrame:
 
     # Shift all -1 hour to make start-of-hour
     return raw.shift(-1, freq="h")
+
+
+def get_columns(ba: str, columns: list[str]) -> list:
+    GEN_ID = "EBA.{}-ALL.NG.H"
+    GEN_TYPE_ID = "EBA.{}-ALL.NG.{}.H"
+    DEM_ID = "EBA.{}-ALL.D.H"
+    SRC = ["COL", "NG", "NUC", "OIL", "OTH", "SUN", "UNK", "WAT", "WND", "GEO", "BIO"]
+
+    cols = [
+        GEN_TYPE_ID.format(ba, f) for f in SRC if GEN_TYPE_ID.format(ba, f) in columns
+    ]
+    cols.append(GEN_ID.format(ba))
+    cols.append(DEM_ID.format(ba))
+    return cols
+
+
+def get_int_columns(ba1: str, columns: list[str], ba2: list = []) -> list:
+    INTER_ID = "EBA.{}-{}.ID.H"
+    IT_ID = "EBA.{}-ALL.TI.H"
+
+    # Looking for everyone, including ALL
+    if ba2 == []:
+        other_cols = [
+            c
+            for c in columns
+            if re.split(r"[-.]", c)[1] == ba1 and re.split(r"[-.]", c)[2] != "ALL"
+        ]
+        ba2 = [re.split(r"[-.]", c)[2] for c in other_cols]
+        ba2.append("ALL")
+
+    cols = [
+        INTER_ID.format(ba1, ba) for ba in ba2 if (INTER_ID.format(ba1, ba) in columns)
+    ]
+    if "ALL" in ba2:
+        if IT_ID.format(ba1) in columns:  # CFE lacks "ALL" interchange
+            cols.append(IT_ID.format(ba1))
+    return cols
