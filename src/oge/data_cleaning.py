@@ -627,15 +627,6 @@ def calculate_capacity_based_primary_fuel(
         .reset_index()
     )
 
-    # drop the battery portion of any hybrid plants so that we don't accidentally
-    # identify the primary fuel as storage
-    gen_capacity = gen_capacity[
-        ~(
-            (gen_capacity.duplicated(subset="plant_id_eia", keep=False))
-            & (gen_capacity.energy_source_code_1 == "MWH")
-        )
-    ]
-
     # find the fuel with the greatest capacity
     gen_capacity = gen_capacity[
         gen_capacity.groupby(agg_keys, dropna=False)["capacity_mw"].transform("max")
