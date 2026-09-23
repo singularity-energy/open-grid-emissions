@@ -291,16 +291,24 @@ def assign_fleet_to_subplant_data(
         primary_fuel_table[default_col]
     )
     subplant_primary_fuel = primary_fuel_table[
-        ["plant_id_eia", "subplant_id", primary_fuel_col]
+        [
+            "plant_id_eia",
+            "subplant_id",
+            primary_fuel_col,
+            "subplant_primary_prime_mover_code",
+        ]
     ].drop_duplicates()
 
     subplant_primary_fuel = assign_fuel_category_to_esc(
         subplant_primary_fuel,
         fuel_category_names=[fuel_category_col],
         esc_column=primary_fuel_col,
+        pm_column="subplant_primary_prime_mover_code",
     )
     if drop_primary_fuel_col:
-        subplant_primary_fuel = subplant_primary_fuel.drop(columns=[primary_fuel_col])
+        subplant_primary_fuel = subplant_primary_fuel.drop(
+            columns=[primary_fuel_col, "subplant_primary_prime_mover_code"]
+        )
     # merge in the fuel data
     subplant_data = subplant_data.merge(
         subplant_primary_fuel,
@@ -933,6 +941,7 @@ def assign_fuel_category_to_esc(
     df: pd.DataFrame,
     fuel_category_names: list = ["fuel_category", "fuel_category_eia930"],
     esc_column: str = "energy_source_code",
+    pm_column: str = "prime_mover_code",
 ) -> pd.DataFrame:
     """Assigns a fuel category to each energy source code in a dataframe.
 
@@ -964,14 +973,16 @@ def assign_fuel_category_to_esc(
         validate="m:1",
     )
 
-    if "prime_mover_code" in df.columns:
-        df.loc[
-            df["prime_mover_code"].isin(ENERGY_STORAGE_PRIME_MOVERS), "fuel_category"
-        ] = "storage"
+    # only map enhanced storage fuel category to the main fuel_category column if
+    # prime mover data is available
+    if (pm_column in df.columns) and ("fuel_category" in fuel_category_names):
+        df.loc[df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS), "fuel_category"] = (
+            "storage"
+        )
 
         # Warn if there are any storage resources with non-MWH energy source codes
         non_mwh_storage_resources = df.loc[
-            (df["fuel_category"] == "storage") & (df["energy_source_code"] != "MWH"),
+            (df["fuel_category"] == "storage") & (df[esc_column] != "MWH"),
             [
                 id
                 for id in [
@@ -981,7 +992,7 @@ def assign_fuel_category_to_esc(
                     "emissions_unit_id_epa",
                 ]
                 if id in df.columns
-            ]["energy_source_code", "prime_mover_code"],
+            ][esc_column, pm_column],
         ].drop_duplicates()
         if len(non_mwh_storage_resources) > 0:
             logger.warning(

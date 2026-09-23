@@ -332,11 +332,13 @@ COLUMNS = {
         "plant_primary_fuel_from_capacity_mw",
         "plant_primary_fuel_from_mode",
         "plant_primary_fuel",
+        "plant_primary_prime_mover_code",
         "subplant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu",
         "subplant_primary_fuel_from_net_generation_mwh",
         "subplant_primary_fuel_from_capacity_mw",
         "subplant_primary_fuel_from_mode",
         "subplant_primary_fuel",
+        "subplant_primary_prime_mover_code",
     },
 }
 

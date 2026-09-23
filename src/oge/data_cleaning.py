@@ -447,15 +447,26 @@ def create_primary_fuel_table(
 
 
 def calculate_aggregated_primary_fuel(
-    gen_fuel_allocated, gen_primary_fuel, agg_level, year
-):
+    gen_fuel_allocated: pd.DataFrame,
+    gen_primary_fuel: pd.DataFrame,
+    agg_level: str,
+    year: int,
+) -> pd.DataFrame:
     """
-    Takes generator-level fuel data and calculates primary fuel for the subplant or plant level.
+    Takes generator-level fuel data and calculates primary fuel for the subplant or
+    plant level.
+
+    Also calculates primary prime mover code for each subplant or plant to help identify
+    storage fuel categories.
 
     Args:
         gen_fuel_allocated: dataframe of allocated fuel, generation, and emissions data by generator
         gen_primary_fuel: dataframe of primary fuel by generator
         agg_level: either "plant" or "subplant"
+        year: the data year
+
+    Returns:
+        pd.DataFrame: dataframe with the primary fuel for each subplant or plant
     """
     if agg_level == "plant":
         agg_keys = ["plant_id_eia"]
@@ -466,8 +477,12 @@ def calculate_aggregated_primary_fuel(
             f"Argument agg_level must be 'plant' or 'subplant', not '{agg_level}'"
         )
 
-    primary_fuel_from_capacity = calculate_capacity_based_primary_fuel(
-        gen_fuel_allocated, agg_level, agg_keys, year
+    primary_fuel_from_capacity = calculate_capacity_based_primary_attribute(
+        gen_fuel_allocated,
+        agg_level,
+        agg_keys,
+        year,
+        attribute_col="energy_source_code_1",
     )
 
     # NOTE: In some rare cases, a plant will have no fuel specified by
@@ -572,12 +587,49 @@ def calculate_aggregated_primary_fuel(
             Update method of `create_primary_fuel_table()` to fix"
         )
 
+    # to enable correct energy storage fuel category assignment, we need to add a primary
+    # prime_mover_code for each subplant and plant
+    primary_prime_mover_code = calculate_capacity_based_primary_attribute(
+        gen_fuel_allocated, agg_level, agg_keys, year, attribute_col="prime_mover_code"
+    )
+    agg_primary_fuel = agg_primary_fuel.merge(
+        primary_prime_mover_code, how="left", on=agg_keys, validate="1:1"
+    )
+
     return agg_primary_fuel
 
 
-def calculate_capacity_based_primary_fuel(
-    gen_fuel_allocated, agg_level, agg_keys, year
-):
+def calculate_capacity_based_primary_attribute(
+    gen_fuel_allocated: pd.DataFrame,
+    agg_level: str,
+    agg_keys: list[str],
+    year: int,
+    attribute_col: str = "energy_source_code_1",
+) -> pd.DataFrame:
+    """
+    Calculates the primary attribute (either fuel or prime mover code) for each subplant
+    or plant based on nameplate capacity.
+
+    Args:
+        gen_fuel_allocated (pd.DataFrame): dataframe of allocated fuel, generation,
+            and emissions data by generator. Used to identify the complete set of units
+            to include
+        agg_level (str): either "plant" or "subplant"
+        agg_keys (list[str]): list of keys to group by
+        year (int): the data year
+        attribute_col (str): the column to use to calculate the primary attribute
+            (either "energy_source_code_1" or "prime_mover_code")
+
+    Returns:
+        pd.DataFrame: dataframe with the primary attribute for each subplant or plant
+    """
+    if attribute_col == "energy_source_code_1":
+        output_label = f"{agg_level}_primary_fuel_from_capacity_mw"
+    elif attribute_col == "prime_mover_code":
+        output_label = f"{agg_level}_primary_prime_mover_code"
+    else:
+        raise ValueError(f"Invalid attribute column: {attribute_col}")
+
     # create a table of primary fuel by nameplate capacity
     gen_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
@@ -588,7 +640,7 @@ def calculate_capacity_based_primary_fuel(
             "plant_id_eia",
             "generator_id",
             "capacity_mw",
-            "energy_source_code_1",
+            attribute_col,
         ],
     )
     # only keep data for the most recent availble data year
@@ -620,9 +672,7 @@ def calculate_capacity_based_primary_fuel(
         )
 
     gen_capacity = (
-        gen_capacity.groupby(agg_keys + ["energy_source_code_1"], dropna=False)[
-            "capacity_mw"
-        ]
+        gen_capacity.groupby(agg_keys + [attribute_col], dropna=False)["capacity_mw"]
         .sum()
         .reset_index()
     )
@@ -631,9 +681,7 @@ def calculate_capacity_based_primary_fuel(
     gen_capacity = gen_capacity[
         gen_capacity.groupby(agg_keys, dropna=False)["capacity_mw"].transform("max")
         == gen_capacity["capacity_mw"]
-    ][agg_keys + ["energy_source_code_1"]].rename(
-        columns={"energy_source_code_1": f"{agg_level}_primary_fuel_from_capacity_mw"}
-    )
+    ][agg_keys + [attribute_col]].rename(columns={attribute_col: output_label})
 
     # drop any duplicate entries (if two fuel types have the same nameplate capacity)
     gen_capacity = gen_capacity[~(gen_capacity.duplicated(subset=agg_keys, keep=False))]

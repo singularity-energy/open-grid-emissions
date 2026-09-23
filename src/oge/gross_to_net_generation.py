@@ -411,13 +411,22 @@ def calculate_gross_to_net_conversion_factors(
     # merge the plant primary fuel and the fuel ratios into the conversion table
     gtn_conversions = gtn_conversions.merge(
         primary_fuel_table[
-            ["plant_id_eia", "subplant_id", "subplant_primary_fuel"]
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "subplant_primary_fuel",
+                "subplant_primary_prime_mover_code",
+            ]
         ].drop_duplicates(),
         how="left",
         on=["plant_id_eia", "subplant_id"],
         validate="m:1",
     )
-    gtn_conversions = helpers.assign_fuel_category_to_esc(gtn_conversions)
+    gtn_conversions = helpers.assign_fuel_category_to_esc(
+        gtn_conversions,
+        esc_column="subplant_primary_fuel",
+        pm_column="subplant_primary_prime_mover_code",
+    )
     gtn_conversions = gtn_conversions.merge(
         annual_fleet_ratio,
         how="left",
@@ -488,6 +497,7 @@ def calculate_gross_to_net_conversion_factors(
         columns=[
             "prime_mover_code",
             "subplant_primary_fuel",
+            "subplant_primary_prime_mover_code",
             "energy_source_code",
             "fuel_category",
             "fuel_category_eia930",
