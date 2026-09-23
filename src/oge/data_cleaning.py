@@ -457,7 +457,10 @@ def calculate_aggregated_primary_fuel(
     The primary fuel is assigned using a hierarchy of methods: fuel consumed for
     electricity, then nameplate capacity, then net generation, then the most common
     generator fuel. The primary prime mover is the prime mover code with the most
-    nameplate capacity, and is used to identify energy storage resources.
+    nameplate capacity among generators whose primary energy source code matches the
+    primary fuel, and is used to identify energy storage resources. If no generators
+    match the primary fuel, the prime mover with the most capacity across all
+    generators is used instead.
 
     Args:
         gen_fuel_allocated (pd.DataFrame): allocated fuel, generation, and emissions
@@ -595,13 +598,55 @@ def calculate_aggregated_primary_fuel(
         )
 
     # to enable correct energy storage fuel category assignment, we need to add a primary
-    # prime_mover_code for each subplant and plant
+    # prime_mover_code for each subplant and plant. So that the primary fuel and primary
+    # prime mover describe the same generators, only consider generators whose primary
+    # energy source code matches the primary fuel
+    generators_matching_primary_fuel = gen_primary_fuel.merge(
+        agg_primary_fuel[agg_keys + [f"{agg_level}_primary_fuel"]],
+        how="left",
+        on=agg_keys,
+        validate="m:1",
+    )
+    generators_matching_primary_fuel = generators_matching_primary_fuel.loc[
+        generators_matching_primary_fuel["energy_source_code"]
+        == generators_matching_primary_fuel[f"{agg_level}_primary_fuel"],
+        ["plant_id_eia", "generator_id"],
+    ]
     primary_prime_mover_code = calculate_capacity_based_primary_attribute(
-        gen_fuel_allocated, agg_level, agg_keys, year, attribute_col="prime_mover_code"
+        generators_matching_primary_fuel,
+        agg_level,
+        agg_keys,
+        year,
+        attribute_col="prime_mover_code",
     )
     agg_primary_fuel = agg_primary_fuel.merge(
         primary_prime_mover_code, how="left", on=agg_keys, validate="1:1"
     )
+
+    # if no generators match the primary fuel (e.g. because the energy source code
+    # reported in EIA-923 does not match energy_source_code_1 in EIA-860), fall back to
+    # using the prime mover with the most capacity across all generators
+    if agg_primary_fuel[f"{agg_level}_primary_prime_mover_code"].isna().any():
+        fallback_prime_mover_code = calculate_capacity_based_primary_attribute(
+            gen_fuel_allocated,
+            agg_level,
+            agg_keys,
+            year,
+            attribute_col="prime_mover_code",
+        )
+        agg_primary_fuel = agg_primary_fuel.merge(
+            fallback_prime_mover_code,
+            how="left",
+            on=agg_keys,
+            validate="1:1",
+            suffixes=(None, "_fallback"),
+        )
+        agg_primary_fuel[f"{agg_level}_primary_prime_mover_code"] = agg_primary_fuel[
+            f"{agg_level}_primary_prime_mover_code"
+        ].fillna(agg_primary_fuel[f"{agg_level}_primary_prime_mover_code_fallback"])
+        agg_primary_fuel = agg_primary_fuel.drop(
+            columns=[f"{agg_level}_primary_prime_mover_code_fallback"]
+        )
 
     return agg_primary_fuel
 

@@ -18,9 +18,11 @@ The same methodology is used to assign a primary fuel to each subplant (see [sub
 
 While most energy storage resources report an energy source code of `MWH`, not all do. For example, pumped storage hydroelectric plants typically report an energy source code of `WAT` (water). The primary fuel alone therefore cannot reliably identify energy storage, so we also assign a primary prime mover to each subplant and plant to assist with this identification.
 
-The primary prime mover is the `prime_mover_code` associated with the highest combined generator nameplate capacity at each subplant or plant, based on data from the EIA-860 Generators file. If multiple prime movers are associated with the same amount of nameplate capacity, the prime mover associated with the greatest number of generators is used. If a tie still remains, the prime mover that comes first alphabetically is used so that the result is consistent every time the data is generated.
+The primary prime mover is assigned after the primary fuel, so that both describe the same generators. The primary prime mover is the `prime_mover_code` associated with the highest combined generator nameplate capacity at each subplant or plant, based on data from the EIA-860 Generators file, considering only the generators whose primary energy source code matches the primary fuel. For example, a hybrid solar plant whose battery storage capacity is greater than its PV capacity will have a primary fuel of `SUN` and a primary prime mover of `PV`.
 
-The primary prime mover is assigned independently of the primary fuel, so the two may describe different generators at the same plant. For example, a natural gas plant whose battery storage capacity is greater than its combustion turbine capacity will have a primary fuel of `NG` but a primary prime mover of `BA` (battery), and will be categorized as a storage plant (see below).
+If multiple prime movers are associated with the same amount of nameplate capacity, the prime mover associated with the greatest number of generators is used. If a tie still remains, the prime mover that comes first alphabetically is used so that the result is consistent every time the data is generated.
+
+In some cases, no generator's energy source code matches the primary fuel. This can happen when the energy source code reported in EIA-923 differs from the one reported in EIA-860 (for example, a coal unit that reports burning subbituminous coal in EIA-923 but lists bituminous coal as its primary energy source in EIA-860). In these cases, the primary prime mover is the prime mover associated with the highest combined nameplate capacity across all generators at the subplant or plant.
 
 ## Assigning Fuel Categories
 
