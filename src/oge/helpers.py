@@ -12,6 +12,7 @@ from oge.constants import (
     earliest_data_year,
     latest_validated_year,
     current_early_release_year,
+    ENERGY_STORAGE_PRIME_MOVERS,
 )
 from oge.filepaths import reference_table_folder, outputs_folder, results_folder
 
@@ -962,6 +963,35 @@ def assign_fuel_category_to_esc(
         on=esc_column,
         validate="m:1",
     )
+
+    if "prime_mover_code" in df.columns:
+        df.loc[
+            df["prime_mover_code"].isin(ENERGY_STORAGE_PRIME_MOVERS), "fuel_category"
+        ] = "storage"
+
+        # Warn if there are any storage resources with non-MWH energy source codes
+        non_mwh_storage_resources = df.loc[
+            (df["fuel_category"] == "storage") & (df["energy_source_code"] != "MWH"),
+            [
+                id
+                for id in [
+                    "plant_id_eia",
+                    "generator_id",
+                    "subplant_id",
+                    "emissions_unit_id_epa",
+                ]
+                if id in df.columns
+            ]["energy_source_code", "prime_mover_code"],
+        ].drop_duplicates()
+        if len(non_mwh_storage_resources) > 0:
+            logger.warning(
+                "Assigned storage fuel category to resources with non-MWH energy source codes"
+                f"These resources are: {non_mwh_storage_resources.to_string()}"
+            )
+    else:
+        logger.warning(
+            "No prime mover code provided to complete storage fuel category assignment"
+        )
 
     return df
 

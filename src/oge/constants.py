@@ -26,18 +26,26 @@ CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
 # specify the energy_source_codes that are considerd to be biomass
 BIOMASS_FUELS = [
-    "AB",
+    "AB",  # Agricultural Byproducts
     "BG",
-    "BLQ",
-    "DG",
-    "LFG",
-    "MSB",
-    "OBG",
-    "OBL",
-    "OBS",
-    "SLW",
-    "WDL",
-    "WDS",
+    "BLQ",  # Black Liquor
+    "DG",  # Digester Gas
+    "LFG",  # Landfill Gas
+    "MSB",  # Municipal Solid Waste (Biogenic Component)
+    "OBG",  # Other Biomass Gas
+    "OBL",  # Other Biomass Liquid
+    "OBS",  # Other Biomass Solid
+    "SLW",  # Sludge Waste
+    "WDL",  # Wood DerivedLiquids
+    "WDS",  # Wood Derived Solids
+]
+
+ENERGY_STORAGE_PRIME_MOVERS = [
+    "BA",  # Battery
+    "CE",  # Compressed Air Storage
+    "ES",  # Energy Storage (Other)
+    "FW",  # Flywheel Storage
+    "PS",  # Pumped Storage
 ]
 
 TIME_RESOLUTIONS = {"hourly": "h", "monthly": "M", "annual": "A"}
