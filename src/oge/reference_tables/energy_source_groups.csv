@@ -16,7 +16,7 @@ LIG,Lignite Coal,coal,coal,coal,coal
 MSB,Municipal Solid Waste (biogenic),other_biomass,other,biomass,waste
 MSN,Municipal Solid Waste (nonbiogenic),other_biomass,other,other_fossil,waste
 MSW,Municipal Solid Waste,other_biomass,other,biomass,waste
-MWH,Energy Storage,other,other,other,other
+MWH,Energy Storage,other,other,other,storage
 NG,Natural Gas,natural_gas,natural_gas,gas,natural_gas
 NUC,Nuclear,nuclear,nuclear,nuclear,nuclear
 OBG,Other Biomass Gas,other_biomass,other,biomass,biomass
