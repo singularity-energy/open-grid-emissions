@@ -57,7 +57,7 @@ def create_plant_attributes_table(
     # merge primary fuel into cems
     cems_plants = cems_plants.merge(
         primary_fuel_table.drop_duplicates(subset="plant_id_eia")[
-            ["plant_id_eia", "plant_primary_fuel", "plant_primary_prime_mover_code"]
+            ["plant_id_eia", "plant_primary_fuel"]
         ],
         how="left",
         on="plant_id_eia",
@@ -119,6 +119,18 @@ def create_plant_attributes_table(
             "right_only": "cems_only",
             "both": "cems_and_eia",
         }
+    )
+
+    # add the plant primary prime mover so that storage plants can be identified when
+    # assigning fuel categories. Rows from the manual primary fuel table do not have a
+    # prime mover, so drop missing values before merging
+    plant_attributes = plant_attributes.merge(
+        primary_fuel_table.copy()[["plant_id_eia", "plant_primary_prime_mover_code"]]
+        .dropna(subset="plant_primary_prime_mover_code")
+        .drop_duplicates(),
+        how="left",
+        on="plant_id_eia",
+        validate="1:1",
     )
 
     # assign a BA code to each plant
@@ -950,7 +962,9 @@ def assign_fuel_category_to_esc(
     """Assigns a fuel category to each energy source code in a dataframe.
 
     Not all energy storage resources have a MWH energy source code, so this function
-    also uses `prime_mover_code` to identify storage resources. 
+    also uses `prime_mover_code` to identify storage resources. A warning is logged for
+    any resources that are missing a prime mover code, since these cannot be checked for
+    the storage fuel category.
 
     Args:
         df (pd.DataFrame): table containing the `esc_column` column, and optionally
@@ -991,7 +1005,6 @@ def assign_fuel_category_to_esc(
                 "storage"
             )
 
-            # Warn if there are any storage resources with non-MWH energy source codes
             id_cols = [
                 id
                 for id in [
@@ -1002,6 +1015,21 @@ def assign_fuel_category_to_esc(
                 ]
                 if id in df.columns
             ]
+
+            # Warn if there are any resources missing a prime mover code, since these
+            # cannot be identified as storage unless they have a MWH energy source code
+            missing_pm_resources = df.loc[
+                df[pm_column].isna(), id_cols + [esc_column]
+            ].drop_duplicates()
+            if len(missing_pm_resources) > 0:
+                logger.warning(
+                    f"{len(missing_pm_resources)} resources are missing a prime mover "
+                    f"code in '{pm_column}' and could not be checked for the storage "
+                    "fuel category. The first 50 of these resources are:\n"
+                    f"{missing_pm_resources.head(50).to_string()}"
+                )
+
+            # Warn if there are any storage resources with non-MWH energy source codes
             non_mwh_storage_resources = df.loc[
                 (df["fuel_category"] == "storage") & (df[esc_column] != "MWH"),
                 id_cols + [esc_column, pm_column],
@@ -1336,8 +1364,18 @@ def test_for_missing_subplant_id(df, plant_part):
     return missing_subplant_test
 
 
-def calculate_subplant_nameplate_capacity(year):
-    """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
+def calculate_subplant_nameplate_capacity(year: int) -> pd.DataFrame:
+    """Calculates the total nameplate capacity of each subplant.
+
+    The primary prime mover of each subplant is available in the
+    `subplant_primary_prime_mover_code` column of the primary fuel table.
+
+    Args:
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: table with the total `capacity_mw` of each subplant.
+    """
     # load generator data
     gen_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
@@ -1345,7 +1383,6 @@ def calculate_subplant_nameplate_capacity(year):
         columns=[
             "plant_id_eia",
             "generator_id",
-            "prime_mover_code",
             "capacity_mw",
             "operational_status_code",
         ],
@@ -1364,24 +1401,6 @@ def calculate_subplant_nameplate_capacity(year):
         gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
         .sum()
         .reset_index()
-    )
-
-    # identify the primary prime mover for each subplant based on capacity
-    subplant_prime_mover = gen_capacity[
-        gen_capacity.groupby(["plant_id_eia", "subplant_id"], dropna=False)[
-            "capacity_mw"
-        ].transform("max")
-        == gen_capacity["capacity_mw"]
-    ][["plant_id_eia", "subplant_id", "prime_mover_code"]].drop_duplicates(
-        subset=["plant_id_eia", "subplant_id"], keep="first"
-    )
-
-    # add the prime mover information
-    subplant_capacity = subplant_capacity.merge(
-        subplant_prime_mover,
-        how="left",
-        on=["plant_id_eia", "subplant_id"],
-        validate="1:1",
     )
 
     return subplant_capacity

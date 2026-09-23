@@ -157,17 +157,18 @@ def calculate_gross_to_net_conversion_factors(
     primary_fuel_table: pd.DataFrame,
     year: int,
 ) -> pd.DataFrame:
-    """Calculates gross to net ratios based on gross generation data reported in CEMS
-    and net generation data reported in EIA-923.
+    """Calculates gross to net ratios from CEMS gross and EIA-923 net generation.
 
-    Calculates ratios for specific subplants, plants, and fleets (fuel-PM).
-    When calculating ratios, we ensure to only keep data where there is data both for
-    CEMS and EIA.
+    Calculates ratios for specific subplants, plants, and fleets (fuel category and
+    prime mover). Fleets are defined using the subplant primary fuel and subplant
+    primary prime mover from `primary_fuel_table`. When calculating ratios, we ensure
+    to only keep data where there is data both for CEMS and EIA.
 
     Args:
         cems (pd.DataFrame): hourly CEMS data aggregated to the subplant level
         eia923_allocated (pd.DataFrame): Cleaned EIA-923 data at the subplant level
-        primary_fuel_table (pd.DataFrame): Table indicating subplant primary fuel
+        primary_fuel_table (pd.DataFrame): Table indicating the subplant primary fuel
+            and subplant primary prime mover
         year (int): data year
 
     Returns:
@@ -258,6 +259,23 @@ def calculate_gross_to_net_conversion_factors(
             on=["plant_id_eia", "subplant_id"],
             validate="m:1",
         )
+        # add the subplant primary fuel and prime mover so that fleet ratios are
+        # calculated and applied using consistent fuel categories and prime movers
+        .merge(
+            primary_fuel_table[
+                [
+                    "plant_id_eia",
+                    "subplant_id",
+                    "subplant_primary_fuel",
+                    "subplant_primary_prime_mover_code",
+                ]
+            ]
+            .drop_duplicates()
+            .rename(columns={"subplant_primary_prime_mover_code": "prime_mover_code"}),
+            how="left",
+            on=["plant_id_eia", "subplant_id"],
+            validate="m:1",
+        )
     )
     combined_gen_data["data_source"] = combined_gen_data[
         "data_source"
@@ -304,7 +322,8 @@ def calculate_gross_to_net_conversion_factors(
     annual_fleet_ratio = helpers.assign_fuel_category_to_esc(
         combined_gen_data[combined_gen_data["data_source"] == "both"].dropna(
             subset=["gross_generation_mwh", "net_generation_mwh"]
-        )
+        ),
+        esc_column="subplant_primary_fuel",
     )
     # first group the data by subplant and remove any data that is anomalous
     annual_fleet_ratio = (
@@ -408,24 +427,10 @@ def calculate_gross_to_net_conversion_factors(
         suffixes=("_subplant", "_plant"),
         validate="m:1",
     )
-    # merge the plant primary fuel and the fuel ratios into the conversion table
-    gtn_conversions = gtn_conversions.merge(
-        primary_fuel_table[
-            [
-                "plant_id_eia",
-                "subplant_id",
-                "subplant_primary_fuel",
-                "subplant_primary_prime_mover_code",
-            ]
-        ].drop_duplicates(),
-        how="left",
-        on=["plant_id_eia", "subplant_id"],
-        validate="m:1",
-    )
+    # merge the fleet ratios into the conversion table
     gtn_conversions = helpers.assign_fuel_category_to_esc(
         gtn_conversions,
         esc_column="subplant_primary_fuel",
-        pm_column="subplant_primary_prime_mover_code",
     )
     gtn_conversions = gtn_conversions.merge(
         annual_fleet_ratio,
@@ -497,7 +502,6 @@ def calculate_gross_to_net_conversion_factors(
         columns=[
             "prime_mover_code",
             "subplant_primary_fuel",
-            "subplant_primary_prime_mover_code",
             "energy_source_code",
             "fuel_category",
             "fuel_category_eia930",
