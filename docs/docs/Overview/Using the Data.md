@@ -67,8 +67,8 @@ plant_id_eia | integer | The unique six-digit facility identification number, al
 plant_name_eia | string | Plant name | EIA-860
 capacity_mw | float | Total installed (nameplate) capacity, in megawatts | EIA-860
 plant_primary_fuel | string | two- or three-character energy_source_code of the primary fuel consumed by the plant in a year | [Calculated](../Methodology/Data%20Aggregation/Plant%20Primary%20Fuel.md)
-fuel_category | string | named fuel category associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/energy_source_groups.csv)
-fuel_category_eia930 | string | named fuel category used by EIA-930 associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/energy_source_groups.csv)
+fuel_category | string | named fuel category associated with the identified `plant_primary_fuel`, or `storage` if the plant's primary prime mover is an energy storage technology | [Calculated](../Methodology/Data%20Aggregation/Plant%20Primary%20Fuel.md#assigning-fuel-categories) using this [mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/energy_source_groups.csv)
+fuel_category_eia930 | string | named fuel category used by EIA-930 associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/energy_source_groups.csv)
 state | string | Two-letter state abbreviation where the plant is physically located | EIA-860
 county | string | County name | EIA-860
 city | string | City name | EIA-860

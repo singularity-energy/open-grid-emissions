@@ -268,9 +268,10 @@ def assign_fleet_to_subplant_data(
             Defaults to "fuel_category".
         other_attribute_cols (list[str], optional): a list of additional columns from
             plant_attributes_table to add to subplant_data. Defaults to [].
-        drop_primary_fuel_col (bool): Whether to drop the ESC-level primary_fuel_col
-            before returning the table. Can be set to False for use of this function
-            in output_data.identify_percent_of_data_by_input_source() Defaults to True.
+        drop_primary_fuel_col (bool, optional): Whether to drop the ESC-level
+            primary_fuel_col and the subplant_primary_prime_mover_code column before
+            returning the table. Can be set to False for use of this function in
+            output_data.identify_percent_of_data_by_input_source(). Defaults to True.
 
     Raises:
         UserWarning: If a BA code or fuel type cannot be assigned to a subplant
@@ -278,9 +279,15 @@ def assign_fleet_to_subplant_data(
     Returns:
         pd.DataFrame: subplant_data with ba_code and fuel_category columns added
     """
-    # check to make sure the ba_col and primary_fuel_col are not already in the dataframe
-    # if so, drop them before merging
-    cols_to_add = [ba_col, primary_fuel_col] + other_attribute_cols
+    # check to make sure none of the columns added by this function are already in the
+    # dataframe. If so, drop them before merging to avoid creating duplicate columns
+    cols_to_add = [
+        ba_col,
+        "ba_code",
+        primary_fuel_col,
+        "subplant_primary_prime_mover_code",
+        fuel_category_col,
+    ] + other_attribute_cols
     fleet_cols_already_in_subplant_data = [
         col for col in subplant_data.columns if col in cols_to_add
     ]

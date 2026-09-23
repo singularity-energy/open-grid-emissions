@@ -616,9 +616,14 @@ def calculate_capacity_based_primary_attribute(
     """Identifies the attribute with the most nameplate capacity at each subplant or plant.
 
     Generator nameplate capacity from the most recent available EIA-860 data (up to
-    four years before `year`) is summed by each value of `attribute_col`. If multiple
-    values have the same total capacity, the value associated with the most generators
-    is chosen. Any remaining ties are broken by choosing the alphabetically first value.
+    four years before `year`) is summed by each value of `attribute_col`, and the value
+    with the most capacity is chosen. Ties are handled differently for each attribute:
+
+    - "energy_source_code_1": subplants or plants where two fuels tie are excluded, so
+      that the tie can be resolved by the other methods in
+      `calculate_aggregated_primary_fuel()`.
+    - "prime_mover_code": the prime mover associated with the most generators is
+      chosen. Any remaining ties are broken by choosing the alphabetically first value.
 
     Args:
         gen_fuel_allocated (pd.DataFrame): allocated fuel, generation, and emissions
@@ -632,7 +637,7 @@ def calculate_capacity_based_primary_attribute(
             "energy_source_code_1".
 
     Returns:
-        pd.DataFrame: one row per subplant or plant with the primary attribute, named
+        pd.DataFrame: the primary attribute for each subplant or plant, named
             `{agg_level}_primary_fuel_from_capacity_mw` for "energy_source_code_1" or
             `{agg_level}_primary_prime_mover_code` for "prime_mover_code".
 
@@ -703,17 +708,25 @@ def calculate_capacity_based_primary_attribute(
         == gen_capacity["capacity_mw"]
     ]
 
-    # if multiple attribute values have the same nameplate capacity, use the count of
-    # generators to break ties (using the value that matches the most generators).
-    # NOTE: if values are still tied, keep the alphabetically first value so that the
-    # result is deterministic
-    gen_capacity = (
-        gen_capacity.sort_values(
+    if attribute_col == "prime_mover_code":
+        # if multiple prime movers have the same nameplate capacity, use the count of
+        # generators to break ties (using the value that matches the most generators).
+        # NOTE: if values are still tied, keep the alphabetically first value so that
+        # the result is deterministic
+        gen_capacity = gen_capacity.sort_values(
             by=agg_keys + ["generator_count", attribute_col],
             ascending=[True] * len(agg_keys) + [False, True],
-        )
-        .drop_duplicates(subset=agg_keys, keep="first")[agg_keys + [attribute_col]]
-        .rename(columns={attribute_col: output_label})
+        ).drop_duplicates(subset=agg_keys, keep="first")
+    else:
+        # drop any duplicate entries (if two fuel types have the same nameplate
+        # capacity) so that ties can be resolved by the other primary fuel methods in
+        # `calculate_aggregated_primary_fuel()`
+        gen_capacity = gen_capacity[
+            ~(gen_capacity.duplicated(subset=agg_keys, keep=False))
+        ]
+
+    gen_capacity = gen_capacity[agg_keys + [attribute_col]].rename(
+        columns={attribute_col: output_label}
     )
 
     return gen_capacity
