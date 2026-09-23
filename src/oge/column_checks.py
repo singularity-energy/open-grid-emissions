@@ -475,6 +475,7 @@ def get_dtypes() -> dict:
         "plant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu": "string",
         "plant_primary_fuel_from_mode": "string",
         "plant_primary_fuel_from_net_generation_mwh": "string",
+        "plant_primary_prime_mover_code": "string",
         "profile": "float64",
         "profile_method": "string",
         "residual_profile": "float64",
@@ -495,6 +496,7 @@ def get_dtypes() -> dict:
         "subplant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu": "string",
         "subplant_primary_fuel_from_mode": "string",
         "subplant_primary_fuel_from_net_generation_mwh": "string",
+        "subplant_primary_prime_mover_code": "string",
         "wet_dry_bottom": "string",
     }
 

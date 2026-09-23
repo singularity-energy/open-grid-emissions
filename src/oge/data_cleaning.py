@@ -452,21 +452,28 @@ def calculate_aggregated_primary_fuel(
     agg_level: str,
     year: int,
 ) -> pd.DataFrame:
-    """
-    Takes generator-level fuel data and calculates primary fuel for the subplant or
-    plant level.
+    """Calculates the primary fuel and primary prime mover for each subplant or plant.
 
-    Also calculates primary prime mover code for each subplant or plant to help identify
-    storage fuel categories.
+    The primary fuel is assigned using a hierarchy of methods: fuel consumed for
+    electricity, then nameplate capacity, then net generation, then the most common
+    generator fuel. The primary prime mover is the prime mover code with the most
+    nameplate capacity, and is used to identify energy storage resources.
 
     Args:
-        gen_fuel_allocated: dataframe of allocated fuel, generation, and emissions data by generator
-        gen_primary_fuel: dataframe of primary fuel by generator
-        agg_level: either "plant" or "subplant"
-        year: the data year
+        gen_fuel_allocated (pd.DataFrame): allocated fuel, generation, and emissions
+            data by generator.
+        gen_primary_fuel (pd.DataFrame): primary energy source code for each generator.
+        agg_level (str): level to aggregate to, either "plant" or "subplant".
+        year (int): the data year.
 
     Returns:
-        pd.DataFrame: dataframe with the primary fuel for each subplant or plant
+        pd.DataFrame: one row per subplant or plant with `{agg_level}_primary_fuel`,
+            the intermediate `{agg_level}_primary_fuel_from_*` columns, and
+            `{agg_level}_primary_prime_mover_code`.
+
+    Raises:
+        UserWarning: if `agg_level` is not "plant" or "subplant", or if a primary fuel
+            cannot be assigned to every subplant or plant.
     """
     if agg_level == "plant":
         agg_keys = ["plant_id_eia"]
@@ -606,22 +613,32 @@ def calculate_capacity_based_primary_attribute(
     year: int,
     attribute_col: str = "energy_source_code_1",
 ) -> pd.DataFrame:
-    """
-    Calculates the primary attribute (either fuel or prime mover code) for each subplant
-    or plant based on nameplate capacity.
+    """Identifies the attribute with the most nameplate capacity at each subplant or plant.
+
+    Generator nameplate capacity from the most recent available EIA-860 data (up to
+    four years before `year`) is summed by each value of `attribute_col`. If multiple
+    values have the same total capacity, the value associated with the most generators
+    is chosen. Any remaining ties are broken by choosing the alphabetically first value.
 
     Args:
-        gen_fuel_allocated (pd.DataFrame): dataframe of allocated fuel, generation,
-            and emissions data by generator. Used to identify the complete set of units
-            to include
-        agg_level (str): either "plant" or "subplant"
-        agg_keys (list[str]): list of keys to group by
-        year (int): the data year
-        attribute_col (str): the column to use to calculate the primary attribute
-            (either "energy_source_code_1" or "prime_mover_code")
+        gen_fuel_allocated (pd.DataFrame): allocated fuel, generation, and emissions
+            data by generator. Used to identify the complete set of generators to
+            include.
+        agg_level (str): level to aggregate to, either "plant" or "subplant".
+        agg_keys (list[str]): columns to group by for `agg_level`.
+        year (int): the data year.
+        attribute_col (str, optional): EIA-860 generator column to aggregate, either
+            "energy_source_code_1" or "prime_mover_code". Defaults to
+            "energy_source_code_1".
 
     Returns:
-        pd.DataFrame: dataframe with the primary attribute for each subplant or plant
+        pd.DataFrame: one row per subplant or plant with the primary attribute, named
+            `{agg_level}_primary_fuel_from_capacity_mw` for "energy_source_code_1" or
+            `{agg_level}_primary_prime_mover_code` for "prime_mover_code".
+
+    Raises:
+        ValueError: if `attribute_col` is not "energy_source_code_1" or
+            "prime_mover_code".
     """
     if attribute_col == "energy_source_code_1":
         output_label = f"{agg_level}_primary_fuel_from_capacity_mw"
@@ -630,7 +647,7 @@ def calculate_capacity_based_primary_attribute(
     else:
         raise ValueError(f"Invalid attribute column: {attribute_col}")
 
-    # create a table of primary fuel by nameplate capacity
+    # load generator nameplate capacity data
     gen_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
         year=max(earliest_data_year, year - 4),
@@ -672,19 +689,32 @@ def calculate_capacity_based_primary_attribute(
         )
 
     gen_capacity = (
-        gen_capacity.groupby(agg_keys + [attribute_col], dropna=False)["capacity_mw"]
-        .sum()
+        gen_capacity.groupby(agg_keys + [attribute_col], dropna=False)
+        .agg(
+            capacity_mw=("capacity_mw", "sum"),
+            generator_count=("generator_id", "count"),
+        )
         .reset_index()
     )
 
-    # find the fuel with the greatest capacity
+    # find the attribute value with the greatest capacity
     gen_capacity = gen_capacity[
         gen_capacity.groupby(agg_keys, dropna=False)["capacity_mw"].transform("max")
         == gen_capacity["capacity_mw"]
-    ][agg_keys + [attribute_col]].rename(columns={attribute_col: output_label})
+    ]
 
-    # drop any duplicate entries (if two fuel types have the same nameplate capacity)
-    gen_capacity = gen_capacity[~(gen_capacity.duplicated(subset=agg_keys, keep=False))]
+    # if multiple attribute values have the same nameplate capacity, use the count of
+    # generators to break ties (using the value that matches the most generators).
+    # NOTE: if values are still tied, keep the alphabetically first value so that the
+    # result is deterministic
+    gen_capacity = (
+        gen_capacity.sort_values(
+            by=agg_keys + ["generator_count", attribute_col],
+            ascending=[True] * len(agg_keys) + [False, True],
+        )
+        .drop_duplicates(subset=agg_keys, keep="first")[agg_keys + [attribute_col]]
+        .rename(columns={attribute_col: output_label})
+    )
 
     return gen_capacity
 
@@ -705,7 +735,7 @@ def add_under_construction_generator_ids_to_df(
     Returns:
         pd.DataFrame: df with new rows for under construction generator ids added
     """
-    # create a table of primary fuel by nameplate capacity
+    # load generator nameplate capacity data
     gen_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
         year,
@@ -784,7 +814,7 @@ def add_recently_retired_generator_ids_to_df(
     Returns:
         pd.DataFrame: df with new rows for under construction generator ids added
     """
-    # create a table of primary fuel by nameplate capacity
+    # load generator nameplate capacity data
     # load data for up to the past 5 years
     gen_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",

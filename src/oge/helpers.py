@@ -57,7 +57,7 @@ def create_plant_attributes_table(
     # merge primary fuel into cems
     cems_plants = cems_plants.merge(
         primary_fuel_table.drop_duplicates(subset="plant_id_eia")[
-            ["plant_id_eia", "plant_primary_fuel"]
+            ["plant_id_eia", "plant_primary_fuel", "plant_primary_prime_mover_code"]
         ],
         how="left",
         on="plant_id_eia",
@@ -134,6 +134,7 @@ def create_plant_attributes_table(
     plant_attributes = assign_fuel_category_to_esc(
         df=plant_attributes,
         esc_column="plant_primary_fuel",
+        pm_column="plant_primary_prime_mover_code",
     )
 
     # add geographical info
@@ -216,8 +217,12 @@ def assign_fleet_to_subplant_data(
     other_attribute_cols: list[str] = [],
     drop_primary_fuel_col: bool = True,
 ) -> pd.DataFrame:
-    """Assigns a BA code and fuel category to each subplant in order to facilitate
-    aggregating the data to the fleet level.
+    """Assigns a BA code and fuel category to each subplant.
+
+    This facilitates aggregating the data to the fleet level. The fuel category is
+    assigned based on the subplant primary fuel specified by `primary_fuel_col`, and
+    subplants with a storage `subplant_primary_prime_mover_code` are assigned a
+    "storage" fuel category when `fuel_category_col` is "fuel_category".
 
     When assigning a primary fuel/fuel category, the general options we should follow
     are:
@@ -261,7 +266,6 @@ def assign_fleet_to_subplant_data(
     Returns:
         pd.DataFrame: subplant_data with ba_code and fuel_category columns added
     """
-
     # check to make sure the ba_col and primary_fuel_col are not already in the dataframe
     # if so, drop them before merging
     cols_to_add = [ba_col, primary_fuel_col] + other_attribute_cols
@@ -945,17 +949,23 @@ def assign_fuel_category_to_esc(
 ) -> pd.DataFrame:
     """Assigns a fuel category to each energy source code in a dataframe.
 
+    Not all energy storage resources have a MWH energy source code, so this function
+    also uses `prime_mover_code` to identify storage resources. 
+
     Args:
-        df (pd.DataFrame): table with column name that matches `fuel_category_names`
-            and 'energy_source_codes
+        df (pd.DataFrame): table containing the `esc_column` column, and optionally
+            the `pm_column` column.
         fuel_category_names (list, optional): columns in
             reference_tables/energy_source_groups.csv that contains the desired
             category mapping. Defaults to ["fuel_category", "fuel_category_eia930"].
         esc_column (str, optional): name of the column in `df` that contains the energy
             source codes to assign a category to. Defaults to "energy_source_code".
+        pm_column (str, optional): name of the column in `df` that contains the prime
+            mover codes used to identify storage resources. Defaults to
+            "prime_mover_code".
 
     Returns:
-        pd.DataFrame: original data frame with additional 'fuel_category_names'
+        pd.DataFrame: original data frame with additional `fuel_category_names`
             column(s).
     """
     # load the fuel category table
@@ -973,17 +983,16 @@ def assign_fuel_category_to_esc(
         validate="m:1",
     )
 
-    # only map enhanced storage fuel category to the main fuel_category column if
-    # prime mover data is available
-    if (pm_column in df.columns) and ("fuel_category" in fuel_category_names):
-        df.loc[df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS), "fuel_category"] = (
-            "storage"
-        )
+    # the storage fuel category only applies to the main fuel_category column, and can
+    # only be assigned if prime mover data is available
+    if "fuel_category" in fuel_category_names:
+        if pm_column in df.columns:
+            df.loc[df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS), "fuel_category"] = (
+                "storage"
+            )
 
-        # Warn if there are any storage resources with non-MWH energy source codes
-        non_mwh_storage_resources = df.loc[
-            (df["fuel_category"] == "storage") & (df[esc_column] != "MWH"),
-            [
+            # Warn if there are any storage resources with non-MWH energy source codes
+            id_cols = [
                 id
                 for id in [
                     "plant_id_eia",
@@ -992,17 +1001,22 @@ def assign_fuel_category_to_esc(
                     "emissions_unit_id_epa",
                 ]
                 if id in df.columns
-            ][esc_column, pm_column],
-        ].drop_duplicates()
-        if len(non_mwh_storage_resources) > 0:
+            ]
+            non_mwh_storage_resources = df.loc[
+                (df["fuel_category"] == "storage") & (df[esc_column] != "MWH"),
+                id_cols + [esc_column, pm_column],
+            ].drop_duplicates()
+            if len(non_mwh_storage_resources) > 0:
+                logger.warning(
+                    "Assigned storage fuel category to resources with non-MWH energy "
+                    "source codes. These resources are:\n"
+                    f"{non_mwh_storage_resources.to_string()}"
+                )
+        else:
             logger.warning(
-                "Assigned storage fuel category to resources with non-MWH energy source codes"
-                f"These resources are: {non_mwh_storage_resources.to_string()}"
+                f"No prime mover code column '{pm_column}' provided to complete storage "
+                "fuel category assignment"
             )
-    else:
-        logger.warning(
-            "No prime mover code provided to complete storage fuel category assignment"
-        )
 
     return df
 
