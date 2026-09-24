@@ -1036,15 +1036,16 @@ def assign_fuel_category_to_esc(
                     f"{missing_pm_resources.head(50).to_string()}"
                 )
 
-            # Warn if there are any storage resources with non-MWH energy source codes
+            # Warn if a storage fuel category is assigned to a non pumped storage (WAT)
+            # or battery (MWH) resource
             non_mwh_storage_resources = df.loc[
-                (df["fuel_category"] == "storage") & (df[esc_column] != "MWH"),
+                (df["fuel_category"] == "storage")
+                & ~(df[esc_column].isin(["MWH", "WAT"])),
                 id_cols + [esc_column, pm_column],
             ].drop_duplicates()
             if len(non_mwh_storage_resources) > 0:
                 logger.warning(
-                    "Assigned storage fuel category to resources with non-MWH energy "
-                    "source codes. These resources are:\n"
+                    "Assigned storage fuel category atypical energy source codes:"
                     f"{non_mwh_storage_resources.to_string()}"
                 )
         else:
