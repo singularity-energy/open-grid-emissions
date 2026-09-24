@@ -348,14 +348,6 @@ def create_primary_fuel_table(
         pd.DataFrame: the primary fuel table.
     """
     logger.info("Creating Primary Fuel Table")
-    # add under construction generators to the dataframe
-    gen_fuel_allocated = add_under_construction_generator_ids_to_df(
-        gen_fuel_allocated, year
-    )
-    gen_fuel_allocated = add_recently_retired_generator_ids_to_df(
-        gen_fuel_allocated, year
-    )
-
     # add subplant ids so that we can create subplant-specific primary fuels
     logger.info("Adding subplant_id to gen_fuel_allocated for primary_fuel_table")
     gen_fuel_allocated = add_subplant_ids_to_df(
@@ -364,6 +356,13 @@ def create_primary_fuel_table(
         plant_part_to_map="generator_id",
         how_merge="left",
         validate_merge="m:1",
+    )
+
+    # add generators for any subplants that report to CEMS but are missing from the
+    # EIA-923 data (e.g. retired or under construction units that still report to CEMS)
+    # so that every CEMS subplant is assigned a primary fuel
+    gen_fuel_allocated = add_generators_for_missing_cems_subplants(
+        gen_fuel_allocated, year
     )
 
     # flag and remove any missing ESCs
@@ -777,104 +776,105 @@ def calculate_capacity_based_primary_attribute(
     return gen_capacity
 
 
-def add_under_construction_generator_ids_to_df(
-    df: pd.DataFrame, year: int
+def add_generators_for_missing_cems_subplants(
+    gen_fuel_allocated: pd.DataFrame, year: int
 ) -> pd.DataFrame:
-    """Adds rows to df for generators that are under construction. Used to ensure
-    complete coverage when a generator starts reporting data before coming online
+    """Adds generators for CEMS subplants that are missing from gen_fuel_allocated.
 
-    NOTE: this function may result in the addition of duplicate generator_ids. If that
-    is an issue for the context, run drop_duplicates after this function.
+    Some units report to CEMS in a year without reporting to EIA-923 (for example,
+    retired units that continue to report to CEMS, or new units that report test
+    generation before coming online). To ensure that every CEMS subplant can be assigned
+    a primary fuel and prime mover, this function identifies the subplants of units that
+    report to CEMS in `year` that do not have any generators in `gen_fuel_allocated`,
+    and adds a row for each generator in those subplants. The energy source code of each
+    added generator is the `energy_source_code_1` from the most recent EIA-860 data
+    available from `year` and the four years prior.
+
+    Generators are only added for subplants that are entirely missing from
+    `gen_fuel_allocated`, so that the primary fuel and prime mover of subplants that
+    report to EIA-923 are not affected.
 
     Args:
-        df (pd.DataFrame): the df to add generator IDs to
-        year (int): the data year
+        gen_fuel_allocated (pd.DataFrame): allocated fuel and generation data by
+            generator, including a `subplant_id` column.
+        year (int): the data year.
 
     Returns:
-        pd.DataFrame: df with new rows for under construction generator ids added
+        pd.DataFrame: `gen_fuel_allocated` with rows added for the generators of missing
+            CEMS subplants. Only the `plant_id_eia`, `subplant_id`, `generator_id`, and
+            `energy_source_code` columns are filled for the added rows.
     """
-    # load generator nameplate capacity data
-    gen_capacity = load_data.load_pudl_table(
-        "core_eia860__scd_generators",
-        year,
-        columns=[
-            "plant_id_eia",
-            "generator_id",
-            "capacity_mw",
-            "energy_source_code_1",
-            "operational_status",
-            "operational_status_code",
-        ],
-    ).rename(columns={"energy_source_code_1": "energy_source_code"})
-
-    # keep operating generators and proposed generators that are already under construction
-    under_construction_status_codes = ["U", "V", "TS", "OT"]
-    gen_cap_under_construction = gen_capacity[
-        (
-            (gen_capacity["operational_status"] == "proposed")
-            & (
-                gen_capacity["operational_status_code"].isin(
-                    under_construction_status_codes
-                )
-            )
-        )
-    ]
-
-    # add subplant_ids
-    logger.info("Adding subplant_id to gen_cap_under_construction")
-    gen_cap_under_construction = add_subplant_ids_to_df(
-        gen_cap_under_construction,
-        year,
-        plant_part_to_map="generator_id",
-        how_merge="left",
-        validate_merge="m:1",
-    )
-
-    columns_to_append = [
-        col for col in gen_cap_under_construction.columns if col in df.columns
-    ]
-
-    # check that none of the generators to be added are already in the dataframe
-    unique_gens = df[["plant_id_eia", "generator_id"]].drop_duplicates()
-    gen_cap_under_construction = gen_cap_under_construction.merge(
-        unique_gens,
+    # load the units that report to CEMS in the data year and map them to subplants.
+    # Non-grid-connected plants are removed from CEMS in clean_cems(), so remove them
+    # here as well
+    cems_ids = load_data.load_cems_ids(year).drop_duplicates()
+    subplant_crosswalk = pd.read_csv(
+        outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
+        dtype=get_dtypes(),
+    )[
+        ["plant_id_eia", "emissions_unit_id_epa", "generator_id", "subplant_id"]
+    ].drop_duplicates()
+    cems_generators = cems_ids.merge(
+        subplant_crosswalk,
         how="left",
-        on=["plant_id_eia", "generator_id"],
-        validate="1:1",
-        indicator="copy",
-    )
-    gen_cap_under_construction = gen_cap_under_construction[
-        gen_cap_under_construction["copy"] != "both"
-    ]
-    gen_cap_under_construction.drop(columns="copy", inplace=True)
-
-    # add under construction plants to this
-    df = pd.concat(
-        [df, gen_cap_under_construction[columns_to_append]], axis=0, copy=False
+        on=["plant_id_eia", "emissions_unit_id_epa"],
+        validate="1:m",
     )
 
-    return df
+    # identify CEMS subplants that do not have any generators in gen_fuel_allocated
+    cems_generators = cems_generators.merge(
+        gen_fuel_allocated[["plant_id_eia", "subplant_id"]].drop_duplicates(),
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+        indicator="subplant_in_eia",
+    )
+    missing_generators = cems_generators[
+        cems_generators["subplant_in_eia"] == "left_only"
+    ].drop(columns="subplant_in_eia")
 
+    # CEMS units that are not mapped to an EIA generator cannot be added here. Some of
+    # these are manually assigned a primary fuel in create_primary_fuel_table(), so only
+    # warn about units that are not in the manual table
+    primary_fuel_manual = pd.read_csv(
+        reference_table_folder("temporary_primary_fuel_manual.csv"),
+        dtype=get_dtypes(),
+    )
+    primary_fuel_manual = primary_fuel_manual.loc[
+        primary_fuel_manual["year"] == year, ["plant_id_eia", "subplant_id"]
+    ].drop_duplicates()
+    units_without_generators = missing_generators.loc[
+        missing_generators["generator_id"].isna(),
+        ["plant_id_eia", "emissions_unit_id_epa", "subplant_id"],
+    ].merge(
+        primary_fuel_manual,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+        indicator="in_manual_table",
+    )
+    units_without_generators = units_without_generators[
+        units_without_generators["in_manual_table"] == "left_only"
+    ].drop(columns="in_manual_table")
+    # NOTE: most of these units (e.g. steam-only units) are removed later in
+    # clean_cems(), so this is logged as info rather than a warning
+    if len(units_without_generators) > 0:
+        logger.info(
+            f"{len(units_without_generators)} CEMS units are not mapped to an EIA "
+            "generator, so their subplants will not be assigned a primary fuel unless "
+            "they are removed in clean_cems() or added to "
+            "reference_tables/temporary_primary_fuel_manual.csv:\n"
+            f"{units_without_generators.to_string()}"
+        )
 
-def add_recently_retired_generator_ids_to_df(
-    df: pd.DataFrame, year: int
-) -> pd.DataFrame:
-    """Adds rows to df for generators that are recently retired. Used to ensure
-    complete coverage when a generator continues reporting CEMS data even after retiring
+    missing_generators = missing_generators.dropna(subset="generator_id")[
+        ["plant_id_eia", "subplant_id", "generator_id"]
+    ].drop_duplicates()
+    if len(missing_generators) == 0:
+        return gen_fuel_allocated
 
-    NOTE: this function may result in the addition of duplicate generator_ids. If that
-    is an issue for the context, run drop_duplicates after this function.
-
-    Args:
-        df (pd.DataFrame): the df to add generator IDs to
-        year (int): the data year
-
-    Returns:
-        pd.DataFrame: df with new rows for under construction generator ids added
-    """
-    # load generator nameplate capacity data
-    # load data for up to the past 5 years
-    gen_capacity = load_data.load_pudl_table(
+    # load the energy source code of each generator from the most recent EIA-860 data
+    gen_esc = load_data.load_pudl_table(
         "core_eia860__scd_generators",
         year=max(earliest_data_year, year - 4),
         end_year=year,
@@ -882,86 +882,34 @@ def add_recently_retired_generator_ids_to_df(
             "report_date",
             "plant_id_eia",
             "generator_id",
-            "capacity_mw",
             "energy_source_code_1",
-            "operational_status",
-            "operational_status_code",
-            "generator_retirement_date",
         ],
-    ).rename(columns={"energy_source_code_1": "energy_source_code"})
-
-    # keep generators that have retired in teh past 5 years
-    # this is based on data reported in the data year
-    gen_cap_recently_retired = gen_capacity[
-        (
-            (gen_capacity["report_date"] == year)
-            & (gen_capacity["operational_status"] == "retired")
-            & (gen_capacity["operational_status_code"] == "RE")
-            & (gen_capacity["generator_retirement_date"].dt.year >= (year - 4))
+    )
+    gen_esc = gen_esc[
+        gen_esc["report_date"]
+        == gen_esc.groupby(["plant_id_eia", "generator_id"])["report_date"].transform(
+            "max"
         )
     ]
-
-    # some generators "silently retire", meaning they just disappear from the data one
-    # year rather than being marked as retired. We also want to include these in the
-    # recently retired generators data
-    # identify which generators have a most recent report date that is prior to the current year
-    silent_retirers = gen_capacity[
-        gen_capacity.groupby(["plant_id_eia", "generator_id"])["report_date"]
-        .transform("max")
-        .dt.year
-        < year
-    ]
-    # filter to only include the most recent year of reported data
-    silent_retirers = silent_retirers[
-        silent_retirers["report_date"]
-        == silent_retirers.groupby(["plant_id_eia", "generator_id"])[
-            "report_date"
-        ].transform("max")
-    ]
-    # now, only keep units that were existing in that year (not proposed gens that disappear)
-    silent_retirers = silent_retirers[
-        silent_retirers["operational_status"] == "existing"
-    ]
-
-    gen_cap_recently_retired = pd.concat(
-        [gen_cap_recently_retired, silent_retirers], axis=0, copy=False
-    )
-    gen_cap_recently_retired.drop(columns=["report_date"], inplace=True)
-
-    # add subplant_ids
-    logger.info("Adding subplant_id to gen_cap_recently_retired")
-    gen_cap_recently_retired = add_subplant_ids_to_df(
-        gen_cap_recently_retired,
-        year,
-        plant_part_to_map="generator_id",
-        how_merge="left",
-        validate_merge="m:1",
-    )
-
-    columns_to_append = [
-        col for col in gen_cap_recently_retired.columns if col in df.columns
-    ]
-
-    # check that none of the generators to be added are already in the dataframe
-    unique_gens = df[["plant_id_eia", "generator_id"]].drop_duplicates()
-    gen_cap_recently_retired = gen_cap_recently_retired.merge(
-        unique_gens,
+    missing_generators = missing_generators.merge(
+        gen_esc[["plant_id_eia", "generator_id", "energy_source_code_1"]].rename(
+            columns={"energy_source_code_1": "energy_source_code"}
+        ),
         how="left",
         on=["plant_id_eia", "generator_id"],
-        validate="1:1",
-        indicator="copy",
-    )
-    gen_cap_recently_retired = gen_cap_recently_retired[
-        gen_cap_recently_retired["copy"] != "both"
-    ]
-    gen_cap_recently_retired.drop(columns="copy", inplace=True)
-
-    # add under construction plants to this
-    df = pd.concat(
-        [df, gen_cap_recently_retired[columns_to_append]], axis=0, copy=False
+        validate="m:1",
     )
 
-    return df
+    logger.info(
+        f"Adding {len(missing_generators)} generators for "
+        f"{len(missing_generators[['plant_id_eia', 'subplant_id']].drop_duplicates())} "
+        "CEMS subplants that are missing from EIA-923 to the primary fuel calculation"
+    )
+    gen_fuel_allocated = pd.concat(
+        [gen_fuel_allocated, missing_generators], axis=0, ignore_index=True
+    )
+
+    return gen_fuel_allocated
 
 
 def calculate_subplant_efs(gen_fuel_allocated):
