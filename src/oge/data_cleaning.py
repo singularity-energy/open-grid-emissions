@@ -7,6 +7,7 @@ import pudl.analysis.allocate_gen_fuel as allocate_gen_fuel
 import oge.load_data as load_data
 import oge.validation as validation
 import oge.emissions as emissions
+import oge.energy_storage as energy_storage
 from oge.constants import CLEAN_FUELS, earliest_data_year
 from oge.column_checks import get_dtypes, apply_dtypes, DATA_COLUMNS
 from oge.filepaths import reference_table_folder, outputs_folder
@@ -441,6 +442,12 @@ def create_primary_fuel_table(
         primary_fuel_table = primary_fuel_table.sort_values(
             by=["plant_id_eia", "subplant_id"]
         )
+
+    # identify whether each storage subplant and plant is standalone, co-located, or
+    # hybrid
+    primary_fuel_table = energy_storage.identify_energy_storage_types(
+        primary_fuel_table, year
+    )
 
     return primary_fuel_table
 
