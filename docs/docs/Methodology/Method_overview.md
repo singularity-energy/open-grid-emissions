@@ -25,7 +25,7 @@ The pipeline is run for each year following several steps that are enumerated be
     5. Assign a fuel type to each unit based on the power sector data crosswalk
     6. Fill in missing hourly emissions data using the assigned fuel type and reported hourly fuel consumption data
     7. Calculate biomass-adjusted emissions
-5. **Assign static attributes to all plants** This includes primary fuel, data sources, state, balancing authority (both commercial and physical), whether the plant is connected to the distribution grid or transmission grid, a fuel category, and local timezone
+5. **Assign static attributes to all plants** This includes primary fuel, data sources, state, balancing authority (both commercial and physical), whether the plant is connected to the distribution grid or transmission grid, a fuel category, an energy storage type for plants with storage ([methodology](../Methodology/Data%20Aggregation/Energy%20Storage.md)), and local timezone
 6. **Crosswalk the EIA-923 and CEMS data**, identifying for each subplant-month whether there is complete CEMS data available, partial CEMS data available (available for some but not all units that consist a subplant), or only EIA data available.
     1. For subplant-months with complete CEMS data, we will use the hourly CEMS data directly
     2. For subplant-months with partial CEMS data, we will use the partial CEMS data to assign an hourly profile to the monthly EIA-923 data for that subplant ([methodology](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Scaling%20Partial%20CEMS%20Subplant%20Data.md))

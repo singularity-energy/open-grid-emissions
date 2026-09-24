@@ -133,6 +133,17 @@ def create_plant_attributes_table(
         validate="1:1",
     )
 
+    # add the storage type (standalone, co-located, or hybrid) of plants that contain
+    # an energy storage generator
+    plant_attributes = plant_attributes.merge(
+        primary_fuel_table.copy()[["plant_id_eia", "plant_storage_type"]]
+        .dropna(subset="plant_storage_type")
+        .drop_duplicates(),
+        how="left",
+        on="plant_id_eia",
+        validate="1:1",
+    )
+
     # assign a BA code to each plant
     plant_attributes = assign_ba_code_to_plant(plant_attributes, year)
 
@@ -172,6 +183,7 @@ def create_plant_attributes_table(
         "plant_primary_fuel",
         "fuel_category",
         "fuel_category_eia930",
+        "plant_storage_type",
         "state",
         "county",
         "city",
@@ -1423,8 +1435,8 @@ def create_subplant_attributes_table(
 ):
     """Writes a "subplant_attributes" table to the results/plant_data folder that
     contains subplant-specific attributes including the primary fuel, fuel category,
-    nameplate capacity, and primary prime mover for each subplant in
-    monthly_subplant_data.
+    nameplate capacity, primary prime mover, and storage type and storage type method
+    (for storage subplants) for each subplant in monthly_subplant_data.
 
     Args:
         monthly_subplant_data (pd.DataFrame): Used to determine the full set of
@@ -1450,6 +1462,24 @@ def create_subplant_attributes_table(
         drop_primary_fuel_col=False,
     )
     subplant_attributes = subplant_attributes.drop(columns="ba_code")
+
+    # add the storage type (standalone, co-located, or hybrid) of storage subplants,
+    # and the method used to assign it
+    subplant_attributes = subplant_attributes.merge(
+        primary_fuel_table.copy()[
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "subplant_storage_type",
+                "subplant_storage_type_method",
+            ]
+        ]
+        .dropna(subset="subplant_storage_type")
+        .drop_duplicates(),
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="1:1",
+    )
 
     # add subplant capacity and primary fuel
     subplant_capacity = calculate_subplant_nameplate_capacity(year)
