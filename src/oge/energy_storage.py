@@ -15,8 +15,10 @@ STORAGE_TYPE_PRIME_MOVERS = ENERGY_STORAGE_PRIME_MOVERS + [
     "CP",  # Energy Storage, Concentrated Solar Power
 ]
 
-# prime movers where energy storage is an integral part of a generator that is metered
-# together with the storage
+# prime movers where energy storage can be an integral part of a generator that uses
+# another energy source (e.g. compressed air storage that burns natural gas, or
+# concentrated solar power with thermal storage). These are only considered hybrid if
+# the generator reports an energy source code other than MWH
 HYBRID_STORAGE_PRIME_MOVERS = ["CE", "CP"]
 
 # the flags from the EIA-860 energy storage table used to identify storage types
@@ -90,6 +92,7 @@ def identify_energy_storage_types(
             "plant_id_eia",
             "generator_id",
             "prime_mover_code",
+            "energy_source_code_1",
             "operational_status",
         ],
     )
@@ -104,6 +107,7 @@ def identify_energy_storage_types(
             "plant_id_eia",
             "generator_id",
             "prime_mover_code",
+            "energy_source_code_1",
             "operational_status",
             "latitude",
             "longitude",
@@ -116,7 +120,14 @@ def identify_energy_storage_types(
         .dropna(subset="generator_id")
         .drop_duplicates()
         .merge(
-            generators[["plant_id_eia", "generator_id", "prime_mover_code"]],
+            generators[
+                [
+                    "plant_id_eia",
+                    "generator_id",
+                    "prime_mover_code",
+                    "energy_source_code_1",
+                ]
+            ],
             how="left",
             on=["plant_id_eia", "generator_id"],
             validate="m:1",
@@ -125,6 +136,22 @@ def identify_energy_storage_types(
     storage_generators = storage_generators[
         storage_generators["prime_mover_code"].isin(STORAGE_TYPE_PRIME_MOVERS)
     ]
+
+    # the hybrid prime mover rule assumes that these generators use another energy
+    # source (e.g. compressed air storage that burns natural gas). Warn if any report
+    # MWH instead, since these may be newer technologies that do not fit this assumption
+    hybrid_pm_reporting_mwh = storage_generators[
+        storage_generators["prime_mover_code"].isin(HYBRID_STORAGE_PRIME_MOVERS)
+        & (storage_generators["energy_source_code_1"] == "MWH")
+    ]
+    if len(hybrid_pm_reporting_mwh) > 0:
+        logger.warning(
+            "The following generators have a prime mover in "
+            f"{HYBRID_STORAGE_PRIME_MOVERS} but report an energy source code of MWH, so "
+            "they are not assumed to be hybrid storage. Check whether the storage type "
+            "and fuel category assumptions for these technologies are still valid:\n"
+            f"{hybrid_pm_reporting_mwh.to_string()}"
+        )
 
     # add the storage flags reported in EIA-860. Pumped storage is not reported in the
     # energy storage table, so it will not have any flags
@@ -226,7 +253,7 @@ def assign_storage_type_to_generators(
     that applies, and the rule is recorded in the `storage_type_method` column:
 
     1. "hybrid_prime_mover" (hybrid): the prime mover is in
-       `HYBRID_STORAGE_PRIME_MOVERS`.
+       `HYBRID_STORAGE_PRIME_MOVERS` and the energy source code is not MWH.
     2. "dc_coupled_tightly" (hybrid): the storage is reported as tightly DC-coupled.
     3. "same_plant" (co_located): the plant has an operating non-storage generator.
     4. "direct_support_other_plant" (co_located): the storage is reported as directly
@@ -240,11 +267,12 @@ def assign_storage_type_to_generators(
 
     Args:
         storage_generators (pd.DataFrame): storage generators with `plant_id_eia`,
-            `generator_id`, `prime_mover_code`, `STORAGE_FLAG_COLUMNS`, and
-            `DIRECT_SUPPORT_PLANT_COLUMNS` columns.
+            `generator_id`, `prime_mover_code`, `energy_source_code_1`,
+            `STORAGE_FLAG_COLUMNS`, and `DIRECT_SUPPORT_PLANT_COLUMNS` columns.
         generators (pd.DataFrame): EIA-860 attributes of all generators in the data
             year, with `plant_id_eia`, `generator_id`, `prime_mover_code`,
-            `operational_status`, `latitude`, and `longitude` columns.
+            `energy_source_code_1`, `operational_status`, `latitude`, and `longitude`
+            columns.
 
     Returns:
         pd.DataFrame: `storage_generators` with `storage_type` and
@@ -299,7 +327,8 @@ def assign_storage_type_to_generators(
 
     # the conditions for each storage type method, in the order they are applied
     conditions = [
-        storage_generators["prime_mover_code"].isin(HYBRID_STORAGE_PRIME_MOVERS),
+        storage_generators["prime_mover_code"].isin(HYBRID_STORAGE_PRIME_MOVERS)
+        & (storage_generators["energy_source_code_1"] != "MWH"),
         storage_generators["is_dc_coupled_tightly"],
         storage_generators["plant_id_eia"].isin(non_storage_plants),
         supports_other_plant,

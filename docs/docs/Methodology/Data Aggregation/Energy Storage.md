@@ -35,7 +35,7 @@ Each storage generator is assigned the storage type of the first of the followin
 
 \# | `storage_type_method` | Storage type | Rule
 ---------|---------|---------|---------
-1 | `hybrid_prime_mover` | `hybrid` | The generator's prime mover is `CE` (compressed air) or `CP` (concentrated solar power), where storage is integrated into a generator that uses another energy source.
+1 | `hybrid_prime_mover` | `hybrid` | The generator's prime mover is `CE` (compressed air) or `CP` (concentrated solar power), and it reports an energy source other than `MWH`. This indicates that the storage is integrated into a generator that uses another energy source, such as compressed air storage that burns natural gas when discharging.
 2 | `dc_coupled_tightly` | `hybrid` | The storage is reported as tightly DC-coupled in the EIA-860 Energy Storage file.
 3 | `same_plant` | `co_located` | The same plant has at least one non-storage generator that is operating in the data year.
 4 | `direct_support_other_plant` | `co_located` | The storage is reported as directly supporting a generator, and the supported generator is at a different plant.
@@ -43,6 +43,8 @@ Each storage generator is assigned the storage type of the first of the followin
 6 | `eia860_flag` | `co_located` | The storage is reported as directly supporting another generator, or as being used to firm co-located renewable generation.
 7 | `is_independent` | `standalone` | The storage is reported as independent.
 8 | `no_evidence` | `standalone` | None of the preceding rules apply.
+
+Rule 1 is based on the reported energy source rather than the prime mover alone because compressed air storage technologies differ. Older compressed air storage, such as the McIntosh plant in Alabama (currently the only operating compressed air storage plant in the EIA-860 data), uses grid electricity to compress air that is then used to supplement a natural gas combustion turbine. Newer compressed air technologies do not burn fuel and operate more like other standalone or co-located storage. If a `CE` or `CP` generator reports an energy source of `MWH`, it is categorized using the remaining rules instead.
 
 The storage flags used in rules 2, 4, 6, and 7 are reported in the EIA-860 Energy Storage file (accessed through the PUDL `core_eia860__scd_generators_energy_storage` table). A flag is only treated as true if it is explicitly reported as true, since many flags are left blank rather than reported as false. The direct support rule (4) is only applied if the storage is reported as providing direct support, since some storage generators list a supported generator without being reported as providing direct support.
 
