@@ -4,7 +4,7 @@ stoplight-id: energy_storage
 
 ## Identifying Energy Storage Resources
 
-Energy storage resources do not generate electricity from a fuel. Instead, they charge from the grid or from a co-located generator and later discharge that energy, so their net generation is often negative over a month or year. How a storage resource relates to other generators also affects how its data is reported. For example, a battery that is metered together with a solar array may have its discharge reported as part of the solar generation. To help users interpret and aggregate data for these resources, OGE identifies energy storage generators and categorizes each one by how it is connected to other generators.
+Energy storage resources do not generate electricity from a fuel. Instead, they charge from the grid or from a co-located generator and later discharge that energy. How a storage resource relates to other generators also affects how its data is reported. For example, a battery that is metered together with a solar array may have its discharge reported as part of the solar generation. To help users interpret and aggregate data for these resources, OGE identifies energy storage generators and categorizes each one by how it is connected to other generators.
 
 Storage generators are identified based on the `prime_mover_code` reported for each generator in the EIA-860 Generators file for the data year:
 
@@ -12,12 +12,11 @@ Prime mover code | Description
 ---------|---------
 BA | Battery energy storage
 CE | Compressed air energy storage
-CP | Energy storage, concentrated solar power
 ES | Energy storage, other
 FW | Flywheel energy storage
 PS | Pumped storage hydroelectric
 
-Concentrated solar power generators with storage (`CP`) are included when identifying storage types, but they keep a `fuel_category` of `solar`. See [Plant Primary Fuel](Plant%20Primary%20Fuel.md) for how the `storage` fuel category is assigned.
+Storage resources are defined specifically as resources that use electrical energy as an input (either from the grid or a specific generator). This means that (concentrated) solar thermal generators with integrated storage (prime mover `CP`) are not classified as energy storage since they directly store solar thermal energy prior to any electricity generation occuring. 
 
 ## Storage Types
 
@@ -35,7 +34,7 @@ Each storage generator is assigned the storage type of the first of the followin
 
 \# | `storage_type_method` | Storage type | Rule
 ---------|---------|---------|---------
-1 | `hybrid_prime_mover` | `hybrid` | The generator's prime mover is `CE` (compressed air) or `CP` (concentrated solar power), and it reports an energy source other than `MWH`. This indicates that the storage is integrated into a generator that uses another energy source, such as compressed air storage that burns natural gas when discharging.
+1 | `hybrid_prime_mover` | `hybrid` | The generator's prime mover is `CE` (compressed air), and it reports an energy source other than `MWH`. This indicates that the storage is integrated into a generator that uses another energy source, such as compressed air storage that burns natural gas when discharging.
 2 | `dc_coupled_tightly` | `hybrid` | The storage is reported as tightly DC-coupled in the EIA-860 Energy Storage file.
 3 | `same_plant` | `co_located` | The same plant has at least one non-storage generator that is operating in the data year.
 4 | `direct_support_other_plant` | `co_located` | The storage is reported as directly supporting a generator, and the supported generator is at a different plant.
@@ -44,7 +43,7 @@ Each storage generator is assigned the storage type of the first of the followin
 7 | `is_independent` | `standalone` | The storage is reported as independent.
 8 | `no_evidence` | `standalone` | None of the preceding rules apply.
 
-Rule 1 is based on the reported energy source rather than the prime mover alone because compressed air storage technologies differ. Older compressed air storage, such as the McIntosh plant in Alabama (currently the only operating compressed air storage plant in the EIA-860 data), uses grid electricity to compress air that is then used to supplement a natural gas combustion turbine. Newer compressed air technologies do not burn fuel and operate more like other standalone or co-located storage. If a `CE` or `CP` generator reports an energy source of `MWH`, it is categorized using the remaining rules instead.
+Rule 1 is based on the reported energy source rather than the prime mover alone because compressed air storage technologies differ. Older compressed air storage, such as the McIntosh plant in Alabama (currently the only operating compressed air storage plant in the EIA-860 data), uses grid electricity to compress air that is then used to supplement a natural gas combustion turbine. Newer compressed air technologies do not burn fuel and operate more like other standalone or co-located storage. If a `CE` generator reports an energy source of `MWH`, it is categorized using the remaining rules instead, and the pipeline logs a warning so that the assumptions for that technology can be reviewed.
 
 The storage flags used in rules 2, 4, 6, and 7 are reported in the EIA-860 Energy Storage file (accessed through the PUDL `core_eia860__scd_generators_energy_storage` table). A flag is only treated as true if it is explicitly reported as true, since many flags are left blank rather than reported as false. The direct support rule (4) is only applied if the storage is reported as providing direct support, since some storage generators list a supported generator without being reported as providing direct support.
 
@@ -63,6 +62,9 @@ We expect all of the storage generators at a plant to have the same storage type
 When storage is co-located with a generator at a different plant (identified by rule 4 or rule 5), the `plant_id_eia` of the other plant is recorded in `subplant_co_located_plant_ids` and `plant_co_located_plant_ids`. For example, a battery that is reported as its own plant but is located at the same coordinates as a wind farm will list the `plant_id_eia` of the wind farm. If the storage is co-located with more than one other plant, the IDs are listed as a comma-separated string. These columns are blank for all other storage, including storage that is co-located with a generator at its own plant.
 
 The `plant_storage_type` and `plant_co_located_plant_ids` are included in the plant static attributes table, and the `subplant_storage_type`, `subplant_storage_type_method`, and `subplant_co_located_plant_ids` are included in the subplant attributes table.
+
+## Energy storage dispatch data
+Because of roundtrip efficiency losses, the cumulative energy discharged by a storage resource over time will always be less than the amount of energy charged. This means that over the course of a month or year, the "net generation" of a storage resource will generally be negative. 
 
 ## Known Limitations
 
