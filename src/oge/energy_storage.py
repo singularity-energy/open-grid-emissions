@@ -69,6 +69,11 @@ def identify_energy_storage_types(
     each plant that contains a storage generator, regardless of the primary fuel of the
     subplant or plant.
 
+    For storage that is co-located with a generator at a different plant (identified by
+    the "direct_support_other_plant" or "same_location" rules), the `plant_id_eia` of
+    the other plant(s) are recorded in `subplant_co_located_plant_ids` and
+    `plant_co_located_plant_ids`, as a comma-separated string.
+
     Args:
         primary_fuel_table (pd.DataFrame): table of primary fuels by generator, with
             `plant_id_eia`, `subplant_id`, and `generator_id` columns.
@@ -76,7 +81,8 @@ def identify_energy_storage_types(
 
     Returns:
         pd.DataFrame: `primary_fuel_table` with `subplant_storage_type`,
-            `subplant_storage_type_method`, and `plant_storage_type` columns added.
+            `subplant_storage_type_method`, `subplant_co_located_plant_ids`,
+            `plant_storage_type`, and `plant_co_located_plant_ids` columns added.
 
     Raises:
         ValueError: if storage generators at the same plant are assigned different
@@ -102,13 +108,30 @@ def identify_energy_storage_types(
     generators = generators.merge(
         plant_locations, how="left", on="plant_id_eia", validate="m:1"
     )
+
+    # a generator is considered to be operating if it is reported as existing in
+    # EIA-860, or if it is in the primary fuel table (meaning that it reported data to
+    # EIA-923 or CEMS). This includes generators that are producing energy while
+    # testing before commercial operation (operational_status_code "TS")
+    generators = generators.merge(
+        primary_fuel_table[["plant_id_eia", "generator_id"]]
+        .dropna(subset="generator_id")
+        .drop_duplicates(),
+        how="left",
+        on=["plant_id_eia", "generator_id"],
+        validate="1:1",
+        indicator="in_primary_fuel_table",
+    )
+    generators["is_operating"] = (generators["operational_status"] == "existing") | (
+        generators["in_primary_fuel_table"] == "both"
+    )
     generators = generators[
         [
             "plant_id_eia",
             "generator_id",
             "prime_mover_code",
             "energy_source_code_1",
-            "operational_status",
+            "is_operating",
             "latitude",
             "longitude",
         ]
@@ -196,6 +219,50 @@ def identify_energy_storage_types(
         .rename(columns={"storage_type": "plant_storage_type"})
     )
 
+    # identify the other plants that each storage subplant is co-located with, based on
+    # the generators that were assigned the subplant's storage type method
+    subplant_co_located_plants = (
+        storage_generators.merge(
+            subplant_storage_types[
+                ["plant_id_eia", "subplant_id", "subplant_storage_type_method"]
+            ],
+            how="inner",
+            left_on=["plant_id_eia", "subplant_id", "storage_type_method"],
+            right_on=["plant_id_eia", "subplant_id", "subplant_storage_type_method"],
+            validate="m:1",
+        )
+        .groupby(["plant_id_eia", "subplant_id"], dropna=False)["co_located_plant_ids"]
+        .agg(lambda plant_lists: sorted(set().union(*plant_lists)))
+        .reset_index()
+    )
+    plant_co_located_plants = (
+        subplant_co_located_plants.groupby("plant_id_eia", dropna=False)[
+            "co_located_plant_ids"
+        ]
+        .agg(lambda plant_lists: sorted(set().union(*plant_lists)))
+        .reset_index()
+    )
+    subplant_storage_types = subplant_storage_types.merge(
+        subplant_co_located_plants.assign(
+            subplant_co_located_plant_ids=lambda df: df["co_located_plant_ids"].map(
+                format_plant_ids
+            )
+        )[["plant_id_eia", "subplant_id", "subplant_co_located_plant_ids"]],
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="1:1",
+    )
+    plant_storage_types = plant_storage_types.merge(
+        plant_co_located_plants.assign(
+            plant_co_located_plant_ids=lambda df: df["co_located_plant_ids"].map(
+                format_plant_ids
+            )
+        )[["plant_id_eia", "plant_co_located_plant_ids"]],
+        how="left",
+        on="plant_id_eia",
+        validate="1:1",
+    )
+
     primary_fuel_table = primary_fuel_table.merge(
         subplant_storage_types,
         how="left",
@@ -271,16 +338,19 @@ def assign_storage_type_to_generators(
             `STORAGE_FLAG_COLUMNS`, and `DIRECT_SUPPORT_PLANT_COLUMNS` columns.
         generators (pd.DataFrame): EIA-860 attributes of all generators in the data
             year, with `plant_id_eia`, `generator_id`, `prime_mover_code`,
-            `energy_source_code_1`, `operational_status`, `latitude`, and `longitude`
+            `energy_source_code_1`, `is_operating`, `latitude`, and `longitude`
             columns.
 
     Returns:
-        pd.DataFrame: `storage_generators` with `storage_type` and
-            `storage_type_method` columns added.
+        pd.DataFrame: `storage_generators` with `storage_type`, `storage_type_method`,
+            and `co_located_plant_ids` columns added. `co_located_plant_ids` is a list
+            of the `plant_id_eia` of other plants that the storage is co-located with,
+            and is only filled for generators assigned by the
+            "direct_support_other_plant" or "same_location" rules.
     """
     # identify plants and locations with operating non-storage generators
     operating_non_storage = generators[
-        (generators["operational_status"] == "existing")
+        generators["is_operating"]
         & ~generators["prime_mover_code"].isin(STORAGE_TYPE_PRIME_MOVERS)
     ]
     non_storage_plants = operating_non_storage["plant_id_eia"].unique()
@@ -298,32 +368,57 @@ def assign_storage_type_to_generators(
         validate="m:1",
     )
 
-    # identify storage generators that directly support a generator at a different
-    # plant. Only consider the supported plants if the storage is reported as providing
-    # direct support, since some generators report a supported plant without doing so
-    supports_other_plant = pd.Series(False, index=storage_generators.index)
-    for column in DIRECT_SUPPORT_PLANT_COLUMNS:
-        supports_other_plant = supports_other_plant | (
-            storage_generators[column].notna()
-            & (storage_generators[column] != storage_generators["plant_id_eia"])
-        ).fillna(False)
-    supports_other_plant = (
-        supports_other_plant & storage_generators["is_direct_support"]
-    )
-
-    # identify storage generators at the same location as a different plant with
-    # operating non-storage generators
-    def shares_location_with_non_storage_plant(row: pd.Series) -> bool:
-        if pd.isna(row["latitude"]) or pd.isna(row["longitude"]):
-            return False
-        plants_at_location = non_storage_locations.get(
-            (row["latitude"], row["longitude"]), []
+    # identify the plants other than its own that each storage generator directly
+    # supports. Only consider the supported plants if the storage is reported as
+    # providing direct support, since some generators report a supported plant without
+    # doing so
+    def get_directly_supported_plants(generator: dict) -> list[int]:
+        if not generator["is_direct_support"]:
+            return []
+        return sorted(
+            {
+                int(generator[column])
+                for column in DIRECT_SUPPORT_PLANT_COLUMNS
+                if pd.notna(generator[column])
+                and generator[column] != generator["plant_id_eia"]
+            }
         )
-        return any(plant != row["plant_id_eia"] for plant in plants_at_location)
 
-    same_location = storage_generators.apply(
-        shares_location_with_non_storage_plant, axis=1
-    ).astype(bool)
+    # identify other plants with operating non-storage generators that are at exactly
+    # the same location as each storage generator
+    def get_plants_at_same_location(generator: dict) -> list[int]:
+        if pd.isna(generator["latitude"]) or pd.isna(generator["longitude"]):
+            return []
+        plants_at_location = non_storage_locations.get(
+            (generator["latitude"], generator["longitude"]), []
+        )
+        return sorted(
+            {
+                int(plant)
+                for plant in plants_at_location
+                if plant != generator["plant_id_eia"]
+            }
+        )
+
+    storage_generator_records = storage_generators.to_dict("records")
+    directly_supported_plants = [
+        get_directly_supported_plants(generator)
+        for generator in storage_generator_records
+    ]
+    plants_at_same_location = [
+        get_plants_at_same_location(generator)
+        for generator in storage_generator_records
+    ]
+    supports_other_plant = pd.Series(
+        [len(plants) > 0 for plants in directly_supported_plants],
+        index=storage_generators.index,
+        dtype=bool,
+    )
+    same_location = pd.Series(
+        [len(plants) > 0 for plants in plants_at_same_location],
+        index=storage_generators.index,
+        dtype=bool,
+    )
 
     # the conditions for each storage type method, in the order they are applied
     conditions = [
@@ -347,7 +442,36 @@ def assign_storage_type_to_generators(
         STORAGE_TYPE_BY_METHOD
     )
 
+    # for storage that is co-located with a generator at a different plant, record the
+    # plant(s) that it is co-located with
+    storage_generators["co_located_plant_ids"] = [
+        supported
+        if method == "direct_support_other_plant"
+        else same_location_plants
+        if method == "same_location"
+        else []
+        for method, supported, same_location_plants in zip(
+            storage_generators["storage_type_method"],
+            directly_supported_plants,
+            plants_at_same_location,
+        )
+    ]
+
     return storage_generators.drop(columns=["latitude", "longitude"])
+
+
+def format_plant_ids(plant_ids: list[int]) -> str | None:
+    """Formats a list of plant IDs as a comma-separated string.
+
+    Args:
+        plant_ids (list[int]): a list of `plant_id_eia` values.
+
+    Returns:
+        str | None: the plant IDs separated by commas, or None if the list is empty.
+    """
+    if len(plant_ids) == 0:
+        return None
+    return ", ".join(str(plant_id) for plant_id in plant_ids)
 
 
 def validate_one_storage_type_per_plant(storage_generators: pd.DataFrame) -> None:

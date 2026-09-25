@@ -50,7 +50,7 @@ The storage flags used in rules 2, 4, 6, and 7 are reported in the EIA-860 Energ
 
 The rules are ordered so that evidence about how storage is metered (rules 1-2) and where it is physically located (rules 3-5) takes precedence over the operational flags reported in EIA-860 (rules 6-7). These can disagree. For example, a battery at a natural gas plant may be reported as independent because it is dispatched independently of the gas turbines, but it is still physically co-located with them, so it is categorized as `co_located`.
 
-A generator is considered to be operating if it is reported as existing in the EIA-860 Generators file for the data year. Retired and proposed generators are not considered when determining whether storage is co-located.
+A generator is considered to be operating if it is reported as existing in the EIA-860 Generators file for the data year, or if it reported generation or fuel data to EIA-923 or CEMS in the data year. This includes generators that are producing energy while testing before they begin commercial operation, such as a solar array that is still being tested after its co-located battery has entered service. Other retired and proposed generators are not considered when determining whether storage is co-located.
 
 ## Assigning Storage Types to Subplants and Plants
 
@@ -60,7 +60,9 @@ Each plant that contains at least one storage generator is assigned a `plant_sto
 
 We expect all of the storage generators at a plant to have the same storage type. The pipeline checks this for every plant, and raises an error if storage generators at the same plant are assigned different storage types so that the discrepancy can be investigated.
 
-The `plant_storage_type` is included in the plant static attributes table, and the `subplant_storage_type` and `subplant_storage_type_method` are included in the subplant attributes table.
+When storage is co-located with a generator at a different plant (identified by rule 4 or rule 5), the `plant_id_eia` of the other plant is recorded in `subplant_co_located_plant_ids` and `plant_co_located_plant_ids`. For example, a battery that is reported as its own plant but is located at the same coordinates as a wind farm will list the `plant_id_eia` of the wind farm. If the storage is co-located with more than one other plant, the IDs are listed as a comma-separated string. These columns are blank for all other storage, including storage that is co-located with a generator at its own plant.
+
+The `plant_storage_type` and `plant_co_located_plant_ids` are included in the plant static attributes table, and the `subplant_storage_type`, `subplant_storage_type_method`, and `subplant_co_located_plant_ids` are included in the subplant attributes table.
 
 ## Known Limitations
 
