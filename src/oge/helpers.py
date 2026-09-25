@@ -1020,9 +1020,12 @@ def assign_fuel_category_to_esc(
     # only be assigned if prime mover data is available
     if "fuel_category" in fuel_category_names:
         if pm_column in df.columns:
-            df.loc[df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS), "fuel_category"] = (
-                "storage"
+            # storage that is supplemented with a combustion fuel (e.g. compressed air
+            # storage that burns natural gas) keeps the fuel category of its fuel
+            is_storage = df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS) & ~(
+                df[pm_column].isin(["CE"]) & (df[esc_column] != "MWH")
             )
+            df.loc[is_storage.fillna(False), "fuel_category"] = "storage"
 
             id_cols = [
                 id
