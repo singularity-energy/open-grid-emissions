@@ -133,6 +133,17 @@ def create_plant_attributes_table(
         validate="1:1",
     )
 
+    # add the storage category (standalone, co-located, or hybrid) of plants that
+    # contain an energy storage generator
+    plant_attributes = plant_attributes.merge(
+        primary_fuel_table.copy()[["plant_id_eia", "plant_storage_category"]]
+        .dropna(subset="plant_storage_category")
+        .drop_duplicates(),
+        how="left",
+        on="plant_id_eia",
+        validate="1:1",
+    )
+
     # assign a BA code to each plant
     plant_attributes = assign_ba_code_to_plant(plant_attributes, year)
 
@@ -172,6 +183,7 @@ def create_plant_attributes_table(
         "plant_primary_fuel",
         "fuel_category",
         "fuel_category_eia930",
+        "plant_storage_category",
         "state",
         "county",
         "city",
@@ -1008,9 +1020,12 @@ def assign_fuel_category_to_esc(
     # only be assigned if prime mover data is available
     if "fuel_category" in fuel_category_names:
         if pm_column in df.columns:
-            df.loc[df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS), "fuel_category"] = (
-                "storage"
+            # storage that is supplemented with a combustion fuel (e.g. compressed air
+            # storage that burns natural gas) keeps the fuel category of its fuel
+            is_storage = df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS) & ~(
+                df[pm_column].isin(["CE"]) & (df[esc_column] != "MWH")
             )
+            df.loc[is_storage.fillna(False), "fuel_category"] = "storage"
 
             id_cols = [
                 id
@@ -1423,8 +1438,8 @@ def create_subplant_attributes_table(
 ):
     """Writes a "subplant_attributes" table to the results/plant_data folder that
     contains subplant-specific attributes including the primary fuel, fuel category,
-    nameplate capacity, and primary prime mover for each subplant in
-    monthly_subplant_data.
+    nameplate capacity, primary prime mover, and storage attributes (for storage
+    subplants) for each subplant in monthly_subplant_data.
 
     Args:
         monthly_subplant_data (pd.DataFrame): Used to determine the full set of
@@ -1450,6 +1465,26 @@ def create_subplant_attributes_table(
         drop_primary_fuel_col=False,
     )
     subplant_attributes = subplant_attributes.drop(columns="ba_code")
+
+    # add the storage category (standalone, co-located, or hybrid) of storage subplants,
+    # the method used to assign it, and any other plants that the storage is co-located
+    # with
+    subplant_attributes = subplant_attributes.merge(
+        primary_fuel_table.copy()[
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "subplant_storage_category",
+                "subplant_storage_category_method",
+                "co_located_plant_ids",
+            ]
+        ]
+        .dropna(subset="subplant_storage_category")
+        .drop_duplicates(),
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="1:1",
+    )
 
     # add subplant capacity and primary fuel
     subplant_capacity = calculate_subplant_nameplate_capacity(year)

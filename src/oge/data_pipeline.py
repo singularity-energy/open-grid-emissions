@@ -250,7 +250,11 @@ def main(args):
         cems, eia923_allocated, year, primary_fuel_table
     )
     validation.test_for_missing_values(
-        plant_attributes, skip_cols=["plant_retirement_date"]
+        plant_attributes,
+        skip_cols=[
+            "plant_retirement_date",
+            "plant_storage_category",
+        ],
     )
 
     # 6. Crosswalk CEMS and EIA data
