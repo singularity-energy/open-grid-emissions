@@ -445,7 +445,7 @@ def create_primary_fuel_table(
 
     # identify whether each storage subplant and plant is standalone, co-located, or
     # hybrid
-    primary_fuel_table = energy_storage.identify_energy_storage_types(
+    primary_fuel_table = energy_storage.identify_energy_storage_categories(
         primary_fuel_table, year
     )
 

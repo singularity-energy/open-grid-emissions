@@ -40,4 +40,4 @@ Compressed air energy storage (`CE`) is the exception. It is only assigned a `fu
 
 Plants and subplants with a primary fuel of `MWH` are assigned a `fuel_category` of `storage`, regardless of prime mover.
 
-Plants and subplants that contain energy storage are also assigned a storage type (standalone, co-located, or hybrid), which is described in [Energy Storage](Energy%20Storage.md).
+Plants and subplants that contain energy storage are also assigned a storage category (standalone, co-located, or hybrid), which is described in [Energy Storage](Energy%20Storage.md).

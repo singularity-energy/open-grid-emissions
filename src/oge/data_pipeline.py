@@ -253,8 +253,7 @@ def main(args):
         plant_attributes,
         skip_cols=[
             "plant_retirement_date",
-            "plant_storage_type",
-            "plant_co_located_plant_ids",
+            "plant_storage_category",
         ],
     )
 
