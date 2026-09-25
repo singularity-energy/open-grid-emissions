@@ -8,18 +8,13 @@ from oge.logging_util import get_logger
 logger = get_logger(__name__)
 
 
-# prime movers used to identify the storage type (standalone, co-located, or hybrid) of
-# energy storage resources. CP is included here but not in ENERGY_STORAGE_PRIME_MOVERS,
-# so that concentrated solar power resources keep their solar fuel category
-STORAGE_TYPE_PRIME_MOVERS = ENERGY_STORAGE_PRIME_MOVERS + [
-    "CP",  # Energy Storage, Concentrated Solar Power
-]
-
 # prime movers where energy storage can be an integral part of a generator that uses
-# another energy source (e.g. compressed air storage that burns natural gas, or
-# concentrated solar power with thermal storage). These are only considered hybrid if
-# the generator reports an energy source code other than MWH
-HYBRID_STORAGE_PRIME_MOVERS = ["CE", "CP"]
+# another energy source (e.g. compressed air storage that burns natural gas). These are
+# only considered hybrid if the generator reports an energy source code other than MWH.
+# NOTE: concentrated solar power with thermal storage (CP) is not considered energy
+# storage, since it stores solar thermal energy rather than using electricity as an
+# input, so it is not included in ENERGY_STORAGE_PRIME_MOVERS or here
+HYBRID_STORAGE_PRIME_MOVERS = ["CE"]
 
 # the flags from the EIA-860 energy storage table used to identify storage types
 STORAGE_FLAG_COLUMNS = [
@@ -157,12 +152,13 @@ def identify_energy_storage_types(
         )
     )
     storage_generators = storage_generators[
-        storage_generators["prime_mover_code"].isin(STORAGE_TYPE_PRIME_MOVERS)
+        storage_generators["prime_mover_code"].isin(ENERGY_STORAGE_PRIME_MOVERS)
     ]
 
-    # the hybrid prime mover rule assumes that these generators use another energy
-    # source (e.g. compressed air storage that burns natural gas). Warn if any report
-    # MWH instead, since these may be newer technologies that do not fit this assumption
+    # the hybrid prime mover rule assumes that these generators burn a fuel to supplement
+    # the stored energy (e.g. compressed air storage that burns natural gas). Warn if any
+    # report MWH instead, since these may be newer technologies that do not fit this
+    # assumption
     hybrid_pm_reporting_mwh = storage_generators[
         storage_generators["prime_mover_code"].isin(HYBRID_STORAGE_PRIME_MOVERS)
         & (storage_generators["energy_source_code_1"] == "MWH")
@@ -351,7 +347,7 @@ def assign_storage_type_to_generators(
     # identify plants and locations with operating non-storage generators
     operating_non_storage = generators[
         generators["is_operating"]
-        & ~generators["prime_mover_code"].isin(STORAGE_TYPE_PRIME_MOVERS)
+        & ~generators["prime_mover_code"].isin(ENERGY_STORAGE_PRIME_MOVERS)
     ]
     non_storage_plants = operating_non_storage["plant_id_eia"].unique()
     non_storage_locations = (
