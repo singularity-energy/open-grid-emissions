@@ -18,21 +18,21 @@ PS | Pumped storage hydroelectric
 
 Storage resources are defined specifically as resources that use electrical energy as an input (either from the grid or a specific generator). This means that (concentrated) solar thermal generators with integrated storage (prime mover `CP`) are not classified as energy storage since they directly store solar thermal energy prior to any electricity generation occuring. 
 
-## Storage Types
+## Storage Categories
 
-Each storage resource is assigned one of three storage types:
+Each storage resource is assigned one of three storage categories:
 
-Storage type | Description | Example
+Storage category | Description | Example
 ---------|---------|---------
 `standalone` | The storage is an independent power plant, with no non-storage generators at the same plant or location. | A battery that is its own plant and charges from the grid
 `co_located` | The storage is at the same plant or physical location as a non-storage generator, but is metered separately from it. | A battery at a solar or wind plant, or at a natural gas plant
 `hybrid` | The storage is an integral part of a generator and is metered together with it. | A compressed air energy storage plant that burns natural gas when discharging, or a battery that is tightly DC-coupled to a solar array
 
-## Assigning a Storage Type to Each Storage Generator
+## Assigning a Storage Category to Each Storage Generator
 
-Each storage generator is assigned the storage type of the first of the following rules that applies. The rule that was used for each subplant is reported in the `subplant_storage_type_method` column of the subplant attributes table.
+Each storage generator is assigned the storage category of the first of the following rules that applies. The rule that was used for each subplant is reported in the `subplant_storage_category_method` column of the subplant attributes table.
 
-\# | `storage_type_method` | Storage type | Rule
+\# | `storage_category_method` | Storage category | Rule
 ---------|---------|---------|---------
 1 | `hybrid_prime_mover` | `hybrid` | The generator's prime mover is `CE` (compressed air), and it reports an energy source other than `MWH`. This indicates that the storage is integrated into a generator that uses another energy source, such as compressed air storage that burns natural gas when discharging.
 2 | `dc_coupled_tightly` | `hybrid` | The storage is reported as tightly DC-coupled in the EIA-860 Energy Storage file.
@@ -51,17 +51,17 @@ The rules are ordered so that evidence about how storage is metered (rules 1-2) 
 
 A generator is considered to be operating if it is reported as existing in the EIA-860 Generators file for the data year, or if it reported generation or fuel data to EIA-923 or CEMS in the data year. This includes generators that are producing energy while testing before they begin commercial operation, such as a solar array that is still being tested after its co-located battery has entered service. Other retired and proposed generators are not considered when determining whether storage is co-located.
 
-## Assigning Storage Types to Subplants and Plants
+## Assigning Storage Categories to Subplants and Plants
 
-Each subplant that contains at least one storage generator is assigned a `subplant_storage_type`. If a subplant contains multiple storage generators, its `subplant_storage_type_method` is the method of the generator that was categorized by the earliest rule in the list above. Subplants that do not contain a storage generator do not have a storage type.
+Each subplant that contains at least one storage generator is assigned a `subplant_storage_category`. If a subplant contains multiple storage generators, its `subplant_storage_category_method` is the method of the generator that was categorized by the earliest rule in the list above. Subplants that do not contain a storage generator do not have a storage category.
 
-Each plant that contains at least one storage generator is assigned a `plant_storage_type`, regardless of whether storage is the primary fuel of the plant. For example, a natural gas plant with a co-located battery will have a `plant_storage_type` of `co_located`, even though its `fuel_category` is `natural_gas`.
+Each plant that contains at least one storage generator is assigned a `plant_storage_category`, regardless of whether storage is the primary fuel of the plant. For example, a natural gas plant with a co-located battery will have a `plant_storage_category` of `co_located`, even though its `fuel_category` is `natural_gas`.
 
-We expect all of the storage generators at a plant to have the same storage type. The pipeline checks this for every plant, and raises an error if storage generators at the same plant are assigned different storage types so that the discrepancy can be investigated.
+We expect all of the storage generators at a plant to have the same storage category. The pipeline checks this for every plant, and raises an error if storage generators at the same plant are assigned different storage categories so that the discrepancy can be investigated.
 
-When storage is co-located with a generator at a different plant (identified by rule 4 or rule 5), the `plant_id_eia` of the other plant is recorded in `subplant_co_located_plant_ids` and `plant_co_located_plant_ids`. For example, a battery that is reported as its own plant but is located at the same coordinates as a wind farm will list the `plant_id_eia` of the wind farm. If the storage is co-located with more than one other plant, the IDs are listed as a comma-separated string. These columns are blank for all other storage, including storage that is co-located with a generator at its own plant.
+When storage is co-located with a generator at a different plant (identified by rule 4 or rule 5), the `plant_id_eia` of the other plant is recorded for the storage subplant in `co_located_plant_ids`. For example, a battery that is reported as its own plant but is located at the same coordinates as a wind farm will list the `plant_id_eia` of the wind farm. If the storage is co-located with more than one other plant, the IDs are listed as a comma-separated string. This column is blank for all other subplants, including storage that is co-located with a generator at its own plant.
 
-The `plant_storage_type` and `plant_co_located_plant_ids` are included in the plant static attributes table, and the `subplant_storage_type`, `subplant_storage_type_method`, and `subplant_co_located_plant_ids` are included in the subplant attributes table.
+The `plant_storage_category` is included in the plant static attributes table, and the `subplant_storage_category`, `subplant_storage_category_method`, and `co_located_plant_ids` are included in the subplant attributes table.
 
 ## Energy storage dispatch data
 Because of roundtrip efficiency losses, the cumulative energy discharged by a storage resource over time will always be less than the amount of energy charged. This means that over the course of a month or year, the "net generation" of a storage resource will generally be negative. 
@@ -70,7 +70,7 @@ Because of roundtrip efficiency losses, the cumulative energy discharged by a st
 
 The current method has several known limitations:
 
-- **Storage flags are only available in recent years.** The tightly DC-coupled, direct support, and independent flags are only reported in EIA-860 data from 2023 onwards, and the co-located renewable firming flag is only reported from 2016 onwards. For earlier years, storage that is tightly DC-coupled to a solar array cannot be identified as `hybrid`, and will instead usually be categorized as `co_located`. As a result, the storage type of some resources may change between data years even if the resource itself did not change.
+- **Storage flags are only available in recent years.** The tightly DC-coupled, direct support, and independent flags are only reported in EIA-860 data from 2023 onwards, and the co-located renewable firming flag is only reported from 2016 onwards. For earlier years, storage that is tightly DC-coupled to a solar array cannot be identified as `hybrid`, and will instead usually be categorized as `co_located`. As a result, the storage category of some resources may change between data years even if the resource itself did not change.
 - **Pumped storage is not reported in the EIA-860 Energy Storage file.** Pumped storage plants can only be categorized using rules 3, 5, and 8. Many pumped storage plants also include conventional hydroelectric units, so these plants are categorized as `co_located`.
 - **Locations are matched exactly.** EIA-860 reports coordinates for each plant rather than each generator, and rule 5 requires an exact match of latitude and longitude. This may miss storage that is located next to another plant but reported with slightly different coordinates, and could incorrectly match plants that share placeholder coordinates.
-- **Storage types do not yet affect other calculations.** Storage types are currently informational, and are not yet used when assigning fuel categories or hourly profiles.
+- **Storage categories do not yet affect other calculations.** Storage categories are currently informational, and are not yet used when assigning fuel categories or hourly profiles.

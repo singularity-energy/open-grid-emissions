@@ -133,14 +133,11 @@ def create_plant_attributes_table(
         validate="1:1",
     )
 
-    # add the storage type (standalone, co-located, or hybrid) of plants that contain
-    # an energy storage generator, and any other plants that the storage is co-located
-    # with
+    # add the storage category (standalone, co-located, or hybrid) of plants that
+    # contain an energy storage generator
     plant_attributes = plant_attributes.merge(
-        primary_fuel_table.copy()[
-            ["plant_id_eia", "plant_storage_type", "plant_co_located_plant_ids"]
-        ]
-        .dropna(subset="plant_storage_type")
+        primary_fuel_table.copy()[["plant_id_eia", "plant_storage_category"]]
+        .dropna(subset="plant_storage_category")
         .drop_duplicates(),
         how="left",
         on="plant_id_eia",
@@ -186,8 +183,7 @@ def create_plant_attributes_table(
         "plant_primary_fuel",
         "fuel_category",
         "fuel_category_eia930",
-        "plant_storage_type",
-        "plant_co_located_plant_ids",
+        "plant_storage_category",
         "state",
         "county",
         "city",
@@ -1470,7 +1466,7 @@ def create_subplant_attributes_table(
     )
     subplant_attributes = subplant_attributes.drop(columns="ba_code")
 
-    # add the storage type (standalone, co-located, or hybrid) of storage subplants,
+    # add the storage category (standalone, co-located, or hybrid) of storage subplants,
     # the method used to assign it, and any other plants that the storage is co-located
     # with
     subplant_attributes = subplant_attributes.merge(
@@ -1478,12 +1474,12 @@ def create_subplant_attributes_table(
             [
                 "plant_id_eia",
                 "subplant_id",
-                "subplant_storage_type",
-                "subplant_storage_type_method",
-                "subplant_co_located_plant_ids",
+                "subplant_storage_category",
+                "subplant_storage_category_method",
+                "co_located_plant_ids",
             ]
         ]
-        .dropna(subset="subplant_storage_type")
+        .dropna(subset="subplant_storage_category")
         .drop_duplicates(),
         how="left",
         on=["plant_id_eia", "subplant_id"],
