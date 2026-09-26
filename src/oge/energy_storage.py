@@ -925,6 +925,13 @@ def add_monthly_energy_storage_data(
 ) -> pd.DataFrame:
     """Adds monthly energy storage charging and discharging data to subplant data.
 
+    Storage data for a subplant-month that is not in `monthly_subplant_data` is added
+    as a new row if the subplant is in `monthly_subplant_data` for other months. This
+    can happen when there is no other data for the subplant in that month (for example,
+    when CEMS data for the month is removed because it is all zero). The other data
+    columns for these rows are left blank. Storage data for subplants that are not in
+    `monthly_subplant_data` at all is not added.
+
     Args:
         monthly_subplant_data (pd.DataFrame): combined monthly data for all subplants,
             with one row per subplant-month.
@@ -935,41 +942,62 @@ def add_monthly_energy_storage_data(
         pd.DataFrame: `monthly_subplant_data` with `STORAGE_DATA_COLUMNS` added. These
             columns are blank for subplants that are not energy storage.
     """
-    monthly_subplant_data = monthly_subplant_data.merge(
-        monthly_storage_data,
+    subplant_month_keys = ["plant_id_eia", "subplant_id", "report_date"]
+
+    # identify storage data for subplant-months that are not in the subplant data
+    monthly_storage_data = monthly_storage_data.merge(
+        monthly_subplant_data[subplant_month_keys],
         how="left",
-        on=["plant_id_eia", "subplant_id", "report_date"],
+        on=subplant_month_keys,
         validate="1:1",
-        indicator="has_subplant_data",
+        indicator="subplant_month_in_data",
+    )
+    missing_months = monthly_storage_data[
+        monthly_storage_data["subplant_month_in_data"] == "left_only"
+    ].merge(
+        monthly_subplant_data[["plant_id_eia", "subplant_id"]].drop_duplicates(),
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+        indicator="subplant_in_data",
     )
 
-    # check that all of the storage data was added to the subplant data
-    added_storage_data = monthly_subplant_data.loc[
-        monthly_subplant_data["has_subplant_data"] == "both", STORAGE_DATA_COLUMNS
-    ].sum()
-    total_storage_data = monthly_storage_data[STORAGE_DATA_COLUMNS].sum()
-    missing_storage_data = monthly_storage_data.merge(
-        monthly_subplant_data[["plant_id_eia", "subplant_id", "report_date"]],
-        how="left",
-        on=["plant_id_eia", "subplant_id", "report_date"],
-        validate="1:1",
-        indicator="in_subplant_data",
-    )
-    missing_storage_data = missing_storage_data[
-        missing_storage_data["in_subplant_data"] == "left_only"
+    # add storage data for missing months of subplants that are in the subplant data
+    rows_to_add = missing_months.loc[
+        missing_months["subplant_in_data"] == "both",
+        subplant_month_keys + STORAGE_DATA_COLUMNS,
     ]
-    if len(missing_storage_data) > 0:
-        logger.warning(
-            f"{(total_storage_data - added_storage_data).round(1).to_dict()} of "
-            "energy storage data could not be matched to subplant data, and will not be "
-            "included in the results. This data is from the following subplants:\n"
-            + validation.limit_error_output_df(
-                missing_storage_data.groupby(
-                    ["plant_id_eia", "subplant_id"], dropna=False
-                )[STORAGE_DATA_COLUMNS]
-                .sum()
-                .reset_index()
-            ).to_string()
+    if len(rows_to_add) > 0:
+        logger.info(
+            f"Adding {len(rows_to_add)} subplant-months that only contain energy "
+            "storage data to the subplant data"
         )
 
-    return monthly_subplant_data.drop(columns="has_subplant_data")
+    # warn about any non-zero storage data for subplants that are not in the data
+    unmatched_storage_data = (
+        missing_months[missing_months["subplant_in_data"] == "left_only"]
+        .groupby(["plant_id_eia", "subplant_id"], dropna=False)[STORAGE_DATA_COLUMNS]
+        .sum()
+        .reset_index()
+    )
+    unmatched_storage_data = unmatched_storage_data[
+        (unmatched_storage_data[STORAGE_DATA_COLUMNS] != 0).any(axis=1)
+    ]
+    if len(unmatched_storage_data) > 0:
+        logger.warning(
+            "Energy storage data for the following subplants could not be matched to "
+            "subplant data, and will not be included in the results:\n"
+            + validation.limit_error_output_df(unmatched_storage_data).to_string()
+        )
+
+    monthly_subplant_data = monthly_subplant_data.merge(
+        monthly_storage_data[subplant_month_keys + STORAGE_DATA_COLUMNS],
+        how="left",
+        on=subplant_month_keys,
+        validate="1:1",
+    )
+    monthly_subplant_data = pd.concat(
+        [monthly_subplant_data, rows_to_add], axis=0, ignore_index=True
+    )
+
+    return monthly_subplant_data

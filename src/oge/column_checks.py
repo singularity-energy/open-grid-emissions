@@ -634,6 +634,7 @@ def get_dtypes() -> dict:
         "fuel_type_code_agg": "string",
         "fuel_type_code_pudl": "string",
         "fuel_type_count": "Int32",
+        "fuel_units": "string",
         "generation_energy_source": "category",
         "generator_id": "string",
         "generator_id_epa": "string",
