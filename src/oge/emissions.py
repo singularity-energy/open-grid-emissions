@@ -14,7 +14,6 @@ from oge.constants import (
     ConversionFactors,
     chp_gross_thermal_output_efficiency,
     chp_useful_thermal_output_efficiency,
-    nox_lb_per_mmbtu_flared_landfill_gas,
     current_early_release_year,
 )
 
@@ -443,36 +442,12 @@ def adjust_emissions_for_biomass(df: pd.DataFrame) -> pd.DataFrame:
         df["co2_mass_lb_adjusted"] = df["co2_mass_lb"]
         df.loc[df["energy_source_code"].isin(BIOMASS_FUELS), "co2_mass_lb_adjusted"] = 0
 
-    # CH4: for landfill gas (LFG), all other emissions are set to zero
-    # this assumes that the gas would have been flared anyway if not used for
-    # electricity generation
-    if "ch4_mass_lb" in df.columns:
-        df["ch4_mass_lb_adjusted"] = df["ch4_mass_lb"]
-        df.loc[df["energy_source_code"] == "LFG", "ch4_mass_lb_adjusted"] = 0
-
-    # N2O: LFG plants set to zero
-    if "n2o_mass_lb" in df.columns:
-        df["n2o_mass_lb_adjusted"] = df["n2o_mass_lb"]
-        df.loc[df["energy_source_code"] == "LFG", "n2o_mass_lb_adjusted"] = 0
-
-    # NOx: assigned an adjusted value
-    # this value is based on using NOx emissions from flaring as a baseline, and
-    # subtracting this from the actual emissions to prevent negative emissions, we set
-    # the value = 0 if negative
-    if "nox_mass_lb" in df.columns:
-        df["nox_mass_lb_adjusted"] = df["nox_mass_lb"]
-        df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = df.loc[
-            df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"
-        ] - (
-            df.loc[df["energy_source_code"] == "LFG", "fuel_consumed_mmbtu"]
-            * nox_lb_per_mmbtu_flared_landfill_gas
-        )
-        df.loc[df["nox_mass_lb_adjusted"] < 0, "nox_mass_lb_adjusted"] = 0
-
-    # SO2: LFG plants set to zero
-    if "so2_mass_lb" in df.columns:
-        df["so2_mass_lb_adjusted"] = df["so2_mass_lb"]
-        df.loc[df["energy_source_code"] == "LFG", "so2_mass_lb_adjusted"] = 0
+    # CH4, N2O, NOx, SO2: no biomass adjustment is applied, so adjusted values equal
+    # unadjusted values. This is consistent with eGRID2023, which removed the landfill
+    # gas adjustments for these pollutants.
+    for pollutant in ["ch4", "n2o", "nox", "so2"]:
+        if f"{pollutant}_mass_lb" in df.columns:
+            df[f"{pollutant}_mass_lb_adjusted"] = df[f"{pollutant}_mass_lb"]
 
     return df
 
