@@ -698,11 +698,11 @@ def write_power_sector_results(
         elif include_monthly or include_annual:
             # include any energy storage data, which is only available at the monthly
             # level
-            data_columns = DATA_COLUMNS + [
+            combined_data_columns = DATA_COLUMNS + [
                 column for column in STORAGE_DATA_COLUMNS if column in ba_table.columns
             ]
             ba_total = (
-                ba_table.groupby(["report_date"], dropna=False)[data_columns]
+                ba_table.groupby(["report_date"], dropna=False)[combined_data_columns]
                 .sum(min_count=1)
                 .reset_index()
             )
@@ -728,7 +728,7 @@ def write_power_sector_results(
                 ba_table = add_generated_emission_rate_columns(ba_table)
                 # re-order columns
                 ba_table = ba_table[
-                    groupby_cols + data_columns + GENERATED_EMISSION_RATE_COLS
+                    groupby_cols + combined_data_columns + GENERATED_EMISSION_RATE_COLS
                 ]
                 output_to_results(
                     ba_table,
