@@ -477,7 +477,7 @@ def calculate_co2e_mass(
         df (pd.DataFrame): data frame with CO2, CH4 and N2O emissions.
         version (int | str): version of the IPCC to consider.
         gwp_horizon (int, optional): the GWP horizon to consider. Defaults to 100.
-        ar5_climate_carbon_feedback (bool, optional): When vversion is is a year, this
+        ar5_climate_carbon_feedback (bool, optional): When version is a year, this
             parameter allows to select the climate carbon feedback of the fifth version
             of the assessment report. Defaults to True.
 
@@ -505,7 +505,7 @@ def calculate_co2e_mass(
             if "AR5" in ipcc_version and ar5_climate_carbon_feedback:
                 ipcc_version = "AR5_cc"
             elif "AR5" in ipcc_version and not ar5_climate_carbon_feedback:
-                ipcc_version = "AR5_cc"
+                ipcc_version = "AR5"
         else:
             ipcc_version = ipcc_version[0]
     elif version in df_gwp["ipcc_version"].unique():
