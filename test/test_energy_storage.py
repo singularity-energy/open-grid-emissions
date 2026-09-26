@@ -302,3 +302,33 @@ def test_assign_storage_category_ignores_supported_plants_without_generators():
     assert result.loc[2, "storage_category_method"] == "eia860_flag"
     assert result.loc[2, "storage_category"] == "co_located"
     assert result.loc[2, "co_located_plant_id_list"] == []
+
+
+def test_add_monthly_energy_storage_data_adds_missing_months():
+    monthly_subplant_data = pd.DataFrame(
+        {
+            "plant_id_eia": [1],
+            "subplant_id": [1],
+            "report_date": pd.to_datetime(["2024-01-01"]),
+            "net_generation_mwh": [-15.0],
+        }
+    )
+    monthly_storage_data = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2],
+            "subplant_id": [1, 1, 1],
+            "report_date": pd.to_datetime(["2024-01-01", "2024-02-01", "2024-01-01"]),
+            "storage_charge_mwh": [100.0, 50.0, 20.0],
+            "storage_discharge_mwh": [85.0, 40.0, 15.0],
+        }
+    )
+
+    result = energy_storage.add_monthly_energy_storage_data(
+        monthly_subplant_data, monthly_storage_data
+    ).set_index(["plant_id_eia", "report_date"])
+
+    # February is added for plant 1, since plant 1 is in the subplant data, but plant 2
+    # is not added
+    assert len(result) == 2
+    assert result.loc[(1, "2024-02-01"), "storage_charge_mwh"] == 50
+    assert np.isnan(result.loc[(1, "2024-02-01"), "net_generation_mwh"])
