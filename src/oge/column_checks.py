@@ -377,6 +377,15 @@ DATA_COLUMNS = [
     "so2_mass_lb_for_electricity_adjusted",
 ]
 
+# energy storage charging and discharging data. These are kept separate from
+# DATA_COLUMNS because they are only reported for energy storage resources (so are left
+# blank rather than zero for other resources), and because they are not currently
+# shaped to an hourly resolution
+STORAGE_DATA_COLUMNS = [
+    "storage_charge_mwh",
+    "storage_discharge_mwh",
+]
+
 
 def check_columns(df: pd.DataFrame, file_name: str):
     """Given a file name and a data frame to export, check that its columns are as
@@ -504,6 +513,8 @@ def get_dtypes() -> dict:
         "so2_removal_efficiency_at_full_load": "float64",
         "start_year": "Int32",
         "steam_load_lbs": "float64",
+        "storage_charge_mwh": "float64",
+        "storage_discharge_mwh": "float64",
         "subplant_id": "Int32",
         "subplant_primary_fuel": "string",
         "subplant_primary_fuel_from_capacity_mw": "string",

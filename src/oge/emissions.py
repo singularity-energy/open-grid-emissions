@@ -64,6 +64,11 @@ def calculate_ghg_emissions_from_fuel_consumption(
         df = add_geothermal_emission_factors(
             df, year, include_co2=True, include_nox=False, include_so2=False
         )
+        # geothermal plants are assumed to have no CH4 or N2O emissions
+        df.loc[
+            df["energy_source_code"] == "GEO",
+            [ef for ef in ["ch4_lb_per_mmbtu", "n2o_lb_per_mmbtu"] if ef in efs_to_use],
+        ] = 0
 
     # create a new column with the emissions mass
     for e in emissions_to_calc:

@@ -9,7 +9,12 @@ import oge.validation as validation
 import oge.emissions as emissions
 import oge.energy_storage as energy_storage
 from oge.constants import CLEAN_FUELS, earliest_data_year
-from oge.column_checks import get_dtypes, apply_dtypes, DATA_COLUMNS
+from oge.column_checks import (
+    get_dtypes,
+    apply_dtypes,
+    DATA_COLUMNS,
+    STORAGE_DATA_COLUMNS,
+)
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.helpers import (
     create_plant_ba_table,
@@ -223,6 +228,10 @@ def clean_eia923(
         gen_fuel_allocated, year, gwp_horizon=100, ar5_climate_carbon_feedback=True
     )
 
+    # set emissions to zero for resources that do not have any emissions, so that the
+    # remaining missing values represent data that is actually missing
+    gen_fuel_allocated = fill_emissions_for_non_emitting_resources(gen_fuel_allocated)
+
     validation.test_emissions_adjustments(gen_fuel_allocated, year)
 
     # calculate weighted emission factors for each subplant-month
@@ -233,7 +242,7 @@ def clean_eia923(
         gen_fuel_allocated.groupby(
             by=["plant_id_eia", "subplant_id", "report_date", "energy_source_code"]
         )[["net_generation_mwh", "fuel_consumed_mmbtu"]]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
     subplant_923 = validation.identify_reporting_frequency(subplant_923, year)
@@ -247,6 +256,9 @@ def clean_eia923(
         .reset_index()
         .pipe(apply_dtypes)
     )
+
+    # remove any generators that do not report any generation or fuel data in any month
+    gen_fuel_allocated = remove_generators_without_data(gen_fuel_allocated)
 
     # remove any plants that we don't want in the data
     gen_fuel_allocated = remove_plants(
@@ -295,6 +307,88 @@ def clean_eia923(
         subplant_emission_factors,
         subplant_923,
     )
+
+
+def remove_generators_without_data(gen_fuel_allocated: pd.DataFrame) -> pd.DataFrame:
+    """Removes generators that do not report generation or fuel data in any month.
+
+    Generators that report generation or fuel data in some months but not others are
+    kept, and their missing values are left missing.
+
+    Args:
+        gen_fuel_allocated (pd.DataFrame): allocated generation and fuel data by
+            generator-month.
+
+    Returns:
+        pd.DataFrame: `gen_fuel_allocated` without generators that do not report any
+            generation or fuel data.
+    """
+    reported_data_columns = [
+        "net_generation_mwh",
+        "fuel_consumed_mmbtu",
+        "fuel_consumed_for_electricity_mmbtu",
+    ]
+    generator_has_data = (
+        gen_fuel_allocated[reported_data_columns]
+        .notna()
+        .any(axis=1)
+        .groupby(
+            [gen_fuel_allocated["plant_id_eia"], gen_fuel_allocated["generator_id"]],
+            dropna=False,
+        )
+        .transform("any")
+    )
+    generators_without_data = gen_fuel_allocated.loc[
+        ~generator_has_data, ["plant_id_eia", "generator_id"]
+    ].drop_duplicates()
+    if len(generators_without_data) > 0:
+        logger.info(
+            f"Removing {len(generators_without_data)} generators that do not report any "
+            "generation or fuel data in EIA-923:\n"
+            + validation.limit_error_output_df(generators_without_data).to_string()
+        )
+
+    return gen_fuel_allocated[generator_has_data]
+
+
+def fill_emissions_for_non_emitting_resources(
+    gen_fuel_allocated: pd.DataFrame,
+) -> pd.DataFrame:
+    """Sets missing emissions to zero for resources that do not have any emissions.
+
+    Emissions are not calculated for some resources, which leaves them missing rather
+    than zero. Where fuel consumption data is reported, missing emissions are set to
+    zero for:
+
+    - resources with an energy source code in `CLEAN_FUELS` (e.g. solar, wind, and
+      hydro), which do not have any direct emissions.
+    - resources that did not consume any fuel.
+
+    Emissions that are missing for any other reason, or for records where no fuel
+    consumption data was reported, are left missing.
+
+    Args:
+        gen_fuel_allocated (pd.DataFrame): allocated generation and fuel data with
+            `energy_source_code`, `fuel_consumed_mmbtu`, and emissions columns.
+
+    Returns:
+        pd.DataFrame: `gen_fuel_allocated` with missing emissions set to zero for
+            resources that do not have any emissions.
+    """
+    emissions_columns = [
+        column
+        for column in DATA_COLUMNS
+        if "_mass_" in column and column in gen_fuel_allocated.columns
+    ]
+    has_no_emissions = gen_fuel_allocated["fuel_consumed_mmbtu"].notna() & (
+        gen_fuel_allocated["energy_source_code"].isin(CLEAN_FUELS)
+        | (gen_fuel_allocated["fuel_consumed_mmbtu"] == 0)
+    )
+    gen_fuel_allocated.loc[has_no_emissions, emissions_columns] = (
+        gen_fuel_allocated.loc[has_no_emissions, emissions_columns].fillna(0)
+    )
+
+    return gen_fuel_allocated
 
 
 def update_energy_source_codes(df, year):
@@ -2564,12 +2658,13 @@ def aggregate_subplant_data_to_fleet(
     )
 
     # drop subplants that have missing fuel category and no generation or fuel data
-    # this prevents them from creating blank entries in the power sector results data
+    # (either reported as zero or missing). This prevents them from creating blank
+    # entries in the power sector results data
     ba_fuel_data = ba_fuel_data[
         ~(
             ba_fuel_data["fuel_category"].isna()
-            & (ba_fuel_data["net_generation_mwh"] == 0)
-            & (ba_fuel_data["fuel_consumed_for_electricity_mmbtu"] == 0)
+            & (ba_fuel_data["net_generation_mwh"].fillna(0) == 0)
+            & (ba_fuel_data["fuel_consumed_for_electricity_mmbtu"].fillna(0) == 0)
         )
     ]
 
@@ -2578,12 +2673,13 @@ def aggregate_subplant_data_to_fleet(
         agg_cols = ["ba_code", "fuel_category", "datetime_utc", "report_date"]
     else:
         agg_cols = ["ba_code", "fuel_category", "report_date"]
+    # include any energy storage data, which is only available at the monthly level
+    data_columns = DATA_COLUMNS + [
+        column for column in STORAGE_DATA_COLUMNS if column in ba_fuel_data.columns
+    ]
     ba_fuel_data = (
-        ba_fuel_data.groupby(
-            agg_cols,
-            dropna=False,
-        )[DATA_COLUMNS]
-        .sum()
+        ba_fuel_data.groupby(agg_cols, dropna=False)[data_columns]
+        .sum(min_count=1)
         .reset_index()
     )
 
