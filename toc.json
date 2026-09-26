@@ -22,6 +22,11 @@
     },
     {
       "type": "item",
+      "title": "Comparison to eGRID",
+      "uri": "/docs/docs/Overview/Comparison to eGRID.md"
+    },
+    {
+      "type": "item",
       "title": "Contributing To The Code Repository",
       "uri": "/docs/docs/Overview/Contributing to the Code Repository.md"
     },
@@ -171,11 +176,6 @@
       "type": "item",
       "title": "Known Issues",
       "uri": "/docs/docs/Data Validation/Known Issues.md"
-    },
-    {
-      "type": "item",
-      "title": "Comparing Data to eGRID",
-      "uri": "/docs/docs/Data Validation/Comparing Data to eGRID.md"
     }
   ]
 }
