@@ -1,21 +1,17 @@
-import sys
 import logging
+import os
 
 import pandas as pd
 
-sys.path.append("../src")
-sys.path.append("..")
-
-from src.filepaths import top_folder  # noqa E402
-
-from src.logging_util import get_logger, configure_root_logger  # noqa E402
+from oge.logging_util import get_logger, configure_root_logger
 
 pudl_logger = logging.getLogger(name="catalystcoop.pudl")
+LOGFILE = os.path.join(os.path.dirname(__file__), "test_logfile.txt")
 
-configure_root_logger(logfile=top_folder("test/test_logfile.txt"), level=logging.INFO)
+configure_root_logger(logfile=LOGFILE, level=logging.INFO)
 # If you call this again, nothing bad should happen. Logging statements should
 # still only show up once.
-configure_root_logger(logfile=top_folder("test/test_logfile.txt"), level=logging.INFO)
+configure_root_logger(logfile=LOGFILE, level=logging.INFO)
 logger = get_logger("test")
 
 
