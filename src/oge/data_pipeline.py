@@ -19,6 +19,7 @@ import oge.consumed as consumed
 import oge.download_data as download_data
 import oge.eia930 as eia930
 import oge.emissions as emissions
+import oge.energy_storage as energy_storage
 import oge.gross_to_net_generation as gross_to_net_generation
 import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
@@ -189,6 +190,10 @@ def main(args):
         skip_outputs=args.skip_outputs,
     )
     del subplant_eia923
+    # create monthly energy storage charging and discharging data for each subplant
+    monthly_storage_data = energy_storage.create_monthly_energy_storage_data(
+        primary_fuel_table, year
+    )
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
         primary_fuel_table[
@@ -273,7 +278,9 @@ def main(args):
     )
     # output data quality metrics about annually-reported EIA-923 data
     output_data.output_data_quality_metrics(
-        output_data.summarize_annually_reported_eia_data(eia923_allocated, year),
+        output_data.summarize_annually_reported_eia_data(
+            eia923_allocated, year, monthly_storage_data
+        ),
         "annually_reported_eia_data",
         path_prefix,
         args.skip_outputs,
@@ -430,7 +437,7 @@ def main(args):
         monthly_eia_data_to_shape.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
         )[DATA_COLUMNS]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
     # combine and export plant data at monthly and annual level
@@ -444,6 +451,13 @@ def main(args):
         monthly_eia_data_to_shape,
         resolution="monthly",
     )
+    # add energy storage charging and discharging data from EIA-923. This is added
+    # after combining the data so that it is kept for storage at plants that report to
+    # CEMS, and so that it is not shaped using the hourly profiles of other resources
+    monthly_subplant_data = energy_storage.add_monthly_energy_storage_data(
+        monthly_subplant_data, monthly_storage_data
+    )
+    del monthly_storage_data
 
     # export subplant attributes table
     helpers.create_subplant_attributes_table(
