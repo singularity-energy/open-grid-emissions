@@ -719,7 +719,7 @@ def identify_pumped_storage_with_inflow(storage_dispatch: pd.DataFrame) -> list[
     annual_pumped_storage = (
         storage_dispatch[storage_dispatch["prime_mover_code"] == "PS"]
         .groupby("plant_id_eia", dropna=False)[STORAGE_DATA_COLUMNS]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
     return annual_pumped_storage.loc[
@@ -776,7 +776,7 @@ def log_energy_storage_data_quality(storage_dispatch: pd.DataFrame) -> None:
 
     annual_dispatch = (
         storage_dispatch.groupby(resource_keys, dropna=False)[STORAGE_DATA_COLUMNS]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
     pumped_storage_with_inflow = annual_dispatch[
@@ -889,11 +889,11 @@ def allocate_energy_storage_dispatch_to_subplants(
         .groupby(["plant_id_eia", "prime_mover_code"], dropna=False)[
             STORAGE_DATA_COLUMNS
         ]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
     unallocated_dispatch = unallocated_dispatch[
-        (unallocated_dispatch[STORAGE_DATA_COLUMNS] != 0).any(axis=1)
+        (unallocated_dispatch[STORAGE_DATA_COLUMNS].fillna(0) != 0).any(axis=1)
     ]
     if len(unallocated_dispatch) > 0:
         logger.warning(
@@ -977,11 +977,11 @@ def add_monthly_energy_storage_data(
     unmatched_storage_data = (
         missing_months[missing_months["subplant_in_data"] == "left_only"]
         .groupby(["plant_id_eia", "subplant_id"], dropna=False)[STORAGE_DATA_COLUMNS]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
     unmatched_storage_data = unmatched_storage_data[
-        (unmatched_storage_data[STORAGE_DATA_COLUMNS] != 0).any(axis=1)
+        (unmatched_storage_data[STORAGE_DATA_COLUMNS].fillna(0) != 0).any(axis=1)
     ]
     if len(unmatched_storage_data) > 0:
         logger.warning(
