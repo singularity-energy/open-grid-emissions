@@ -2107,7 +2107,7 @@ def shape_partial_cems_plants(cems, eia923_allocated, year):
         # group the eia data by subplant
         eia_data_to_shape = (
             eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)[DATA_COLUMNS]
-            .sum()
+            .sum(min_count=1)
             .reset_index()
         )
 
@@ -2254,6 +2254,8 @@ def shape_partial_cems_subplants(cems, eia923_allocated, year):
     ].copy()
     # if there is no data in the partial cems dataframe, skip.
     if len(eia_data_to_shape) > 0:
+        # NOTE: missing values are intentionally treated as zero here, since the logic
+        # used to scale or shift the CEMS data below requires a value for each column
         eia_data_to_shape = (
             eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)[DATA_COLUMNS]
             .sum()

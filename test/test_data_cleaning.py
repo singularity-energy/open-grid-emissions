@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -135,3 +136,49 @@ def test_filter_to_ba_local_year_drops_union_of_timezones():
     # the eastern-only edge hour is dropped, but every hour on soco's own local
     # year keeps its real (summed) value, including the eastern plant's overlap
     assert (result["net_generation_mwh"] > 0).all()
+
+
+def test_fill_emissions_for_non_emitting_resources():
+    df = pd.DataFrame(
+        {
+            "energy_source_code": ["SUN", "NG", "NG", "NG", "SUN"],
+            "fuel_consumed_mmbtu": [100.0, 0.0, np.nan, 50.0, np.nan],
+            "net_generation_mwh": [10.0, -1.0, np.nan, 5.0, np.nan],
+            "nox_mass_lb": [np.nan, np.nan, np.nan, 2.0, np.nan],
+            "so2_mass_lb": [np.nan, np.nan, np.nan, np.nan, np.nan],
+        }
+    )
+
+    result = data_cleaning.fill_emissions_for_non_emitting_resources(df)
+
+    # clean fuels and resources that did not consume fuel have zero emissions
+    assert (result.loc[0, ["nox_mass_lb", "so2_mass_lb"]] == 0).all()
+    assert (result.loc[1, ["nox_mass_lb", "so2_mass_lb"]] == 0).all()
+    # emissions stay missing when fuel consumption data is missing, even for clean fuels
+    assert result.loc[2, ["nox_mass_lb", "so2_mass_lb"]].isna().all()
+    assert result.loc[4, ["nox_mass_lb", "so2_mass_lb"]].isna().all()
+    # reported values are not changed, and other missing values are not filled
+    assert result.loc[3, "nox_mass_lb"] == 2
+    assert np.isnan(result.loc[3, "so2_mass_lb"])
+    # data columns that are not emissions are not filled
+    assert np.isnan(result.loc[2, "net_generation_mwh"])
+
+
+def test_remove_generators_without_data():
+    df = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2, 2],
+            "generator_id": ["A", "A", "B", "B"],
+            "report_date": pd.to_datetime(["2024-01-01", "2024-02-01"] * 2),
+            "net_generation_mwh": [10.0, np.nan, np.nan, np.nan],
+            "fuel_consumed_mmbtu": [np.nan, np.nan, np.nan, np.nan],
+            "fuel_consumed_for_electricity_mmbtu": [np.nan, np.nan, np.nan, np.nan],
+        }
+    )
+
+    result = data_cleaning.remove_generators_without_data(df)
+
+    # generator B does not report any data, so it is removed. Generator A reports data
+    # in one month, so both of its months are kept
+    assert result["generator_id"].unique().tolist() == ["A"]
+    assert len(result) == 2

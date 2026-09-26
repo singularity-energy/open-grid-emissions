@@ -5,7 +5,7 @@ import shutil
 import os
 
 import oge.load_data as load_data
-from oge.column_checks import check_columns, DATA_COLUMNS
+from oge.column_checks import check_columns, DATA_COLUMNS, STORAGE_DATA_COLUMNS
 import oge.validation as validation
 from oge.filepaths import outputs_folder, results_folder, data_folder
 from oge.helpers import assign_fleet_to_subplant_data
@@ -248,8 +248,9 @@ def output_to_results(
 
     # Check for negatives after rounding
     validation.test_for_negative_values(df, year)
-    # Check that there are no missing values
-    validation.test_for_missing_values(df)
+    # Check that there are no missing values. Energy storage data is only reported for
+    # energy storage resources, so it is expected to be missing for other resources
+    validation.test_for_missing_values(df, skip_cols=STORAGE_DATA_COLUMNS)
 
     if not skip_outputs:
         df.to_csv(
@@ -320,7 +321,7 @@ def write_plant_data_to_results(
         # group data to specified groups
         df = (
             monthly_subplant_data.groupby(groupby_cols, dropna=False)
-            .sum(numeric_only=True)
+            .sum(numeric_only=True, min_count=1)
             .reset_index()
         )
 
@@ -357,6 +358,7 @@ def write_plant_data_to_results(
                     "state",
                 ]
                 + DATA_COLUMNS
+                + [column for column in STORAGE_DATA_COLUMNS if column in df.columns]
             ]
 
         # calculate emission rates
@@ -422,13 +424,13 @@ def write_national_fleet_averages(
     """
     # sum all of the columns by fuel before calculating emission rates
     national_avg = (
-        ba_fuel_data.groupby(["fuel_category"])[DATA_COLUMNS]
-        .sum(numeric_only=True)
+        ba_fuel_data.groupby(["fuel_category"], dropna=False)[DATA_COLUMNS]
+        .sum(numeric_only=True, min_count=1)
         .reset_index()
     )
 
     # Add row for total
-    national_total = pd.DataFrame(national_avg[DATA_COLUMNS].sum()).T
+    national_total = pd.DataFrame(national_avg[DATA_COLUMNS].sum(min_count=1)).T
     national_total["fuel_category"] = "total"
 
     # concat the totals to the fuel-specific totals
@@ -635,7 +637,7 @@ def write_power_sector_results(
                 ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
                     DATA_COLUMNS
                 ]
-                .sum()
+                .sum(min_count=1)
                 .reset_index()
             )
             ba_total["fuel_category"] = "total"
@@ -648,7 +650,7 @@ def write_power_sector_results(
             ba_table_hourly = ba_table.copy().drop(columns=["report_date"])
             ba_table_hourly = (
                 ba_table_hourly.groupby(["fuel_category", "datetime_utc"])
-                .sum()
+                .sum(min_count=1)
                 .reset_index()
             )
 
@@ -694,9 +696,14 @@ def write_power_sector_results(
                 skip_outputs,
             )
         elif include_monthly or include_annual:
+            # include any energy storage data, which is only available at the monthly
+            # level
+            combined_data_columns = DATA_COLUMNS + [
+                column for column in STORAGE_DATA_COLUMNS if column in ba_table.columns
+            ]
             ba_total = (
-                ba_table.groupby(["report_date"], dropna=False)[DATA_COLUMNS]
-                .sum()
+                ba_table.groupby(["report_date"], dropna=False)[combined_data_columns]
+                .sum(min_count=1)
                 .reset_index()
             )
             ba_total["fuel_category"] = "total"
@@ -715,13 +722,13 @@ def write_power_sector_results(
                 # aggregate data
                 ba_table = (
                     ba_table.groupby(groupby_cols, dropna=False)
-                    .sum(numeric_only=True)
+                    .sum(numeric_only=True, min_count=1)
                     .reset_index()
                 )
                 ba_table = add_generated_emission_rate_columns(ba_table)
                 # re-order columns
                 ba_table = ba_table[
-                    groupby_cols + DATA_COLUMNS + GENERATED_EMISSION_RATE_COLS
+                    groupby_cols + combined_data_columns + GENERATED_EMISSION_RATE_COLS
                 ]
                 output_to_results(
                     ba_table,
@@ -983,8 +990,25 @@ def identify_percent_of_data_by_input_source(
     return source_of_input_data
 
 
-def summarize_annually_reported_eia_data(eia923_allocated, year):
-    """Creates table summarizing the percent of final data from annually-reported EIA data."""
+def summarize_annually_reported_eia_data(
+    eia923_allocated: pd.DataFrame,
+    year: int,
+    monthly_storage_data: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Creates table summarizing the percent of final data from annually-reported EIA data.
+
+    Args:
+        eia923_allocated (pd.DataFrame): allocated EIA-923 data by generator.
+        year (int): the data year.
+        monthly_storage_data (pd.DataFrame | None, optional): monthly energy storage
+            charging and discharging data by subplant. If provided, the percent of
+            energy storage data from annually-reported EIA data is also summarized.
+            Defaults to None.
+
+    Returns:
+        pd.DataFrame: table summarizing the percent of each data column that comes from
+            annually-reported EIA data.
+    """
 
     columns_to_summarize = [
         "fuel_consumed_mmbtu",
@@ -1073,6 +1097,32 @@ def summarize_annually_reported_eia_data(eia923_allocated, year):
     )
 
     annual_data_summary.rename(columns={"eia_data_resolution": "category"})
+
+    # add the percent of energy storage data from annually-reported EIA data. All energy
+    # storage data comes from EIA-923, so the percent of input data and output data is
+    # the same, and it is not combined with CEMS data
+    if monthly_storage_data is not None:
+        storage_data = validation.identify_reporting_frequency(
+            monthly_storage_data, year
+        )
+        storage_from_annual = (
+            storage_data.loc[
+                storage_data["eia_data_resolution"] == "annual", STORAGE_DATA_COLUMNS
+            ].sum()
+            / storage_data[STORAGE_DATA_COLUMNS].sum()
+            * 100
+        ).round(2)
+        summary_rows = [
+            row
+            for row in [
+                "% of EIA-923 input data from EIA annual reporters",
+                "% of output data from EIA annual reporters",
+            ]
+            if row in annual_data_summary.index
+        ]
+        for column in STORAGE_DATA_COLUMNS:
+            annual_data_summary[column] = np.nan
+            annual_data_summary.loc[summary_rows, column] = storage_from_annual[column]
 
     annual_data_summary = annual_data_summary.reset_index()
 

@@ -56,6 +56,8 @@ A few notes on column names:
 - Column names that include the `_for_electricity` adjustment type have been adjusted for CHP (see [methodology](../Methodology/Emissions%20Calculations/Adjusting%20Emissions%20for%20CHP.md)) and represent the portion of the total value that is related to electricity generation.
 - Column names that include the `_adjusted` adjustment type have been adjusted for biomass (see [methodology](../Methodology/Emissions%20Calculations/Adjusting%20Emissions%20for%20Biomass.md)).
 - Column names that include the `_for_electricity_adjusted` adjustment type have been adjusted for both CHP and biomass.
+- The `storage_charge_mwh` and `storage_discharge_mwh` columns in the monthly and annual plant and power sector data report the electricity used to charge and discharged by energy storage resources. They are blank for resources that are not energy storage, and are not yet included in hourly data (see [methodology](../Methodology/Data%20Aggregation/Energy%20Storage.md#energy-storage-charging-and-discharging-data)).
+- A value of zero means that the value was reported or calculated to be zero, while a blank value means that the data is missing or does not apply. For example, emissions are zero for resources that do not have any direct emissions (such as solar, wind, and hydro) or that did not consume any fuel, but are blank for resources where no fuel consumption data was reported, and energy storage columns are blank for resources that are not energy storage.
 - The `report_date` column is in the format `MM/01/YYYY` and represents the month `MM` with which the data is associated. So data with a report date of "03/01/2020" is associated with March 2020.
 
 ### Plant Static Attributes Table

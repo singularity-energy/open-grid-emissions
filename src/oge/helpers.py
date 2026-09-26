@@ -495,14 +495,14 @@ def combine_subplant_data(
     # group data by subplant-month or subplant-hour and filter columns
     cems = (
         cems.groupby(KEY_COLUMNS, dropna=False, sort=False)
-        .sum(numeric_only=True)
+        .sum(numeric_only=True, min_count=1)
         .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
     )
     # don't group if there is no data in the dataframe
     if len(partial_cems_subplant) > 0:
         partial_cems_subplant = (
             partial_cems_subplant.groupby(KEY_COLUMNS, dropna=False, sort=False)
-            .sum(numeric_only=True)
+            .sum(numeric_only=True, min_count=1)
             .reset_index()[
                 [col for col in partial_cems_subplant.columns if col in ALL_COLUMNS]
             ]
@@ -510,14 +510,14 @@ def combine_subplant_data(
     if len(partial_cems_plant) > 0:
         partial_cems_plant = (
             partial_cems_plant.groupby(KEY_COLUMNS, dropna=False, sort=False)
-            .sum(numeric_only=True)
+            .sum(numeric_only=True, min_count=1)
             .reset_index()[
                 [col for col in partial_cems_plant.columns if col in ALL_COLUMNS]
             ]
         )
     eia_data = (
         eia_data.groupby(KEY_COLUMNS, dropna=False, sort=False)
-        .sum(numeric_only=True)
+        .sum(numeric_only=True, min_count=1)
         .reset_index()[[col for col in eia_data.columns if col in ALL_COLUMNS]]
     )
 

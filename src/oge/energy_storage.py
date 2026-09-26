@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 
 import oge.load_data as load_data
+import oge.validation as validation
+from oge.column_checks import STORAGE_DATA_COLUMNS
 from oge.constants import ENERGY_STORAGE_PRIME_MOVERS
 from oge.logging_util import get_logger
 
@@ -33,6 +35,7 @@ DIRECT_SUPPORT_PLANT_COLUMNS = [
 # applied (see assign_storage_category_to_generators())
 STORAGE_CATEGORY_BY_METHOD = {
     "hybrid_prime_mover": "hybrid",
+    "pumped_storage_with_inflow": "hybrid",
     "dc_coupled_tightly": "hybrid",
     "same_plant": "co_located",
     "direct_support_other_plant": "co_located",
@@ -187,6 +190,14 @@ def identify_energy_storage_categories(
         .astype(bool)
     )
 
+    # identify pumped storage that also generates electricity from natural inflow,
+    # based on the charging and discharging reported in EIA-923
+    storage_generators["is_pumped_storage_with_inflow"] = (
+        storage_generators["prime_mover_code"] == "PS"
+    ) & storage_generators["plant_id_eia"].isin(
+        identify_pumped_storage_with_inflow(load_energy_storage_dispatch(year))
+    )
+
     storage_generators = assign_storage_category_to_generators(
         storage_generators, generators
     )
@@ -312,21 +323,25 @@ def assign_storage_category_to_generators(
 
     1. "hybrid_prime_mover" (hybrid): the prime mover is in
        `HYBRID_STORAGE_PRIME_MOVERS` and the energy source code is not MWH.
-    2. "dc_coupled_tightly" (hybrid): the storage is reported as tightly DC-coupled.
-    3. "same_plant" (co_located): the plant has an operating non-storage generator.
-    4. "direct_support_other_plant" (co_located): the storage is reported as directly
+    2. "pumped_storage_with_inflow" (hybrid): the generator is pumped storage that
+       also generates electricity from natural inflow (see
+       `identify_pumped_storage_with_inflow()`).
+    3. "dc_coupled_tightly" (hybrid): the storage is reported as tightly DC-coupled.
+    4. "same_plant" (co_located): the plant has an operating non-storage generator.
+    5. "direct_support_other_plant" (co_located): the storage is reported as directly
        supporting a generator at a different plant.
-    5. "same_location" (co_located): a different plant with an operating non-storage
+    6. "same_location" (co_located): a different plant with an operating non-storage
        generator has exactly the same latitude and longitude.
-    6. "eia860_flag" (co_located): the storage is reported as directly supporting
+    7. "eia860_flag" (co_located): the storage is reported as directly supporting
        another generator or as firming co-located renewables.
-    7. "is_independent" (standalone): the storage is reported as independent.
-    8. "no_evidence" (standalone): none of the above rules apply.
+    8. "is_independent" (standalone): the storage is reported as independent.
+    9. "no_evidence" (standalone): none of the above rules apply.
 
     Args:
         storage_generators (pd.DataFrame): storage generators with `plant_id_eia`,
             `generator_id`, `prime_mover_code`, `energy_source_code_1`,
-            `STORAGE_FLAG_COLUMNS`, and `DIRECT_SUPPORT_PLANT_COLUMNS` columns.
+            `is_pumped_storage_with_inflow`, `STORAGE_FLAG_COLUMNS`, and
+            `DIRECT_SUPPORT_PLANT_COLUMNS` columns.
         generators (pd.DataFrame): EIA-860 attributes of all generators in the data
             year, with `plant_id_eia`, `generator_id`, `prime_mover_code`,
             `energy_source_code_1`, `is_operating`, `latitude`, and `longitude`
@@ -415,6 +430,7 @@ def assign_storage_category_to_generators(
     conditions = [
         storage_generators["prime_mover_code"].isin(HYBRID_STORAGE_PRIME_MOVERS)
         & (storage_generators["energy_source_code_1"] != "MWH"),
+        storage_generators["is_pumped_storage_with_inflow"],
         storage_generators["is_dc_coupled_tightly"],
         storage_generators["plant_id_eia"].isin(non_storage_plants),
         supports_other_plant,
@@ -497,3 +513,491 @@ def validate_one_storage_category_per_plant(storage_generators: pd.DataFrame) ->
             ].to_string()
         )
     logger.info("OK")
+
+
+def create_monthly_energy_storage_data(
+    primary_fuel_table: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Coordinating function for creating monthly energy storage charging and discharging data.
+
+    Monthly charging and discharging data for each energy storage resource is loaded
+    from EIA-923 (see `load_energy_storage_dispatch()`), checked for data quality
+    issues, and allocated to each storage subplant. The discharge of pumped storage
+    that also generates electricity from natural inflow (subplants with a
+    `subplant_storage_category_method` of "pumped_storage_with_inflow") is left blank,
+    since it cannot be separated from the electricity generated from natural inflow.
+
+    Args:
+        primary_fuel_table (pd.DataFrame): table of primary fuels by generator, with
+            `plant_id_eia`, `subplant_id`, `generator_id`, and
+            `subplant_storage_category_method` columns.
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: table with one row per storage subplant-month, with
+            `plant_id_eia`, `subplant_id`, `report_date`, and `STORAGE_DATA_COLUMNS`.
+    """
+    logger.info("Creating monthly energy storage charging and discharging data")
+    storage_dispatch = load_energy_storage_dispatch(year)
+    log_energy_storage_data_quality(storage_dispatch)
+
+    monthly_storage_data = allocate_energy_storage_dispatch_to_subplants(
+        storage_dispatch, primary_fuel_table, year
+    )
+
+    # the discharge of pumped storage with natural inflow cannot be separated from the
+    # electricity generated from natural inflow, so leave it blank
+    pumped_storage_with_inflow = primary_fuel_table.loc[
+        primary_fuel_table["subplant_storage_category_method"]
+        == "pumped_storage_with_inflow",
+        ["plant_id_eia", "subplant_id"],
+    ].drop_duplicates()
+    monthly_storage_data = monthly_storage_data.merge(
+        pumped_storage_with_inflow,
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+        indicator="pumped_storage_with_inflow",
+    )
+    monthly_storage_data.loc[
+        monthly_storage_data["pumped_storage_with_inflow"] == "both",
+        "storage_discharge_mwh",
+    ] = np.nan
+    monthly_storage_data = monthly_storage_data.drop(
+        columns="pumped_storage_with_inflow"
+    )
+
+    return monthly_storage_data
+
+
+def load_energy_storage_dispatch(year: int) -> pd.DataFrame:
+    """Loads the monthly charging and discharging of each energy storage resource.
+
+    Charging and discharging data is reported in EIA-923 for each plant, prime mover,
+    and energy source code. Only energy storage prime movers are kept. For storage
+    reported in MWh, charging is the reported fuel consumed for electricity, and
+    discharging is the reported gross generation. For storage that supplements the
+    stored energy with a combustion fuel (prime movers in
+    `HYBRID_STORAGE_PRIME_MOVERS` that report a fuel other than MWh, e.g. compressed air
+    storage that burns natural gas), discharging is the reported gross generation and
+    charging is the gross generation minus the net generation.
+
+    If a month reports zero discharge, but filling the discharge with the net
+    generation plus the charge would make that month consistent, and all other months
+    for that resource are consistent, the discharge is filled with this value.
+
+    Args:
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: table with one row per plant, prime mover, energy source code, and
+            month, with `STORAGE_DATA_COLUMNS`, `net_generation_mwh`, and
+            `discharge_filled` columns. The table is empty for years in which the
+            energy storage table is not available.
+    """
+    storage_dispatch = load_data.load_pudl_table(
+        "core_eia923__monthly_energy_storage",
+        year=year,
+        columns=[
+            "plant_id_eia",
+            "report_date",
+            "prime_mover_code",
+            "energy_source_code",
+            "fuel_units",
+            "fuel_consumed_for_electricity_units",
+            "gross_generation_mwh",
+            "net_generation_mwh",
+        ],
+    )
+    storage_dispatch = storage_dispatch[
+        storage_dispatch["prime_mover_code"].isin(ENERGY_STORAGE_PRIME_MOVERS)
+    ].copy()
+
+    # identify how the charging of each resource is reported
+    reported_in_mwh = storage_dispatch["fuel_units"] == "mwh"
+    supplemented_with_fuel = (
+        storage_dispatch["prime_mover_code"].isin(HYBRID_STORAGE_PRIME_MOVERS)
+        & ~reported_in_mwh
+    )
+    unexpected_units = storage_dispatch[~reported_in_mwh & ~supplemented_with_fuel]
+    if len(unexpected_units) > 0:
+        logger.warning(
+            "The following energy storage data is not reported in MWh, so charging and "
+            "discharging data will not be included for these resources:\n"
+            + validation.limit_error_output_df(unexpected_units).to_string()
+        )
+    storage_dispatch = storage_dispatch[reported_in_mwh | supplemented_with_fuel]
+    supplemented_with_fuel = supplemented_with_fuel[storage_dispatch.index]
+
+    storage_dispatch["storage_discharge_mwh"] = storage_dispatch["gross_generation_mwh"]
+    storage_dispatch["storage_charge_mwh"] = storage_dispatch[
+        "fuel_consumed_for_electricity_units"
+    ].where(
+        ~supplemented_with_fuel,
+        storage_dispatch["gross_generation_mwh"]
+        - storage_dispatch["net_generation_mwh"],
+    )
+
+    # fill months that report zero discharge if doing so makes the month consistent
+    # and all other months for that resource are consistent
+    is_inconsistent = identify_inconsistent_net_generation(storage_dispatch)
+    is_fillable = (
+        is_inconsistent
+        & (storage_dispatch["storage_discharge_mwh"] == 0)
+        & (
+            storage_dispatch["net_generation_mwh"]
+            + storage_dispatch["storage_charge_mwh"]
+            > 0
+        )
+    )
+    resource_keys = [
+        storage_dispatch[column]
+        for column in ["plant_id_eia", "prime_mover_code", "energy_source_code"]
+    ]
+    inconsistent_months = is_inconsistent.groupby(
+        resource_keys, dropna=False
+    ).transform("sum")
+    fillable_months = is_fillable.groupby(resource_keys, dropna=False).transform("sum")
+    storage_dispatch["discharge_filled"] = is_fillable & (
+        inconsistent_months == fillable_months
+    )
+    storage_dispatch.loc[
+        storage_dispatch["discharge_filled"], "storage_discharge_mwh"
+    ] = storage_dispatch["net_generation_mwh"] + storage_dispatch["storage_charge_mwh"]
+
+    return storage_dispatch[
+        [
+            "plant_id_eia",
+            "report_date",
+            "prime_mover_code",
+            "energy_source_code",
+            "net_generation_mwh",
+            "discharge_filled",
+        ]
+        + STORAGE_DATA_COLUMNS
+    ].reset_index(drop=True)
+
+
+def identify_inconsistent_net_generation(storage_dispatch: pd.DataFrame) -> pd.Series:
+    """Identifies records where net generation does not equal discharge minus charge.
+
+    Args:
+        storage_dispatch (pd.DataFrame): table with `net_generation_mwh` and
+            `STORAGE_DATA_COLUMNS`.
+
+    Returns:
+        pd.Series: boolean series that is True where the net generation differs from the
+            discharge minus the charge by more than 1 MWh, or where any of these values
+            are missing.
+    """
+    is_consistent = np.isclose(
+        storage_dispatch["storage_discharge_mwh"]
+        - storage_dispatch["storage_charge_mwh"],
+        storage_dispatch["net_generation_mwh"],
+        rtol=0,
+        atol=1.0,
+    )
+    return pd.Series(~is_consistent, index=storage_dispatch.index)
+
+
+def identify_pumped_storage_with_inflow(storage_dispatch: pd.DataFrame) -> list[int]:
+    """Identifies pumped storage plants that also generate electricity from inflow.
+
+    Pumped storage that only discharges energy that it previously pumped will always
+    discharge less energy than it charges, due to round-trip efficiency losses. Pumped
+    storage plants that discharge at least as much energy as they charge over the year
+    (and discharge some energy) are therefore assumed to also generate electricity from
+    natural inflow to the upper reservoir.
+
+    Args:
+        storage_dispatch (pd.DataFrame): monthly charging and discharging data, from
+            `load_energy_storage_dispatch()`.
+
+    Returns:
+        list[int]: the `plant_id_eia` of pumped storage plants with natural inflow.
+    """
+    annual_pumped_storage = (
+        storage_dispatch[storage_dispatch["prime_mover_code"] == "PS"]
+        .groupby("plant_id_eia", dropna=False)[STORAGE_DATA_COLUMNS]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    return annual_pumped_storage.loc[
+        (
+            annual_pumped_storage["storage_discharge_mwh"]
+            >= annual_pumped_storage["storage_charge_mwh"]
+        )
+        & (annual_pumped_storage["storage_discharge_mwh"] > 0),
+        "plant_id_eia",
+    ].tolist()
+
+
+def log_energy_storage_data_quality(storage_dispatch: pd.DataFrame) -> None:
+    """Logs data quality issues in the monthly energy storage data.
+
+    Args:
+        storage_dispatch (pd.DataFrame): monthly charging and discharging data, from
+            `load_energy_storage_dispatch()`.
+    """
+    resource_keys = ["plant_id_eia", "prime_mover_code", "energy_source_code"]
+
+    filled_months = storage_dispatch[storage_dispatch["discharge_filled"]]
+    if len(filled_months) > 0:
+        logger.info(
+            "Filled missing energy storage discharge using net generation plus charge "
+            "for the following months:\n"
+            + validation.limit_error_output_df(filled_months).to_string()
+        )
+
+    inconsistent_months = storage_dispatch[
+        identify_inconsistent_net_generation(storage_dispatch)
+    ]
+    if len(inconsistent_months) > 0:
+        inconsistent_summary = (
+            inconsistent_months.assign(
+                difference_mwh=lambda df: (
+                    df["storage_discharge_mwh"]
+                    - df["storage_charge_mwh"]
+                    - df["net_generation_mwh"]
+                )
+            )
+            .groupby(resource_keys, dropna=False)
+            .agg(
+                inconsistent_months=("report_date", "count"),
+                difference_mwh=("difference_mwh", "sum"),
+            )
+            .reset_index()
+        )
+        logger.warning(
+            "Net generation does not equal energy storage discharge minus charge for "
+            "the following resources:\n"
+            + validation.limit_error_output_df(inconsistent_summary).to_string()
+        )
+
+    annual_dispatch = (
+        storage_dispatch.groupby(resource_keys, dropna=False)[STORAGE_DATA_COLUMNS]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    pumped_storage_with_inflow = annual_dispatch[
+        annual_dispatch["plant_id_eia"].isin(
+            identify_pumped_storage_with_inflow(storage_dispatch)
+        )
+        & (annual_dispatch["prime_mover_code"] == "PS")
+    ]
+    if len(pumped_storage_with_inflow) > 0:
+        logger.info(
+            "The following pumped storage plants discharge at least as much energy as "
+            "they charge, so are assumed to generate electricity from natural inflow. "
+            "Their discharge data will be left blank:\n"
+            + validation.limit_error_output_df(pumped_storage_with_inflow).to_string()
+        )
+    discharge_exceeds_charge = annual_dispatch[
+        (annual_dispatch["prime_mover_code"] != "PS")
+        & (
+            annual_dispatch["storage_discharge_mwh"]
+            > annual_dispatch["storage_charge_mwh"]
+        )
+    ]
+    if len(discharge_exceeds_charge) > 0:
+        logger.warning(
+            "The following energy storage resources report more annual discharge than "
+            "charge:\n"
+            + validation.limit_error_output_df(discharge_exceeds_charge).to_string()
+        )
+
+
+def allocate_energy_storage_dispatch_to_subplants(
+    storage_dispatch: pd.DataFrame, primary_fuel_table: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Allocates plant-level energy storage charging and discharging to subplants.
+
+    The charging and discharging reported for each plant and prime mover is allocated
+    to each storage generator with that prime mover at the plant based on its share of
+    nameplate capacity. Generator-level data is not reported for energy storage in
+    EIA-923, so this matches how net generation is allocated to these generators. If
+    the generators at a plant do not report any nameplate capacity, the data is
+    allocated equally.
+
+    Args:
+        storage_dispatch (pd.DataFrame): monthly charging and discharging data, from
+            `load_energy_storage_dispatch()`.
+        primary_fuel_table (pd.DataFrame): table of primary fuels by generator, used to
+            identify the generators and subplant of each plant.
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: table with one row per storage subplant-month, with
+            `plant_id_eia`, `subplant_id`, `report_date`, and `STORAGE_DATA_COLUMNS`.
+    """
+    # identify the storage generators at each plant, and their share of capacity
+    storage_generators = (
+        primary_fuel_table[["plant_id_eia", "subplant_id", "generator_id"]]
+        .dropna(subset="generator_id")
+        .drop_duplicates()
+        .merge(
+            load_data.load_pudl_table(
+                "core_eia860__scd_generators",
+                year=year,
+                columns=[
+                    "plant_id_eia",
+                    "generator_id",
+                    "prime_mover_code",
+                    "capacity_mw",
+                ],
+            ),
+            how="left",
+            on=["plant_id_eia", "generator_id"],
+            validate="m:1",
+        )
+    )
+    storage_generators = storage_generators[
+        storage_generators["prime_mover_code"].isin(ENERGY_STORAGE_PRIME_MOVERS)
+    ].copy()
+    storage_generators["capacity_mw"] = storage_generators["capacity_mw"].fillna(0)
+    plant_capacity = storage_generators.groupby(
+        ["plant_id_eia", "prime_mover_code"], dropna=False
+    )["capacity_mw"].transform("sum")
+    generators_at_plant = storage_generators.groupby(
+        ["plant_id_eia", "prime_mover_code"], dropna=False
+    )["generator_id"].transform("count")
+    storage_generators["allocation_share"] = np.where(
+        plant_capacity > 0,
+        storage_generators["capacity_mw"] / plant_capacity,
+        1 / generators_at_plant,
+    )
+
+    # allocate the data to each generator. A plant and prime mover can have multiple
+    # generators, and can report data for multiple energy source codes
+    allocated_dispatch = storage_dispatch.merge(
+        storage_generators[
+            [
+                "plant_id_eia",
+                "subplant_id",
+                "generator_id",
+                "prime_mover_code",
+                "allocation_share",
+            ]
+        ],
+        how="left",
+        on=["plant_id_eia", "prime_mover_code"],
+        validate="m:m",
+    )
+    # warn about any non-zero data that could not be allocated to a generator
+    unallocated_dispatch = (
+        allocated_dispatch[allocated_dispatch["generator_id"].isna()]
+        .groupby(["plant_id_eia", "prime_mover_code"], dropna=False)[
+            STORAGE_DATA_COLUMNS
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    unallocated_dispatch = unallocated_dispatch[
+        (unallocated_dispatch[STORAGE_DATA_COLUMNS].fillna(0) != 0).any(axis=1)
+    ]
+    if len(unallocated_dispatch) > 0:
+        logger.warning(
+            "Energy storage data for the following plants could not be allocated to a "
+            "storage generator, and will not be included in the results:\n"
+            + validation.limit_error_output_df(unallocated_dispatch).to_string()
+        )
+    allocated_dispatch = allocated_dispatch.dropna(subset="generator_id")
+    for column in STORAGE_DATA_COLUMNS:
+        allocated_dispatch[column] = (
+            allocated_dispatch[column] * allocated_dispatch["allocation_share"]
+        )
+
+    # aggregate the data to each subplant
+    monthly_storage_data = (
+        allocated_dispatch.groupby(
+            ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+        )[STORAGE_DATA_COLUMNS]
+        .sum(min_count=1)
+        .round(1)
+        .reset_index()
+    )
+
+    return monthly_storage_data
+
+
+def add_monthly_energy_storage_data(
+    monthly_subplant_data: pd.DataFrame, monthly_storage_data: pd.DataFrame
+) -> pd.DataFrame:
+    """Adds monthly energy storage charging and discharging data to subplant data.
+
+    Storage data for a subplant-month that is not in `monthly_subplant_data` is added
+    as a new row if the subplant is in `monthly_subplant_data` for other months. This
+    can happen when there is no other data for the subplant in that month (for example,
+    when CEMS data for the month is removed because it is all zero). The other data
+    columns for these rows are left blank. Storage data for subplants that are not in
+    `monthly_subplant_data` at all is not added.
+
+    Args:
+        monthly_subplant_data (pd.DataFrame): combined monthly data for all subplants,
+            with one row per subplant-month.
+        monthly_storage_data (pd.DataFrame): monthly energy storage charging and
+            discharging data, from `create_monthly_energy_storage_data()`.
+
+    Returns:
+        pd.DataFrame: `monthly_subplant_data` with `STORAGE_DATA_COLUMNS` added. These
+            columns are blank for subplants that are not energy storage.
+    """
+    subplant_month_keys = ["plant_id_eia", "subplant_id", "report_date"]
+
+    # identify storage data for subplant-months that are not in the subplant data
+    monthly_storage_data = monthly_storage_data.merge(
+        monthly_subplant_data[subplant_month_keys],
+        how="left",
+        on=subplant_month_keys,
+        validate="1:1",
+        indicator="subplant_month_in_data",
+    )
+    missing_months = monthly_storage_data[
+        monthly_storage_data["subplant_month_in_data"] == "left_only"
+    ].merge(
+        monthly_subplant_data[["plant_id_eia", "subplant_id"]].drop_duplicates(),
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+        indicator="subplant_in_data",
+    )
+
+    # add storage data for missing months of subplants that are in the subplant data
+    rows_to_add = missing_months.loc[
+        missing_months["subplant_in_data"] == "both",
+        subplant_month_keys + STORAGE_DATA_COLUMNS,
+    ]
+    if len(rows_to_add) > 0:
+        logger.info(
+            f"Adding {len(rows_to_add)} subplant-months that only contain energy "
+            "storage data to the subplant data"
+        )
+
+    # warn about any non-zero storage data for subplants that are not in the data
+    unmatched_storage_data = (
+        missing_months[missing_months["subplant_in_data"] == "left_only"]
+        .groupby(["plant_id_eia", "subplant_id"], dropna=False)[STORAGE_DATA_COLUMNS]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    unmatched_storage_data = unmatched_storage_data[
+        (unmatched_storage_data[STORAGE_DATA_COLUMNS].fillna(0) != 0).any(axis=1)
+    ]
+    if len(unmatched_storage_data) > 0:
+        logger.warning(
+            "Energy storage data for the following subplants could not be matched to "
+            "subplant data, and will not be included in the results:\n"
+            + validation.limit_error_output_df(unmatched_storage_data).to_string()
+        )
+
+    monthly_subplant_data = monthly_subplant_data.merge(
+        monthly_storage_data[subplant_month_keys + STORAGE_DATA_COLUMNS],
+        how="left",
+        on=subplant_month_keys,
+        validate="1:1",
+    )
+    monthly_subplant_data = pd.concat(
+        [monthly_subplant_data, rows_to_add], axis=0, ignore_index=True
+    )
+
+    return monthly_subplant_data
