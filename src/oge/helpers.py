@@ -12,6 +12,7 @@ from oge.constants import (
     earliest_data_year,
     latest_validated_year,
     current_early_release_year,
+    ENERGY_STORAGE_PRIME_MOVERS,
 )
 from oge.filepaths import reference_table_folder, outputs_folder, results_folder
 
@@ -120,6 +121,18 @@ def create_plant_attributes_table(
         }
     )
 
+    # add the plant primary prime mover so that storage plants can be identified when
+    # assigning fuel categories. Rows from the manual primary fuel table do not have a
+    # prime mover, so drop missing values before merging
+    plant_attributes = plant_attributes.merge(
+        primary_fuel_table.copy()[["plant_id_eia", "plant_primary_prime_mover_code"]]
+        .dropna(subset="plant_primary_prime_mover_code")
+        .drop_duplicates(),
+        how="left",
+        on="plant_id_eia",
+        validate="1:1",
+    )
+
     # assign a BA code to each plant
     plant_attributes = assign_ba_code_to_plant(plant_attributes, year)
 
@@ -133,6 +146,7 @@ def create_plant_attributes_table(
     plant_attributes = assign_fuel_category_to_esc(
         df=plant_attributes,
         esc_column="plant_primary_fuel",
+        pm_column="plant_primary_prime_mover_code",
     )
 
     # add geographical info
@@ -215,8 +229,12 @@ def assign_fleet_to_subplant_data(
     other_attribute_cols: list[str] = [],
     drop_primary_fuel_col: bool = True,
 ) -> pd.DataFrame:
-    """Assigns a BA code and fuel category to each subplant in order to facilitate
-    aggregating the data to the fleet level.
+    """Assigns a BA code and fuel category to each subplant.
+
+    This facilitates aggregating the data to the fleet level. The fuel category is
+    assigned based on the subplant primary fuel specified by `primary_fuel_col`, and
+    subplants with a storage `subplant_primary_prime_mover_code` are assigned a
+    "storage" fuel category when `fuel_category_col` is "fuel_category".
 
     When assigning a primary fuel/fuel category, the general options we should follow
     are:
@@ -250,9 +268,10 @@ def assign_fleet_to_subplant_data(
             Defaults to "fuel_category".
         other_attribute_cols (list[str], optional): a list of additional columns from
             plant_attributes_table to add to subplant_data. Defaults to [].
-        drop_primary_fuel_col (bool): Whether to drop the ESC-level primary_fuel_col
-            before returning the table. Can be set to False for use of this function
-            in output_data.identify_percent_of_data_by_input_source() Defaults to True.
+        drop_primary_fuel_col (bool, optional): Whether to drop the ESC-level
+            primary_fuel_col and the subplant_primary_prime_mover_code column before
+            returning the table. Can be set to False for use of this function in
+            output_data.identify_percent_of_data_by_input_source(). Defaults to True.
 
     Raises:
         UserWarning: If a BA code or fuel type cannot be assigned to a subplant
@@ -260,10 +279,15 @@ def assign_fleet_to_subplant_data(
     Returns:
         pd.DataFrame: subplant_data with ba_code and fuel_category columns added
     """
-
-    # check to make sure the ba_col and primary_fuel_col are not already in the dataframe
-    # if so, drop them before merging
-    cols_to_add = [ba_col, primary_fuel_col] + other_attribute_cols
+    # check to make sure none of the columns added by this function are already in the
+    # dataframe. If so, drop them before merging to avoid creating duplicate columns
+    cols_to_add = [
+        ba_col,
+        "ba_code",
+        primary_fuel_col,
+        "subplant_primary_prime_mover_code",
+        fuel_category_col,
+    ] + other_attribute_cols
     fleet_cols_already_in_subplant_data = [
         col for col in subplant_data.columns if col in cols_to_add
     ]
@@ -290,16 +314,24 @@ def assign_fleet_to_subplant_data(
         primary_fuel_table[default_col]
     )
     subplant_primary_fuel = primary_fuel_table[
-        ["plant_id_eia", "subplant_id", primary_fuel_col]
+        [
+            "plant_id_eia",
+            "subplant_id",
+            primary_fuel_col,
+            "subplant_primary_prime_mover_code",
+        ]
     ].drop_duplicates()
 
     subplant_primary_fuel = assign_fuel_category_to_esc(
         subplant_primary_fuel,
         fuel_category_names=[fuel_category_col],
         esc_column=primary_fuel_col,
+        pm_column="subplant_primary_prime_mover_code",
     )
     if drop_primary_fuel_col:
-        subplant_primary_fuel = subplant_primary_fuel.drop(columns=[primary_fuel_col])
+        subplant_primary_fuel = subplant_primary_fuel.drop(
+            columns=[primary_fuel_col, "subplant_primary_prime_mover_code"]
+        )
     # merge in the fuel data
     subplant_data = subplant_data.merge(
         subplant_primary_fuel,
@@ -932,20 +964,29 @@ def assign_fuel_category_to_esc(
     df: pd.DataFrame,
     fuel_category_names: list = ["fuel_category", "fuel_category_eia930"],
     esc_column: str = "energy_source_code",
+    pm_column: str = "prime_mover_code",
 ) -> pd.DataFrame:
     """Assigns a fuel category to each energy source code in a dataframe.
 
+    Not all energy storage resources have a MWH energy source code, so this function
+    also uses `prime_mover_code` to identify storage resources. A warning is logged for
+    any resources that are missing a prime mover code, since these cannot be checked for
+    the storage fuel category.
+
     Args:
-        df (pd.DataFrame): table with column name that matches `fuel_category_names`
-            and 'energy_source_codes
+        df (pd.DataFrame): table containing the `esc_column` column, and optionally
+            the `pm_column` column.
         fuel_category_names (list, optional): columns in
             reference_tables/energy_source_groups.csv that contains the desired
             category mapping. Defaults to ["fuel_category", "fuel_category_eia930"].
         esc_column (str, optional): name of the column in `df` that contains the energy
             source codes to assign a category to. Defaults to "energy_source_code".
+        pm_column (str, optional): name of the column in `df` that contains the prime
+            mover codes used to identify storage resources. Defaults to
+            "prime_mover_code".
 
     Returns:
-        pd.DataFrame: original data frame with additional 'fuel_category_names'
+        pd.DataFrame: original data frame with additional `fuel_category_names`
             column(s).
     """
     # load the fuel category table
@@ -962,6 +1003,55 @@ def assign_fuel_category_to_esc(
         on=esc_column,
         validate="m:1",
     )
+
+    # the storage fuel category only applies to the main fuel_category column, and can
+    # only be assigned if prime mover data is available
+    if "fuel_category" in fuel_category_names:
+        if pm_column in df.columns:
+            df.loc[df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS), "fuel_category"] = (
+                "storage"
+            )
+
+            id_cols = [
+                id
+                for id in [
+                    "plant_id_eia",
+                    "generator_id",
+                    "subplant_id",
+                    "emissions_unit_id_epa",
+                ]
+                if id in df.columns
+            ]
+
+            # Warn if there are any resources missing a prime mover code, since these
+            # cannot be identified as storage unless they have a MWH energy source code
+            missing_pm_resources = df.loc[
+                df[pm_column].isna(), id_cols + [esc_column]
+            ].drop_duplicates()
+            if len(missing_pm_resources) > 0:
+                logger.warning(
+                    f"{len(missing_pm_resources)} resources are missing a prime mover "
+                    f"code in '{pm_column}' and could not be checked for the storage "
+                    "fuel category. The first 50 of these resources are:\n"
+                    f"{missing_pm_resources.head(50).to_string()}"
+                )
+
+            # Warn if there are any storage resources with non-MWH energy source codes
+            non_mwh_storage_resources = df.loc[
+                (df["fuel_category"] == "storage") & (df[esc_column] != "MWH"),
+                id_cols + [esc_column, pm_column],
+            ].drop_duplicates()
+            if len(non_mwh_storage_resources) > 0:
+                logger.warning(
+                    "Assigned storage fuel category to resources with non-MWH energy "
+                    "source codes. These resources are:\n"
+                    f"{non_mwh_storage_resources.to_string()}"
+                )
+        else:
+            logger.warning(
+                f"No prime mover code column '{pm_column}' provided to complete storage "
+                "fuel category assignment"
+            )
 
     return df
 
@@ -1281,8 +1371,18 @@ def test_for_missing_subplant_id(df, plant_part):
     return missing_subplant_test
 
 
-def calculate_subplant_nameplate_capacity(year):
-    """Calculates the total nameplate capacity and primary prime mover for each CEMS subplant."""
+def calculate_subplant_nameplate_capacity(year: int) -> pd.DataFrame:
+    """Calculates the total nameplate capacity of each subplant.
+
+    The primary prime mover of each subplant is available in the
+    `subplant_primary_prime_mover_code` column of the primary fuel table.
+
+    Args:
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: table with the total `capacity_mw` of each subplant.
+    """
     # load generator data
     gen_capacity = load_data.load_pudl_table(
         "core_eia860__scd_generators",
@@ -1290,7 +1390,6 @@ def calculate_subplant_nameplate_capacity(year):
         columns=[
             "plant_id_eia",
             "generator_id",
-            "prime_mover_code",
             "capacity_mw",
             "operational_status_code",
         ],
@@ -1309,24 +1408,6 @@ def calculate_subplant_nameplate_capacity(year):
         gen_capacity.groupby(["plant_id_eia", "subplant_id"])["capacity_mw"]
         .sum()
         .reset_index()
-    )
-
-    # identify the primary prime mover for each subplant based on capacity
-    subplant_prime_mover = gen_capacity[
-        gen_capacity.groupby(["plant_id_eia", "subplant_id"], dropna=False)[
-            "capacity_mw"
-        ].transform("max")
-        == gen_capacity["capacity_mw"]
-    ][["plant_id_eia", "subplant_id", "prime_mover_code"]].drop_duplicates(
-        subset=["plant_id_eia", "subplant_id"], keep="first"
-    )
-
-    # add the prime mover information
-    subplant_capacity = subplant_capacity.merge(
-        subplant_prime_mover,
-        how="left",
-        on=["plant_id_eia", "subplant_id"],
-        validate="1:1",
     )
 
     return subplant_capacity
