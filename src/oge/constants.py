@@ -36,7 +36,7 @@ BIOMASS_FUELS = [
     "OBL",  # Other Biomass Liquid
     "OBS",  # Other Biomass Solid
     "SLW",  # Sludge Waste
-    "WDL",  # Wood DerivedLiquids
+    "WDL",  # Wood Derived Liquids
     "WDS",  # Wood Derived Solids
 ]
 
