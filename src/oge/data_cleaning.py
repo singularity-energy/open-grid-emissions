@@ -786,9 +786,10 @@ def add_generators_for_missing_cems_subplants(
     generation before coming online). To ensure that every CEMS subplant can be assigned
     a primary fuel and prime mover, this function identifies the subplants of units that
     report to CEMS in `year` that do not have any generators in `gen_fuel_allocated`,
-    and adds a row for each generator in those subplants. The energy source code of each
-    added generator is the `energy_source_code_1` from the most recent EIA-860 data
-    available from `year` and the four years prior.
+    and adds a row for each generator in those subplants, including generators that are
+    not linked to a CEMS unit (such as the steam turbine of a combined cycle unit). The
+    energy source code of each added generator is the `energy_source_code_1` from the
+    most recent EIA-860 data available from `year` and the four years prior.
 
     Generators are only added for subplants that are entirely missing from
     `gen_fuel_allocated`, so that the primary fuel and prime mover of subplants that
@@ -807,7 +808,12 @@ def add_generators_for_missing_cems_subplants(
     # load the units that report to CEMS in the data year and map them to subplants.
     # Non-grid-connected plants are removed from CEMS in clean_cems(), so remove them
     # here as well
-    cems_ids = load_data.load_cems_ids(year).drop_duplicates()
+    cems_ids = remove_plants(
+        load_data.load_cems_ids(year).drop_duplicates(),
+        year,
+        non_grid_connected=True,
+        remove_states=["PR"],
+    )
     subplant_crosswalk = pd.read_csv(
         outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip"),
         dtype=get_dtypes(),
@@ -829,13 +835,30 @@ def add_generators_for_missing_cems_subplants(
         validate="m:1",
         indicator="subplant_in_eia",
     )
-    missing_generators = cems_generators[
+    missing_units = cems_generators[
         cems_generators["subplant_in_eia"] == "left_only"
     ].drop(columns="subplant_in_eia")
 
-    # CEMS units that are not mapped to an EIA generator cannot be added here. Some of
-    # these are manually assigned a primary fuel in create_primary_fuel_table(), so only
-    # warn about units that are not in the manual table
+    # identify every generator in each missing subplant, including generators that are
+    # not linked to a CEMS unit (e.g. the steam turbine of a combined cycle unit), so
+    # that the primary fuel and prime mover are based on the complete subplant
+    missing_generators = (
+        missing_units[["plant_id_eia", "subplant_id"]]
+        .dropna(subset="subplant_id")
+        .drop_duplicates()
+        .merge(
+            subplant_crosswalk[["plant_id_eia", "subplant_id", "generator_id"]]
+            .dropna(subset="generator_id")
+            .drop_duplicates(),
+            how="inner",
+            on=["plant_id_eia", "subplant_id"],
+            validate="1:m",
+        )
+    )
+
+    # CEMS units in subplants that do not contain any EIA generators cannot be added
+    # here. Some of these are manually assigned a primary fuel in
+    # create_primary_fuel_table(), so only log units that are not in the manual table
     primary_fuel_manual = pd.read_csv(
         reference_table_folder("temporary_primary_fuel_manual.csv"),
         dtype=get_dtypes(),
@@ -843,15 +866,28 @@ def add_generators_for_missing_cems_subplants(
     primary_fuel_manual = primary_fuel_manual.loc[
         primary_fuel_manual["year"] == year, ["plant_id_eia", "subplant_id"]
     ].drop_duplicates()
-    units_without_generators = missing_generators.loc[
-        missing_generators["generator_id"].isna(),
+    units_without_generators = missing_units.loc[
+        missing_units["generator_id"].isna(),
         ["plant_id_eia", "emissions_unit_id_epa", "subplant_id"],
     ].merge(
-        primary_fuel_manual,
+        missing_generators[["plant_id_eia", "subplant_id"]].drop_duplicates(),
         how="left",
         on=["plant_id_eia", "subplant_id"],
         validate="m:1",
-        indicator="in_manual_table",
+        indicator="subplant_has_generators",
+    )
+    units_without_generators = (
+        units_without_generators[
+            units_without_generators["subplant_has_generators"] == "left_only"
+        ]
+        .drop(columns="subplant_has_generators")
+        .merge(
+            primary_fuel_manual,
+            how="left",
+            on=["plant_id_eia", "subplant_id"],
+            validate="m:1",
+            indicator="in_manual_table",
+        )
     )
     units_without_generators = units_without_generators[
         units_without_generators["in_manual_table"] == "left_only"
@@ -867,9 +903,6 @@ def add_generators_for_missing_cems_subplants(
             f"{units_without_generators.to_string()}"
         )
 
-    missing_generators = missing_generators.dropna(subset="generator_id")[
-        ["plant_id_eia", "subplant_id", "generator_id"]
-    ].drop_duplicates()
     if len(missing_generators) == 0:
         return gen_fuel_allocated
 
