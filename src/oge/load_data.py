@@ -120,25 +120,35 @@ def load_cems_data(year: int) -> pd.DataFrame:
     return cems
 
 
-def load_cems_ids() -> pd.DataFrame:
+def load_cems_ids(year: int | None = None) -> pd.DataFrame:
     """Loads a dataframe of all unique plant_id_eia, emissions_unit_id_epa combinations
     that exist from `constants.earliest_data_year` to `constants.latest_validated_year`.
     This is used in the process of creating subplant_ids to ensure complete coverage.
 
+    If optionally run with a single year, only the cems ids for that year are loaded.
+
+    Args:
+        year (int, optional): the year to load the cems ids for. If None, the cems ids
+            for all years from `constants.earliest_data_year` to
+            `constants.latest_validated_year` are loaded.
+
     Returns:
         pd.DataFrame: a two column table relating plant_id_eia to emissions_unit_id_epa.
     """
+    if year is None:
+        min_year = earliest_data_year
+        max_year = max(latest_validated_year, current_early_release_year)
+    else:
+        min_year = year
+        max_year = year
     # although we could directly load all years at once from the cems parquet file,
     # this would lead to a memoryerror, so we load one year at a time and drop
     # duplicates before concatenating the next year to the dataframe
     cems_ids = []
-    # The `constants.earliest_data_year` is 2005
-    for year in range(
-        earliest_data_year, max(latest_validated_year, current_early_release_year) + 1
-    ):
+    for year_for_id in range(min_year, max_year + 1):
         cems_id_year = pd.read_parquet(
             pudl_folder("core_epacems__hourly_emissions.parquet"),
-            filters=[["year", "==", year]],
+            filters=[["year", "==", year_for_id]],
             columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
         ).drop_duplicates()
         cems_id_year = apply_dtypes(cems_id_year)
@@ -147,7 +157,7 @@ def load_cems_ids() -> pd.DataFrame:
             "emissions_unit_id_epa"
         ].str.lstrip("0")
         # update the plant_id_eia column using manual matches
-        cems_id_year = update_epa_to_eia_map(cems_id_year, year)
+        cems_id_year = update_epa_to_eia_map(cems_id_year, year_for_id)
         cems_ids.append(cems_id_year)
         # only keep new ids for the given year
         cems_ids = [pd.concat(cems_ids, axis=0).drop_duplicates()]

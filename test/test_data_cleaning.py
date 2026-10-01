@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -135,3 +136,60 @@ def test_filter_to_ba_local_year_drops_union_of_timezones():
     # the eastern-only edge hour is dropped, but every hour on soco's own local
     # year keeps its real (summed) value, including the eastern plant's overlap
     assert (result["net_generation_mwh"] > 0).all()
+
+
+def test_add_generators_for_missing_cems_subplants_adds_all_subplant_generators():
+    # subplant 1 reports to CEMS through unit GT1, which is linked to generators CT1
+    # and CT2, but steam turbine ST1 in the same subplant is not linked to a CEMS unit
+    subplant_crosswalk = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1],
+            "emissions_unit_id_epa": ["GT1", "GT1", np.nan],
+            "generator_id": ["CT1", "CT2", "ST1"],
+            "subplant_id": [1, 1, 1],
+        }
+    )
+    primary_fuel_manual = pd.DataFrame(
+        columns=["plant_id_eia", "subplant_id", "year", "notes"]
+    )
+    cems_ids = pd.DataFrame({"plant_id_eia": [1], "emissions_unit_id_epa": ["GT1"]})
+    generators = pd.DataFrame(
+        {
+            "report_date": pd.to_datetime(["2024-01-01"] * 3),
+            "plant_id_eia": [1, 1, 1],
+            "generator_id": ["CT1", "CT2", "ST1"],
+            "energy_source_code_1": ["NG", "NG", "NG"],
+        }
+    )
+    # the subplant does not have any generators in the EIA-923 data
+    gen_fuel_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [2],
+            "subplant_id": [1],
+            "generator_id": ["A"],
+            "energy_source_code": ["SUN"],
+        }
+    )
+
+    def read_csv(path, *args, **kwargs):
+        if "subplant_crosswalk" in str(path):
+            return subplant_crosswalk
+        return primary_fuel_manual
+
+    with (
+        patch.object(data_cleaning.pd, "read_csv", side_effect=read_csv),
+        patch.object(
+            data_cleaning, "remove_plants", side_effect=lambda df, *a, **k: df
+        ),
+        patch.object(data_cleaning.load_data, "load_cems_ids", return_value=cems_ids),
+        patch.object(
+            data_cleaning.load_data, "load_pudl_table", return_value=generators
+        ),
+    ):
+        result = data_cleaning.add_generators_for_missing_cems_subplants(
+            gen_fuel_allocated, 2024
+        )
+
+    added = result[result["plant_id_eia"] == 1]
+    assert sorted(added["generator_id"]) == ["CT1", "CT2", "ST1"]
+    assert (added["subplant_id"] == 1).all()
