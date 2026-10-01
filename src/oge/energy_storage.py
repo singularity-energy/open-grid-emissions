@@ -315,7 +315,8 @@ def assign_storage_category_to_generators(
     2. "dc_coupled_tightly" (hybrid): the storage is reported as tightly DC-coupled.
     3. "same_plant" (co_located): the plant has an operating non-storage generator.
     4. "direct_support_other_plant" (co_located): the storage is reported as directly
-       supporting a generator at a different plant.
+       supporting a generator at a different plant that has an operating non-storage
+       generator.
     5. "same_location" (co_located): a different plant with an operating non-storage
        generator has exactly the same latitude and longitude.
     6. "eia860_flag" (co_located): the storage is reported as directly supporting
@@ -362,7 +363,10 @@ def assign_storage_category_to_generators(
     # identify the plants other than its own that each storage generator directly
     # supports. Only consider the supported plants if the storage is reported as
     # providing direct support, since some generators report a supported plant without
-    # doing so
+    # doing so. Only plants with operating non-storage generators are considered, since
+    # some generators report supporting a proposed, retired, or storage-only plant
+    non_storage_plant_ids = {int(plant) for plant in non_storage_plants}
+
     def get_directly_supported_plants(generator: dict) -> list[int]:
         if not generator["is_direct_support"]:
             return []
@@ -372,6 +376,7 @@ def assign_storage_category_to_generators(
                 for column in DIRECT_SUPPORT_PLANT_COLUMNS
                 if pd.notna(generator[column])
                 and generator[column] != generator["plant_id_eia"]
+                and int(generator[column]) in non_storage_plant_ids
             }
         )
 

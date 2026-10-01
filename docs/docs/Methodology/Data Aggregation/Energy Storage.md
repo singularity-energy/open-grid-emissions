@@ -16,7 +16,7 @@ ES | Energy storage, other
 FW | Flywheel energy storage
 PS | Pumped storage hydroelectric
 
-Storage resources are defined specifically as resources that use electrical energy as an input (either from the grid or a specific generator). This means that (concentrated) solar thermal generators with integrated storage (prime mover `CP`) are not classified as energy storage since they directly store solar thermal energy prior to any electricity generation occuring. 
+Storage resources are defined specifically as resources that use electrical energy as an input (either from the grid or a specific generator). This means that (concentrated) solar thermal generators with integrated storage (prime mover `CP`) are not classified as energy storage since they directly store solar thermal energy prior to any electricity generation occurring. 
 
 ## Storage Categories
 
@@ -26,7 +26,7 @@ Storage category | Description
 ---------|---------
 `standalone` | The storage resource is an independent plant and charges from the grid.
 `co_located` | A storage resource located at the same plant as one or more generators. The storage may charge from the co-located generator and/or the grid.
-`hybrid` | The storage is an integral part of a generator is treated like a single resource.
+`hybrid` | The storage is an integral part of a generator and is treated like a single resource.
 
 ## Assigning a Storage Category to Each Storage Generator
 
@@ -37,7 +37,7 @@ Each storage generator is assigned the storage category of the first of the foll
 1 | `hybrid_prime_mover` | `hybrid` | The generator's prime mover is `CE` (compressed air), and it reports an energy source other than `MWH`. This indicates that the storage is integrated into a generator that uses another energy source, such as compressed air storage that burns natural gas when discharging. This rule was designed to reflect the McIntosh CAES generator in Alabama.
 2 | `dc_coupled_tightly` | `hybrid` | The storage is reported as tightly DC-coupled in the EIA-860 Energy Storage file, indicating that it cannot charge from the grid.
 3 | `same_plant` | `co_located` | The storage resource shares a `plant_id_eia` with at least one non-storage generator.
-4 | `direct_support_other_plant` | `co_located` | The storage is reported as directly supporting a generator in the EIA-860 Energy Storage file, and the supported generator has a different `plant_id_eia`.
+4 | `direct_support_other_plant` | `co_located` | The storage is reported as directly supporting a generator in the EIA-860 Energy Storage file, and the supported generator is at a different `plant_id_eia` with at least one operating non-storage generator.
 5 | `same_location` | `co_located` | The storage resource has exactly the same latitude and longitude as a non-storage generator.
 6 | `eia860_flag` | `co_located` | The EIA-860 Energy storage file reports that the resource directly supports another generator, or is being used to firm co-located renewable generation.
 7 | `is_independent` | `standalone` | The storage is reported as independent in the EIA-860 Energy Storage file.
@@ -57,7 +57,7 @@ Each subplant that contains at least one storage generator is assigned a `subpla
 
 When storage is co-located with a generator at a different plant (identified by rule 4 or rule 5), the `plant_id_eia` of the other plant is recorded for the storage subplant in `co_located_plant_ids`. If the storage is co-located with more than one other plant, the IDs are listed as a comma-separated string. This column is blank for all other subplants, including storage that is co-located with a generator at its own plant.
 
-## Energy storage dispatch data
+## Energy Storage Dispatch Data
 Because of roundtrip efficiency losses, the cumulative energy discharged by a storage resource over time will always be less than the amount of energy charged. This means that over the course of a month or year, the "net generation" of a storage resource will generally be negative. 
 
 ## Known Limitations
