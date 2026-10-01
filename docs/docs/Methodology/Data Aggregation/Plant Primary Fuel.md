@@ -36,4 +36,8 @@ ES | Energy storage, other
 FW | Flywheel energy storage
 PS | Pumped storage hydroelectric
 
-Plants and subplants with a primary fuel of `MWH` are assigned a `fuel_category` of `storage`, regardless of prime mover. 
+Compressed air energy storage (`CE`) is the exception. It is only assigned a `fuel_category` of `storage` if its primary fuel is `MWH`. Older compressed air storage plants burn natural gas to supplement the stored energy when discharging, so these keep the fuel category of their primary fuel (for example, `natural_gas`), and their emissions are reported with that fuel category. They are identified as `hybrid` storage instead (see [Energy Storage](Energy%20Storage.md)).
+
+Plants and subplants with a primary fuel of `MWH` are assigned a `fuel_category` of `storage`, regardless of prime mover.
+
+Plants and subplants that contain energy storage are also assigned a storage category (standalone, co-located, or hybrid), which is described in [Energy Storage](Energy%20Storage.md).
