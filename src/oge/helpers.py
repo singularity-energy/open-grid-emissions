@@ -1045,14 +1045,14 @@ def assign_fuel_category_to_esc(
             ].drop_duplicates()
             if len(non_mwh_storage_resources) > 0:
                 logger.warning(
-"Assigned storage fuel category to resources with atypical energy source "
-"codes. These resources are:\n"
-f"{non_mwh_storage_resources.to_string()}"
+                    "Assigned storage fuel category to gens with atypical energy source"
+                    " codes. These gens are:\n"
+                    f"{non_mwh_storage_resources.to_string()}"
                 )
         else:
             logger.warning(
-                f"No prime mover code column '{pm_column}' provided to complete storage "
-                "fuel category assignment"
+                f"No prime mover code column '{pm_column}' provided to complete storage"
+                " fuel category assignment"
             )
 
     return df
