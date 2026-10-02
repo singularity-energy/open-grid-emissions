@@ -830,7 +830,7 @@ def main(args):
                 combined_fleet_data, year
             )
 
-            # Output final data: per-ba hourly generation and rate
+            # Output final data: per-ba and national hourly generation and rate
             output_data.write_power_sector_results(
                 combined_fleet_data,
                 year,
@@ -839,10 +839,6 @@ def main(args):
                 include_hourly=True,
                 include_monthly=False,
                 include_annual=False,
-            )
-            # Write US-average fleet data
-            output_data.write_national_fleet_averages(
-                combined_fleet_data, year, path_prefix, skip_outputs=False
             )
 
             # 19. Calculate consumption-based emissions and write carbon accounting results
