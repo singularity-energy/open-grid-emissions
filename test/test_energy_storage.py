@@ -268,6 +268,7 @@ def test_assign_storage_category_ignores_supported_plants_without_generators():
             "generator_id": ["BESS1", "BESS2"],
             "prime_mover_code": ["BA", "BA"],
             "energy_source_code_1": ["MWH", "MWH"],
+            "is_pumped_storage_with_inflow": [False, False],
             "is_dc_coupled_tightly": [False, False],
             "is_direct_support": [True, True],
             "served_co_located_renewable_firming": [False, False],

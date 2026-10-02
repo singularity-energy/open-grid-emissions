@@ -1108,8 +1108,8 @@ def summarize_annually_reported_eia_data(
         storage_from_annual = (
             storage_data.loc[
                 storage_data["eia_data_resolution"] == "annual", STORAGE_DATA_COLUMNS
-            ].sum()
-            / storage_data[STORAGE_DATA_COLUMNS].sum()
+            ].sum(min_count=1)
+            / storage_data[STORAGE_DATA_COLUMNS].sum(min_count=1)
             * 100
         ).round(2)
         summary_rows = [
