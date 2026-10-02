@@ -1,7 +1,15 @@
 import oge.download_data as download_data
+import constants
 
 
-YEARS_TO_TEST = list(reversed(range(2005, 2021)))
+YEARS_TO_TEST = list(
+    reversed(range(constants.earliest_validated_year, constants.latest_validated_year))
+)
+HOURLY_YEARS_TO_TEST = list(
+    reversed(
+        range(constants.earliest_hourly_data_year, constants.latest_validated_year)
+    )
+)
 
 
 def test_download_pudl_data():
@@ -30,8 +38,8 @@ def test_download_eia_electric_power_annual():
 
 def test_download_eia930():
     """Test that EIA-930 data download works for all years."""
-    print("Will test the following years:\n", YEARS_TO_TEST)
-    for year in YEARS_TO_TEST:
+    print("Will test the following years:\n", HOURLY_YEARS_TO_TEST)
+    for year in HOURLY_YEARS_TO_TEST:
         print(f"Testing EIA-930 download for {year}")
         download_data.download_raw_eia930(years_to_download=[year])
     print("DONE")
