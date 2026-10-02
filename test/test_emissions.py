@@ -1,16 +1,7 @@
-import sys
-
 import pytest
 import pandas as pd
 
-
-@pytest.fixture
-def emissions():
-    """Need to provide this import as a fixture to avoid complaints from the linter."""
-    sys.path.append("../")
-    import src.emissions as emissions
-
-    return emissions
+import oge.emissions as emissions
 
 
 @pytest.fixture
@@ -31,7 +22,7 @@ def df_co2_ch4_no2():
     return df
 
 
-def test_co2e_AR6_100(df_co2_ch4_no2, emissions):
+def test_co2e_AR6_100(df_co2_ch4_no2):
     """Compute CO2-eq using the AR6 20-year GWP factors."""
     df = emissions.calculate_co2e_mass(
         df_co2_ch4_no2, 2021, gwp_horizon=100, ar5_climate_carbon_feedback=False
@@ -44,7 +35,7 @@ def test_co2e_AR6_100(df_co2_ch4_no2, emissions):
     )
 
 
-def test_co2e_AR6_20(df_co2_ch4_no2, emissions):
+def test_co2e_AR6_20(df_co2_ch4_no2):
     """Compute CO2-eq using the AR6 20-year GWP factors."""
     df = emissions.calculate_co2e_mass(
         df_co2_ch4_no2, 2021, gwp_horizon=20, ar5_climate_carbon_feedback=False
@@ -57,7 +48,7 @@ def test_co2e_AR6_20(df_co2_ch4_no2, emissions):
     )
 
 
-def test_co2e_AR5_20(df_co2_ch4_no2, emissions):
+def test_co2e_AR5_20(df_co2_ch4_no2):
     """Compute CO2-eq using the AR5 20-year GWP factors."""
     df = emissions.calculate_co2e_mass(
         df_co2_ch4_no2, 2020, gwp_horizon=20, ar5_climate_carbon_feedback=False
@@ -70,7 +61,7 @@ def test_co2e_AR5_20(df_co2_ch4_no2, emissions):
     )
 
 
-def test_co2e_AR5f_100(df_co2_ch4_no2, emissions):
+def test_co2e_AR5f_100(df_co2_ch4_no2):
     """Compute CO2-eq using the AR5 100-year GWP factors, and include CCF."""
     df = emissions.calculate_co2e_mass(
         df_co2_ch4_no2, 2020, gwp_horizon=100, ar5_climate_carbon_feedback=True
@@ -82,7 +73,7 @@ def test_co2e_AR5f_100(df_co2_ch4_no2, emissions):
     )
 
 
-def test_co2e_SAR_100(df_co2_ch4_no2, emissions):
+def test_co2e_SAR_100(df_co2_ch4_no2):
     """Compute CO2-eq using the SAR 100-year GWP factors."""
     df = emissions.calculate_co2e_mass(df_co2_ch4_no2, 2014, gwp_horizon=100)
 
