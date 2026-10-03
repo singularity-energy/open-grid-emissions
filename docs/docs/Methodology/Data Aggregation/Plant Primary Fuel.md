@@ -14,6 +14,14 @@ In rare cases where all of the preceding methods of determining plant primary fu
 
 The same methodology is used to assign a primary fuel to each subplant (see [subplant aggregation](Subplant%20Aggregation.md)), using only the generators that belong to that subplant.
 
+## Assigning Generator Primary Fuel
+
+In the [EIA-923 allocation process](../Data%20Cleaning/EIA-923%20Data.md#allocating-generation-and-fuel-data), generation and fuel data from EIA-923 is allocated to each generator and `energy_source_code`. To determine a primary fuel for each generator, the `energy_source_code` with the highest annual volume of allocated `fuel_consumed_for_electricity_mmbtu` is used.
+
+If multiple fuels are associated with the same volume of fuel consumption, the primary fuel is the generator's `energy_source_code_1` from the EIA-860 Generators file. This most often happens for generators that don't consume any fuel themselves but list multiple energy source codes in EIA-860. For example, EIA-923 reports the fuel consumed by a combined cycle plant for the combustion turbines, so the steam turbine has zero fuel consumption for every fuel it lists. If none of the tied fuels match `energy_source_code_1`, the fuel that comes first alphabetically is used so that the result is consistent every time the data is generated.
+
+The generator primary fuel is also used to assign a plant or subplant primary fuel in the rare cases described above where all other methods fail, and to identify the primary prime mover (see below).
+
 ## Assigning Primary Prime Mover
 
 While most energy storage resources report an energy source code of `MWH`, not all do. For example, pumped storage hydroelectric plants typically report an energy source code of `WAT` (water). The primary fuel alone therefore cannot reliably identify energy storage, so we also assign a primary prime mover to each subplant and plant to assist with this identification.
