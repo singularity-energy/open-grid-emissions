@@ -239,3 +239,63 @@ def test_remove_generators_without_data():
     # in one month, so both of its months are kept
     assert result["generator_id"].unique().tolist() == ["A"]
     assert len(result) == 2
+
+
+def test_identify_generator_primary_fuel_breaks_ties_with_esc_1():
+    """A generator's primary fuel should be the fuel it consumes the most of for
+    electricity, with ties broken by its EIA-860 `energy_source_code_1`.
+
+    Combined cycle steam turbines don't consume fuel themselves (their fuel is reported
+    for the combustion turbines), so every energy source code they list has zero fuel.
+    Without a tiebreaker, these generators were assigned an arbitrary fuel, e.g. Martin
+    (plant 6043) generator 8 was labeled SUN instead of NG. The test data covers:
+    - plant 1, ST: a steam turbine with zero fuel for NG, SUN, and DFO, which should be
+      assigned its `energy_source_code_1` (NG),
+    - plant 1, CT: a generator that consumes fuel, which should be assigned the fuel it
+      consumes the most of (NG), even though its `energy_source_code_1` is SUN,
+    - plant 2, X: a tie where no fuel matches `energy_source_code_1`, which should be
+      broken alphabetically (OG before WO), and
+    - plant 2, Y: a tie where `energy_source_code_1` is missing, which should also be
+      broken alphabetically.
+    """
+    gen_fuel_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [1] * 6 + [2] * 4,
+            "subplant_id": [1] * 10,
+            "generator_id": ["ST"] * 3 + ["CT"] * 3 + ["X"] * 2 + ["Y"] * 2,
+            "energy_source_code": ["NG", "SUN", "DFO"] * 2 + ["WO", "OG", "NG", "SUN"],
+            "fuel_consumed_for_electricity_mmbtu": [
+                0.0,
+                0.0,
+                0.0,
+                100.0,
+                0.0,
+                5.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+        }
+    )
+    gen_esc_1 = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2],
+            "generator_id": ["ST", "CT", "X"],
+            "energy_source_code_1": ["NG", "SUN", "NG"],
+        }
+    )
+
+    with patch.object(
+        data_cleaning.load_data, "load_pudl_table", return_value=gen_esc_1
+    ):
+        result = data_cleaning.identify_generator_primary_fuel(
+            gen_fuel_allocated, 2023
+        ).set_index(["plant_id_eia", "generator_id"])["energy_source_code"]
+
+    assert result[(1, "ST")] == "NG"
+    assert result[(1, "CT")] == "NG"
+    assert result[(2, "X")] == "OG"
+    assert result[(2, "Y")] == "NG"
+    # one row per generator
+    assert len(result) == 4

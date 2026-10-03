@@ -468,23 +468,7 @@ def create_primary_fuel_table(
     # get a table of primary energy source codes by generator
     # this will be used in `calculate_aggregated_primary_fuel()` to determine the
     # mode of energy source codes by plant
-    # sum the fuel consumption by ESC within each generator
-    gen_primary_fuel = (
-        gen_fuel_allocated.groupby(
-            ["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"],
-            dropna=False,
-        )["fuel_consumed_mmbtu"]
-        .sum()
-        .reset_index()
-    )
-
-    # only keep the ESC associated with the highest fuel consumption for each gen
-    gen_primary_fuel = gen_primary_fuel.sort_values(
-        by=["plant_id_eia", "subplant_id", "generator_id", "fuel_consumed_mmbtu"],
-        ascending=True,
-    ).drop_duplicates(
-        subset=["plant_id_eia", "subplant_id", "generator_id"], keep="last"
-    )[["plant_id_eia", "subplant_id", "generator_id", "energy_source_code"]]
+    gen_primary_fuel = identify_generator_primary_fuel(gen_fuel_allocated, year)
 
     # calculate the subplant primary fuel
     subplant_primary_fuel = calculate_aggregated_primary_fuel(
@@ -544,6 +528,75 @@ def create_primary_fuel_table(
     )
 
     return primary_fuel_table
+
+
+def identify_generator_primary_fuel(
+    gen_fuel_allocated: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Identifies the primary energy source code for each generator.
+
+    This is the generator-level counterpart of `calculate_aggregated_primary_fuel()`,
+    which identifies the primary fuel of each subplant and plant. The primary fuel is
+    the energy source code with the highest allocated fuel consumption for
+    electricity, consistent with the subplant and plant primary fuel. Ties are broken
+    using the generator's `energy_source_code_1` from EIA-860, then alphabetically
+    so that the result is deterministic. Ties are common
+    for generators that don't consume any fuel themselves but list multiple energy
+    source codes, such as combined cycle steam turbines (whose fuel is reported for the
+    combustion turbines). Without the tiebreaker, these generators could be assigned an
+    arbitrary energy source code (e.g. SUN instead of NG for an integrated solar
+    combined cycle steam turbine).
+
+    Args:
+        gen_fuel_allocated (pd.DataFrame): allocated fuel data by generator and energy
+            source code, with `subplant_id` assigned.
+        year (int): the data year, used to load `energy_source_code_1` from EIA-860.
+
+    Returns:
+        pd.DataFrame: one row per generator with `plant_id_eia`, `subplant_id`,
+            `generator_id`, and `energy_source_code`.
+    """
+    gen_keys = ["plant_id_eia", "subplant_id", "generator_id"]
+
+    # sum the fuel consumption by ESC within each generator.
+    # NOTE: min_count is intentionally omitted so that missing fuel consumption is
+    # treated as zero when ranking each generator's ESCs
+    gen_primary_fuel = (
+        gen_fuel_allocated.groupby(gen_keys + ["energy_source_code"], dropna=False)[
+            "fuel_consumed_for_electricity_mmbtu"
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    # flag which ESC matches energy_source_code_1 to use as a tiebreaker
+    gen_esc_1 = load_data.load_pudl_table(
+        "core_eia860__scd_generators",
+        year,
+        columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
+    ).drop_duplicates(subset=["plant_id_eia", "generator_id"])
+    gen_primary_fuel = gen_primary_fuel.merge(
+        gen_esc_1, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
+    )
+    gen_primary_fuel["matches_esc_1"] = (
+        gen_primary_fuel["energy_source_code"]
+        == gen_primary_fuel["energy_source_code_1"]
+    ).fillna(False)
+
+    # only keep the ESC associated with the highest fuel consumption for each gen,
+    # breaking ties with energy_source_code_1, then alphabetically
+    gen_primary_fuel = gen_primary_fuel.sort_values(
+        by=gen_keys
+        + [
+            "fuel_consumed_for_electricity_mmbtu",
+            "matches_esc_1",
+            "energy_source_code",
+        ],
+        ascending=[True, True, True, True, True, False],
+        kind="stable",
+    ).drop_duplicates(subset=gen_keys, keep="last")[gen_keys + ["energy_source_code"]]
+
+    return gen_primary_fuel
 
 
 def calculate_aggregated_primary_fuel(
