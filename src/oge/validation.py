@@ -1771,12 +1771,31 @@ def compare_plant_level_results_to_egrid(
         "so2_mass_lb",
         "nox_mass_lb",
     ]
+    rate_col = "generated_co2_rate_lb_per_mwh_for_electricity_adjusted"
     # standardize column names and index so that the two dfs can be divided
     calculated_to_compare = (
         plant_data.groupby("plant_id_egrid", dropna=False)
-        .sum()
+        .sum(numeric_only=True)
         .drop(columns=["plant_id_eia"])
     )
+    # Rates cannot be summed. Rebuild from aggregated mass and generation using
+    # the same rules as output_data.add_generated_emission_rate_columns so this
+    # matches the published plant rate when there is one plant per eGRID ID.
+    calculated_to_compare[rate_col] = (
+        (
+            calculated_to_compare["co2_mass_lb_for_electricity_adjusted"]
+            / calculated_to_compare["net_generation_mwh"]
+        )
+        .replace(np.inf, np.nan)
+        .replace(-np.inf, np.nan)
+    )
+    calculated_to_compare.loc[
+        calculated_to_compare["net_generation_mwh"] == 0, rate_col
+    ] = calculated_to_compare.loc[
+        calculated_to_compare["net_generation_mwh"] == 0, rate_col
+    ].fillna(0)
+    calculated_to_compare.loc[calculated_to_compare[rate_col] < 0, rate_col] = 0
+    calculated_to_compare[rate_col] = calculated_to_compare[rate_col].round(1)
 
     # drop the plants that have no data in eGRID
     plants_with_no_data_in_egrid = list(
@@ -1793,6 +1812,11 @@ def compare_plant_level_results_to_egrid(
     egrid_to_compare = egrid_to_compare[
         egrid_to_compare.index.isin(list(calculated_to_compare.index.unique()))
     ]
+    egrid_to_compare[rate_col] = (
+        egrid_to_compare["co2_mass_lb_for_electricity_adjusted"]
+        / egrid_to_compare["net_generation_mwh"]
+    ).replace([np.inf, -np.inf], np.nan).round(1)
+    columns_to_compare = columns_to_compare + [rate_col]
 
     # divide calculated value by egrid value
     compared = (
@@ -1953,6 +1977,7 @@ def compare_plant_level_results_to_egrid(
                 "co2_mass_lb_status",
                 "so2_mass_lb_status",
                 "nox_mass_lb_status",
+                f"{rate_col}_status",
             ]
         ],
         how="left",
@@ -1986,6 +2011,9 @@ def compare_plant_level_results_to_egrid(
             "co2_mass_lb_for_electricity_adjusted_status",
             "co2_mass_lb_for_electricity_adjusted_calc",
             "co2_mass_lb_for_electricity_adjusted_egrid",
+            f"{rate_col}_status",
+            f"{rate_col}_calc",
+            f"{rate_col}_egrid",
         ]
     ]
 
@@ -2198,7 +2226,7 @@ def compare_egrid_fuel_total(plant_data, egrid_plant_df):
     # standardize column names and index so that the two dfs can be divided
     calculated_to_compare = (
         plant_data.groupby("plant_id_egrid", dropna=False)
-        .sum()
+        .sum(numeric_only=True)
         .drop(columns=["plant_id_eia"])
     )
 

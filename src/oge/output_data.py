@@ -1,8 +1,11 @@
+import json
 import math
+import os
+import shutil
+from importlib.metadata import version
+
 import pandas as pd
 import numpy as np
-import shutil
-import os
 
 import oge.load_data as load_data
 from oge.column_checks import check_columns, DATA_COLUMNS
@@ -58,122 +61,190 @@ UNIT_CONVERSIONS = {
 }
 
 
-def prepare_files_for_upload(years: list):
-    """Zips files in preparation for upload to cloud storage and Zenodo.
-    This should only be run when releasing a new minor or major version of the repo.
+def build_data_download_manifest(skip_outputs: bool = False) -> dict:
+    """This is the coordinating function for building the manifest.json catalog
+    describing the published results directory structure, for use by the
+    singularity.energy data-download widget.
+
+    Walks the results/ directory (and the sibling outputs/ directory, for the
+    subplant crosswalk file) for the currently-installed `oge` data version and
+    records, per year, which data types, aggregations, units, and files are
+    actually present. This lets the widget offer only real download links instead
+    of guessing at file existence from an S3 listing. Only run manually when
+    cutting a new versioned data release, alongside `zip_data_for_zenodo`.
 
     Args:
-        years (list): list of four-digit year indicating when the data were taken.
+        skip_outputs (bool): whether to skip writing manifest.json to disk.
+
+    Returns:
+        dict: the manifest, keyed by "version", "base_url", "years", and "data".
     """
+    results_dir = results_folder()
+    if not os.path.isdir(results_dir):
+        raise FileNotFoundError(f"Results directory not found: {results_dir}")
+
+    # data versions are only published as X.X.0 versions, per
+    # filepaths.get_oge_data_store
+    oge_data_version = (
+        f"{version('oge').split('.')[0]}.{version('oge').split('.')[1]}.0"
+    )
+    base_url = (
+        "https://open-grid-emissions.s3.amazonaws.com/open_grid_emissions_data/"
+        f"v{oge_data_version}"
+    )
+
+    years = sorted(
+        d
+        for d in os.listdir(results_dir)
+        if os.path.isdir(os.path.join(results_dir, d)) and d.isdigit()
+    )
+
+    manifest = {
+        "version": oge_data_version,
+        "base_url": base_url,
+        "years": years,
+        "data": {},
+    }
 
     for year in years:
-        zip_results_for_s3()
-        zip_data_for_zenodo(year)
+        year_data = build_manifest_year_data(year)
+        if year_data:
+            manifest["data"][year] = year_data
+
+    manifest["years"] = sorted(manifest["data"].keys())
+
+    if not skip_outputs:
+        manifest_path = data_folder("manifest.json")
+        logger.info(f"Exporting data-download manifest to {manifest_path}")
+        with open(manifest_path, "w") as f:
+            json.dump(manifest, f, indent=2)
+
+    return manifest
 
 
-def zip_results_for_s3():
-    """Zips results directories that contain more than a single file for hosting on an
-    Amazon S3 bucket.
+def build_manifest_year_data(year: str) -> dict:
+    """Builds the data-download manifest entry for a single year: which data
+    types, aggregations, units, and files are actually present under
+    `results/{year}` (and the sibling `outputs/{year}` for the subplant
+    crosswalk file).
 
+    Args:
+        year (str): four-digit year, matching a results/ subfolder name.
+
+    Returns:
+        dict: manifest data for this year, keyed by data type name. Empty if
+            nothing is published for this year.
     """
-    os.makedirs(data_folder("s3_upload"), exist_ok=True)
-    historical_years = list(range(earliest_validated_year, earliest_hourly_data_year))
-    year_range = f"{earliest_validated_year}-{earliest_hourly_data_year - 1}"
-    for data_type in ["power_sector_data", "plant_data"]:
-        for aggregation in ["monthly", "annual"]:
-            for unit in ["metric_units", "us_units"]:
-                logger.info(
-                    f"zipping {year_range}_{data_type}_{aggregation}_{unit} for s3"
-                )
-                for year in historical_years:
-                    # copy the annual file to a combined folder
-                    shutil.copytree(
-                        (results_folder(f"{year}/{data_type}/{aggregation}/{unit}")),
-                        data_folder(
-                            f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}/{year}"
-                        ),
-                    )
-                # now create an archive
-                shutil.make_archive(
-                    data_folder(
-                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
-                    ),
-                    "zip",
-                    root_dir=data_folder(
-                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
-                    ),
-                )
-                shutil.rmtree(
-                    data_folder(
-                        f"s3_upload/{year_range}_{data_type}_{aggregation}_{unit}"
-                    )
-                )
-    # move and rename the plant attributes files
-    os.makedirs(
-        data_folder(f"s3_upload/{year_range}_plant_attributes"),
-        exist_ok=True,
-    )
-    for year in historical_years:
-        # data quality metrics
-        shutil.copytree(
-            (results_folder(f"{year}/data_quality_metrics")),
-            data_folder(f"s3_upload/{year_range}_data_quality_metrics/{year}"),
-        )
+    # Data types considered "end-user" download options in the data-download manifest
+    # (i.e. not intermediate/QA folders that happen to live under a results year
+    # directory).
+    manifest_data_types = ["power_sector_data", "carbon_accounting", "plant_data"]
+    manifest_aggregations = ["hourly", "monthly", "annual"]
+    manifest_units = ["us_units", "metric_units"]
 
-        shutil.copy(
-            results_folder(f"{year}/plant_data/plant_static_attributes.csv"),
-            data_folder(
-                f"s3_upload/{year_range}_plant_attributes/plant_static_attributes_{year}.csv"
-            ),
-        )
-    shutil.make_archive(
-        data_folder(f"s3_upload/{year_range}_data_quality_metrics"),
-        "zip",
-        root_dir=data_folder(f"s3_upload/{year_range}_data_quality_metrics"),
+    # Plant/subplant attribute files (static plant characteristics, not emissions data)
+    # live directly under each year's plant_data/ folder, one per year, independent of
+    # aggregation/unit.
+    manifest_attribute_stems = ["plant_static_attributes", "subplant_attributes"]
+
+    # Data Quality Metrics files: mostly under each year's results/{year}/data_quality_metrics/
+    # folder, except plant_metadata.csv, which lives under results/{year}/plant_data/
+    # alongside the plant attribute files. Keep in sync with the data-download widget's
+    # own copy of this list. folder is relative to the year directory.
+    manifest_data_quality_files = [
+        ("input_data_source", "csv", "data_quality_metrics"),
+        ("cems_pollutant_measurement_quality", "csv", "data_quality_metrics"),
+        ("cems_gross_to_net_methods", "csv", "data_quality_metrics"),
+        ("annually_reported_eia_data", "csv", "data_quality_metrics"),
+        ("data_pipeline", "log", "data_quality_metrics"),
+        ("plant_metadata", "csv", "plant_data"),
+    ]
+
+    # Data types that should never be published beyond `latest_validated_year`, even if
+    # the local results folder has newer files sitting around from an early-release or
+    # test pipeline run. plant_data is intentionally excluded from this cap: its
+    # current-year output has been fine to publish even while power_sector_data/
+    # carbon_accounting for that same year are not. Revisit this list if that policy
+    # changes.
+    manifest_capped_at_latest_validated_year = {
+        "power_sector_data",
+        "carbon_accounting",
+    }
+
+    year_dir = results_folder(year)
+    year_data = {}
+
+    for data_type in manifest_data_types:
+        if (
+            data_type in manifest_capped_at_latest_validated_year
+            and int(year) > latest_validated_year
+        ):
+            continue  # not yet published for this data type, even if present locally
+
+        data_type_dir = os.path.join(year_dir, data_type)
+        if not os.path.isdir(data_type_dir):
+            continue
+
+        data_type_node = {}
+        for agg in manifest_aggregations:
+            agg_dir = os.path.join(data_type_dir, agg)
+            if not os.path.isdir(agg_dir):
+                continue
+            agg_node = {}
+            for unit in manifest_units:
+                stems = list_manifest_csv_stems(os.path.join(agg_dir, unit))
+                if stems:
+                    agg_node[unit] = stems
+            # skip aggregation levels with no populated unit folders (e.g. a year
+            # in progress whose hourly directory exists but is still empty)
+            if agg_node:
+                data_type_node[agg] = agg_node
+
+        if data_type == "plant_data":
+            available_attrs = [
+                stem
+                for stem in manifest_attribute_stems
+                if os.path.isfile(os.path.join(data_type_dir, f"{stem}.csv"))
+            ]
+            if available_attrs:
+                data_type_node["attributes"] = available_attrs
+            crosswalk_path = outputs_folder(f"{year}/subplant_crosswalk_{year}.csv.zip")
+            if os.path.isfile(crosswalk_path):
+                data_type_node["subplant_crosswalk"] = True
+
+        if data_type_node:
+            year_data[data_type] = data_type_node
+
+    # Data Quality Metrics: not one of manifest_data_types (no aggregation/unit/
+    # region dimensions), so built separately as a flat list of whichever expected
+    # files are actually present for this year.
+    available_dq_files = [
+        stem
+        for stem, ext, folder in manifest_data_quality_files
+        if os.path.isfile(os.path.join(year_dir, folder, f"{stem}.{ext}"))
+    ]
+    if available_dq_files:
+        year_data["data_quality_metrics"] = {"files": available_dq_files}
+
+    return year_data
+
+
+def list_manifest_csv_stems(folder: str) -> list:
+    """Lists CSV filename stems (without extension) present in `folder`, for the
+    data-download manifest.
+
+    Args:
+        folder (str): directory to list.
+
+    Returns:
+        list: sorted CSV filename stems, or an empty list if `folder` does not
+            exist.
+    """
+    if not os.path.isdir(folder):
+        return []
+    return sorted(
+        name[: -len(".csv")] for name in os.listdir(folder) if name.endswith(".csv")
     )
-    shutil.rmtree(data_folder(f"s3_upload/{year_range}_data_quality_metrics"))
-    shutil.make_archive(
-        data_folder(f"s3_upload/{year_range}_plant_attributes"),
-        "zip",
-        root_dir=data_folder(f"s3_upload/{year_range}_plant_attributes"),
-    )
-    shutil.rmtree(data_folder(f"s3_upload/{year_range}_plant_attributes"))
-    for year in range(2019, max(latest_validated_year, current_early_release_year) + 1):
-        for data_type in ["power_sector_data", "carbon_accounting", "plant_data"]:
-            for aggregation in ["hourly", "monthly", "annual"]:
-                for unit in ["metric_units", "us_units"]:
-                    if (
-                        (data_type == "plant_data")
-                        & (aggregation == "hourly")
-                        & (unit == "metric_units")
-                    ):
-                        # skip the metric hourly plant data since we do not create those outputs
-                        pass
-                    else:
-                        logger.info(
-                            f"zipping {year}_{data_type}_{aggregation}_{unit} for s3"
-                        )
-                        folder = f"{results_folder()}/{year}/{data_type}/{aggregation}/{unit}"
-                        shutil.make_archive(
-                            data_folder(
-                                f"s3_upload/{year}_{data_type}_{aggregation}_{unit}"
-                            ),
-                            "zip",
-                            root_dir=folder,
-                            # base_dir="",
-                        )
-        # move and rename the plant attributes files
-        shutil.copy(
-            f"{results_folder()}/{year}/plant_data/plant_static_attributes.csv",
-            data_folder(f"s3_upload/plant_static_attributes_{year}.csv"),
-        )
-        # archive the data quality metrics
-        shutil.make_archive(
-            data_folder(f"s3_upload/{year}_data_quality_metrics"),
-            "zip",
-            root_dir=f"{results_folder()}/{year}/data_quality_metrics",
-            # base_dir="",
-        )
 
 
 def zip_data_for_zenodo(year: int):
