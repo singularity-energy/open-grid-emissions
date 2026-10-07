@@ -4,7 +4,7 @@ stoplight-id: primary_fuel
 
 ## Assigning Plant Primary Fuel
 
-The primary fuel of a plant is assigned based on the `energy_source_code` that has the highest annual volume of `fuel_consumed_mmbtu`, as reported in the EIA-923 generation and fuel table.
+The primary fuel of a plant is assigned based on the `energy_source_code` that has the highest annual volume of `fuel_consumed_for_electricity_mmbtu` (fuel consumed for electricity generation, which excludes fuel used for useful thermal output at combined heat and power plants), as reported in the EIA-923 generation and fuel table.
 
 If no fuel consumption data is reported or if there are multiple fuels with the same volume of annual fuel consumption, the primary fuel is based on the `energy_source_code_1` associated with the highest combined generator nameplate capacity, as reported by the EIA-860 Generators file.
 
