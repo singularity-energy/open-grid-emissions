@@ -60,7 +60,7 @@ The conversion factors are applied in the following hierarchical order:
 6. Prime mover-specific, default gross-to-net ratios from EIA 
 7. Apply an assumed gross to net ratio of 0.97
 
-If no plant-specific factors are available (methods 1-4), the pipeline uses a fleet-specific ratio that represents the average gross-to-net ratio for all subplant (nationally) that consume the same fuel category (natural gas, coal, etc). Otherwise, we use default gross to net ratios published in the EIA Electric Power Monthly Technical Notes (Appendix C). As a final backstop, we use an assumed gross to net ratio of 0.97
+If no plant-specific factors are available (methods 1-4), the pipeline uses a fleet-specific ratio that represents the average gross-to-net ratio for all subplants (nationally) that have the same fuel category and prime mover (for example, natural gas combustion turbines). Each subplant's fleet is based on its [primary fuel category and primary prime mover](Data%20Aggregation/Plant%20Primary%20Fuel.md). Otherwise, we use the default gross to net ratio for the subplant's primary prime mover published in the EIA Electric Power Monthly Technical Notes (Appendix C). As a final backstop, we use an assumed gross to net ratio of 0.97
 
 Shift factors are used explicitly instead of ratios in cases where the reported gross generation data in CEMS is zero, but EIA reports non-zero net generation data. In these cases, multiplying by a ratio would result in 0 calculated net generation. Applying a shift factor (which is added to the gross generation) effectively applies a flat generation profile to the data, but ensures that the annual total net mwh will match the data in EIA. 
 
