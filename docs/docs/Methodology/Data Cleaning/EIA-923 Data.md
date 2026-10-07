@@ -94,5 +94,5 @@ While cleaning the EIA-923 data, we run several validation checks to ensure that
  - Check that there are no negative fuel consumption or emissions values (net generation may be negative)
 
 ## Final data cleaning steps
-Once all of the preceding steps are complete, we aggregate the EIA-923 data to the generator level. A `subplant_id` (see [methodology](../Data%20Aggregation/Subplant%20Aggregation.md)), `plant_primary_fuel`, and `prime_mover_code` are then assigned to each generator record.
+Once all of the preceding steps are complete, we aggregate the EIA-923 data to the generator level. Generators that do not have any net generation or fuel consumption data in any month of the year (for example, generators that are included in the allocation process but did not report any data) are removed. Generators that report data in some months but not others are kept, and the months without data are left blank rather than being set to zero. A `subplant_id` (see [methodology](../Data%20Aggregation/Subplant%20Aggregation.md)), `plant_primary_fuel`, and `prime_mover_code` are then assigned to each generator record.
 
