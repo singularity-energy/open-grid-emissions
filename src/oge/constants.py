@@ -50,9 +50,6 @@ ENERGY_STORAGE_PRIME_MOVERS = [
 
 TIME_RESOLUTIONS = {"hourly": "h", "monthly": "M", "annual": "A"}
 
-# derived from table 2.4-4 of the EPA's AP-42 document
-nox_lb_per_mmbtu_flared_landfill_gas = 0.078
-
 # values assumed by eGRID for CHP efficiency
 chp_gross_thermal_output_efficiency = 0.8
 chp_useful_thermal_output_efficiency = 0.75
