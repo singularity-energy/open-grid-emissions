@@ -431,9 +431,11 @@ def update_energy_source_codes(df, year):
 def create_primary_fuel_table(
     gen_fuel_allocated: pd.DataFrame, year: int
 ) -> pd.DataFrame:
-    """Identifies the primary fuel for each generator and plant Gen primary fuel is
-    identified based on the "energy source code 1" identified in EIA-860. Plant primary
-    fuel is based on the most-consumed fuel at a plant based on allocated heat input.
+    """Identifies the primary fuel for each generator and plant. Generator primary fuel
+    is identified based on the energy source code with the highest allocated fuel
+    consumption for electricity, then the "energy source code 1" identified in EIA-860.
+    Plant primary fuel is based on the most-consumed fuel at a plant based on allocated
+    heat input.
 
     Args:
         gen_fuel_allocated (pd.DataFrame): data frame of generation and fuel allocated.
