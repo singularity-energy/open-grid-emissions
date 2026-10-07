@@ -27,7 +27,7 @@ The data is organized into three categories based on the primary use case
     * File structure: data for each BA will be located in its own separate file.
 * **Power sector data**: BA-level and national, _production_-based data on generation, emissions, and fuel consumption split out by fuel type.
     * Intended user: This data is intended for analysts who seek to understand the operating characteristics of the power generation fleets in each region.
-    * File structure: data for each BA will be located in its own separate file. National data is located in `US.csv`, which equals the sum of all of the BA files at each resolution. Because each hourly BA file covers that BA's local year, the hourly national file only includes a `datetime_utc` column, and the first and last few hours of the file only include data from BAs in some timezones.
+    * File structure: data for each BA will be located in its own separate file. National data is located in `US.csv`, which equals the sum or weighted average of all of the BA files at each resolution. Because each hourly BA file covers that BA's local year, the hourly national file only includes a `datetime_utc` column, and the first and last few hours of the file only include data from BAs in some timezones.
 * **Power plant data**: Plant-level data on hourly power plant operations and static attributes of each plant.
     * Intended user: This data is intended for researchers who seek to understand individual power plants, or who want to perform their own aggregations of the data.
     * File structure: include all dynamic data in a single large csv (perhaps a tar.gz file) and all static attributes (e.g. fuel type, BA, etc) in a separate table, with the plant_id_eia as the primary key
