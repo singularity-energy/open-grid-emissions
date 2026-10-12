@@ -13,6 +13,7 @@ from oge.logging_util import get_logger
 from oge.constants import (
     ConversionFactors,
     CLEAN_FUELS,
+    FOSSIL_FUEL_CATEGORIES,
     earliest_validated_year,
     earliest_hourly_data_year,
     latest_validated_year,
@@ -622,9 +623,14 @@ def write_power_sector_results(
                 .reset_index()
             )
             ba_total["fuel_category"] = "total"
+            ba_fossil = calculate_fossil_total(
+                ba_table, ba_total, ["datetime_utc", "report_date"]
+            )
 
             # concat the totals to the fuel-specific totals
-            ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
+            ba_table = pd.concat(
+                [ba_table, ba_fossil, ba_total], axis=0, ignore_index=True
+            )
 
             # create a dataframe for the hourly values that groups duplicate
             # datetime_utc values
@@ -697,9 +703,12 @@ def write_power_sector_results(
                 .reset_index()
             )
             ba_total["fuel_category"] = "total"
+            ba_fossil = calculate_fossil_total(ba_table, ba_total, ["report_date"])
 
             # concat the totals to the fuel-specific totals
-            ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
+            ba_table = pd.concat(
+                [ba_table, ba_fossil, ba_total], axis=0, ignore_index=True
+            )
 
             agg = {}
             if include_monthly:
@@ -730,6 +739,35 @@ def write_power_sector_results(
                     path_prefix,
                     skip_outputs and not (ba == "US" and agg_level == "annual"),
                 )
+
+
+def calculate_fossil_total(
+    ba_table: pd.DataFrame, ba_total: pd.DataFrame, keys: list[str]
+) -> pd.DataFrame:
+    """Sum the data for fossil fuel categories into a single "fossil" category.
+
+    The fossil data covers the same keys as the total data, with zeros where there is
+    no fossil generation, so that every BA has a fossil row even if it has no fossil
+    generators. Energy storage columns are left blank since storage is not a fossil
+    fuel.
+
+    Args:
+        ba_table (pd.DataFrame): data for a single BA, by fuel category and `keys`.
+        ba_total (pd.DataFrame): total data for the BA, by `keys`.
+        keys (list[str]): columns other than fuel_category identifying each record.
+
+    Returns:
+        pd.DataFrame: fossil data with the same keys as `ba_total`.
+    """
+    ba_fossil = (
+        ba_table[ba_table["fuel_category"].isin(FOSSIL_FUEL_CATEGORIES)]
+        .groupby(keys, dropna=False)[DATA_COLUMNS]
+        .sum(min_count=1)
+        .reindex(ba_total.set_index(keys).index, fill_value=0)
+        .reset_index()
+    )
+    ba_fossil["fuel_category"] = "fossil"
+    return ba_fossil
 
 
 def add_generated_emission_rate_columns(df: pd.DataFrame) -> pd.DataFrame:
