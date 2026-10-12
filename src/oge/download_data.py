@@ -43,6 +43,7 @@ def download_helper(
         chunk_size (int, optional): he chunk size for downloading. Defaults to 1024.
 
     Raises:
+        requests.HTTPError: if the request for `input_url` fails.
         ValueError: if `requires_unzip` is True and `output_path` is None.
         ValueError: if `requires_untar` is True and `output_path` is None.
         ValueError: if `requires_gzip` is True and `output_path` is None.
@@ -59,6 +60,9 @@ def download_helper(
     # Otherwise, download to the file in chunks.
     logger.info(f"Downloading {final_destination.split('/')[-1]}")
     r = requests.get(input_url, stream=True)
+    # raise an error if the request failed, so that an error page is not saved in
+    # place of the requested file
+    r.raise_for_status()
     with open(download_path, "wb") as fd:
         for chunk in r.iter_content(chunk_size=chunk_size):
             fd.write(chunk)
@@ -379,10 +383,12 @@ def download_raw_eia923(year: int):
             url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}er.zip"
         else:
             url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
-        archive_url = (
-            f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
-        )
         filename = url.split("/")[-1].split(".")[0]
+        # use the same filename for the archive, so that early release data can be
+        # downloaded once it has been moved to the archive
+        archive_url = (
+            f"https://www.eia.gov/electricity/data/eia923/archive/xls/{filename}.zip"
+        )
         download_filepath = downloads_folder(f"eia923/{filename}.zip")
         output_filepath = downloads_folder(f"eia923/{filename}")
         try:
@@ -443,10 +449,12 @@ def download_raw_eia860(year: int):
         url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}ER.zip"
     else:
         url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
-    archive_url = (
-        f"https://www.eia.gov/electricity/data/eia860/archive/xls/eia860{year}.zip"
-    )
     filename = url.split("/")[-1].split(".")[0]
+    # use the same filename for the archive, so that early release data can be
+    # downloaded once it has been moved to the archive
+    archive_url = (
+        f"https://www.eia.gov/electricity/data/eia860/archive/xls/{filename}.zip"
+    )
     zip_filepath = downloads_folder(f"eia860/{filename}.zip")
     output_filepath = downloads_folder(f"eia860/{filename}")
     try:
