@@ -66,7 +66,7 @@ def graph_hourly_data_by_fuel_category(
     ]
 
     hourly_data = hourly_data[
-        ~hourly_data[fuel_category_name].isin(["total", "fossil"])
+        ~hourly_data[fuel_category_name].isin(["total", "residual"])
     ]
 
     if plot_type == "area":

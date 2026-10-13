@@ -199,11 +199,11 @@ def test_national_hourly_results():
     assert wind["net_generation_mwh"].tolist() == [1.0, 2.0, 1.0]
 
 
-def test_fossil_annual_results(monthly_fleet_data):
-    """The fossil row should sum only the fossil fuel categories.
+def test_residual_mix_annual_results(monthly_fleet_data):
+    """The residual row should sum only the residual mix fuel categories.
 
-    In the monthly fleet data, natural gas is the only fossil fuel, so the fossil row
-    should equal the natural gas row, excluding solar and storage, with blank storage
+    In the monthly fleet data, natural gas is the only residual mix fuel, so the
+    residual row should equal the natural gas row, excluding solar and storage, with blank storage
     columns and the same emission rates as natural gas.
     """
     outputs = capture_outputs(
@@ -217,22 +217,22 @@ def test_fossil_annual_results(monthly_fleet_data):
         table = outputs[("power_sector_data/annual/", ba)][0].set_index("fuel_category")
         pd.testing.assert_series_equal(
             table.loc[
-                "fossil", DATA_COLUMNS + output_data.GENERATED_EMISSION_RATE_COLS
+                "residual", DATA_COLUMNS + output_data.GENERATED_EMISSION_RATE_COLS
             ],
             table.loc[
                 "natural_gas", DATA_COLUMNS + output_data.GENERATED_EMISSION_RATE_COLS
             ],
             check_names=False,
         )
-        assert table.loc["fossil", STORAGE_DATA_COLUMNS].isna().all()
+        assert table.loc["residual", STORAGE_DATA_COLUMNS].isna().all()
 
 
-def test_fossil_hourly_results():
-    """Every hourly BA file should have a fossil row for every hour.
+def test_residual_mix_hourly_results():
+    """Every hourly BA file should have a residual row for every hour.
 
-    BA1 has coal, natural gas, waste, and wind, so its fossil row should sum coal and
-    natural gas, excluding waste and wind. BA2 only has wind, so its fossil row should
-    be zero, with zero emission rates, rather than missing.
+    BA1 has coal, natural gas, waste, and wind, so its residual row should sum coal and
+    natural gas, excluding waste and wind. BA2 only has wind, so its residual row
+    should be zero, with zero emission rates, rather than missing.
     """
     datetimes = pd.date_range("2023-01-01 05:00", periods=2, freq="h", tz="UTC")
     records = []
@@ -259,31 +259,33 @@ def test_fossil_hourly_results():
     )
 
     ba1 = outputs[("power_sector_data/hourly/", "BA1")][0]
-    ba1_fossil = ba1[ba1["fuel_category"] == "fossil"]
-    assert ba1_fossil["net_generation_mwh"].tolist() == [2.0, 2.0]
-    assert ba1_fossil["co2_mass_lb_for_electricity"].tolist() == [2.0, 2.0]
-    assert ba1_fossil["generated_co2_rate_lb_per_mwh_for_electricity"].tolist() == [
+    ba1_residual = ba1[ba1["fuel_category"] == "residual"]
+    assert ba1_residual["net_generation_mwh"].tolist() == [2.0, 2.0]
+    assert ba1_residual["co2_mass_lb_for_electricity"].tolist() == [2.0, 2.0]
+    assert ba1_residual["generated_co2_rate_lb_per_mwh_for_electricity"].tolist() == [
         1.0,
         1.0,
     ]
 
     ba2 = outputs[("power_sector_data/hourly/", "BA2")][0]
-    ba2_fossil = ba2[ba2["fuel_category"] == "fossil"]
-    assert len(ba2_fossil) == len(datetimes)
-    assert (ba2_fossil[DATA_COLUMNS] == 0).all().all()
-    assert (ba2_fossil[output_data.GENERATED_EMISSION_RATE_COLS] == 0).all().all()
+    ba2_residual = ba2[ba2["fuel_category"] == "residual"]
+    assert len(ba2_residual) == len(datetimes)
+    assert (ba2_residual[DATA_COLUMNS] == 0).all().all()
+    assert (ba2_residual[output_data.GENERATED_EMISSION_RATE_COLS] == 0).all().all()
 
     us = outputs[("power_sector_data/hourly/", "US")][0]
-    us_fossil = us[us["fuel_category"] == "fossil"]
-    assert us_fossil["net_generation_mwh"].tolist() == [2.0, 2.0]
+    us_residual = us[us["fuel_category"] == "residual"]
+    assert us_residual["net_generation_mwh"].tolist() == [2.0, 2.0]
 
 
-def test_fossil_row_without_fossil_generation(monthly_fleet_data):
-    """A BA with no fossil generation should still have a fossil row of zeros in the
+def test_residual_row_without_residual_generation(monthly_fleet_data):
+    """A BA with no fossil generation should still have a residual row of zeros in the
     monthly and annual files."""
-    no_fossil = monthly_fleet_data[monthly_fleet_data["fuel_category"] != "natural_gas"]
+    no_residual = monthly_fleet_data[
+        monthly_fleet_data["fuel_category"] != "natural_gas"
+    ]
     outputs = capture_outputs(
-        no_fossil,
+        no_residual,
         skip_outputs=False,
         include_hourly=False,
         include_monthly=True,
@@ -291,6 +293,6 @@ def test_fossil_row_without_fossil_generation(monthly_fleet_data):
     )
     for agg_level, n_rows in [("monthly", 2), ("annual", 1)]:
         table = outputs[(f"power_sector_data/{agg_level}/", "BA1")][0]
-        fossil = table[table["fuel_category"] == "fossil"]
-        assert len(fossil) == n_rows
-        assert (fossil[DATA_COLUMNS] == 0).all().all()
+        residual = table[table["fuel_category"] == "residual"]
+        assert len(residual) == n_rows
+        assert (residual[DATA_COLUMNS] == 0).all().all()
