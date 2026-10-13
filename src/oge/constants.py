@@ -24,17 +24,13 @@ current_early_release_year = 2025
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
-# specify the fuel categories that are considered to be fossil fuels
-FOSSIL_FUEL_CATEGORIES = [
-    "coal",
-    "natural_gas",
-    "petroleum",
-    # waste is ambiguous: it includes non-biogenic municipal solid waste (MSN) and
-    # tire-derived fuels (TDF), which are fossil-derived, but also the biogenic
-    # component of municipal solid waste (MSB) and mixed municipal solid waste (MSW).
-    # Since it cannot be split at the fuel category level, it is considered fossil
-    "waste",
-]
+# specify the fuel categories that are considered to be fossil fuels. Following the
+# CRS guidance for fossil-only residual mixes, this only includes coal, oil, and gas.
+# Waste is excluded even though it includes some fossil-derived fuels (e.g.
+# non-biogenic municipal solid waste and tire-derived fuels), since it also includes
+# biogenic waste and waste-to-energy can generate RECs in some states, so excluding it
+# keeps fossil-only emission rates conservative
+FOSSIL_FUEL_CATEGORIES = ["coal", "natural_gas", "petroleum"]
 
 # specify the energy_source_codes that are considerd to be biomass
 BIOMASS_FUELS = [

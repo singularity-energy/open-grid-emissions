@@ -230,13 +230,16 @@ def test_fossil_annual_results(monthly_fleet_data):
 def test_fossil_hourly_results():
     """Every hourly BA file should have a fossil row for every hour.
 
-    BA1 has coal, natural gas, and wind, so its fossil row should sum coal and natural
-    gas. BA2 only has wind, so its fossil row should be zero, with zero emission
-    rates, rather than missing.
+    BA1 has coal, natural gas, waste, and wind, so its fossil row should sum coal and
+    natural gas, excluding waste and wind. BA2 only has wind, so its fossil row should
+    be zero, with zero emission rates, rather than missing.
     """
     datetimes = pd.date_range("2023-01-01 05:00", periods=2, freq="h", tz="UTC")
     records = []
-    for ba, fuels in [("BA1", ["coal", "natural_gas", "wind"]), ("BA2", ["wind"])]:
+    for ba, fuels in [
+        ("BA1", ["coal", "natural_gas", "waste", "wind"]),
+        ("BA2", ["wind"]),
+    ]:
         for hour in datetimes:
             for fuel in fuels:
                 record = {
