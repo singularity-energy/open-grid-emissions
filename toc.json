@@ -108,6 +108,11 @@
           "type": "item",
           "title": "Consumption-based Emissions",
           "uri": "/docs/docs/Methodology/Emissions Calculations/Consumption-based Emissions.md"
+        },
+        {
+          "type": "item",
+          "title": "Fossil-only Residual Mix",
+          "uri": "/docs/docs/Methodology/Emissions Calculations/Fossil-only Residual Mix.md"
         }
       ]
     },
