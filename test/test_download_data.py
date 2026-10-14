@@ -1,5 +1,11 @@
+import io
+import zipfile
+
+import pytest
+import requests
+
 import oge.download_data as download_data
-import constants
+import oge.constants as constants
 
 
 YEARS_TO_TEST = list(
@@ -75,3 +81,84 @@ def test_download_raw_eia_906_920():
     for year in testable_years:
         print(f"Testing EIA-906/920 download for {year}")
         download_data.download_raw_eia_906_920(year)
+
+
+class FakeResponse:
+    """Minimal stand-in for `requests.Response`, failing for URLs that EIA does not
+    serve."""
+
+    def __init__(self, url: str, available_urls: list[str]):
+        self.url = url
+        self.ok = url in available_urls
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise requests.HTTPError(f"503 Server Error for url: {self.url}")
+
+    def iter_content(self, chunk_size: int):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as zf:
+            zf.writestr("data.xlsx", "data")
+        yield buffer.getvalue()
+
+
+def patch_requests(monkeypatch, tmp_path, available_urls: list[str]) -> list[str]:
+    """Patch `requests.get` and the downloads folder, returning the list of requested
+    URLs."""
+    requested = []
+
+    def fake_get(url, **_):
+        requested.append(url)
+        return FakeResponse(url, available_urls)
+
+    monkeypatch.setattr(download_data.requests, "get", fake_get)
+    monkeypatch.setattr(
+        download_data, "downloads_folder", lambda path: str(tmp_path / path)
+    )
+    return requested
+
+
+def test_download_helper_raises_on_failed_request(monkeypatch, tmp_path):
+    """A failed request should raise an error without saving the error page."""
+    patch_requests(monkeypatch, tmp_path, available_urls=[])
+    download_path = tmp_path / "file.zip"
+    with pytest.raises(requests.HTTPError):
+        download_data.download_helper(
+            "https://www.eia.gov/missing.zip",
+            str(download_path),
+            str(tmp_path / "file"),
+            requires_unzip=True,
+        )
+    assert not download_path.exists()
+
+
+def test_download_raw_eia860_early_release_from_archive(monkeypatch, tmp_path):
+    """Early release EIA-860 data should be downloaded from the archive, keeping the
+    ER suffix, once EIA has moved it there."""
+    monkeypatch.setattr(download_data, "current_early_release_year", 2025)
+    monkeypatch.setattr(download_data, "latest_validated_year", 2024)
+    archive_url = (
+        "https://www.eia.gov/electricity/data/eia860/archive/xls/eia8602025ER.zip"
+    )
+    requested = patch_requests(monkeypatch, tmp_path, available_urls=[archive_url])
+
+    download_data.download_raw_eia860(2025)
+
+    assert requested[-1] == archive_url
+    assert (tmp_path / "eia860/eia8602025ER/data.xlsx").exists()
+
+
+def test_download_raw_eia923_early_release_from_archive(monkeypatch, tmp_path):
+    """Early release EIA-923 data should be downloaded from the archive, keeping the
+    er suffix, once EIA has moved it there."""
+    monkeypatch.setattr(download_data, "current_early_release_year", 2025)
+    monkeypatch.setattr(download_data, "latest_validated_year", 2024)
+    archive_url = (
+        "https://www.eia.gov/electricity/data/eia923/archive/xls/f923_2025er.zip"
+    )
+    requested = patch_requests(monkeypatch, tmp_path, available_urls=[archive_url])
+
+    download_data.download_raw_eia923(2025)
+
+    assert requested[-1] == archive_url
+    assert (tmp_path / "eia923/f923_2025er/data.xlsx").exists()
