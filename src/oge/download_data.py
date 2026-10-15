@@ -1,5 +1,6 @@
 from typing import Optional
-import datetime
+import fsspec
+import functools
 import gzip
 import os
 import requests
@@ -7,7 +8,12 @@ import shutil
 import tarfile
 import zipfile
 
-from oge.filepaths import downloads_folder, data_folder, get_pudl_build_version
+from oge.filepaths import (
+    downloads_folder,
+    data_folder,
+    get_pudl_build_version,
+    get_pudl_data_store,
+)
 from oge.logging_util import get_logger
 from oge.constants import current_early_release_year, latest_validated_year
 
@@ -125,6 +131,12 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
     if source == "aws":
         # download the pudl sqlite database
         if not os.path.exists(downloads_folder(f"pudl/{build}/pudl.sqlite")):
+            # download the marker file that identifies the PUDL build (see
+            # `get_pudl_release()`)
+            fsspec.filesystem("s3", anon=True).get(
+                f"pudl.catalyst.coop/{build}/{build}-*",
+                downloads_folder(f"pudl/{build}/"),
+            )
             output_filepath = downloads_folder(f"pudl/{build}/pudl.sqlite")
             pudl_db_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/pudl.sqlite.zip"
             download_helper(
@@ -145,20 +157,7 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
                 downloads_folder(f"pudl/{build}/tmp/pudl.sqlite"), output_filepath
             )
             os.rmdir(downloads_folder(f"pudl/{build}/tmp"))
-
-            # add a version file
-            with open(
-                downloads_folder(f"pudl/{build}/pudl_sqlite_version.txt"), "w+"
-            ) as v:
-                v.write(f"{datetime.date.today()}")
-        else:
-            with open(
-                downloads_folder(f"pudl/{build}/pudl_sqlite_version.txt"), "r"
-            ) as f:
-                existing_version = f.readlines()[0].replace("\n", "")
-            logger.info(
-                f"Using stable build version of PUDL sqlite database downloaded {existing_version}"
-            )
+        logger.info(f"Using PUDL {get_pudl_release()}")
 
         # download the epacems parquet file
         epacems_parquet_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/core_epacems__hourly_emissions.parquet"
@@ -174,20 +173,6 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
                 download_path=output_filepath,
             )
 
-            # add a version file
-            with open(
-                downloads_folder(f"pudl/{build}/epacems_parquet_version.txt"), "w+"
-            ) as v:
-                v.write(f"{datetime.date.today()}")
-
-        else:
-            with open(
-                downloads_folder(f"pudl/{build}/epacems_parquet_version.txt"), "r"
-            ) as f:
-                existing_version = f.readlines()[0].replace("\n", "")
-            logger.info(
-                f"Using stable build version of PUDL epacems parquet file downloaded {existing_version}"
-            )
         # download the EIA-930 parquet files
         eia930_tables = [
             "core_eia930__hourly_interchange",
@@ -201,21 +186,6 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
                 download_helper(
                     eia930_parquet_url,
                     download_path=output_filepath,
-                )
-
-                # add a version file
-                with open(
-                    downloads_folder(f"pudl/{build}/{table}_parquet_version.txt"), "w+"
-                ) as v:
-                    v.write(f"{datetime.date.today()}")
-
-            else:
-                with open(
-                    downloads_folder(f"pudl/{build}/{table}_parquet_version.txt"), "r"
-                ) as f:
-                    existing_version = f.readlines()[0].replace("\n", "")
-                logger.info(
-                    f"Using stable build version of PUDL {table} parquet file downloaded {existing_version}"
                 )
     elif source == "zenodo":
         # NOTE: This is the most recent available version as of 12/2/2023
@@ -241,6 +211,30 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
         raise ValueError(
             f"{source} is an invalid option for `source`. Must be 'aws' or 'zenodo'."
         )
+
+
+@functools.cache
+def get_pudl_release() -> str:
+    """Describes the release of the PUDL data being used by the pipeline.
+
+    Each PUDL build writes a marker file to its S3 directory whose name identifies the
+    build, e.g. "stable-2026-10-14-1552-90561c620-v2026-10-0" (build date and time, git
+    commit, and release tag). This file is also downloaded alongside local copies of
+    the PUDL data, so the same lookup works for local and S3 data.
+
+    The result is cached so S3 is only checked once per Python process.
+
+    Returns:
+        str: e.g. "stable build v2026.10.0 (built 2026-10-14)"
+    """
+    build = get_pudl_build_version()
+    fs, path = fsspec.core.url_to_fs(get_pudl_data_store(), anon=True)
+    markers = fs.glob(f"{path}/{build}-*")
+    if not markers:
+        return f"{build} build (unknown release)"
+    # marker names start with the build timestamp, so the max is the most recent
+    _, year, month, day, _, _, ref = os.path.basename(max(markers)).split("-", 6)
+    return f"{build} build {ref.replace('-', '.')} (built {year}-{month}-{day})"
 
 
 def download_pudl_from_zenodo(zenodo_url: str, pudl_version: str):

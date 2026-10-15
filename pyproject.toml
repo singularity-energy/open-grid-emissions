@@ -26,7 +26,7 @@ dependencies = [
   "numpy",
   "openpyxl",
   "pandas>=2.2,<3",
-  "pyarrow",
+  "pyarrow<26",  # pyarrow 26 requires numpy>=2, but pudl requires numpy<2
   "qdldl",
   "requests",
   "seaborn",
