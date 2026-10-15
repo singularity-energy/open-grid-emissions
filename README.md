@@ -10,12 +10,9 @@ Please check out [our documentation](https://docs.singularity.energy/docs/open-g
 The Open Grid Emissions Dataset can be [downloaded here](https://singularity.energy/open-grid-emissions). An archive of previous versions of the dataset and intermediate data outputs (for research and validation purposes) can be found on [Zenodo](https://zenodo.org/communities/singularity-energy?page=1&size=20).
 
 ## Installing and running the data pipeline
-To manage the code environment necessary to run the OGE data pipeline, either `uv` or `conda` may be used. Currently, we utilize `uv` as our preferred environment manager for running the pipeline that is used for data releases, but `conda` will also work if you are more familiar with `conda`.
+We use [`uv`](https://docs.astral.sh/uv/) to manage the code environment necessary to run the OGE data pipeline.
 
-First, navigate to the folder where you want to save the repository and run the following commands:
-
-### If you are using uv
-Note that this option requires git installed on your machine. `uv` will install Python 3.11 automatically if needed.
+First, navigate to the folder where you want to save the repository and run the following commands. Note that this requires git installed on your machine. `uv` will install Python 3.11 automatically if needed.
 ```bash
 git clone https://github.com/singularity-energy/open-grid-emissions.git
 cd open-grid-emissions
@@ -24,25 +21,12 @@ uv run python -m build
 uv pip install .
 ```
 
-### If you are using conda
-```bash
-conda install git
-git clone https://github.com/singularity-energy/open-grid-emissions.git
-conda update conda
-cd open-grid-emissions
-conda env create -f environment.yml
-conda activate open_grid_emissions
-pip install build
-python -m build
-pip install .
-```
-
 The pipeline can be run as follows:
 ```bash
 cd src/oge
-python data_pipeline.py --year 2024
+uv run python data_pipeline.py --year 2025
 ```
-independently of the installation method you chose. Note that the pipeline uses input data from different external sources. For PUDL, you can set a `PUDL_DATA_STORE` environment variable to `s3` via `export PUDL_DATA_STORE='s3'` for Bash (on Unix-like operating systems) for bash or `$Env:PUDL_DATA_STORE = 's3'` for PowerShell (on Windows) before calling the `data_pipeline.py` script or by adding the following to the `__init__.py` file in `src/oge`:
+Note that the pipeline uses input data from different external sources. For PUDL, you can set a `PUDL_DATA_STORE` environment variable to `s3` via `export PUDL_DATA_STORE='s3'` for Bash (on Unix-like operating systems) for bash or `$Env:PUDL_DATA_STORE = 's3'` for PowerShell (on Windows) before calling the `data_pipeline.py` script or by adding the following to the `__init__.py` file in `src/oge`:
 ```python
 import os
 
@@ -53,9 +37,9 @@ in order to directly load in memory the PUDL data needed to run the pipeline. If
 A more detailed walkthrough of these steps can be found below in the "Development Setup" section.
 
 ## Data Availability and Release Schedule
-The latest release includes data for year 2005-2022 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability).
+The latest release includes data for year 2005-2025 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (dependent on data availability).
 
-Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2022 data was published in September 2023). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
+Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2025 data was published in September 2026). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
 
 Updated datasets will also be published whenever a new version of the open-grid-emissions repository is released.
 
@@ -172,48 +156,11 @@ os.environ["OGE_DATA_STORE"] = "s3"
 ## Development Setup
 If you would like to run the code on your own computer and/or contribute updates to the code, the following steps can help get you started.
 
-### Setup with conda
-This installation is recommended if you are unfamiliar with git and Python.
-#### Install conda and python
-We suggest using miniconda or Anaconda to manage the packages needed to run the Open Grid Emissions code. Anaconda and Miniconda install a similar environment, but Anaconda installs more packages by default and Miniconda installs them as needed. These can be downloaded from [miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution)
-
-#### Install and setup git software manager
-In order to download the repository, you will need to use git. You can either install Git Bash from https://git-scm.com/downloads, or you can install it using conda. To do so, after installing Anaconda or Miniconda, open an Anaconda Command Prompt (Windows) or Terminal.app (Mac) and type the following command:
-```bash
-conda install git
-```
-Then you will need set up git following these instructions: https://docs.github.com/en/get-started/quickstart/set-up-git
-
-#### Download the codebase to a local repository
-Using Anaconda command prompt or Git Bash, use the `cd` and `mkdir` commands to create and/or enter the directory where you would like to download the code (e.g. "Users/myusername/GitHub"). Then run:
-```bash
-git clone https://github.com/singularity-energy/open-grid-emissions.git
-```
-
-#### Setup the conda environment
-Open anaconda prompt, use `cd` to navigate to the directory where your local files are stored (e.g. "GitHub/open-grid-emissions"), and then run:
-```bash
-conda update conda
-conda env create -f environment.yml
-```
-Installation requires that the conda channel-priority be set to "flexible". This is the default behavior, so if you've never manually changed this, you shouldn't have to worry about this. However, if you receive an error message like "Found conflicts!" when trying to install the environment, try setting your channel priority to flexible by running the following command:`conda config --set channel_priority flexible` and then re-running the above commands.
-
-The final step is to install the `oge` package itself in the conda environment. To do so, run:
-```bash
-conda activate open_grid_emissions
-pip install build
-python -m build
-pip install --editable .
-```
-
-The open_grid_emissions conda environment should now be set up and ready to run.
-
-### Setup with uv
-#### Install git
+### Install git
 You will need to use git to clone the repository. It can be installed from https://git-scm.com/downloads.
 
 
-#### Download the codebase
+### Download the codebase
 As mentioned previously, clone the repository with:
 ```bash
 git clone https://github.com/singularity-energy/open-grid-emissions.git
@@ -223,7 +170,7 @@ and navigate to the root of the directory:
 cd open-grid-emissions
 ```
 
-#### Setup the environment
+### Setup the environment
 In the root of the directory, create and activate the environment with:
 ```bash
 # create the virtual environment and install dependencies from uv.lock
@@ -237,10 +184,10 @@ uv pip install -e .
 If you ever need to remove and reinstall the environment, delete the `.venv` directory from the root of the repository, then follow the directions above.
 
 ### Running the complete data pipeline
-If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src/oge`, and run the following (replacing 2022 with whichever year you want to run):
+If you would like to run the full data pipeline to generate all intermediate outputs and results files, navigate to `open-grid-emissions/src/oge`, and run the following (replacing 2025 with whichever year you want to run):
 ```bash
 export PUDL_DATA_STORE="s3"
-python data_pipeline.py --year 2022
+uv run python data_pipeline.py --year 2025
 ```
 where the environment variable `PUDL_DATA_STORE` is set to `s3` (for the Bash command interpreter on Unix-like operating systems; if working on Windows), meaning that PUDL's tables used throughout the code base will be loaded in memory from S3. If not set or set to `local`, files enclosing the PUDL tables will be first downloaded from S3 to your disk and then load in memory when needed. Note that the `export` command for setting an environment variable is specific to the Bash command interpreter on Unix-like operating systems. If working with the Windows' PowerShell, the command is `$Env:PUDL_DATA_STORE = 's3'`. Independently of you operating system, the `PUDL_DATA_STORE` environment variable can be set by adding the following:
 ```python
