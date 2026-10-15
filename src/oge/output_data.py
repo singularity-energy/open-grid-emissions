@@ -664,6 +664,7 @@ def write_power_sector_results(
                 + DATA_COLUMNS
                 + GENERATED_EMISSION_RATE_COLS
             ]
+            ba_table_hourly = sort_fuel_categories(ba_table_hourly, ["datetime_utc"])
 
             validation.validate_unique_datetimes(
                 year,
@@ -729,6 +730,7 @@ def write_power_sector_results(
                 ba_table = ba_table[
                     groupby_cols + combined_data_columns + GENERATED_EMISSION_RATE_COLS
                 ]
+                ba_table = sort_fuel_categories(ba_table, groupby_cols[1:])
                 # the annual national file is always written, even if skip_outputs is
                 # True, because it is used to calculate consumption-based emissions
                 output_to_results(
@@ -739,6 +741,29 @@ def write_power_sector_results(
                     path_prefix,
                     skip_outputs and not (ba == "US" and agg_level == "annual"),
                 )
+
+
+def sort_fuel_categories(df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """Sort power sector results by fuel category and `keys`.
+
+    Individual fuel categories are sorted alphabetically, followed by the "residual"
+    and "total" rows, so that the aggregated rows are always at the bottom of the
+    file.
+
+    Args:
+        df (pd.DataFrame): power sector results with a fuel_category column.
+        keys (list[str]): columns to sort by within each fuel category.
+
+    Returns:
+        pd.DataFrame: sorted data frame with a reset index.
+    """
+    aggregate_order = {"residual": 1, "total": 2}
+    return (
+        df.assign(fuel_order=df["fuel_category"].map(aggregate_order).fillna(0))
+        .sort_values(["fuel_order", "fuel_category"] + keys)
+        .drop(columns="fuel_order")
+        .reset_index(drop=True)
+    )
 
 
 def calculate_residual_mix(

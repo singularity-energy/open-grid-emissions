@@ -296,3 +296,47 @@ def test_residual_row_without_residual_generation(monthly_fleet_data):
         residual = table[table["fuel_category"] == "residual"]
         assert len(residual) == n_rows
         assert (residual[DATA_COLUMNS] == 0).all().all()
+
+
+@pytest.mark.parametrize(
+    "resolution, keys",
+    [("hourly", ["datetime_utc"]), ("monthly", ["report_date"]), ("annual", [])],
+)
+def test_fuel_category_sort_order(resolution, keys):
+    """Fuel categories should be sorted alphabetically, followed by the residual and
+    total rows, and by date within each fuel category."""
+    datetimes = pd.date_range("2023-01-01 05:00", periods=2, freq="h", tz="UTC")
+    records = []
+    # records are deliberately out of order
+    for hour in reversed(datetimes):
+        for fuel in ["wind", "natural_gas", "solar", "coal"]:
+            record = {
+                "ba_code": "BA1",
+                "fuel_category": fuel,
+                "datetime_utc": hour,
+                "report_date": pd.Timestamp("2023-01-01"),
+            }
+            record.update({col: 1.0 for col in DATA_COLUMNS})
+            records.append(record)
+    fleet_data = pd.DataFrame(records)
+    if resolution != "hourly":
+        fleet_data = fleet_data.drop(columns="datetime_utc")
+    outputs = capture_outputs(
+        fleet_data,
+        skip_outputs=False,
+        include_hourly=resolution == "hourly",
+        include_monthly=resolution == "monthly",
+        include_annual=resolution == "annual",
+    )
+
+    table = outputs[(f"power_sector_data/{resolution}/", "BA1")][0]
+    expected_order = ["coal", "natural_gas", "solar", "wind", "residual", "total"]
+    assert table["fuel_category"].unique().tolist() == expected_order
+    pd.testing.assert_frame_equal(
+        table,
+        table.sort_values(keys)
+        .sort_values(
+            "fuel_category", key=lambda x: x.map(expected_order.index), kind="stable"
+        )
+        .reset_index(drop=True),
+    )
