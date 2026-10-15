@@ -24,6 +24,15 @@ current_early_release_year = 2025
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
 
+# specify the fuel categories included in the fossil-only residual mix, which
+# approximates the residual mix by excluding resources that may generate RECs.
+# Following the CRS guidance for fossil-only residual mixes, this only includes coal,
+# oil, and gas. Waste is excluded even though it includes some fossil-derived fuels
+# (e.g. non-biogenic municipal solid waste and tire-derived fuels), since it also
+# includes biogenic waste and waste-to-energy can generate RECs in some states, so
+# excluding it keeps the residual mix conservative
+RESIDUAL_MIX_FUEL_CATEGORIES = ["coal", "natural_gas", "petroleum"]
+
 # specify the energy_source_codes that are considerd to be biomass
 BIOMASS_FUELS = [
     "AB",  # Agricultural Byproducts

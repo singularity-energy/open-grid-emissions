@@ -197,3 +197,146 @@ def test_national_hourly_results():
     assert total["net_generation_mwh"].tolist() == [2.0, 4.0, 2.0]
     wind = national[national["fuel_category"] == "wind"].set_index("datetime_utc")
     assert wind["net_generation_mwh"].tolist() == [1.0, 2.0, 1.0]
+
+
+def test_residual_mix_annual_results(monthly_fleet_data):
+    """The residual row should sum only the residual mix fuel categories.
+
+    In the monthly fleet data, natural gas is the only residual mix fuel, so the
+    residual row should equal the natural gas row, excluding solar and storage, with blank storage
+    columns and the same emission rates as natural gas.
+    """
+    outputs = capture_outputs(
+        monthly_fleet_data,
+        skip_outputs=False,
+        include_hourly=False,
+        include_monthly=True,
+        include_annual=True,
+    )
+    for ba in ["BA1", "BA2", "US"]:
+        table = outputs[("power_sector_data/annual/", ba)][0].set_index("fuel_category")
+        pd.testing.assert_series_equal(
+            table.loc[
+                "residual", DATA_COLUMNS + output_data.GENERATED_EMISSION_RATE_COLS
+            ],
+            table.loc[
+                "natural_gas", DATA_COLUMNS + output_data.GENERATED_EMISSION_RATE_COLS
+            ],
+            check_names=False,
+        )
+        assert table.loc["residual", STORAGE_DATA_COLUMNS].isna().all()
+
+
+def test_residual_mix_hourly_results():
+    """Every hourly BA file should have a residual row for every hour.
+
+    BA1 has coal, natural gas, waste, and wind, so its residual row should sum coal and
+    natural gas, excluding waste and wind. BA2 only has wind, so its residual row
+    should be zero, with zero emission rates, rather than missing.
+    """
+    datetimes = pd.date_range("2023-01-01 05:00", periods=2, freq="h", tz="UTC")
+    records = []
+    for ba, fuels in [
+        ("BA1", ["coal", "natural_gas", "waste", "wind"]),
+        ("BA2", ["wind"]),
+    ]:
+        for hour in datetimes:
+            for fuel in fuels:
+                record = {
+                    "ba_code": ba,
+                    "fuel_category": fuel,
+                    "datetime_utc": hour,
+                    "report_date": pd.Timestamp("2023-01-01"),
+                }
+                record.update({col: 1.0 for col in DATA_COLUMNS})
+                records.append(record)
+    outputs = capture_outputs(
+        pd.DataFrame(records),
+        skip_outputs=False,
+        include_hourly=True,
+        include_monthly=False,
+        include_annual=False,
+    )
+
+    ba1 = outputs[("power_sector_data/hourly/", "BA1")][0]
+    ba1_residual = ba1[ba1["fuel_category"] == "residual"]
+    assert ba1_residual["net_generation_mwh"].tolist() == [2.0, 2.0]
+    assert ba1_residual["co2_mass_lb_for_electricity"].tolist() == [2.0, 2.0]
+    assert ba1_residual["generated_co2_rate_lb_per_mwh_for_electricity"].tolist() == [
+        1.0,
+        1.0,
+    ]
+
+    ba2 = outputs[("power_sector_data/hourly/", "BA2")][0]
+    ba2_residual = ba2[ba2["fuel_category"] == "residual"]
+    assert len(ba2_residual) == len(datetimes)
+    assert (ba2_residual[DATA_COLUMNS] == 0).all().all()
+    assert (ba2_residual[output_data.GENERATED_EMISSION_RATE_COLS] == 0).all().all()
+
+    us = outputs[("power_sector_data/hourly/", "US")][0]
+    us_residual = us[us["fuel_category"] == "residual"]
+    assert us_residual["net_generation_mwh"].tolist() == [2.0, 2.0]
+
+
+def test_residual_row_without_residual_generation(monthly_fleet_data):
+    """A BA with no fossil generation should still have a residual row of zeros in the
+    monthly and annual files."""
+    no_residual = monthly_fleet_data[
+        monthly_fleet_data["fuel_category"] != "natural_gas"
+    ]
+    outputs = capture_outputs(
+        no_residual,
+        skip_outputs=False,
+        include_hourly=False,
+        include_monthly=True,
+        include_annual=True,
+    )
+    for agg_level, n_rows in [("monthly", 2), ("annual", 1)]:
+        table = outputs[(f"power_sector_data/{agg_level}/", "BA1")][0]
+        residual = table[table["fuel_category"] == "residual"]
+        assert len(residual) == n_rows
+        assert (residual[DATA_COLUMNS] == 0).all().all()
+
+
+@pytest.mark.parametrize(
+    "resolution, keys",
+    [("hourly", ["datetime_utc"]), ("monthly", ["report_date"]), ("annual", [])],
+)
+def test_fuel_category_sort_order(resolution, keys):
+    """Fuel categories should be sorted alphabetically, followed by the residual and
+    total rows, and by date within each fuel category."""
+    datetimes = pd.date_range("2023-01-01 05:00", periods=2, freq="h", tz="UTC")
+    records = []
+    # records are deliberately out of order
+    for hour in reversed(datetimes):
+        for fuel in ["wind", "natural_gas", "solar", "coal"]:
+            record = {
+                "ba_code": "BA1",
+                "fuel_category": fuel,
+                "datetime_utc": hour,
+                "report_date": pd.Timestamp("2023-01-01"),
+            }
+            record.update({col: 1.0 for col in DATA_COLUMNS})
+            records.append(record)
+    fleet_data = pd.DataFrame(records)
+    if resolution != "hourly":
+        fleet_data = fleet_data.drop(columns="datetime_utc")
+    outputs = capture_outputs(
+        fleet_data,
+        skip_outputs=False,
+        include_hourly=resolution == "hourly",
+        include_monthly=resolution == "monthly",
+        include_annual=resolution == "annual",
+    )
+
+    table = outputs[(f"power_sector_data/{resolution}/", "BA1")][0]
+    expected_order = ["coal", "natural_gas", "solar", "wind", "residual", "total"]
+    assert table["fuel_category"].unique().tolist() == expected_order
+    pd.testing.assert_frame_equal(
+        table,
+        table.sort_values(keys)
+        .sort_values(
+            "fuel_category", key=lambda x: x.map(expected_order.index), kind="stable"
+        )
+        .reset_index(drop=True),
+    )

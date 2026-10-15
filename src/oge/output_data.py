@@ -13,6 +13,7 @@ from oge.logging_util import get_logger
 from oge.constants import (
     ConversionFactors,
     CLEAN_FUELS,
+    RESIDUAL_MIX_FUEL_CATEGORIES,
     earliest_validated_year,
     earliest_hourly_data_year,
     latest_validated_year,
@@ -622,9 +623,14 @@ def write_power_sector_results(
                 .reset_index()
             )
             ba_total["fuel_category"] = "total"
+            ba_residual = calculate_residual_mix(
+                ba_table, ba_total, ["datetime_utc", "report_date"]
+            )
 
-            # concat the totals to the fuel-specific totals
-            ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
+            # concat the totals and residual mix to the fuel-specific totals
+            ba_table = pd.concat(
+                [ba_table, ba_residual, ba_total], axis=0, ignore_index=True
+            )
 
             # create a dataframe for the hourly values that groups duplicate
             # datetime_utc values
@@ -658,6 +664,7 @@ def write_power_sector_results(
                 + DATA_COLUMNS
                 + GENERATED_EMISSION_RATE_COLS
             ]
+            ba_table_hourly = sort_fuel_categories(ba_table_hourly, ["datetime_utc"])
 
             validation.validate_unique_datetimes(
                 year,
@@ -697,9 +704,12 @@ def write_power_sector_results(
                 .reset_index()
             )
             ba_total["fuel_category"] = "total"
+            ba_residual = calculate_residual_mix(ba_table, ba_total, ["report_date"])
 
-            # concat the totals to the fuel-specific totals
-            ba_table = pd.concat([ba_table, ba_total], axis=0, ignore_index=True)
+            # concat the totals and residual mix to the fuel-specific totals
+            ba_table = pd.concat(
+                [ba_table, ba_residual, ba_total], axis=0, ignore_index=True
+            )
 
             agg = {}
             if include_monthly:
@@ -720,6 +730,7 @@ def write_power_sector_results(
                 ba_table = ba_table[
                     groupby_cols + combined_data_columns + GENERATED_EMISSION_RATE_COLS
                 ]
+                ba_table = sort_fuel_categories(ba_table, groupby_cols[1:])
                 # the annual national file is always written, even if skip_outputs is
                 # True, because it is used to calculate consumption-based emissions
                 output_to_results(
@@ -730,6 +741,60 @@ def write_power_sector_results(
                     path_prefix,
                     skip_outputs and not (ba == "US" and agg_level == "annual"),
                 )
+
+
+def sort_fuel_categories(df: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """Sort power sector results by fuel category and `keys`.
+
+    Individual fuel categories are sorted alphabetically, followed by the "residual"
+    and "total" rows, so that the aggregated rows are always at the bottom of the
+    file.
+
+    Args:
+        df (pd.DataFrame): power sector results with a fuel_category column.
+        keys (list[str]): columns to sort by within each fuel category.
+
+    Returns:
+        pd.DataFrame: sorted data frame with a reset index.
+    """
+    aggregate_order = {"residual": 1, "total": 2}
+    return (
+        df.assign(fuel_order=df["fuel_category"].map(aggregate_order).fillna(0))
+        .sort_values(["fuel_order", "fuel_category"] + keys)
+        .drop(columns="fuel_order")
+        .reset_index(drop=True)
+    )
+
+
+def calculate_residual_mix(
+    ba_table: pd.DataFrame, ba_total: pd.DataFrame, keys: list[str]
+) -> pd.DataFrame:
+    """Calculate the fossil-only residual mix as a "residual" fuel category.
+
+    The fossil-only residual mix approximates the residual mix by summing only the
+    fuel categories in `RESIDUAL_MIX_FUEL_CATEGORIES`. The residual mix covers the
+    same keys as the total data, with zeros where there is no generation from these
+    fuel categories, so that every BA has a residual row even if it has no fossil
+    generators. Energy storage columns are left blank since storage is not included
+    in the residual mix.
+
+    Args:
+        ba_table (pd.DataFrame): data for a single BA, by fuel category and `keys`.
+        ba_total (pd.DataFrame): total data for the BA, by `keys`.
+        keys (list[str]): columns other than fuel_category identifying each record.
+
+    Returns:
+        pd.DataFrame: residual mix data with the same keys as `ba_total`.
+    """
+    ba_residual = (
+        ba_table[ba_table["fuel_category"].isin(RESIDUAL_MIX_FUEL_CATEGORIES)]
+        .groupby(keys, dropna=False)[DATA_COLUMNS]
+        .sum(min_count=1)
+        .reindex(ba_total.set_index(keys).index, fill_value=0)
+        .reset_index()
+    )
+    ba_residual["fuel_category"] = "residual"
+    return ba_residual
 
 
 def add_generated_emission_rate_columns(df: pd.DataFrame) -> pd.DataFrame:
