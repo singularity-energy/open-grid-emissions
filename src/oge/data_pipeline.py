@@ -126,7 +126,6 @@ def main(args):
     # 1. Download data
     ####################################################################################
     logger.info("1. Downloading data")
-    logger.info(f"Using {os.getenv('PUDL_BUILD', default='stable')} PUDL build")
     # PUDL
     if PUDL_ENGINE:
         download_data.download_pudl_data(source="aws")
