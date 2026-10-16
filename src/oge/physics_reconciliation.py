@@ -277,7 +277,8 @@ def pivot_eia930_tables_to_series(tables: EIA930Tables) -> pd.DataFrame:
         "demand_mwh": DEMAND,
     }
     operations.columns = pd.MultiIndex.from_tuples(
-        [(operations_fields[value], ba, "") for value, ba in operations.columns]
+        [(operations_fields[value], ba, "") for value, ba in operations.columns],
+        names=SERIES_LEVELS,
     )
 
     net_generation_by_energy_source = tables.net_generation_by_energy_source.pivot(
@@ -289,7 +290,8 @@ def pivot_eia930_tables_to_series(tables: EIA930Tables) -> pd.DataFrame:
         [
             (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)
             for ba, energy_source in net_generation_by_energy_source.columns
-        ]
+        ],
+        names=SERIES_LEVELS,
     )
 
     interchange = tables.interchange.pivot(
@@ -301,11 +303,13 @@ def pivot_eia930_tables_to_series(tables: EIA930Tables) -> pd.DataFrame:
         values="interchange_mwh",
     )
     interchange.columns = pd.MultiIndex.from_tuples(
-        [(INTERCHANGE, ba, adjacent_ba) for ba, adjacent_ba in interchange.columns]
+        [(INTERCHANGE, ba, adjacent_ba) for ba, adjacent_ba in interchange.columns],
+        names=SERIES_LEVELS,
     )
 
     # series that are missing for some hours (e.g. after a timestamp shift) are blank
-    # for those hours
+    # for those hours. The column names keep the levels when a table is empty, e.g.
+    # generation by energy source before 2018-07-01.
     series = pd.concat(
         [net_generation_by_energy_source, operations, interchange], axis="columns"
     ).sort_index()
@@ -428,6 +432,22 @@ def read_eia930_tables(folder: str, stage: str) -> EIA930Tables:
             )
             for table_name, file_name in TABLE_FILE_NAMES.items()
         }
+    )
+
+
+def eia930_tables_exist(folder: str, stage: str) -> bool:
+    """Returns whether all EIA-930 tables of a stage were written to `folder`.
+
+    Args:
+        folder (str): folder the files were written to.
+        stage (str): processing stage, used in the file names.
+
+    Returns:
+        bool: True if the files for all three tables exist.
+    """
+    return all(
+        os.path.exists(os.path.join(folder, f"eia930_{stage}_{file_name}.parquet"))
+        for file_name in TABLE_FILE_NAMES.values()
     )
 
 
