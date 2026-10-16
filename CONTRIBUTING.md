@@ -64,7 +64,7 @@ Cross-cutting modules used throughout: `helpers` (shared utilities, e.g. plant/B
 ### Data sources & external dependencies
 
 - **PUDL** (`catalystcoop-pudl`, installed from the `singularity-energy/pudl` fork) is the primary source for EIA/EPA data, exposed as a SQLite DB (`PUDL_ENGINE` in `src/oge/__init__.py`) or loaded from S3 depending on `PUDL_DATA_STORE`.
-- `gridemissions` (Singularity Energy fork) supplies EIA-930 grid balancing data.
+- EIA-930 grid balancing data come from PUDL and are cleaned by `physics_reconciliation`, a port of the cleaning code in the `gridemissions` package (no longer a dependency).
 - The `OGE_DATA_STORE` env var (`s3` vs `local`) controls whether *OGE's own* published outputs are fetched from S3 rather than regenerated — this is for consumers importing `oge` as a package, distinct from `PUDL_DATA_STORE`.
 - `constants.current_early_release_year` / `latest_validated_year` gate whether a given `--year` runs against stable vs. early-release EIA data (see `validation.validate_year`); early-release runs additionally require `PUDL_BUILD=nightly`.
 

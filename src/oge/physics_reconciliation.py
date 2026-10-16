@@ -23,10 +23,12 @@ the other series.
 This code was ported from the `gridemissions` package
 (https://github.com/jdechalendar/gridemissions), by way of the Singularity fork
 (https://github.com/singularity-energy/gridemissions, commit
-0cbe7620620f02ab91227940ef107b53bd1f9bb4). The cleaning logic is unchanged from that
-version, but the reconciliation is solved with a more precise solver (see
-`HourlyReconciliationProblem`), so reconciled values can differ from gridemissions' by
-up to about 1 MWh. The original code is distributed under the following license:
+0cbe7620620f02ab91227940ef107b53bd1f9bb4), with two changes: the reconciliation is
+solved with a more precise solver (see `HourlyReconciliationProblem`), and net
+generation and generation by energy source are allowed to be negative where the data
+are negative, since they represent net load (e.g. station use, or charging storage).
+The original code forced them to be at least 1 MWh and set negative solar to zero. The
+original code is distributed under the following license:
 
     MIT License
 
@@ -101,9 +103,20 @@ GENERATION_BY_ENERGY_SOURCE_START_DATE = pd.to_datetime("20180701", utc=True)
 WEIGHT_NUMERATOR = 1e4  # MWh
 WEIGHT_MINIMUM_DENOMINATOR = 10  # MWh
 
-# lowest value allowed for demand, net generation and generation by energy source in
-# the optimization
-OPTIMIZATION_LOWER_BOUND = 1.0  # MWh
+# lowest value allowed for demand in the optimization. Net generation and generation
+# by energy source can be negative when a BA or an energy source is a net load, e.g.
+# from station use at night or from charging storage. The optimization keeps each of
+# them at or above the lower of zero and its value before reconciliation, so that it
+# doesn't create net load that wasn't reported (see `HourlyReconciliationProblem`).
+DEMAND_LOWER_BOUND = 0.0  # MWh
+
+# range outside of which values are considered unrealistic in basic cleaning, for
+# demand and for net generation and generation by energy source (see
+# `create_reject_bounds`). The lowest generation by energy source in 2025 is about
+# -8.5 GWh (CISO "other", which includes storage), so generation can be negative well
+# beyond that before it is rejected.
+DEMAND_REJECT_BOUNDS = (0.0, 200e3)  # MWh
+GENERATION_REJECT_BOUNDS = (-50e3, 200e3)  # MWh
 
 # settings of the Clarabel solver. With these tolerances, the reconciled values are
 # within about 0.01 MWh of the exact solution.
@@ -490,8 +503,6 @@ def apply_basic_cleaning(series: pd.DataFrame) -> pd.DataFrame:
           direction, adding the opposite of the existing series if needed.
         - Drop values outside of realistic bounds (see `create_reject_bounds`), only
           for BAs in the original data.
-        - Set negative solar generation to zero. There are many values of around -50
-          MWh at night, from station use.
         - For BAs with no generation by energy source, assign all net generation to
           "other".
 
@@ -568,19 +579,14 @@ def apply_basic_cleaning(series: pd.DataFrame) -> pd.DataFrame:
     for key in keys_to_filter:
         series[key] = filter_to_bounds(series.loc[:, key], reject_bounds[key])
 
-    # do the same for generation by energy source, keeping values of solar down to
-    # -1 GW and then setting negative values to zero
+    # do the same for generation by energy source
     for ba in regions:
         has_energy_sources = False
         for energy_source in ENERGY_SOURCES:
             key = (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)
             if key in series.columns:
                 has_energy_sources = True
-                if energy_source == "solar":
-                    reject_bounds[key] = (-1e3, 200e3)
                 series[key] = filter_to_bounds(series.loc[:, key], reject_bounds[key])
-                if energy_source == "solar":
-                    series[key] = series.loc[:, key].where(~(series.loc[:, key] < 0), 0)
         if not has_energy_sources:
             series[(NET_GENERATION_BY_ENERGY_SOURCE, ba, "other")] = series.loc[
                 :, (NET_GENERATION, ba, "")
@@ -613,8 +619,11 @@ def get_interchange_keys(series: pd.DataFrame, bas: list[str]) -> list[tuple]:
 def create_reject_bounds(series: pd.DataFrame, regions: list[str]) -> defaultdict:
     """Creates the ranges outside of which values are considered unrealistic.
 
-    The default range is -1 MWh to 200 GWh. Interchange and total interchange can be
-    between -100 GWh and 100 GWh. A few series have their own ranges.
+    Demand can be between 0 and 200 GWh (`DEMAND_REJECT_BOUNDS`). Net generation and
+    generation by energy source can be between -50 GWh and 200 GWh
+    (`GENERATION_REJECT_BOUNDS`), since they are negative when a BA or an energy source
+    is a net load. Interchange and total interchange can be between -100 GWh and 100
+    GWh. A few series have their own ranges.
 
     Args:
         series (pd.DataFrame): series data frame.
@@ -623,8 +632,9 @@ def create_reject_bounds(series: pd.DataFrame, regions: list[str]) -> defaultdic
     Returns:
         defaultdict: (lower bound, upper bound) in MWh, keyed by series key.
     """
-    reject_bounds = defaultdict(lambda: (-1.0, 200e3))
+    reject_bounds = defaultdict(lambda: GENERATION_REJECT_BOUNDS)
     for ba in regions:
+        reject_bounds[(DEMAND, ba, "")] = DEMAND_REJECT_BOUNDS
         reject_bounds[(TOTAL_INTERCHANGE, ba, "")] = (-100e3, 100e3)
     for key in get_interchange_keys(series, regions):
         reject_bounds[key] = (-100e3, 100e3)
@@ -785,7 +795,11 @@ def reconcile_energy_balance(
         - interchange from A to B = -(interchange from B to A)
         - net generation = sum of generation by energy source, for each BA (only if
           `include_energy_sources`)
-        - demand, net generation and generation by energy source are at least 1 MWh
+        - demand is at least `DEMAND_LOWER_BOUND`
+        - net generation and generation by energy source are at least the lower of
+          zero and their value before reconciliation. They can be negative where the
+          data are negative, but the reconciliation can't make them more negative or
+          turn positive values negative.
 
     The problem is the same for every hour except for its data and weights, so it is
     built once (see `HourlyReconciliationProblem`) and solved for each hour in turn.
@@ -889,6 +903,17 @@ class HourlyReconciliationProblem:
         self.values = cp.Parameter(len(self.keys))
         self.sqrt_weights = cp.Parameter(len(self.keys), nonneg=True)
         self.adjustments = cp.Variable(len(self.keys))
+        # positions of the generation series (net generation and generation by energy
+        # source) in `keys`, and the lowest value allowed for each, set by `solve` to
+        # the lower of zero and the value before reconciliation
+        self.generation_positions = np.array(
+            [
+                i
+                for i, key in enumerate(self.keys)
+                if key[0] in [NET_GENERATION, NET_GENERATION_BY_ENERGY_SOURCE]
+            ]
+        )
+        self.generation_lower_bounds = cp.Parameter(len(self.generation_positions))
 
         # reconciled values of each field, as slices of the reconciled data
         reconciled = self.values + self.adjustments
@@ -912,8 +937,8 @@ class HourlyReconciliationProblem:
         opposite = [pair_positions[(adj, ba)] for ba, adj in interchange_pairs]
 
         constraints = [
-            demand >= OPTIMIZATION_LOWER_BOUND,
-            net_generation >= OPTIMIZATION_LOWER_BOUND,
+            demand >= DEMAND_LOWER_BOUND,
+            reconciled[self.generation_positions] >= self.generation_lower_bounds,
             # energy balance of each BA
             demand + total_interchange == net_generation,
             # total interchange is the sum of interchange with each adjacent BA
@@ -929,7 +954,6 @@ class HourlyReconciliationProblem:
                 regions, [ba for _, ba in energy_source_pairs]
             )
             constraints += [
-                generation >= OPTIMIZATION_LOWER_BOUND,
                 # net generation is the sum of generation by energy source
                 net_generation == energy_sources_to_ba @ generation,
             ]
@@ -960,6 +984,9 @@ class HourlyReconciliationProblem:
             raise ValueError("Cannot reconcile data with blank values")
         self.values.value = values
         self.sqrt_weights.value = np.sqrt(weights)
+        self.generation_lower_bounds.value = np.minimum(
+            values[self.generation_positions], 0
+        )
         self.problem.solve(solver=cp.CLARABEL, **CLARABEL_SETTINGS)
         if self.problem.status != cp.OPTIMAL:
             raise ValueError(
@@ -995,7 +1022,7 @@ def check_energy_balance(series: pd.DataFrame, tolerance: float = 1e-2):
 
     Checks for each BA that there are no blank values, that demand + total interchange
     = net generation, that total interchange = sum of interchange, that interchange is
-    antisymmetric, and that demand and net generation are not negative.
+    antisymmetric, and that demand is at least `DEMAND_LOWER_BOUND`.
 
     Args:
         series (pd.DataFrame): reconciled series data frame.
@@ -1044,8 +1071,9 @@ def check_energy_balance(series: pd.DataFrame, tolerance: float = 1e-2):
             if (antisymmetry.abs() > tolerance).sum():
                 logger.error(f"{ba}-{adjacent_ba}: interchange antisymmetry violated")
 
-        for field, values in [(DEMAND, demand), (NET_GENERATION, net_generation)]:
-            if (values < 0).sum():
-                logger.error(
-                    f"{ba}: there are {(values < 0).sum()} negative values for {field}"
-                )
+        below_bound = demand < DEMAND_LOWER_BOUND - tolerance
+        if below_bound.sum():
+            logger.error(
+                f"{ba}: there are {below_bound.sum()} values of {DEMAND} below "
+                f"{DEMAND_LOWER_BOUND} MWh"
+            )
