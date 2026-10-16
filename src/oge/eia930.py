@@ -1,21 +1,15 @@
 import pandas as pd
 import re
 from datetime import timedelta
-import os
 
 import oge.load_data as load_data
 from oge.column_checks import get_dtypes
+from oge.physics_reconciliation import make_dataset
 from oge.filepaths import (
-    top_folder,
     outputs_folder,
     reference_table_folder,
 )
 from oge.logging_util import get_logger
-
-# Tell gridemissions where to find config before we load gridemissions
-os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")
-
-from gridemissions.workflows import make_dataset  # noqa E402
 
 logger = get_logger(__name__)
 
@@ -71,27 +65,18 @@ def clean_930(year: int, path_prefix: str = ""):
     raw_file = data_folder + "eia930_unadjusted_raw.csv"
     df.to_csv(raw_file)
 
-    # scrape 2 months before start of year for rolling window cleaning
-    start = f"{year - 1}1001T00Z"
-    # Scrape 1 year (plus one day for timezone flexibility)
-    end = f"{year + 1}0101T23Z"
-
     # Adjust
     logger.info("Adjusting EIA-930 time stamps")
     df = manual_930_adjust(df)
-    df.to_csv(data_folder + "eia930_raw.csv")  # Will be read by gridemissions workflow
+    df.to_csv(data_folder + "eia930_raw.csv")  # Will be read by the cleaning workflow
 
     # Run cleaning
     logger.info("Running physics-based data cleaning")
     make_dataset(
-        start,
-        end,
         file_name="eia930",
         tmp_folder=data_folder,
         folder_hist=data_folder,
-        scrape=False,
         add_ca_fuels=False,
-        calc_consumed=False,
     )
 
 

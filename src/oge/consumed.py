@@ -5,9 +5,7 @@ import sys
 
 from packaging.version import Version
 
-from gridemissions.load import BaData
-from gridemissions.eia_api import KEYS, SRC
-
+from oge.physics_reconciliation import BaData, KEYS, SRC
 from oge.filepaths import reference_table_folder, results_folder
 from oge.logging_util import get_logger
 from oge.constants import TIME_RESOLUTIONS
