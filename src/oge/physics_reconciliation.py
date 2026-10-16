@@ -1,20 +1,30 @@
-"""Physics-based cleaning of EIA-930 data, ported from the `gridemissions` package.
+"""Physics-based reconciliation of EIA-930 data.
 
-This module is a copy of the parts of `gridemissions` that OGE uses to clean EIA-930
-data: the basic cleaner, the rolling window filter, the optimization-based (cvxpy)
-reconciliation, and the `BaData` container they operate on. It was copied from the
-Singularity fork of `gridemissions` at commit
-0cbe7620620f02ab91227940ef107b53bd1f9bb4
-(https://github.com/singularity-energy/gridemissions), which is itself a fork of
-https://github.com/jdechalendar/gridemissions.
+EIA-930 data are not always physically consistent: a BA's demand plus its total
+interchange does not always equal its net generation, total interchange does not
+always equal the sum of interchange with each neighbor, and two neighboring BAs do not
+always agree on the interchange between them. This module cleans the data in three
+steps:
 
-The code is intentionally kept as close as possible to the original so that its
-outputs can be compared byte for byte with the `gridemissions` package. Parts of the
-package that OGE does not use (the EIA API scraper, the pyomo cleaner, the emissions
-calculation, the AMPD and visualization tools, and the config file handling) were not
-copied.
+1. Basic cleaning: drop values outside of realistic bounds and add series for BAs
+   outside of the US.
+2. Rolling window cleaning: drop anomalous values using a rolling median and
+   percentile range, then fill gaps.
+3. Reconciliation: for each hour, find the smallest weighted adjustments to the data
+   that make it physically consistent, using a quadratic program.
 
-The original code is distributed under the following license:
+The data enter and leave this module as three tables shaped like PUDL's EIA-930
+tables (see `EIA930Tables`). Internally, each step operates on a "series" data frame
+with one row per hour and one column per time series, where each column is identified
+by a (field, balancing_authority_code_eia, other) tuple. `other` is the adjacent BA
+for interchange series, the energy source for generation by source series, and "" for
+the other series.
+
+This code was ported from the `gridemissions` package
+(https://github.com/jdechalendar/gridemissions), by way of the Singularity fork
+(https://github.com/singularity-energy/gridemissions, commit
+0cbe7620620f02ab91227940ef107b53bd1f9bb4). The cleaning logic is unchanged from that
+version. The original code is distributed under the following license:
 
     MIT License
 
@@ -40,973 +50,937 @@ The original code is distributed under the following license:
 """
 
 import os
-from os.path import join
 import time
-import logging
-import re
-import pandas as pd
-import numpy as np
 from collections import defaultdict
+from typing import NamedTuple
+
 import cvxpy as cp
 import dask
+import numpy as np
+import pandas as pd
 
+from oge.logging_util import get_logger
 
-################################################################################
-# From gridemissions/eia_api.py
-################################################################################
+logger = get_logger(__name__)
 
-KEYS = {
-    "E": {
-        "D": "EBA.%s-ALL.D.H",
-        "NG": "EBA.%s-ALL.NG.H",
-        "TI": "EBA.%s-ALL.TI.H",
-        "ID": "EBA.%s-%s.ID.H",
-    },
+# fields that identify the type of each time series
+DEMAND = "demand"
+NET_GENERATION = "net_generation"
+TOTAL_INTERCHANGE = "total_interchange"
+INTERCHANGE = "interchange"
+NET_GENERATION_BY_ENERGY_SOURCE = "net_generation_by_energy_source"
+
+# names of the column levels of a series data frame
+SERIES_LEVELS = ["field", "balancing_authority_code_eia", "other"]
+
+# energy sources reported in EIA-930. The order matters: it sets the order in which
+# the optimization problem is built, which can affect the solver's results.
+ENERGY_SOURCES = [
+    "coal",
+    "gas",
+    "nuclear",
+    "oil",
+    "other",
+    "solar",
+    "unknown",
+    "hydro",
+    "wind",
+]
+
+# Canadian BAs whose generation is assumed to be hydro when it is estimated from
+# their interchange with US BAs
+HYDRO_FOREIGN_BAS = ["BCHA", "HQT", "MHEB"]
+
+# the optimization only reconciles generation by energy source after this date,
+# because EIA-930 did not collect generation by energy source before it
+GENERATION_BY_ENERGY_SOURCE_START_DATE = pd.to_datetime("20180701", utc=True)
+
+# parameters used to compute the weight of each series in the optimization
+WEIGHT_NUMERATOR = 1e4  # MWh
+WEIGHT_MINIMUM_DENOMINATOR = 10  # MWh
+
+# lowest value allowed for demand, net generation and generation by energy source in
+# the optimization
+OPTIMIZATION_LOWER_BOUND = 1.0  # MWh
+
+# names of the parquet files written for each table of `EIA930Tables`
+TABLE_FILE_NAMES = {
+    "operations": "operations",
+    "net_generation_by_energy_source": "net_generation_by_energy_source",
+    "interchange": "interchange",
 }
 
-SRC = ["COL", "NG", "NUC", "OIL", "OTH", "SUN", "UNK", "WAT", "WND", "GEO", "BIO"]
 
-for src in SRC:
-    KEYS["E"]["SRC_%s" % src] = "EBA.%s-ALL.NG." + src + ".H"
+class EIA930Tables(NamedTuple):
+    """EIA-930 data, in three tables shaped like PUDL's EIA-930 tables.
 
-
-################################################################################
-# From gridemissions/load.py
-################################################################################
-
-
-class BaData(object):
-    """Class to handle BA-level data. The EBA class provides generation,
-    consumption, the trade matrix and total interchange either at the BA or at
-    the regional (IEA-defined) level. User guide:
-        https://www.eia.gov/realtime_grid/docs/userguide-knownissues.pdf
-
-    The class is a light wrapped around the pd.DataFrame object which is the
-    format in which the underlying data are stored.
-
-    The main purpose of the class is to provide convenience functions that make
-    handling the data easier.
-
-    Timestamps are in UTC.
-
-    EBA data columns
-    ----------------
-    D: Demand
-    NG: Net Generation
-    TI: Total Interchange - (positive if exports)
-    ID: Interchange with directly connected balancing authorities - (positive
-        if exports)
-
-    Consistency requirements
-    ------------------------
-    - Interchange data is antisymmetric: ID[i,j] == -ID[j,i]
-    - Total trade with interchange data: TI == sum(ID[i,:])
-    - Balance equation for total trade, demand, generation: TI + D == NG
-
-    Methods
-    -------
-    get_cols(self, r) : generate column names for regions r for a given field.
-
-    Attributes
-    ----------
-    regions : are in alphabetical order
-    df : raw dataframe
+    Attributes:
+        operations (pd.DataFrame): one row per BA and hour, with columns
+            "datetime_utc", "balancing_authority_code_eia", "demand_mwh",
+            "net_generation_mwh" and "interchange_mwh" (total interchange, positive
+            for exports).
+        net_generation_by_energy_source (pd.DataFrame): one row per BA, energy source
+            and hour, with columns "datetime_utc", "balancing_authority_code_eia",
+            "generation_energy_source" and "net_generation_mwh".
+        interchange (pd.DataFrame): one row per pair of BAs and hour, with columns
+            "datetime_utc", "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia" and "interchange_mwh" (positive for
+            exports from "balancing_authority_code_eia").
     """
 
-    def __init__(self, fileNm=None, df=None, variable="E"):
-        """
-        Initialize the BaData object
-
-        There are two ways to initialize this object: by passing a `pd.DataFrame`,
-        or by passing a file name from which to read the data using `pd.read_csv`.
-
-
-        Parameters
-        ----------
-        fileNm: str, default None
-            fileNm from which to read the data
-        df: pd.DataFrame, default None
-            data
-
-        """
-        self.logger = logging.getLogger("load")
-
-        if df is not None:
-            self.df = df
-        else:
-            self.df = pd.read_csv(fileNm, index_col=0, parse_dates=True)
-
-        self.variable = variable
-        self.regions = self._parse_data_cols()
-        self.fileNm = fileNm
-        self.KEY = KEYS[variable]
-
-    def get_cols(self, r=None, field="D"):
-        """
-        Retrieve column name(s) corresponding to region(s) and a field
-
-        Parameters
-        ----------
-        r: str or list of str, default None
-            regions. If None, data is returned for all regions
-        field: str
-            field for which to load columns. Used to index in self.KEY
-
-        Returns
-        -------
-        cols: list of str
-        """
-        if field not in self.KEY:
-            raise ValueError(f"{field} not in str(list(self.KEY.keys()))")
-        if field != "ID":
-            if r is None:
-                r = self.regions
-            if isinstance(r, str):
-                r = [r]
-            return [self.KEY[field] % ir for ir in r]
-        else:
-            if r is None:
-                r = self.regions
-            if isinstance(r, str):
-                r = [r]
-            return [
-                self.KEY[field] % (ir, ir2)
-                for ir in r
-                for ir2 in self.regions
-                if self.KEY[field] % (ir, ir2) in self.df.columns
-            ]
-
-    def get_trade_partners(self, r):
-        """
-        Return list of regions that trade with a given region
-
-        Parameter
-        ---------
-        r: str
-            region for which to search
-        """
-        partners = []
-        for r2 in self.regions:
-            if (self.KEY["ID"] % (r, r2) in self.df.columns) and (
-                self.KEY["ID"] % (r2, r) in self.df.columns
-            ):
-                partners += [r2]
-        return partners
-
-    def _parse_data_cols(self):
-        """
-        Checks:
-        - Consistent number of regions for demand / generation / total
-            interchange / trade matrix
-        Returns the list of regions
-        """
-        regions = set([re.split(r"\.|-|_", el)[1] for el in self.df.columns])
-        D_cols = [
-            re.split(r"\.|-|_", el)[1]
-            for el in self.df.columns
-            if "D" in re.split(r"\.|-|_", el)
-        ]
-        # The check in [3, 5] was added to filter out the generation columns
-        # by source in electricity
-        NG_cols = [
-            re.split(r"\.|-|_", el)[1]
-            for el in self.df.columns
-            if (
-                ("NG" in re.split(r"\.|-|_", el))
-                and (len(re.split(r"\.|-|_", el)) in [3, 5])
-            )
-        ]
-        TI_cols = [
-            re.split(r"\.|-|_", el)[1]
-            for el in self.df.columns
-            if "TI" in re.split(r"\.|-|_", el)
-        ]
-        ID_cols = [
-            re.split(r"\.|-|_", el)[1]
-            for el in self.df.columns
-            if "ID" in re.split(r"\.|-|_", el)
-        ]
-        ID_cols2 = [
-            re.split(r"\.|-|_", el)[2]
-            for el in self.df.columns
-            if "ID" in re.split(r"\.|-|_", el)
-        ]
-
-        self.D_cols = D_cols
-        self.NG_cols = NG_cols
-        self.TI_cols = TI_cols
-        self.ID_cols = ID_cols
-        self.ID_cols2 = ID_cols2
-
-        if len(NG_cols) != len(D_cols):
-            self.logger.warn("Inconsistent columns: len(NG_cols) != len(D_cols)")
-        if set(NG_cols) != regions:
-            self.logger.warn("Inconsistent columns: set(NG_cols) != regions")
-
-        if "i" not in self.variable:
-            if len(NG_cols) != len(TI_cols):
-                self.logger.warn("Inconsistent columns: len(NG_cols) != len(TI_cols)")
-            if set(NG_cols) != set(ID_cols):
-                self.logger.warn("Inconsistent columns: set(NG_cols) != set(ID_cols)")
-            if set(NG_cols) != set(ID_cols2):
-                self.logger.warn("Inconsistent columns: set(NG_cols) != set(ID_cols2)")
-
-        return sorted(list(regions))
-
-    def get_trade_out(self, r=None):
-        if r is None:
-            r = self.regions
-        if isinstance(r, str):
-            r = [r]
-        cols = []
-        for ir2 in self.regions:
-            cols += [self.KEY["ID"] % (ir, ir2) for ir in r]
-        return [c for c in cols if c in self.df.columns]
-
-    def checkBA(self, ba, tol=1e-2, log_level=logging.INFO):
-        """
-        Sanity check function
-        TODO: add check for different generation sources, if data is present
-        """
-        logger = self.logger
-        log_level_old = logger.level
-        logger.setLevel(log_level)
-        logger.debug("Checking %s" % ba)
-        partners = self.get_trade_partners(ba)
-
-        # NaNs
-        for field in ["D", "NG", "TI"]:
-            ind_na = self.df.loc[:, self.get_cols(r=ba, field=field)[0]].isna()
-            cnt_na = ind_na.sum()
-            if cnt_na != 0:
-                logger.error(
-                    "There are still %d nans for %s field %s" % (cnt_na, ba, field)
-                )
-
-        for ba2 in partners:
-            cnt_na = self.df.loc[:, self.KEY["ID"] % (ba, ba2)].isna().sum()
-            if cnt_na != 0:
-                logger.error("There are still %d nans for %s-%s" % (cnt_na, ba, ba2))
-
-        # TI+D == NG
-        res1 = self.df.loc[:, self.get_cols(r=ba, field="NG")[0]] - (
-            self.df.loc[:, self.get_cols(r=ba, field="D")[0]]
-            + self.df.loc[:, self.get_cols(r=ba, field="TI")[0]]
-        )
-        if (res1.abs() > tol).sum() != 0:
-            logger.error("%s: TI+D == NG violated" % ba)
-
-        # TI == ID.sum()
-        res2 = self.df.loc[:, self.get_cols(r=ba, field="TI")[0]] - self.df.loc[
-            :, [self.KEY["ID"] % (ba, ba2) for ba2 in partners]
-        ].sum(axis=1)
-        if (res2.abs() > tol).sum() != 0:
-            logger.error("%s: TI == ID.sum()violated" % ba)
-
-        # ID[i,j] == -ID[j,i]
-        for ba2 in partners:
-            res3 = (
-                self.df.loc[:, self.KEY["ID"] % (ba, ba2)]
-                + self.df.loc[:, self.KEY["ID"] % (ba2, ba)]
-            )
-            if (res3.abs() > tol).sum() != 0:
-                logger.error("%s-%s: ID[i,j] == -ID[j,i] violated" % (ba, ba2))
-
-        # D and NG negative
-        for field in ["D", "NG"]:
-            ind_neg = self.df.loc[:, self.get_cols(r=ba, field=field)[0]] < 0
-            cnt_neg = ind_neg.sum()
-            if cnt_neg != 0:
-                logger.error(
-                    "%s: there are %d <0 values for field %s" % (ba, cnt_neg, field)
-                )
-        logger.setLevel(log_level_old)
-
-
-################################################################################
-# From gridemissions/clean.py
-################################################################################
-
-A = 1e4  # MWh
-GAMMA = 10  # MWh
-EPSILON = 1  # MWh
-
-
-class BaDataCleaner(object):
-    """
-    Template class for data cleaning.
-
-    This is mostly just a shell to show how cleaning classes should operate.
-    """
-
-    def __init__(self, ba_data):
-        """
-        Parameters
-        ----------
-        ba_data : BaData object
-        """
-        self.d = ba_data
-        self.logger = logging.getLogger("clean")
-
-    def process(self):
-        pass
-
-
-class BaDataBasicCleaner(BaDataCleaner):
-    """
-    Basic data cleaning class.
-
-    We run this as the first step of the cleaning process.
-    """
-
-    def __init__(self, ba_data, add_ca_fuels: bool = True):
-        """
-        Parameters
-        ----------
-        ba_data : BaData object
-        add_ca_fuels : bool, Add GEO and BIO columns for CISO generation?
-        """
-        self.add_ca_fuels = add_ca_fuels
-        super().__init__(ba_data)
-
-    def process(self):
-        self.logger.info("Running BaDataBasicCleaner")
-        start = time.time()
-        data = self.d
-        missing_D_cols = [col for col in data.NG_cols if col not in data.D_cols]
-        self.logger.info("Adding demand columns for %d bas" % len(missing_D_cols))
-        for ba in missing_D_cols:
-            data.df.loc[:, data.KEY["D"] % ba] = 1.0
-            data.df.loc[:, data.KEY["NG"] % ba] -= 1.0
-            data.df.loc[:, data.KEY["TI"] % ba] -= 1.0
-
-        # AVRN only exports to BPAT - this is missing for now
-        if "AVRN" not in data.ID_cols:
-            self.logger.info("Adding trade columns for AVRN")
-            ba = "AVRN"
-            ba2 = "BPAT"
-            data.df.loc[:, data.KEY["ID"] % (ba, ba2)] = (
-                data.df.loc[:, data.KEY["NG"] % ba] - 1.0
-            )
-            data.df.loc[:, data.KEY["ID"] % (ba2, ba)] = (
-                -data.df.loc[:, data.KEY["NG"] % ba] + 1.0
-            )
-
-        if self.add_ca_fuels:
-            # Add columns for biomass and geothermal for CISO
-            # We are assuming constant generation for each of these sources
-            # based on historical data. Before updating this, need to
-            # contact the EIA API maintainers to understand why this isn't
-            # reported and where to find it
-            self.logger.info("Adding GEO and BIO columns for CISO")
-            data.df.loc[:, "EBA.CISO-ALL.NG.GEO.H"] = 900.0
-            data.df.loc[:, "EBA.CISO-ALL.NG.BIO.H"] = 600.0
-        #           data.df.loc[:, "EBA.CISO-ALL.NG.H"] += 600.0 + 900.0
-
-        # Add columns for the BAs that are outside of the US
-        foreign_bas = list(
-            set([col for col in data.ID_cols2 if col not in data.NG_cols])
-        )
-        self.logger.info(
-            "Adding demand, generation and TI columns for %d foreign bas"
-            % len(foreign_bas)
-        )
-        for ba in foreign_bas:
-            trade_cols = [col for col in data.df.columns if "%s.ID.H" % ba in col]
-            TI = -data.df.loc[:, trade_cols].sum(axis=1)
-            data.df.loc[:, data.KEY["TI"] % ba] = TI
-            exports = TI.apply(lambda x: max(x, 0))
-            imports = TI.apply(lambda x: min(x, 0))
-            data.df.loc[:, data.KEY["D"] % ba] = -imports
-            data.df.loc[:, data.KEY["NG"] % ba] = exports
-            if ba in ["BCHA", "HQT", "MHEB"]:
-                # Assume for these Canadian BAs generation is hydro
-                data.df.loc[:, data.KEY["SRC_WAT"] % ba] = exports
-            else:
-                # And all others are OTH (other)
-                data.df.loc[:, data.KEY["SRC_OTH"] % ba] = exports
-            for col in trade_cols:
-                ba2 = re.split(r"\.|-|_", col)[1]
-                data.df.loc[:, data.KEY["ID"] % (ba, ba2)] = -data.df.loc[:, col]
-
-        # Make sure that trade columns exist both ways
-        for col in data.get_cols(field="ID"):
-            ba = re.split(r"\.|-|_", col)[1]
-            ba2 = re.split(r"\.|-|_", col)[2]
-            othercol = data.KEY["ID"] % (ba2, ba)
-            if othercol not in data.df.columns:
-                self.logger.info("Adding %s" % othercol)
-                data.df.loc[:, othercol] = -data.df.loc[:, col]
-
-        # Filter unrealistic values using self.reject_dict
-        self._create_reject_dict()
-        cols = (
-            data.get_cols(field="D")
-            + data.get_cols(field="NG")
-            + data.get_cols(field="TI")
-            + data.get_cols(field="ID")
-        )
-        for col in cols:
-            s = data.df.loc[:, col]
-            data.df.loc[:, col] = s.where(
-                (s >= self.reject_dict[col][0]) & (s <= self.reject_dict[col][1])
-            )
-
-        # Do the same for the generation by source columns
-        # If there is no generation by source, add one that is OTH
-        # Edge case for solar:
-        # There are a lot of values at -50 MWh or so during the night. We want
-        # to set those to 0, but consider that very negative values (below
-        # -1GW) are rejected
-        for ba in data.regions:
-            missing = True
-            for src in SRC:
-                col = data.KEY["SRC_%s" % src] % ba
-                if col in data.df.columns:
-                    missing = False
-                    s = data.df.loc[:, col]
-                    if src == "SUN":
-                        self.reject_dict[col] = (-1e3, 200e3)
-                    data.df.loc[:, col] = s.where(
-                        (s >= self.reject_dict[col][0])
-                        & (s <= self.reject_dict[col][1])
-                    )
-                    if src == "SUN":
-                        data.df.loc[:, col] = data.df.loc[:, col].apply(
-                            lambda x: max(x, 0)
-                        )
-            if missing:
-                data.df.loc[:, data.KEY["SRC_OTH"] % ba] = data.df.loc[
-                    :, data.KEY["NG"] % ba
-                ]
-
-        # Reinitialize fields
-        self.logger.info("Reinitializing fields")
-        data = BaData(df=data.df)
-
-        self.r = data
-
-        self.logger.info("Basic cleaning took %.2f seconds" % (time.time() - start))
-
-    def _create_reject_dict(self):
-        """
-        Create a defaultdict to store ranges outside of which values are
-        considered unrealistic.
-
-        The default range is (-1., 200e3) MW. Manual ranges can be set for
-        specific columns here if that range is not strict enough.
-        """
-        reject_dict = defaultdict(lambda: (-1.0, 200e3))
-        for col in self.d.get_cols(field="TI"):
-            reject_dict[col] = (-100e3, 100e3)
-        for col in self.d.get_cols(field="ID"):
-            reject_dict[col] = (-100e3, 100e3)
-        reject_dict["EBA.AZPS-ALL.D.H"] = (1.0, 30e3)
-        reject_dict["EBA.BANC-ALL.D.H"] = (1.0, 6.5e3)
-        reject_dict["EBA.BANC-ALL.TI.H"] = (-5e3, 5e3)
-        reject_dict["EBA.CISO-ALL.NG.H"] = (5e3, 60e3)
-        self.reject_dict = reject_dict
-
-
-def rolling_window_filter(
-    df,
-    offset=20 * 24,
-    min_periods=100,
-    center=True,
-    replace_nan_with_mean=True,
-    return_mean=False,
-):
-    """
-    Apply a rolling window filter to a dataframe.
-
-    Filter using dynamic bounds: reject points that are farther than 4 standard
-    deviations from the mean, using a rolling window to compute the mean and
-    standard deviation.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Dataframe to filter
-    offset : int
-        Passed on to pandas' rolling function
-    min_periods : int
-        Passed on to pandas' rolling function
-    center : bool
-        Passed on to pandas' rolling function
-    replace_nan_with_mean : bool
-        Whether to replace NaNs with the mean of the timeseries at the end of
-        the procedure
-
-    Notes
-    -----
-    Keeps at least 200 MWh around the mean as an acceptance range.
-    """
-    for col in df.columns:
-        rolling_ = df[col].rolling(offset, min_periods=min_periods, center=center)
-        median_ = rolling_.median()
-        # 84.1 % quantile = mean + 1 std in normal data
-        iqr_ = (rolling_.quantile(0.95) - rolling_.quantile(0.05)).apply(
-            lambda x: max(150, x)
-        )
-        ub = median_ + 3 * iqr_
-        lb = median_ - 3 * iqr_
-        idx_reject = (df[col] >= ub) | (df[col] <= lb)
-        df.loc[idx_reject, col] = np.nan
-        if replace_nan_with_mean:
-            # First try interpolating linearly, but only for up to 3 hours
-            df.loc[:, col] = df.loc[:, col].interpolate(limit=3)
-            # If there is more than 3 hours of missing data, use rolling mean
-            df.loc[df[col].isnull(), col] = median_.loc[df[col].isnull()]
-
-    if return_mean:
-        mean_ = df.rolling(offset, min_periods=min_periods, center=center).mean()
-        return (df, mean_)
-    return df
-
-
-class BaDataRollingCleaner(BaDataCleaner):
-    """
-    Rolling window cleaning.
-
-    This applies the `rolling_window_filter` function to the dataset. In order
-    to apply this properly to the beginning of the dataset, we load past data
-    that will be used for the cleaning - that is then dropped.
-    """
-
-    def process(self, file_name="", folder_hist="", nruns=2):
-        """
-        Processor function for the cleaner object.
-
-        Parameters
-        ----------
-        file_name : str
-            Base name of the file from which to read historical data.
-            Data is read from "%s_basic.csv" % file_name
-        folder_hist : str
-            Folder from which to read historical data
-        nruns : int
-            Number of times to apply the rolling window procedure
-
-        Notes
-        -----
-        If we are not processing a large amount of data at a time, we may not
-        have enough data to appropriately estimate the rolling mean and
-        standard deviation for the rolling window procedure. If values are
-        given for `file_name` and `folder_hist`, data will be read from a
-        historical dataset to estimate the rolling mean and standard deviation.
-        If there are very large outliers, they can 'mask' smaller outliers.
-        Running the rolling window procedure a couple of times helps with this
-        issue.
-        """
-        self.logger.info("Running BaDataRollingCleaner (%d runs)" % nruns)
-        start = time.time()
-        data = self.d
-
-        # Remember what part we are cleaning
-        idx_cleaning = data.df.index
-
-        try:
-            # Load the data we already have in memory
-            df_hist = pd.read_csv(
-                os.path.join(folder_hist, "%s_basic.csv" % file_name),
-                index_col=0,
-                parse_dates=True,
-            )
-
-            # Only take the last 1,000 rows
-            # Note that if df_hist has less than 1,000 rows,
-            # pandas knows to select df_hist without raising an error.
-            df_hist = df_hist.iloc[-1000:]
-
-            # Overwrite with the new data
-            old_rows = df_hist.index.difference(data.df.index)
-            df_hist = pd.concat([data.df, df_hist.loc[old_rows, :]])
-            df_hist.sort_index(inplace=True)
-
-        except FileNotFoundError:
-            self.logger.info("No history file")
-            df_hist = data.df
-
-        # Apply rolling horizon threshold procedure
-        # 20200206 update: don't try replacing NaNs anymore, leave that to the
-        # next step
-        for _ in range(nruns):
-            df_hist = rolling_window_filter(df_hist, replace_nan_with_mean=False)
-
-        # Deal with NaNs
-        # First deal with NaNs by taking the average of the previous day and
-        # next day. In general we observe strong daily patterns so this seems
-        # to work well. Limit the filling procedure to one day at a time. If
-        # there are multiple missing days, this makes for a smoother transition
-        # between the two valid days. If we had to do this more than 4 times,
-        # give up and use forward and backward fills without limits
-        for col in df_hist.columns:
-            npasses = 0
-            while (df_hist.loc[:, col].isna().sum() > 0) and (npasses < 4):
-                npasses += 1
-                df_hist.loc[:, col] = pd.concat(
-                    [
-                        df_hist.loc[:, col].groupby(df_hist.index.hour).ffill(limit=1),
-                        df_hist.loc[:, col].groupby(df_hist.index.hour).bfill(limit=1),
-                    ],
-                    axis=1,
-                ).mean(axis=1)
-            if npasses == 4:
-                self.logger.debug("A lot of bad data for %s" % col)
-                df_hist.loc[:, col] = pd.concat(
-                    [
-                        df_hist.loc[:, col].groupby(df_hist.index.hour).ffill(),
-                        df_hist.loc[:, col].groupby(df_hist.index.hour).bfill(),
-                    ],
-                    axis=1,
-                ).mean(axis=1)
-
-            # All bad data columns
-            if df_hist.loc[:, col].isna().sum() == len(df_hist):
-                df_hist.loc[:, col] = 0.0
-
-        # Some NaNs will still remain - try using the rolling mean average
-        df_hist, mean_ = rolling_window_filter(
-            df_hist, replace_nan_with_mean=True, return_mean=True
-        )
-
-        if df_hist.isna().sum().sum() > 0:
-            self.logger.warning("There are still some NaNs. Unexpected")
-
-        # Just keep the indices we are working on currently
-        data = BaData(df=df_hist.loc[idx_cleaning, :])
-
-        self.r = data
-        self.weights = mean_.loc[idx_cleaning, :].applymap(
-            lambda x: A / max(GAMMA, abs(x))
-        )
-
-        self.logger.info(
-            "Rolling window cleaning took %.2f seconds" % (time.time() - start)
-        )
-
-
-class BaDataCvxCleaner(BaDataCleaner):
-    """
-    Optimization-based cleaning class.
-
-    Uses cvxpy.
-    """
-
-    def __init__(self, ba_data, weights=None):
-        super().__init__(ba_data)
-        self.weights = weights
-        if weights is not None:
-            self.d.df = pd.concat(
-                [self.d.df, weights.rename(lambda x: x + "_W", axis=1)], axis=1
-            )
-
-    def process(self, debug=False, with_ng_src=True):
-        start = time.time()
-        self.logger.info("Running BaDataCvxCleaner for %d rows" % len(self.d.df))
-        self.d.df = self.d.df.fillna(0)
-
-        results = []
-
-        def cvx_solve(row, regions, debug=False):
-            if row.isna().sum() > 0:
-                raise ValueError("Cannot call this method on data with NaNs")
-
-            n_regions = len(regions)
-
-            D = row[[KEYS["E"]["D"] % r for r in regions]].values
-            D_W = [
-                el**0.5
-                for el in row[[KEYS["E"]["D"] % r + "_W" for r in regions]].values
-            ]
-            NG = row[[KEYS["E"]["NG"] % r for r in regions]].values
-            NG_W = [
-                el**0.5
-                for el in row[[KEYS["E"]["NG"] % r + "_W" for r in regions]].values
-            ]
-            TI = row[[KEYS["E"]["TI"] % r for r in regions]].values
-            TI_W = [
-                el**0.5
-                for el in row[[KEYS["E"]["TI"] % r + "_W" for r in regions]].values
-            ]
-
-            delta_D = cp.Variable(n_regions, name="delta_D")
-            delta_NG = cp.Variable(n_regions, name="delta_NG")
-            delta_TI = cp.Variable(n_regions, name="delta_TI")
-
-            obj = (
-                cp.sum_squares(cp.multiply(D_W, delta_D))
-                + cp.sum_squares(cp.multiply(NG_W, delta_NG))
-                + cp.sum_squares(cp.multiply(TI_W, delta_TI))
-            )
-
-            ID = {}
-            ID_W = {}
-            for i, ri in enumerate(regions):
-                for j, rj in enumerate(regions):
-                    if KEYS["E"]["ID"] % (ri, rj) in row.index:
-                        ID[(ri, rj)] = row[KEYS["E"]["ID"] % (ri, rj)]
-                        ID_W[(ri, rj)] = row[KEYS["E"]["ID"] % (ri, rj) + "_W"]
-            delta_ID = {k: cp.Variable(name=f"{k}") for k in ID}
-            constraints = [
-                D + delta_D >= 1.0,
-                NG + delta_NG >= 1.0,
-                D + delta_D + TI + delta_TI - NG - delta_NG == 0.0,
-            ]
-
-            if with_ng_src:
-                NG_SRC = {}
-                NG_SRC_W = {}
-
-                for i, src in enumerate(SRC):
-                    for j, r in enumerate(regions):
-                        if KEYS["E"][f"SRC_{src}"] % r in row.index:
-                            NG_SRC[(src, r)] = row[KEYS["E"][f"SRC_{src}"] % r]
-                            NG_SRC_W[(src, r)] = row[KEYS["E"][f"SRC_{src}"] % r + "_W"]
-                delta_NG_SRC = {k: cp.Variable(name=f"{k}") for k in NG_SRC}
-
-                for k in NG_SRC:
-                    constraints += [NG_SRC[k] + delta_NG_SRC[k] >= 1.0]
-                    obj += NG_SRC_W[k] * delta_NG_SRC[k] ** 2
-
-            # Add the antisymmetry constraints twice is less efficient but not a huge deal.
-            for ri, rj in ID:  # then (rj, ri) must also be in ID
-                constraints += [
-                    ID[(ri, rj)]
-                    + delta_ID[(ri, rj)]
-                    + ID[(rj, ri)]
-                    + delta_ID[(rj, ri)]
-                    == 0.0
-                ]
-                obj += ID_W[(ri, rj)] * delta_ID[(ri, rj)] ** 2
-
-            for i, ri in enumerate(regions):
-                if with_ng_src:
-                    constraints += [
-                        NG[i]
-                        + delta_NG[i]
-                        - cp.sum(
-                            [
-                                NG_SRC[(src, ri)] + delta_NG_SRC[(src, ri)]
-                                for src in SRC
-                                if (src, ri) in NG_SRC
-                            ]
-                        )
-                        == 0.0
-                    ]
-                constraints += [
-                    TI[i]
-                    + delta_TI[i]
-                    - cp.sum(
-                        [
-                            ID[(ri, rj)] + delta_ID[(ri, rj)]
-                            for rj in regions
-                            if (ri, rj) in ID
-                        ]
-                    )
-                    == 0.0
-                ]
-            objective = cp.Minimize(obj)
-
-            prob = cp.Problem(objective, constraints)
-            prob.solve()
-
-            if with_ng_src:
-                r = pd.concat(
-                    [
-                        pd.Series(
-                            NG + delta_NG.value,
-                            index=[KEYS["E"]["NG"] % r for r in regions],
-                        ),
-                        pd.Series(
-                            D + delta_D.value,
-                            index=[KEYS["E"]["D"] % r for r in regions],
-                        ),
-                        pd.Series(
-                            TI + delta_TI.value,
-                            index=[KEYS["E"]["TI"] % r for r in regions],
-                        ),
-                        pd.Series(
-                            {KEYS["E"]["ID"] % k: ID[k] + delta_ID[k].value for k in ID}
-                        ),
-                        pd.Series(
-                            {
-                                KEYS["E"][f"SRC_{s}"] % r: NG_SRC[(s, r)]
-                                + delta_NG_SRC[(s, r)].value
-                                for (s, r) in NG_SRC
-                            }
-                        ),
-                        pd.Series({"CleaningObjective": prob.value}),
-                    ]
-                )
-            else:
-                r = pd.concat(
-                    [
-                        pd.Series(
-                            NG + delta_NG.value,
-                            index=[KEYS["E"]["NG"] % r for r in regions],
-                        ),
-                        pd.Series(
-                            D + delta_D.value,
-                            index=[KEYS["E"]["D"] % r for r in regions],
-                        ),
-                        pd.Series(
-                            TI + delta_TI.value,
-                            index=[KEYS["E"]["TI"] % r for r in regions],
-                        ),
-                        pd.Series(
-                            {KEYS["E"]["ID"] % k: ID[k] + delta_ID[k].value for k in ID}
-                        ),
-                        pd.Series({"CleaningObjective": prob.value}),
-                    ]
-                )
-
-            if not debug:
-                return r
-
-            if with_ng_src:
-                deltas = pd.concat(
-                    [
-                        pd.Series(
-                            delta_NG.value, index=[KEYS["E"]["NG"] % r for r in regions]
-                        ),
-                        pd.Series(
-                            delta_D.value, index=[KEYS["E"]["D"] % r for r in regions]
-                        ),
-                        pd.Series(
-                            delta_TI.value, index=[KEYS["E"]["TI"] % r for r in regions]
-                        ),
-                        pd.Series({KEYS["E"]["ID"] % k: delta_ID[k].value for k in ID}),
-                        pd.Series(
-                            {
-                                KEYS["E"][f"SRC_{s}"] % r: delta_NG_SRC[(s, r)].value
-                                for (s, r) in NG_SRC
-                            }
-                        ),
-                    ]
-                )
-            else:
-                deltas = pd.concat(
-                    [
-                        pd.Series(
-                            delta_NG.value, index=[KEYS["E"]["NG"] % r for r in regions]
-                        ),
-                        pd.Series(
-                            delta_D.value, index=[KEYS["E"]["D"] % r for r in regions]
-                        ),
-                        pd.Series(
-                            delta_TI.value, index=[KEYS["E"]["TI"] % r for r in regions]
-                        ),
-                        pd.Series({KEYS["E"]["ID"] % k: delta_ID[k].value for k in ID}),
-                    ]
-                )
-            return pd.concat([r, deltas.rename(lambda x: x + "_Delta")])
-
-        cvx_solve = dask.delayed(cvx_solve)
-        for idx, row in self.d.df.iterrows():
-            results.append(cvx_solve(row, self.d.regions, debug=debug))
-        results = dask.compute(*results, scheduler="processes")
-        df = pd.DataFrame(results, index=self.d.df.index)
-
-        self.r = df.loc[
-            :,
-            [
-                c
-                for c in df.columns
-                if "Delta" not in c and "CleaningObjective" not in c
-            ],
-        ]
-        self.CleaningObjective = df.CleaningObjective
-        self.deltas = df.loc[:, [c for c in df.columns if "Delta" in c]]
-
-        # Make sure the cleaning step performed as expected
-        self.r = BaData(df=self.r)
-        self.logger.info("Checking BAs...")
-        for ba in self.r.regions:
-            self.r.checkBA(ba)
-        self.logger.info("Execution took %.2f seconds" % (time.time() - start))
-
-
-################################################################################
-# From gridemissions/workflows.py
-################################################################################
-
-# Optimization-based cleaning is different pre and post July 2018
-THRESH_DATE = pd.to_datetime("20180701", utc=True)
-
-
-def make_dataset(
-    file_name="EBA",
-    tmp_folder="tmp",
-    folder_hist=None,
-    add_ca_fuels: bool = True,
-):
-    """
-    Run data through the cleaning workflow.
-
-    Reads "%s_raw.csv" % file_name from `tmp_folder`, which must already exist.
-
-    Uses historical data if available.
-
-    Option to add CISO fuels not reported in 930 (GEO, BIO)
+    operations: pd.DataFrame
+    net_generation_by_energy_source: pd.DataFrame
+    interchange: pd.DataFrame
+
+
+def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables:
+    """This is the coordinating function for the physics-based reconciliation of
+    EIA-930 data.
+
+    Each step writes its results to `output_folder` as parquet files, so they can be
+    inspected later:
+        - "basic": after basic cleaning
+        - "rolling": after rolling window cleaning
+        - "weights": the weight of each series in the optimization (values are weights,
+          not MWh)
+        - "reconciled_without_energy_sources": reconciled data before 2018-07-01,
+          when generation by energy source is not reconciled. Only written if the data
+          includes hours before that date.
+        - "reconciled": reconciled data from 2018-07-01 onwards
+    The value of the optimization objective for each hour is written to
+    "eia930_objective.parquet" (and "eia930_objective_without_energy_sources.parquet").
+
+    Args:
+        tables (EIA930Tables): EIA-930 data to reconcile.
+        output_folder (str): folder to write the results of each step to.
+
+    Returns:
+        EIA930Tables: reconciled EIA-930 data from 2018-07-01 onwards. Returns None if
+            the data has no hours from 2018-07-01 onwards.
     """
     start_time = time.time()
 
-    logger = logging.getLogger("scraper")
+    series = pivot_eia930_tables_to_series(tables)
 
-    # Basic data cleaning
     logger.info("Basic data cleaning")
-    data = BaData(fileNm=join(tmp_folder, "%s_raw.csv" % file_name))
-    cleaner = BaDataBasicCleaner(data, add_ca_fuels=add_ca_fuels)
-    cleaner.process()
-    cleaner.r.df.to_csv(join(tmp_folder, "%s_basic.csv" % file_name))
-    data = cleaner.r
+    series = apply_basic_cleaning(series)
+    write_eia930_tables(melt_series_to_eia930_tables(series), output_folder, "basic")
 
-    weights = None
-    if folder_hist is not None:  # Rolling-window-based data cleaning
-        logger.info("Rolling window data cleaning")
-        data = BaData(fileNm=join(tmp_folder, "%s_basic.csv" % file_name))
-        cleaner = BaDataRollingCleaner(data)
-        cleaner.process(file_name, folder_hist)
-        cleaner.r.df.to_csv(join(tmp_folder, "%s_rolling.csv" % file_name))
-        data = cleaner.r
-        weights = cleaner.weights
-        weights.to_csv(join(tmp_folder, "%s_weights.csv" % file_name))
-    else:
-        logger.warning("No rolling window data cleaning!")
+    logger.info("Rolling window data cleaning")
+    series, weights = apply_rolling_window_cleaning(series)
+    write_eia930_tables(melt_series_to_eia930_tables(series), output_folder, "rolling")
+    write_eia930_tables(
+        melt_series_to_eia930_tables(weights, value_suffix="_weight"),
+        output_folder,
+        "weights",
+    )
 
-    if len(data.df.loc[:THRESH_DATE, :]) > 0:
-        logger.info(f"Optimization-based cleaning without src data: pre {THRESH_DATE}")
-        ba_data = BaData(df=data.df.loc[:THRESH_DATE, :])
-        if weights is not None:
-            cleaner = BaDataCvxCleaner(ba_data, weights=weights.loc[:THRESH_DATE, :])
-        else:
-            cleaner = BaDataCvxCleaner(ba_data)
-        cleaner.process(debug=False, with_ng_src=False)
-        cleaner.r.df.to_csv(join(tmp_folder, "%s_opt_no_src.csv" % file_name))
-        cleaner.CleaningObjective.to_csv(
-            join(tmp_folder, "%s_objective_no_src.csv" % file_name)
+    # before generation by energy source was collected, reconcile without it. Note
+    # that the hour at GENERATION_BY_ENERGY_SOURCE_START_DATE is included in both
+    # periods.
+    before_start = series.loc[:GENERATION_BY_ENERGY_SOURCE_START_DATE, :]
+    if len(before_start) > 0:
+        logger.info(
+            "Optimization-based cleaning without generation by energy source, before "
+            f"{GENERATION_BY_ENERGY_SOURCE_START_DATE}"
+        )
+        reconciled, objective = reconcile_energy_balance(
+            before_start,
+            weights.loc[:GENERATION_BY_ENERGY_SOURCE_START_DATE, :],
+            include_energy_sources=False,
+        )
+        write_eia930_tables(
+            melt_series_to_eia930_tables(reconciled),
+            output_folder,
+            "reconciled_without_energy_sources",
+        )
+        objective.to_frame().to_parquet(
+            os.path.join(
+                output_folder, "eia930_objective_without_energy_sources.parquet"
+            )
         )
 
-    # Only keep going if we have data post THRESH_DATE
-    if len(data.df.loc[THRESH_DATE:, :]) == 0:
-        return
-
-    logger.info(f"Optimization-based cleaning with src data: post {THRESH_DATE}")
-    data.df = data.df.loc[THRESH_DATE:, :]
-    if weights is not None:
-        cleaner = BaDataCvxCleaner(data, weights=weights.loc[THRESH_DATE:, :])
-    else:
-        cleaner = BaDataCvxCleaner(data)
-    cleaner.process(debug=False)
-    cleaner.r.df.to_csv(join(tmp_folder, "%s_opt.csv" % file_name))
-    cleaner.CleaningObjective.to_csv(join(tmp_folder, "%s_objective.csv" % file_name))
-
-    # Post-processing (none for now)
-    cleaner.r.df.to_csv(join(tmp_folder, "%s_elec.csv" % file_name))
-    data = cleaner.r
-
+    from_start = series.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :]
+    if len(from_start) == 0:
+        return None
     logger.info(
-        "oge.physics_reconciliation.make_dataset took %.2f seconds"
-        % (time.time() - start_time)
+        "Optimization-based cleaning with generation by energy source, from "
+        f"{GENERATION_BY_ENERGY_SOURCE_START_DATE}"
     )
+    reconciled, objective = reconcile_energy_balance(
+        from_start,
+        weights.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :],
+        include_energy_sources=True,
+    )
+    reconciled_tables = melt_series_to_eia930_tables(reconciled)
+    write_eia930_tables(reconciled_tables, output_folder, "reconciled")
+    objective.to_frame().to_parquet(
+        os.path.join(output_folder, "eia930_objective.parquet")
+    )
+
+    logger.info(f"EIA-930 reconciliation took {time.time() - start_time:.0f} seconds")
+    return reconciled_tables
+
+
+def pivot_eia930_tables_to_series(tables: EIA930Tables) -> pd.DataFrame:
+    """Pivots EIA-930 tables to a series data frame, with one column per time series.
+
+    Each (BA, hour) row in `operations` becomes a value in three series (demand, net
+    generation and total interchange), so every BA in `operations` has all three.
+
+    Args:
+        tables (EIA930Tables): EIA-930 data.
+
+    Returns:
+        pd.DataFrame: series data frame, indexed by "datetime_utc", with columns
+            identified by (field, balancing_authority_code_eia, other) tuples.
+    """
+    operations = tables.operations.pivot(
+        index="datetime_utc",
+        columns="balancing_authority_code_eia",
+        values=["net_generation_mwh", "interchange_mwh", "demand_mwh"],
+    )
+    operations_fields = {
+        "net_generation_mwh": NET_GENERATION,
+        "interchange_mwh": TOTAL_INTERCHANGE,
+        "demand_mwh": DEMAND,
+    }
+    operations.columns = pd.MultiIndex.from_tuples(
+        [(operations_fields[value], ba, "") for value, ba in operations.columns]
+    )
+
+    net_generation_by_energy_source = tables.net_generation_by_energy_source.pivot(
+        index="datetime_utc",
+        columns=["balancing_authority_code_eia", "generation_energy_source"],
+        values="net_generation_mwh",
+    )
+    net_generation_by_energy_source.columns = pd.MultiIndex.from_tuples(
+        [
+            (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)
+            for ba, energy_source in net_generation_by_energy_source.columns
+        ]
+    )
+
+    interchange = tables.interchange.pivot(
+        index="datetime_utc",
+        columns=[
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+        ],
+        values="interchange_mwh",
+    )
+    interchange.columns = pd.MultiIndex.from_tuples(
+        [(INTERCHANGE, ba, adjacent_ba) for ba, adjacent_ba in interchange.columns]
+    )
+
+    # series that are missing for some hours (e.g. after a timestamp shift) are blank
+    # for those hours
+    series = pd.concat(
+        [net_generation_by_energy_source, operations, interchange], axis="columns"
+    ).sort_index()
+    series.index.name = "datetime_utc"
+    series.columns.names = SERIES_LEVELS
+    return series
+
+
+def melt_series_to_eia930_tables(
+    series: pd.DataFrame, value_suffix: str = "_mwh"
+) -> EIA930Tables:
+    """Melts a series data frame back into EIA-930 tables.
+
+    Every series keeps a row for every hour in `series`, even where its value is blank,
+    so that pivoting the tables again gives back the same series.
+
+    Args:
+        series (pd.DataFrame): series data frame, as returned by
+            `pivot_eia930_tables_to_series`.
+        value_suffix (str, optional): suffix of the value columns. Defaults to "_mwh".
+
+    Returns:
+        EIA930Tables: EIA-930 data.
+    """
+    series = series.rename_axis("datetime_utc")
+    fields = series.columns.get_level_values("field")
+
+    operations_fields = [DEMAND, NET_GENERATION, TOTAL_INTERCHANGE]
+    operations_columns = {
+        DEMAND: f"demand{value_suffix}",
+        NET_GENERATION: f"net_generation{value_suffix}",
+        TOTAL_INTERCHANGE: f"interchange{value_suffix}",
+    }
+    operations = (
+        series.loc[:, fields.isin(operations_fields)]
+        .droplevel("other", axis="columns")
+        .stack("balancing_authority_code_eia", future_stack=True)
+        .reindex(columns=operations_fields)
+        .rename(columns=operations_columns)
+        .reset_index()
+    )
+    operations.columns.name = None
+
+    net_generation_by_energy_source = melt_series_with_other_key(
+        series.loc[:, fields == NET_GENERATION_BY_ENERGY_SOURCE],
+        other_name="generation_energy_source",
+        value_name=f"net_generation{value_suffix}",
+    )
+    interchange = melt_series_with_other_key(
+        series.loc[:, fields == INTERCHANGE],
+        other_name="balancing_authority_code_adjacent_eia",
+        value_name=f"interchange{value_suffix}",
+    )
+
+    return EIA930Tables(operations, net_generation_by_energy_source, interchange)
+
+
+def melt_series_with_other_key(
+    series: pd.DataFrame, other_name: str, value_name: str
+) -> pd.DataFrame:
+    """Melts series of a single field identified by a BA and an "other" key.
+
+    Args:
+        series (pd.DataFrame): series data frame with columns of a single field, e.g.
+            interchange or generation by energy source. May have no columns.
+        other_name (str): name of the column for the "other" key, e.g.
+            "generation_energy_source".
+        value_name (str): name of the value column.
+
+    Returns:
+        pd.DataFrame: long table with columns "datetime_utc",
+            "balancing_authority_code_eia", `other_name` and `value_name`.
+    """
+    columns = ["datetime_utc", "balancing_authority_code_eia", other_name, value_name]
+    # e.g. reconciled data before 2018-07-01 has no generation by energy source
+    if series.shape[1] == 0:
+        return pd.DataFrame(columns=columns)
+    return (
+        series.droplevel("field", axis="columns")
+        .stack(["balancing_authority_code_eia", "other"], future_stack=True)
+        .rename(value_name)
+        .reset_index()
+        .rename(columns={"other": other_name})
+    )[columns]
+
+
+def write_eia930_tables(tables: EIA930Tables, output_folder: str, stage: str):
+    """Writes EIA-930 tables to parquet files named "eia930_{stage}_{table}.parquet".
+
+    Args:
+        tables (EIA930Tables): EIA-930 data.
+        output_folder (str): folder to write the files to.
+        stage (str): processing stage, used in the file names.
+    """
+    os.makedirs(output_folder, exist_ok=True)
+    for table_name, table in tables._asdict().items():
+        table.to_parquet(
+            os.path.join(
+                output_folder,
+                f"eia930_{stage}_{TABLE_FILE_NAMES[table_name]}.parquet",
+            ),
+            index=False,
+        )
+
+
+def read_eia930_tables(folder: str, stage: str) -> EIA930Tables:
+    """Reads EIA-930 tables written by `write_eia930_tables`.
+
+    Args:
+        folder (str): folder the files were written to.
+        stage (str): processing stage, used in the file names.
+
+    Returns:
+        EIA930Tables: EIA-930 data.
+    """
+    return EIA930Tables(
+        **{
+            table_name: pd.read_parquet(
+                os.path.join(folder, f"eia930_{stage}_{file_name}.parquet")
+            )
+            for table_name, file_name in TABLE_FILE_NAMES.items()
+        }
+    )
+
+
+def get_series_bas(series: pd.DataFrame, field: str | None = None) -> list[str]:
+    """Returns the BAs with at least one series, or with a series of a given field.
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        field (str | None, optional): if given, only return BAs with a series of this
+            field. Defaults to None.
+
+    Returns:
+        list[str]: BAs, in alphabetical order.
+    """
+    keys = series.columns
+    if field is not None:
+        keys = keys[keys.get_level_values("field") == field]
+    return sorted(set(keys.get_level_values("balancing_authority_code_eia")))
+
+
+def apply_basic_cleaning(series: pd.DataFrame) -> pd.DataFrame:
+    """Drops unrealistic values and adds series for BAs outside of the US.
+
+    The steps are:
+        - Add interchange between AVRN and BPAT if AVRN has no interchange data. AVRN
+          only exports to BPAT, so its exports are assumed to be its net generation.
+        - Add demand, net generation, total interchange and generation by energy source
+          for BAs outside of the US, which only appear as the adjacent BA of
+          interchange series. Their total interchange is the opposite of the
+          interchange reported by US BAs, exports count as net generation and imports
+          as demand. Their generation is assumed to be hydro for Canadian BAs in
+          `HYDRO_FOREIGN_BAS` and "other" for the rest.
+        - Make sure that every interchange series has a series in the opposite
+          direction, adding the opposite of the existing series if needed.
+        - Drop values outside of realistic bounds (see `create_reject_bounds`), only
+          for BAs in the original data.
+        - Set negative solar generation to zero. There are many values of around -50
+          MWh at night, from station use.
+        - For BAs with no generation by energy source, assign all net generation to
+          "other".
+
+    Args:
+        series (pd.DataFrame): series data frame.
+
+    Returns:
+        pd.DataFrame: cleaned series data frame.
+    """
+    start_time = time.time()
+    series = series.copy()
+    # the bounds and the energy source checks only apply to the BAs in the original
+    # data, not to the BAs outside of the US added below
+    regions = get_series_bas(series)
+    interchange_bas = get_series_bas(series, INTERCHANGE)
+    adjacent_bas = sorted(
+        set(
+            series.columns[
+                series.columns.get_level_values("field") == INTERCHANGE
+            ].get_level_values("other")
+        )
+    )
+    net_generation_bas = get_series_bas(series, NET_GENERATION)
+
+    # AVRN only exports to BPAT. Its interchange is sometimes missing.
+    if "AVRN" not in interchange_bas:
+        logger.info("Adding interchange for AVRN")
+        series[(INTERCHANGE, "AVRN", "BPAT")] = (
+            series[(NET_GENERATION, "AVRN", "")] - 1.0
+        )
+        series[(INTERCHANGE, "BPAT", "AVRN")] = (
+            -series[(NET_GENERATION, "AVRN", "")] + 1.0
+        )
+
+    # add series for BAs outside of the US, which only appear as adjacent BAs
+    foreign_bas = [ba for ba in adjacent_bas if ba not in net_generation_bas]
+    logger.info(
+        "Adding demand, generation and total interchange for "
+        f"{len(foreign_bas)} BAs outside of the US"
+    )
+    for ba in foreign_bas:
+        trade_keys = [
+            key for key in series.columns if key[0] == INTERCHANGE and key[2] == ba
+        ]
+        total_interchange = -series.loc[:, trade_keys].sum(axis=1)
+        series[(TOTAL_INTERCHANGE, ba, "")] = total_interchange
+        # this keeps blank values blank, as in the original code
+        exports = total_interchange.where(~(total_interchange < 0), 0)
+        imports = total_interchange.where(~(total_interchange > 0), 0)
+        series[(DEMAND, ba, "")] = -imports
+        series[(NET_GENERATION, ba, "")] = exports
+        energy_source = "hydro" if ba in HYDRO_FOREIGN_BAS else "other"
+        series[(NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)] = exports
+        for key in trade_keys:
+            series[(INTERCHANGE, ba, key[1])] = -series.loc[:, key]
+
+    # make sure that interchange series exist in both directions
+    for ba in regions:
+        for adjacent_ba in regions:
+            key = (INTERCHANGE, ba, adjacent_ba)
+            opposite_key = (INTERCHANGE, adjacent_ba, ba)
+            if key in series.columns and opposite_key not in series.columns:
+                logger.info(f"Adding interchange from {adjacent_ba} to {ba}")
+                series[opposite_key] = -series.loc[:, key]
+
+    # drop unrealistic values
+    reject_bounds = create_reject_bounds(series, regions)
+    keys_to_filter = (
+        [(DEMAND, ba, "") for ba in regions]
+        + [(NET_GENERATION, ba, "") for ba in regions]
+        + [(TOTAL_INTERCHANGE, ba, "") for ba in regions]
+        + get_interchange_keys(series, regions)
+    )
+    for key in keys_to_filter:
+        series[key] = filter_to_bounds(series.loc[:, key], reject_bounds[key])
+
+    # do the same for generation by energy source, keeping values of solar down to
+    # -1 GW and then setting negative values to zero
+    for ba in regions:
+        has_energy_sources = False
+        for energy_source in ENERGY_SOURCES:
+            key = (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)
+            if key in series.columns:
+                has_energy_sources = True
+                if energy_source == "solar":
+                    reject_bounds[key] = (-1e3, 200e3)
+                series[key] = filter_to_bounds(series.loc[:, key], reject_bounds[key])
+                if energy_source == "solar":
+                    series[key] = series.loc[:, key].where(~(series.loc[:, key] < 0), 0)
+        if not has_energy_sources:
+            series[(NET_GENERATION_BY_ENERGY_SOURCE, ba, "other")] = series.loc[
+                :, (NET_GENERATION, ba, "")
+            ]
+
+    series.columns.names = SERIES_LEVELS
+    logger.info(f"Basic cleaning took {time.time() - start_time:.2f} seconds")
+    return series
+
+
+def get_interchange_keys(series: pd.DataFrame, bas: list[str]) -> list[tuple]:
+    """Returns the keys of interchange series between pairs of BAs in `bas`.
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        bas (list[str]): BAs to include.
+
+    Returns:
+        list[tuple]: keys of the interchange series that exist, ordered by BA and then
+            by adjacent BA, in the order of `bas`.
+    """
+    return [
+        (INTERCHANGE, ba, adjacent_ba)
+        for ba in bas
+        for adjacent_ba in bas
+        if (INTERCHANGE, ba, adjacent_ba) in series.columns
+    ]
+
+
+def create_reject_bounds(series: pd.DataFrame, regions: list[str]) -> defaultdict:
+    """Creates the ranges outside of which values are considered unrealistic.
+
+    The default range is -1 MWh to 200 GWh. Interchange and total interchange can be
+    between -100 GWh and 100 GWh. A few series have their own ranges.
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        regions (list[str]): BAs in the original data.
+
+    Returns:
+        defaultdict: (lower bound, upper bound) in MWh, keyed by series key.
+    """
+    reject_bounds = defaultdict(lambda: (-1.0, 200e3))
+    for ba in regions:
+        reject_bounds[(TOTAL_INTERCHANGE, ba, "")] = (-100e3, 100e3)
+    for key in get_interchange_keys(series, regions):
+        reject_bounds[key] = (-100e3, 100e3)
+    reject_bounds[(DEMAND, "AZPS", "")] = (1.0, 30e3)
+    reject_bounds[(DEMAND, "BANC", "")] = (1.0, 6.5e3)
+    reject_bounds[(TOTAL_INTERCHANGE, "BANC", "")] = (-5e3, 5e3)
+    reject_bounds[(NET_GENERATION, "CISO", "")] = (5e3, 60e3)
+    return reject_bounds
+
+
+def filter_to_bounds(values: pd.Series, bounds: tuple[float, float]) -> pd.Series:
+    """Blanks out values outside of `bounds`.
+
+    Args:
+        values (pd.Series): values to filter.
+        bounds (tuple[float, float]): lower and upper bounds, inclusive.
+
+    Returns:
+        pd.Series: values, blank where outside of the bounds.
+    """
+    return values.where((values >= bounds[0]) & (values <= bounds[1]))
+
+
+def apply_rolling_window_cleaning(
+    series: pd.DataFrame, number_of_runs: int = 2
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Drops anomalous values using a rolling window filter, then fills gaps.
+
+    Large outliers can mask smaller ones, so the filter is applied `number_of_runs`
+    times. Gaps are then filled with the average of the same hour on the previous and
+    next days, up to four times, and then without limit. Series with no data at all are
+    set to zero. Any remaining gaps are filled with the rolling median.
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        number_of_runs (int, optional): number of times to apply the rolling window
+            filter. Defaults to 2.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame]: cleaned series data frame, and the weight of
+            each value in the optimization, based on the rolling mean of each series.
+    """
+    start_time = time.time()
+    series = series.copy()
+
+    for _ in range(number_of_runs):
+        series = filter_with_rolling_window(series, replace_nan_with_median=False)
+
+    # first fill gaps with the average of the same hour on the previous and next days.
+    # There are strong daily patterns, so this works well. Fill one day at a time,
+    # which makes for a smoother transition across multi-day gaps. After four passes,
+    # fill without a limit.
+    for key in series.columns:
+        number_of_passes = 0
+        while (series.loc[:, key].isna().sum() > 0) and (number_of_passes < 4):
+            number_of_passes += 1
+            series[key] = pd.concat(
+                [
+                    series.loc[:, key].groupby(series.index.hour).ffill(limit=1),
+                    series.loc[:, key].groupby(series.index.hour).bfill(limit=1),
+                ],
+                axis=1,
+            ).mean(axis=1)
+        if number_of_passes == 4:
+            logger.debug(f"A lot of bad data for {key}")
+            series[key] = pd.concat(
+                [
+                    series.loc[:, key].groupby(series.index.hour).ffill(),
+                    series.loc[:, key].groupby(series.index.hour).bfill(),
+                ],
+                axis=1,
+            ).mean(axis=1)
+
+        # series with no data at all
+        if series.loc[:, key].isna().sum() == len(series):
+            series[key] = 0.0
+
+    # fill any remaining gaps with the rolling median
+    series, rolling_mean = filter_with_rolling_window(
+        series, replace_nan_with_median=True, return_mean=True
+    )
+
+    if series.isna().sum().sum() > 0:
+        logger.warning("There are still blank values after rolling window cleaning")
+
+    # weights are inversely proportional to the size of each series, so that the
+    # optimization adjusts large series more than small ones
+    absolute_mean = rolling_mean.abs()
+    weights = WEIGHT_NUMERATOR / absolute_mean.where(
+        absolute_mean > WEIGHT_MINIMUM_DENOMINATOR, WEIGHT_MINIMUM_DENOMINATOR
+    )
+
+    logger.info(f"Rolling window cleaning took {time.time() - start_time:.2f} seconds")
+    return series, weights
+
+
+def filter_with_rolling_window(
+    series: pd.DataFrame,
+    window: int = 20 * 24,
+    min_periods: int = 100,
+    replace_nan_with_median: bool = True,
+    return_mean: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
+    """Blanks out values far from the rolling median of each series.
+
+    Values are rejected if they are more than 3 times the rolling 5th to 95th
+    percentile range away from the rolling median, using a centered window. The range
+    is at least 150 MWh, so that small series are not over-filtered.
+
+    Note that the values of `series` are modified in place.
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        window (int, optional): size of the rolling window, in hours. Defaults to 480.
+        min_periods (int, optional): minimum number of values in the window. Defaults
+            to 100.
+        replace_nan_with_median (bool, optional): whether to fill gaps after filtering,
+            by linear interpolation for gaps of up to 3 hours and with the rolling
+            median otherwise. Defaults to True.
+        return_mean (bool, optional): whether to also return the rolling mean of each
+            series. Defaults to False.
+
+    Returns:
+        pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]: filtered series data frame,
+            and its rolling mean if `return_mean` is True.
+    """
+    for key in series.columns:
+        rolling = series[key].rolling(window, min_periods=min_periods, center=True)
+        median = rolling.median()
+        # at least 150 MWh, including where the range can't be computed
+        percentile_range = rolling.quantile(0.95) - rolling.quantile(0.05)
+        percentile_range = percentile_range.where(percentile_range > 150, 150)
+        upper_bound = median + 3 * percentile_range
+        lower_bound = median - 3 * percentile_range
+        to_reject = (series[key] >= upper_bound) | (series[key] <= lower_bound)
+        series.loc[to_reject, key] = np.nan
+        if replace_nan_with_median:
+            series.loc[:, key] = series.loc[:, key].interpolate(limit=3)
+            is_blank = series[key].isnull()
+            series.loc[is_blank, key] = median.loc[is_blank]
+
+    if return_mean:
+        rolling_mean = series.rolling(
+            window, min_periods=min_periods, center=True
+        ).mean()
+        return series, rolling_mean
+    return series
+
+
+def reconcile_energy_balance(
+    series: pd.DataFrame, weights: pd.DataFrame, include_energy_sources: bool
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Makes the data physically consistent in each hour.
+
+    For each hour, finds the smallest weighted adjustments to the data such that:
+        - demand + total interchange = net generation, for each BA
+        - total interchange = sum of interchange with each adjacent BA, for each BA
+        - interchange from A to B = -(interchange from B to A)
+        - net generation = sum of generation by energy source, for each BA (only if
+          `include_energy_sources`)
+        - demand, net generation and generation by energy source are at least 1 MWh
+
+    Blank values and weights are treated as zero.
+
+    Args:
+        series (pd.DataFrame): series data frame, with no blank values except where a
+            series has no data.
+        weights (pd.DataFrame): weight of each value, with the same shape as `series`.
+        include_energy_sources (bool): whether to reconcile generation by energy
+            source.
+
+    Returns:
+        tuple[pd.DataFrame, pd.Series]: reconciled series data frame, and the value of
+            the optimization objective for each hour.
+    """
+    start_time = time.time()
+    logger.info(f"Running the reconciliation for {len(series)} hours")
+    series = series.fillna(0)
+    weights = weights.fillna(0)
+    regions = get_series_bas(series)
+
+    solve = dask.delayed(solve_hourly_reconciliation)
+    results = [
+        solve(
+            series.loc[hour, :], weights.loc[hour, :], regions, include_energy_sources
+        )
+        for hour in series.index
+    ]
+    results = dask.compute(*results, scheduler="processes")
+
+    reconciled = pd.DataFrame([values for values, _ in results], index=series.index)
+    reconciled.columns = pd.MultiIndex.from_tuples(
+        reconciled.columns, names=SERIES_LEVELS
+    )
+    objective = pd.Series(
+        [objective for _, objective in results], index=series.index, name="objective"
+    )
+
+    check_energy_balance(reconciled)
+    logger.info(f"Reconciliation took {time.time() - start_time:.2f} seconds")
+    return reconciled, objective
+
+
+def solve_hourly_reconciliation(
+    values: pd.Series,
+    weights: pd.Series,
+    regions: list[str],
+    include_energy_sources: bool,
+) -> tuple[pd.Series, float]:
+    """Solves the reconciliation problem for one hour.
+
+    See `reconcile_energy_balance` for the constraints. The objective is the sum of the
+    squared adjustments, each multiplied by its weight.
+
+    Args:
+        values (pd.Series): value of each series in this hour, with no blank values.
+        weights (pd.Series): weight of each series in this hour, with no blank values.
+        regions (list[str]): BAs, in alphabetical order. Every BA must have demand, net
+            generation and total interchange series.
+        include_energy_sources (bool): whether to reconcile generation by energy
+            source.
+
+    Returns:
+        tuple[pd.Series, float]: reconciled value of each series, and the value of the
+            objective.
+    """
+    if values.isna().sum() > 0:
+        raise ValueError("Cannot reconcile data with blank values")
+
+    n_regions = len(regions)
+
+    demand = values[[(DEMAND, r, "") for r in regions]].values
+    demand_weights = [
+        el**0.5 for el in weights[[(DEMAND, r, "") for r in regions]].values
+    ]
+    net_generation = values[[(NET_GENERATION, r, "") for r in regions]].values
+    net_generation_weights = [
+        el**0.5 for el in weights[[(NET_GENERATION, r, "") for r in regions]].values
+    ]
+    total_interchange = values[[(TOTAL_INTERCHANGE, r, "") for r in regions]].values
+    total_interchange_weights = [
+        el**0.5 for el in weights[[(TOTAL_INTERCHANGE, r, "") for r in regions]].values
+    ]
+
+    delta_demand = cp.Variable(n_regions, name="delta_D")
+    delta_net_generation = cp.Variable(n_regions, name="delta_NG")
+    delta_total_interchange = cp.Variable(n_regions, name="delta_TI")
+
+    objective = (
+        cp.sum_squares(cp.multiply(demand_weights, delta_demand))
+        + cp.sum_squares(cp.multiply(net_generation_weights, delta_net_generation))
+        + cp.sum_squares(
+            cp.multiply(total_interchange_weights, delta_total_interchange)
+        )
+    )
+
+    # the order in which the problem is built is kept from the original code, since it
+    # can affect the solver's results
+    interchange = {}
+    interchange_weights = {}
+    for ri in regions:
+        for rj in regions:
+            if (INTERCHANGE, ri, rj) in values.index:
+                interchange[(ri, rj)] = values[(INTERCHANGE, ri, rj)]
+                interchange_weights[(ri, rj)] = weights[(INTERCHANGE, ri, rj)]
+    delta_interchange = {k: cp.Variable(name=f"{k}") for k in interchange}
+    constraints = [
+        demand + delta_demand >= OPTIMIZATION_LOWER_BOUND,
+        net_generation + delta_net_generation >= OPTIMIZATION_LOWER_BOUND,
+        demand
+        + delta_demand
+        + total_interchange
+        + delta_total_interchange
+        - net_generation
+        - delta_net_generation
+        == 0.0,
+    ]
+
+    if include_energy_sources:
+        generation = {}
+        generation_weights = {}
+        for energy_source in ENERGY_SOURCES:
+            for r in regions:
+                key = (NET_GENERATION_BY_ENERGY_SOURCE, r, energy_source)
+                if key in values.index:
+                    generation[(energy_source, r)] = values[key]
+                    generation_weights[(energy_source, r)] = weights[key]
+        delta_generation = {k: cp.Variable(name=f"{k}") for k in generation}
+
+        for k in generation:
+            constraints += [
+                generation[k] + delta_generation[k] >= OPTIMIZATION_LOWER_BOUND
+            ]
+            objective += generation_weights[k] * delta_generation[k] ** 2
+
+    # interchange is antisymmetric. Adding each constraint twice is less efficient but
+    # not a problem.
+    for ri, rj in interchange:
+        constraints += [
+            interchange[(ri, rj)]
+            + delta_interchange[(ri, rj)]
+            + interchange[(rj, ri)]
+            + delta_interchange[(rj, ri)]
+            == 0.0
+        ]
+        objective += interchange_weights[(ri, rj)] * delta_interchange[(ri, rj)] ** 2
+
+    for i, ri in enumerate(regions):
+        if include_energy_sources:
+            constraints += [
+                net_generation[i]
+                + delta_net_generation[i]
+                - cp.sum(
+                    [
+                        generation[(energy_source, ri)]
+                        + delta_generation[(energy_source, ri)]
+                        for energy_source in ENERGY_SOURCES
+                        if (energy_source, ri) in generation
+                    ]
+                )
+                == 0.0
+            ]
+        constraints += [
+            total_interchange[i]
+            + delta_total_interchange[i]
+            - cp.sum(
+                [
+                    interchange[(ri, rj)] + delta_interchange[(ri, rj)]
+                    for rj in regions
+                    if (ri, rj) in interchange
+                ]
+            )
+            == 0.0
+        ]
+
+    problem = cp.Problem(cp.Minimize(objective), constraints)
+    problem.solve()
+
+    reconciled = {}
+    for i, r in enumerate(regions):
+        reconciled[(NET_GENERATION, r, "")] = (
+            net_generation[i] + delta_net_generation.value[i]
+        )
+        reconciled[(DEMAND, r, "")] = demand[i] + delta_demand.value[i]
+        reconciled[(TOTAL_INTERCHANGE, r, "")] = (
+            total_interchange[i] + delta_total_interchange.value[i]
+        )
+    for (ri, rj), value in interchange.items():
+        reconciled[(INTERCHANGE, ri, rj)] = value + delta_interchange[(ri, rj)].value
+    if include_energy_sources:
+        for (energy_source, r), value in generation.items():
+            reconciled[(NET_GENERATION_BY_ENERGY_SOURCE, r, energy_source)] = (
+                value + delta_generation[(energy_source, r)].value
+            )
+    return pd.Series(reconciled), problem.value
+
+
+def check_energy_balance(series: pd.DataFrame, tolerance: float = 1e-2):
+    """Logs an error for each BA whose reconciled data are not physically consistent.
+
+    Checks for each BA that there are no blank values, that demand + total interchange
+    = net generation, that total interchange = sum of interchange, that interchange is
+    antisymmetric, and that demand and net generation are not negative.
+
+    Args:
+        series (pd.DataFrame): reconciled series data frame.
+        tolerance (float, optional): largest difference allowed, in MWh. Defaults to
+            1e-2.
+    """
+    for ba in get_series_bas(series):
+        partners = [
+            adjacent_ba
+            for adjacent_ba in get_series_bas(series)
+            if (INTERCHANGE, ba, adjacent_ba) in series.columns
+            and (INTERCHANGE, adjacent_ba, ba) in series.columns
+        ]
+        demand = series[(DEMAND, ba, "")]
+        net_generation = series[(NET_GENERATION, ba, "")]
+        total_interchange = series[(TOTAL_INTERCHANGE, ba, "")]
+
+        for field, values in [
+            (DEMAND, demand),
+            (NET_GENERATION, net_generation),
+            (TOTAL_INTERCHANGE, total_interchange),
+        ]:
+            if values.isna().sum() != 0:
+                logger.error(
+                    f"There are still {values.isna().sum()} blanks for {ba} {field}"
+                )
+        for adjacent_ba in partners:
+            blanks = series[(INTERCHANGE, ba, adjacent_ba)].isna().sum()
+            if blanks != 0:
+                logger.error(f"There are still {blanks} blanks for {ba}-{adjacent_ba}")
+
+        if ((net_generation - (demand + total_interchange)).abs() > tolerance).sum():
+            logger.error(f"{ba}: demand + total interchange == net generation violated")
+
+        interchange_sum = series.loc[
+            :, [(INTERCHANGE, ba, adjacent_ba) for adjacent_ba in partners]
+        ].sum(axis=1)
+        if ((total_interchange - interchange_sum).abs() > tolerance).sum():
+            logger.error(f"{ba}: total interchange == sum of interchange violated")
+
+        for adjacent_ba in partners:
+            antisymmetry = (
+                series[(INTERCHANGE, ba, adjacent_ba)]
+                + series[(INTERCHANGE, adjacent_ba, ba)]
+            )
+            if (antisymmetry.abs() > tolerance).sum():
+                logger.error(f"{ba}-{adjacent_ba}: interchange antisymmetry violated")
+
+        for field, values in [(DEMAND, demand), (NET_GENERATION, net_generation)]:
+            if (values < 0).sum():
+                logger.error(
+                    f"{ba}: there are {(values < 0).sum()} negative values for {field}"
+                )

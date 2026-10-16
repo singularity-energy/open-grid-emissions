@@ -5,7 +5,7 @@ import sys
 
 from packaging.version import Version
 
-from oge.physics_reconciliation import BaData, KEYS, SRC
+from oge.physics_reconciliation import ENERGY_SOURCES, read_eia930_tables
 from oge.filepaths import reference_table_folder, results_folder
 from oge.logging_util import get_logger
 from oge.constants import TIME_RESOLUTIONS
@@ -34,18 +34,18 @@ EMISSION_COLS = [
     "so2_mass_lb_for_electricity_adjusted",
 ]
 
+# maps EIA-930 energy sources to the fuel categories of the US fleet average emission
+# rates used for BAs outside of the US
 FUEL_TYPE_MAP = {
-    "COL": "coal",
-    "NG": "natural_gas",
-    "NUC": "nuclear",
-    "OIL": "petroleum",
-    "OTH": "total",
-    "SUN": "solar",
-    "UNK": "total",
-    "WAT": "hydro",
-    "WND": "wind",
-    "GEO": "total",
-    "BIO": "biomass",
+    "coal": "coal",
+    "gas": "natural_gas",
+    "nuclear": "nuclear",
+    "oil": "petroleum",
+    "other": "total",
+    "solar": "solar",
+    "unknown": "total",
+    "hydro": "hydro",
+    "wind": "wind",
 }
 
 POLLUTANTS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
@@ -126,7 +126,7 @@ def get_average_emission_factors(prefix: str) -> dict[str, dict[str, dict[str, f
         efs[pol] = {}
         for adjustment in ADJUSTMENTS:
             efs[pol][adjustment] = {}
-            for fuel in SRC:
+            for fuel in ENERGY_SOURCES:
                 column = get_pollutant_rate_column_name(pol, adjustment, generated=True)
                 if FUEL_TYPE_MAP[fuel] not in genavg.index:
                     logger.warning(
@@ -205,7 +205,7 @@ class HourlyConsumed:
 
     def __init__(
         self,
-        eia930_file: str,
+        eia930_folder: str,
         prefix: str,
         year: int,
         skip_outputs: bool = False,
@@ -214,13 +214,8 @@ class HourlyConsumed:
         self.year = year
         self.skip_outputs = skip_outputs
 
-        # 930 data
-        self.eia930 = BaData(eia930_file)
-
-        # Round 930 data to zero to clear out imputed values.
-        # to mimic behavior of eia930.remove_imputed_ones,
-        # round all values with abs(x) < 1.5 to 0
-        self.eia930.df[self.eia930.df.abs() < 1.5] = 0
+        # reconciled 930 data
+        self._load_eia930_data(eia930_folder)
 
         # Emission factors for non-US bas
         self.default_factors = get_average_emission_factors(prefix)
@@ -234,7 +229,7 @@ class HourlyConsumed:
         )
 
         # Identify shared BAs
-        regions = set(self.eia930.regions)
+        regions = set(self.eia930_regions)
         regions = regions.intersection(set(self.generation.columns))
         # Add back import-only regions
         regions = regions.union(set(self.import_regions))
@@ -242,6 +237,52 @@ class HourlyConsumed:
 
         # Build result df
         self.results = self._build_results()
+
+    def _load_eia930_data(self, eia930_folder: str):
+        """Loads reconciled EIA-930 data into one wide table per series type.
+
+        Sets `demand` and `net_generation` (one column per BA), `interchange` (one
+        column per (BA, adjacent BA)) and `net_generation_by_energy_source` (one column
+        per (BA, energy source)), all indexed by "datetime_utc", and `eia930_regions`,
+        the BAs with any EIA-930 data.
+
+        Values with abs(x) < 1.5 are rounded to zero, to clear out the 1 MWh values
+        imputed by the reconciliation, mimicking `eia930.remove_imputed_ones`.
+
+        Args:
+            eia930_folder (str): folder with the reconciled EIA-930 parquet files.
+        """
+        tables = read_eia930_tables(eia930_folder, "reconciled")
+
+        def pivot_and_round(table, columns, values):
+            wide = table.pivot(index="datetime_utc", columns=columns, values=values)
+            wide.index = wide.index.astype("datetime64[ns, UTC]")
+            wide[wide.abs() < 1.5] = 0
+            return wide
+
+        self.demand = pivot_and_round(
+            tables.operations, "balancing_authority_code_eia", "demand_mwh"
+        )
+        self.net_generation = pivot_and_round(
+            tables.operations, "balancing_authority_code_eia", "net_generation_mwh"
+        )
+        self.interchange = pivot_and_round(
+            tables.interchange,
+            ["balancing_authority_code_eia", "balancing_authority_code_adjacent_eia"],
+            "interchange_mwh",
+        )
+        self.net_generation_by_energy_source = pivot_and_round(
+            tables.net_generation_by_energy_source,
+            ["balancing_authority_code_eia", "generation_energy_source"],
+            "net_generation_mwh",
+        )
+        self.eia930_regions = sorted(
+            set(tables.operations["balancing_authority_code_eia"])
+            | set(tables.interchange["balancing_authority_code_eia"])
+            | set(
+                tables.net_generation_by_energy_source["balancing_authority_code_eia"]
+            )
+        )
 
     def _get_special_regions(self) -> tuple[list[str], list[str]]:
         """Get import-only and generation-only regions.
@@ -265,7 +306,7 @@ class HourlyConsumed:
         import_only = [
             b
             for b in self.ba_ref[self.ba_ref["us_ba"] == "No"].index
-            if b in self.eia930.regions
+            if b in self.eia930_regions
         ]
         return import_only, generation_only
 
@@ -311,7 +352,7 @@ class HourlyConsumed:
             # frame. This will be used to calculate monthly and annual consumed
             # emission rates from hourly ones.
             # Will be dropped from final output files
-            self.results[ba]["net_consumed_mwh"] = self.eia930.df[KEYS["E"]["D"] % ba][
+            self.results[ba]["net_consumed_mwh"] = self.demand[ba][
                 self.generation.index
             ]
 
@@ -469,19 +510,16 @@ class HourlyConsumed:
 
                 # Add import regions to data frame
                 for ba in self.import_regions:
-                    gen_cols = [(src, KEYS["E"]["SRC_%s" % src] % ba) for src in SRC]
-                    gen_cols = [
-                        (src, col)
-                        for src, col in gen_cols
-                        if col in self.eia930.df.columns
-                    ]
-                    all_ba_mass_emissions.loc[:, ba] = self.eia930.df.apply(
-                        lambda x: sum(
-                            self.default_factors[pol][adj][src] * x[col]
-                            for src, col in gen_cols
-                        ),
-                        axis=1,
-                    )
+                    # sum over energy sources, in the order of ENERGY_SOURCES
+                    ba_mass_emissions = pd.Series(0, index=self.demand.index)
+                    for src in ENERGY_SOURCES:
+                        if (ba, src) in self.net_generation_by_energy_source.columns:
+                            ba_mass_emissions = (
+                                ba_mass_emissions
+                                + self.default_factors[pol][adj][src]
+                                * self.net_generation_by_energy_source[(ba, src)]
+                            )
+                    all_ba_mass_emissions.loc[:, ba] = ba_mass_emissions
 
                 # Cut off emissions at 8 hours after UTC year
                 all_ba_mass_emissions = all_ba_mass_emissions[
@@ -514,8 +552,8 @@ class HourlyConsumed:
         ID = np.zeros((len(self.regions), len(self.regions)))
         for i, ri in enumerate(self.regions):
             for j, rj in enumerate(self.regions):
-                if KEYS["E"]["ID"] % (ri, rj) in self.eia930.df.columns:
-                    ID[i][j] = self.eia930.df.loc[date, KEYS["E"]["ID"] % (ri, rj)]
+                if (ri, rj) in self.interchange.columns:
+                    ID[i][j] = self.interchange.loc[date, (ri, rj)]
 
         # Build pollutant mass vector, using default per-fuel factors for import-only
         # regions.
@@ -525,7 +563,7 @@ class HourlyConsumed:
         G = np.zeros(len(self.regions))
         for i, r in enumerate(self.regions):
             if r in self.import_regions:
-                G[i] = self.eia930.df.loc[date, KEYS["E"]["NG"] % r]
+                G[i] = self.net_generation.loc[date, r]
             else:
                 G[i] = self.generation.loc[date, r]
 

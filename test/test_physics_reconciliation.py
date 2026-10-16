@@ -1,29 +1,41 @@
-import filecmp
 import gzip
+import io
 import os
-import shutil
+import re
 
+import pandas as pd
 import pytest
 
-from oge.physics_reconciliation import make_dataset
+from oge.physics_reconciliation import (
+    EIA930Tables,
+    read_eia930_tables,
+    reconcile_eia930,
+)
 
 FIXTURE_FOLDER = os.path.join(os.path.dirname(__file__), "data")
 
-# files written by `make_dataset` in every run
-OUTPUT_FILES = [
-    "eia930_basic.csv",
-    "eia930_elec.csv",
-    "eia930_objective.csv",
-    "eia930_opt.csv",
-    "eia930_raw.csv",
-    "eia930_rolling.csv",
-    "eia930_weights.csv",
-]
-# files written only when the data includes hours before 2018-07-01
-PRE_2018_07_OUTPUT_FILES = [
-    "eia930_objective_no_src.csv",
-    "eia930_opt_no_src.csv",
-]
+# energy source codes used by gridemissions, mapped to the PUDL names used by OGE
+ENERGY_SOURCE_CODES = {
+    "COL": "coal",
+    "NG": "gas",
+    "NUC": "nuclear",
+    "OIL": "oil",
+    "OTH": "other",
+    "SUN": "solar",
+    "UNK": "unknown",
+    "WAT": "hydro",
+    "WND": "wind",
+}
+
+# gridemissions output file, mapped to the matching OGE stage
+OUTPUT_STAGES = {
+    "eia930_basic.csv": "basic",
+    "eia930_rolling.csv": "rolling",
+    "eia930_elec.csv": "reconciled",
+}
+PRE_2018_07_OUTPUT_STAGES = {
+    "eia930_opt_no_src.csv": "reconciled_without_energy_sources",
+}
 
 
 @pytest.fixture(scope="module")
@@ -31,7 +43,7 @@ def gridemissions_make_dataset(tmp_path_factory):
     """`make_dataset` from the original `gridemissions` package.
 
     `gridemissions` is a dev-only dependency, kept so that `oge.physics_reconciliation`
-    can be checked against the code it was copied from. Importing it writes config and
+    can be checked against the code it was ported from. Importing it writes config and
     logging files, so its config folder is pointed at a temporary folder first. The
     test is skipped if the package isn't installed.
     """
@@ -43,81 +55,263 @@ def gridemissions_make_dataset(tmp_path_factory):
     return workflows.make_dataset
 
 
-def copy_raw_fixture(fixture_name: str, folder: str):
-    """Decompresses a raw EIA-930 fixture to `eia930_raw.csv` in `folder`.
+def read_raw_fixture(fixture_name: str) -> str:
+    """Returns the text of a gzipped raw EIA-930 fixture in `test/data`.
 
     Args:
-        fixture_name (str): file name of the gzipped fixture in `test/data`.
-        folder (str): folder to write `eia930_raw.csv` to. Created if it doesn't exist.
+        fixture_name (str): file name of the fixture.
+
+    Returns:
+        str: CSV text, in the wide format used by gridemissions.
     """
-    os.makedirs(folder, exist_ok=True)
-    with (
-        gzip.open(os.path.join(FIXTURE_FOLDER, fixture_name), "rb") as f_in,
-        open(os.path.join(folder, "eia930_raw.csv"), "wb") as f_out,
-    ):
-        shutil.copyfileobj(f_in, f_out)
+    with gzip.open(os.path.join(FIXTURE_FOLDER, fixture_name), "rt") as f:
+        return f.read()
+
+
+def convert_wide_to_tables(wide: pd.DataFrame, value_suffix: str = "_mwh"):
+    """Converts data in the wide gridemissions format to EIA-930 tables.
+
+    This parses the gridemissions column names independently of
+    `oge.physics_reconciliation`, so the test also checks how OGE builds its series.
+
+    Args:
+        wide (pd.DataFrame): one column per series, named like "EBA.{BA}-ALL.D.H".
+        value_suffix (str, optional): suffix of the value columns. Defaults to "_mwh".
+
+    Returns:
+        EIA930Tables: EIA-930 data.
+    """
+    long = wide.rename_axis("datetime_utc").reset_index().melt(id_vars="datetime_utc")
+    parts = long["variable"].str.extract(
+        r"^EBA\.(?P<ba>[^-]+)-(?P<other>[^.]+)\.(?P<field>[A-Z]+)(?:\.(?P<src>[A-Z]+))?\.H$"
+    )
+    long = pd.concat([long, parts], axis="columns")
+
+    operations_fields = {
+        "D": f"demand{value_suffix}",
+        "NG": f"net_generation{value_suffix}",
+        "TI": f"interchange{value_suffix}",
+    }
+    is_operations = (long["other"] == "ALL") & long["src"].isna()
+    operations = (
+        long[is_operations]
+        .assign(field=lambda df: df["field"].map(operations_fields))
+        .pivot(index=["datetime_utc", "ba"], columns="field", values="value")
+        .reset_index()
+        .rename(columns={"ba": "balancing_authority_code_eia"})
+    )
+    operations.columns.name = None
+
+    net_generation_by_energy_source = (
+        long[long["src"].notna()]
+        .assign(generation_energy_source=lambda df: df["src"].map(ENERGY_SOURCE_CODES))
+        .rename(
+            columns={
+                "ba": "balancing_authority_code_eia",
+                "value": f"net_generation{value_suffix}",
+            }
+        )[
+            [
+                "datetime_utc",
+                "balancing_authority_code_eia",
+                "generation_energy_source",
+                f"net_generation{value_suffix}",
+            ]
+        ]
+    )
+
+    interchange = long[long["field"] == "ID"].rename(
+        columns={
+            "ba": "balancing_authority_code_eia",
+            "other": "balancing_authority_code_adjacent_eia",
+            "value": f"interchange{value_suffix}",
+        }
+    )[
+        [
+            "datetime_utc",
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+            f"interchange{value_suffix}",
+        ]
+    ]
+    return EIA930Tables(operations, net_generation_by_energy_source, interchange)
+
+
+def convert_tables_to_wide(tables: EIA930Tables, value_suffix: str = "_mwh"):
+    """Converts EIA-930 tables to the wide gridemissions format.
+
+    Args:
+        tables (EIA930Tables): EIA-930 data.
+        value_suffix (str, optional): suffix of the value columns. Defaults to "_mwh".
+
+    Returns:
+        pd.DataFrame: one column per series, named like "EBA.{BA}-ALL.D.H", indexed
+            by "datetime_utc", with columns in alphabetical order.
+    """
+    codes = {name: code for code, name in ENERGY_SOURCE_CODES.items()}
+    frames = []
+    for field, code in [
+        ("demand", "D"),
+        ("net_generation", "NG"),
+        ("interchange", "TI"),
+    ]:
+        frame = tables.operations.pivot(
+            index="datetime_utc",
+            columns="balancing_authority_code_eia",
+            values=f"{field}{value_suffix}",
+        )
+        frame.columns = [f"EBA.{ba}-ALL.{code}.H" for ba in frame.columns]
+        frames.append(frame)
+    if len(tables.net_generation_by_energy_source) > 0:
+        frame = tables.net_generation_by_energy_source.pivot(
+            index="datetime_utc",
+            columns=["balancing_authority_code_eia", "generation_energy_source"],
+            values=f"net_generation{value_suffix}",
+        )
+        frame.columns = [f"EBA.{ba}-ALL.NG.{codes[src]}.H" for ba, src in frame.columns]
+        frames.append(frame)
+    frame = tables.interchange.pivot(
+        index="datetime_utc",
+        columns=[
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+        ],
+        values=f"interchange{value_suffix}",
+    )
+    frame.columns = [f"EBA.{ba}-{adjacent}.ID.H" for ba, adjacent in frame.columns]
+    frames.append(frame)
+
+    wide = pd.concat(frames, axis="columns")
+    wide.index = wide.index.astype("datetime64[ns, UTC]")
+    return wide[sorted(wide.columns)].astype(float)
+
+
+def read_gridemissions_output(path: str) -> pd.DataFrame:
+    """Reads a gridemissions output CSV, with columns in alphabetical order.
+
+    Uses the round-trip float parser, since pandas' default parser can be off by one
+    unit in the last place for some values.
+
+    Args:
+        path (str): path to the CSV file.
+
+    Returns:
+        pd.DataFrame: one column per series, indexed by "datetime_utc".
+    """
+    wide = pd.read_csv(
+        path, index_col=0, parse_dates=True, float_precision="round_trip"
+    )
+    wide.index = wide.index.astype("datetime64[ns, UTC]")
+    wide.index.name = "datetime_utc"
+    return wide[sorted(wide.columns)].astype(float)
 
 
 @pytest.mark.parametrize(
-    "fixture_name, expected_files",
+    "fixture_name, output_stages",
     [
         (
             "eia930_raw_2024-11-01_2024-11-14.csv.gz",
-            OUTPUT_FILES,
+            OUTPUT_STAGES,
         ),
         (
             "eia930_raw_2018-06-24_2018-07-07.csv.gz",
-            OUTPUT_FILES + PRE_2018_07_OUTPUT_FILES,
+            OUTPUT_STAGES | PRE_2018_07_OUTPUT_STAGES,
         ),
     ],
 )
-def test_make_dataset_matches_gridemissions(
-    fixture_name, expected_files, gridemissions_make_dataset, tmp_path
+def test_reconcile_eia930_matches_gridemissions(
+    fixture_name, output_stages, gridemissions_make_dataset, tmp_path
 ):
-    """Every file written by `make_dataset` should be byte-for-byte identical to the
-    output of the original `gridemissions` package.
+    """The data at every step of the reconciliation should exactly match the output of
+    the original `gridemissions` package.
 
-    `oge.physics_reconciliation` is a copy of the `gridemissions` cleaning code, and
-    later refactors must not change its results. Each fixture is two weeks of real
-    EIA-930 data for every BA, in the format `clean_930` writes to `eia930_raw.csv`.
-    Every BA is included because the optimization step couples BAs through
-    interchange, so dropping a BA would change the results for the others.
+    `oge.physics_reconciliation` is a port of the `gridemissions` cleaning code to
+    PUDL-shaped tables, and must not change its results. Each fixture is two weeks of
+    real EIA-930 data for every BA, in the wide format `gridemissions` reads. Every BA
+    is included because the optimization couples BAs through interchange, so dropping
+    a BA would change the results for the others.
 
     - The 2024 fixture covers the first weeks of storage reporting in several BAs
       (e.g. ISNE, ERCO, NEVP), when negative storage values started to appear.
     - The 2018 fixture crosses 2018-07-01, so it exercises both the optimization
-      without generation by source (before) and with it (after).
-    """
-    gridemissions_folder = str(tmp_path / "gridemissions")
-    oge_folder = str(tmp_path / "oge")
-    copy_raw_fixture(fixture_name, gridemissions_folder)
-    copy_raw_fixture(fixture_name, oge_folder)
+      without generation by energy source (before) and with it (after).
 
+    For each step, the test checks that both versions have the same series and hours
+    and exactly the same values, for the data, the weights and the objective.
+    """
+    raw_csv = read_raw_fixture(fixture_name)
+    # both versions parse the raw fixture with pandas' default float parser, as
+    # gridemissions does
+
+    gridemissions_folder = tmp_path / "gridemissions"
+    os.makedirs(gridemissions_folder)
+    (gridemissions_folder / "eia930_raw.csv").write_text(raw_csv)
     gridemissions_make_dataset(
         start="",
         end="",
         file_name="eia930",
-        tmp_folder=gridemissions_folder,
-        folder_hist=gridemissions_folder,
+        tmp_folder=str(gridemissions_folder),
+        folder_hist=str(gridemissions_folder),
         scrape=False,
         add_ca_fuels=False,
         calc_consumed=False,
     )
-    make_dataset(
-        file_name="eia930",
-        tmp_folder=oge_folder,
-        folder_hist=oge_folder,
-        add_ca_fuels=False,
+
+    oge_folder = str(tmp_path / "oge")
+    raw = pd.read_csv(io.StringIO(raw_csv), index_col=0, parse_dates=True)
+    reconcile_eia930(convert_wide_to_tables(raw), oge_folder)
+
+    for file_name, stage in output_stages.items():
+        expected = read_gridemissions_output(gridemissions_folder / file_name)
+        result = convert_tables_to_wide(read_eia930_tables(oge_folder, stage))
+        # same series, same hours and exactly the same values
+        pd.testing.assert_frame_equal(
+            result, expected, check_exact=True, check_names=False, obj=stage
+        )
+
+    # weights are only written for every series in the rolling step
+    expected = read_gridemissions_output(gridemissions_folder / "eia930_weights.csv")
+    result = convert_tables_to_wide(
+        read_eia930_tables(oge_folder, "weights"), value_suffix="_weight"
+    )
+    pd.testing.assert_frame_equal(
+        result, expected, check_exact=True, check_names=False, obj="weights"
     )
 
-    # both versions write the same set of files, including the pre-2018-07 files
-    # only when the fixture has hours before 2018-07-01
-    assert sorted(os.listdir(gridemissions_folder)) == sorted(expected_files)
-    assert sorted(os.listdir(oge_folder)) == sorted(expected_files)
-    # each file is identical
-    for file_name in expected_files:
-        assert filecmp.cmp(
-            os.path.join(gridemissions_folder, file_name),
-            os.path.join(oge_folder, file_name),
-            shallow=False,
-        ), f"{file_name} differs from gridemissions output"
+    # the objective value of each hour
+    objective_files = {"eia930_objective.csv": "eia930_objective.parquet"}
+    if "eia930_opt_no_src.csv" in output_stages:
+        objective_files["eia930_objective_no_src.csv"] = (
+            "eia930_objective_without_energy_sources.parquet"
+        )
+    for gridemissions_file, oge_file in objective_files.items():
+        expected = pd.read_csv(
+            gridemissions_folder / gridemissions_file,
+            index_col=0,
+            parse_dates=True,
+            float_precision="round_trip",
+        )["CleaningObjective"]
+        result = pd.read_parquet(os.path.join(oge_folder, oge_file))["objective"]
+        assert list(result.to_numpy()) == list(expected.to_numpy()), oge_file
+
+
+def test_convert_wide_to_tables_round_trips():
+    """The test's own conversion helpers should round trip the raw fixture exactly.
+
+    Otherwise a difference in the parity test could come from the helpers rather than
+    from `oge.physics_reconciliation`.
+    """
+    raw = pd.read_csv(
+        io.StringIO(read_raw_fixture("eia930_raw_2024-11-01_2024-11-14.csv.gz")),
+        index_col=0,
+        parse_dates=True,
+    )
+    raw.index = raw.index.astype("datetime64[ns, UTC]")
+    raw.index.name = "datetime_utc"
+    expected = raw[sorted(raw.columns)].astype(float)
+    result = convert_tables_to_wide(convert_wide_to_tables(raw))
+    # every column name in the fixture is parsed
+    assert all(
+        re.match(r"^EBA\.[^-]+-[^.]+\.[A-Z]+(\.[A-Z]+)?\.H$", c) for c in raw.columns
+    )
+    pd.testing.assert_frame_equal(result, expected, check_exact=True)
