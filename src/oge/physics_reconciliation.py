@@ -133,7 +133,7 @@ class EIA930Tables(NamedTuple):
     interchange: pd.DataFrame
 
 
-def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables:
+def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables | None:
     """This is the coordinating function for the physics-based reconciliation of
     EIA-930 data.
 
@@ -155,7 +155,7 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables:
         output_folder (str): folder to write the results of each step to.
 
     Returns:
-        EIA930Tables: reconciled EIA-930 data from 2018-07-01 onwards. Returns None if
+        EIA930Tables | None: reconciled EIA-930 data from 2018-07-01 onwards. None if
             the data has no hours from 2018-07-01 onwards.
     """
     start_time = time.time()
