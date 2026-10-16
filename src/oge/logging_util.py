@@ -27,12 +27,6 @@ def configure_root_logger(logfile: str | None = None, level: str = "INFO"):
     """
     root_logger = logging.getLogger()
 
-    # Unfortunately, the `gridemissions` package adds a handler to the root logger
-    # which means that the output of other loggers propagates up and is printed
-    # twice. Remove the root handlers to avoid this.
-    for handler in root_logger.handlers:
-        root_logger.removeHandler(handler)
-
     oge_logger = logging.getLogger("oge")
     log_format = "%(asctime)s [%(levelname)4s] %(name)s:%(lineno)s %(message)s"
 

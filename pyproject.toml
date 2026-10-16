@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
   "cvxopt",
   "cvxpy",
+  "dask",
   "geopy",
   "osqp",
   "numpy",
@@ -35,11 +36,12 @@ dependencies = [
   "coloredlogs",
   "s3fs",
   "catalystcoop-pudl@git+https://github.com/singularity-energy/pudl.git@oge_release",
-  "gridemissions@git+https://github.com/singularity-energy/gridemissions.git",
 ]
 
 [project.optional-dependencies]
 dev = [
+  # used only to check that oge.physics_reconciliation matches the original package
+  "gridemissions@git+https://github.com/singularity-energy/gridemissions.git@0cbe7620620f02ab91227940ef107b53bd1f9bb4",
   "pytest",
   "ruff",
 ]
