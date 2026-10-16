@@ -12,7 +12,11 @@ EIA-930 data are not always physically consistent. In a given hour, a balancing 
 
 OGE fixes these transient issues with a physics-based reconciliation, after correcting the systematic timestamp and sign issues described in [EIA-930 Data](EIA-930%20Data.md). The method was developed by Jacques de Chalendar, first to track consumption-based emissions in the US electricity system ([de Chalendar, Taggart and Benson, 2019](https://doi.org/10.1073/pnas.1912950116)) and then as a general data reconciliation framework for real-time electricity and emissions tracking ([de Chalendar and Benson, 2021](https://doi.org/10.1016/j.apenergy.2021.117761)). OGE originally used a fork of de Chalendar's [gridemissions](https://github.com/jdechalendar/gridemissions) package, and now uses a port of its cleaning code in `oge.physics_reconciliation`, which gives identical results.
 
-The reconciliation runs on EIA-930 data from October 1 of the previous year through January 2 of the following year, so that the rolling window has data before and after the year of interest. It has three steps.
+The reconciliation runs on EIA-930 data from October 1 of the previous year through January 2 of the following year, so that the rolling window has data before and after the year of interest.
+
+PUDL's operations table (demand, net generation, and total interchange) can be missing BAs that report other EIA-930 data. For example, SIKE, a generation-only BA that started reporting in June 2025, has generation and interchange data but no operations data. For such BAs, we derive net generation as the sum of their generation by energy source, total interchange as the sum of their interchange with each neighbor, and demand as net generation minus total interchange. Otherwise, the reconciliation would treat them as BAs outside of the US (see below) and discard the data they report.
+
+The reconciliation has three steps.
 
 ### 1. Basic cleaning
 

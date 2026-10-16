@@ -181,7 +181,101 @@ def load_eia930_balance_data(year: int) -> EIA930Tables:
         ]
     ]
 
-    return EIA930Tables(operations, net_generation_by_energy_source, interchange)
+    tables = add_missing_operations(
+        EIA930Tables(operations, net_generation_by_energy_source, interchange)
+    )
+    check_bas_outside_us(tables)
+    return tables
+
+
+def add_missing_operations(tables: EIA930Tables) -> EIA930Tables:
+    """Adds operations data for BAs that report generation or interchange but have no
+    operations data.
+
+    PUDL's operations table can miss BAs that EIA-930 does report, e.g. SIKE, a
+    generation-only BA that started reporting on 2025-06-01 with net generation and
+    total interchange but no demand. Without operations data, the reconciliation would
+    treat such a BA as outside of the US and estimate all of its data from its
+    neighbors' interchange.
+
+    For these BAs, net generation is the sum of their generation by energy source,
+    total interchange is the sum of their reported interchange with each adjacent BA,
+    and demand is net generation minus total interchange. Hours where a value can't be
+    computed are left blank.
+
+    Args:
+        tables (EIA930Tables): EIA-930 data.
+
+    Returns:
+        EIA930Tables: EIA-930 data, with operations data added for BAs that were
+            missing it.
+    """
+    operations_bas = set(tables.operations["balancing_authority_code_eia"])
+    reporting_bas = set(
+        tables.net_generation_by_energy_source["balancing_authority_code_eia"]
+    ) | set(tables.interchange["balancing_authority_code_eia"])
+    missing_bas = sorted(reporting_bas - operations_bas)
+    if len(missing_bas) == 0:
+        return tables
+    logger.warning(
+        f"Adding EIA-930 operations data for {missing_bas}, which report generation "
+        "or interchange but have no operations data in PUDL"
+    )
+
+    # min_count=1 keeps hours with no data blank
+    keys = ["datetime_utc", "balancing_authority_code_eia"]
+    net_generation = (
+        tables.net_generation_by_energy_source[
+            tables.net_generation_by_energy_source["balancing_authority_code_eia"].isin(
+                missing_bas
+            )
+        ]
+        .groupby(keys, dropna=False)["net_generation_mwh"]
+        .sum(min_count=1)
+    )
+    total_interchange = (
+        tables.interchange[
+            tables.interchange["balancing_authority_code_eia"].isin(missing_bas)
+        ]
+        .groupby(keys, dropna=False)["interchange_mwh"]
+        .sum(min_count=1)
+    )
+    added_operations = pd.concat(
+        [net_generation, total_interchange], axis="columns"
+    ).reset_index()
+    added_operations["demand_mwh"] = (
+        added_operations["net_generation_mwh"] - added_operations["interchange_mwh"]
+    )
+
+    operations = pd.concat(
+        [tables.operations, added_operations[tables.operations.columns]],
+        ignore_index=True,
+    )
+    return tables._replace(operations=operations)
+
+
+def check_bas_outside_us(tables: EIA930Tables):
+    """Warns about BAs that will be treated as outside of the US but are listed as US
+    BAs in `ba_reference.csv`.
+
+    The reconciliation treats BAs that only appear as the adjacent BA of interchange
+    data as being outside of the US, and estimates their data from their neighbors'
+    interchange (see `physics_reconciliation.apply_basic_cleaning`).
+
+    Args:
+        tables (EIA930Tables): EIA-930 data.
+    """
+    adjacent_only_bas = set(
+        tables.interchange["balancing_authority_code_adjacent_eia"]
+    ) - set(tables.operations["balancing_authority_code_eia"])
+    ba_ref = pd.read_csv(reference_table_folder("ba_reference.csv"))
+    us_bas = set(ba_ref.loc[ba_ref["us_ba"] == "Yes", "ba_code"])
+    us_adjacent_only_bas = sorted(adjacent_only_bas & us_bas)
+    if len(us_adjacent_only_bas) > 0:
+        logger.warning(
+            f"{us_adjacent_only_bas} only appear as adjacent BAs in EIA-930 interchange "
+            "data, so the reconciliation will treat them as outside of the US"
+        )
 
 
 def prepare_eia930_for_shaping(
