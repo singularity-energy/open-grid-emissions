@@ -30,7 +30,6 @@ def calculate_hourly_profiles(
     year: int,
     transmission_only: bool = False,
     ba_column_name: str = "ba_code",
-    use_flat: bool = False,
 ) -> pd.DataFrame:
     """Coordinating function for calculating the hourly residual profiles that will be
     used to shape monthly EIA data.
@@ -69,8 +68,6 @@ def calculate_hourly_profiles(
             profiles. Defaults to False.
         ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
             to define fleet composition. Defaults to "ba_code".
-        use_flat (bool, optional): Whether or not to use a flat profile for all fleets.
-            Defaults to False.
 
     Returns:
         pd.DataFrame: dataframe of hourly profiles (in MW) for each fleet. The table
@@ -124,11 +121,6 @@ def calculate_hourly_profiles(
 
     # add a flat profile for negative generation
     hourly_profiles["flat_profile"] = 1.0
-
-    # use flat profile?
-    if use_flat:
-        hourly_profiles["profile"] = hourly_profiles["flat_profile"]
-        hourly_profiles["profile_method"] = "flat_profile"
 
     logger.info(
         "Summary of methods used to estimate missing hourly profiles (count of ba-months):"

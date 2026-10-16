@@ -4,7 +4,7 @@ Entry point for creating final dataset and intermediate cleaned data products.
 Run from `src` as `python data_pipeline.py` after installing the uv environment
 
 Optional arguments are --year (default 2025)
-Optional arguments for development are --flat and --skip_outputs
+Optional arguments for development are --skip_outputs
 """
 
 import argparse
@@ -25,6 +25,7 @@ import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.load_data as load_data
 import oge.output_data as output_data
+import oge.physics_reconciliation as physics_reconciliation
 import oge.subplant_identification as subplant_identification
 import oge.validation as validation
 
@@ -47,12 +48,6 @@ def get_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", help="Year for analysis", default=2025, type=int)
-    parser.add_argument(
-        "--flat",
-        help="Use flat hourly profiles?",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-    )
     parser.add_argument(
         "--skip_outputs",
         help="Skip outputting data to csv files for quicker testing.",
@@ -83,8 +78,7 @@ def main(args):
             "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
         )
     # 0. Set up directory structure
-    path_prefix = "flat/" if args.flat else ""
-    path_prefix += f"{year}/"
+    path_prefix = f"{year}/"
     os.makedirs(downloads_folder(), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}/eia930"), exist_ok=True)
@@ -131,10 +125,6 @@ def main(args):
         download_data.download_pudl_data(source="aws")
     # eGRID
     download_data.download_egrid_files()
-    # EIA-930
-    # for `flat` run, we need chalander file for making profiles
-    if args.flat:
-        download_data.download_chalendar_files()
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(
@@ -523,29 +513,24 @@ def main(args):
         # 13. Clean and Reconcile EIA-930 data
         ################################################################################
         logger.info("13. Cleaning EIA-930 data")
-        # Scrapes and cleans data in data/downloads, outputs cleaned file at
-        # EBA_elec.csv
-        if args.flat:
-            logger.info(
-                "Not running 930 cleaning because we'll be using a flat profile."
-            )
-        elif not (
-            os.path.exists(outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv"))
-        ):
+        # Loads, adjusts and reconciles EIA-930 data, and writes each step to
+        # outputs/{path_prefix}/eia930/
+        eia930_folder = outputs_folder(f"{path_prefix}/eia930/")
+        # only reuse the reconciled data if all of its tables were written, in case
+        # a previous run was interrupted
+        if not physics_reconciliation.eia930_tables_exist(eia930_folder, "reconciled"):
             eia930.clean_930(year, path_prefix=path_prefix)
         else:
             logger.info(
                 "Not re-running 930 cleaning. If you'd like to re-run, "
                 f"please delete data/outputs/{path_prefix}/eia930/"
             )
-
-        # If running flat, we need to use the Chalender file to build residual profiles.
-        clean_930_file = (
-            downloads_folder("eia930/chalendar/EBA_elec.csv")
-            if args.flat
-            else outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv")
+        eia930_tables = physics_reconciliation.read_eia930_tables(
+            eia930_folder, "reconciled"
         )
-        eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
+        eia930_data = eia930.prepare_eia930_for_shaping(
+            eia930_tables.net_generation_by_energy_source, year=year
+        )
         # until we can fix the physics reconciliation, we need to apply some
         # post-processing steps
         eia930_data = eia930.remove_imputed_ones(eia930_data)
@@ -564,9 +549,8 @@ def main(args):
             year,
             transmission_only=False,
             ba_column_name="ba_code",
-            use_flat=args.flat,
         )
-        del eia930_data
+        del eia930_data, eia930_tables
         gc.collect()
         # validate how well the wind and solar imputation methods work
         output_data.output_data_quality_metrics(
@@ -844,7 +828,7 @@ def main(args):
             ################################################################################
             logger.info("19. Calculating and exporting consumption-based results")
             hourly_consumed_calc = consumed.HourlyConsumed(
-                clean_930_file,
+                outputs_folder(f"{path_prefix}/eia930/"),
                 path_prefix,
                 year,
                 skip_outputs=args.skip_outputs,

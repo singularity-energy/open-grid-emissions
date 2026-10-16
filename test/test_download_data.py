@@ -30,12 +30,6 @@ def test_download_egrid():
     print("DONE")
 
 
-def test_download_chalendar_files():
-    """Make sure that Chalendar download works."""
-    download_data.download_chalendar_files()
-    print("DONE")
-
-
 def test_download_eia_electric_power_annual():
     """Make sure that we can download electric power annual data from EIA."""
     download_data.download_eia_electric_power_annual()

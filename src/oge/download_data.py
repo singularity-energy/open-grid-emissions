@@ -276,30 +276,6 @@ def download_pudl_from_zenodo(zenodo_url: str, pudl_version: str):
     os.remove(downloads_folder("pudl.tgz"))
 
 
-def download_chalendar_files():
-    """Downloads raw and cleaned files. Eventually we'll do our own processing to get
-    our own version of chalendar, but still will be useful to use this raw file and
-    compare to this cleaned file.
-    """
-    os.makedirs(downloads_folder("eia930/chalendar"), exist_ok=True)
-
-    # download the cleaned and raw files
-    urls = [
-        "https://gridemissions.s3.us-east-2.amazonaws.com/EBA_elec.csv.gz",
-        "https://gridemissions.s3.us-east-2.amazonaws.com/EBA_raw.csv.gz",
-    ]
-    for url in urls:
-        output_filename = url.split("/")[-1].replace(".gz", "")
-        output_filepath = downloads_folder(f"eia930/chalendar/{output_filename}")
-        download_helper(
-            url,
-            output_filepath + ".gz",
-            output_filepath,
-            requires_gzip=True,
-            should_clean=True,
-        )
-
-
 def download_egrid_files():
     """Downloads the egrid excel files from 2018-2023."""
     os.makedirs(downloads_folder("egrid"), exist_ok=True)
