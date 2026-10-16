@@ -19,17 +19,15 @@ classifiers = [
 ]
 
 dependencies = [
-  "cvxopt",
+  "clarabel",
   "cvxpy",
-  "dask",
   "geopy",
-  "osqp",
   "numpy",
   "openpyxl",
   "pandas>=2.2,<3",
   "pyarrow<26",  # pyarrow 26 requires numpy>=2, but pudl requires numpy<2
-  "qdldl",
   "requests",
+  "scipy",
   "seaborn",
   "sqlalchemy",
   "statsmodels",

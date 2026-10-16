@@ -10,7 +10,7 @@ stoplight-id: physics_reconciliation_eia930
 
 EIA-930 data are not always physically consistent. In a given hour, a balancing authority's (BA's) demand plus its net exports may not equal its net generation, its total interchange may not equal the sum of its interchange with each neighbor, two neighboring BAs may disagree about the electricity that flowed between them, and a BA's generation by energy source may not add up to its total net generation. EIA-930 data also contain missing hours and anomalous values.
 
-OGE fixes these transient issues with a physics-based reconciliation, after correcting the systematic timestamp and sign issues described in [EIA-930 Data](EIA-930%20Data.md). The method was developed by Jacques de Chalendar, first to track consumption-based emissions in the US electricity system ([de Chalendar, Taggart and Benson, 2019](https://doi.org/10.1073/pnas.1912950116)) and then as a general data reconciliation framework for real-time electricity and emissions tracking ([de Chalendar and Benson, 2021](https://doi.org/10.1016/j.apenergy.2021.117761)). OGE originally used a fork of de Chalendar's [gridemissions](https://github.com/jdechalendar/gridemissions) package, and now uses a port of its cleaning code in `oge.physics_reconciliation`, which gives identical results.
+OGE fixes these transient issues with a physics-based reconciliation, after correcting the systematic timestamp and sign issues described in [EIA-930 Data](EIA-930%20Data.md). The method was developed by Jacques de Chalendar, first to track consumption-based emissions in the US electricity system ([de Chalendar, Taggart and Benson, 2019](https://doi.org/10.1073/pnas.1912950116)) and then as a general data reconciliation framework for real-time electricity and emissions tracking ([de Chalendar and Benson, 2021](https://doi.org/10.1016/j.apenergy.2021.117761)). OGE originally used a fork of de Chalendar's [gridemissions](https://github.com/jdechalendar/gridemissions) package, and now uses a port of its cleaning code in `oge.physics_reconciliation`. The cleaning steps give identical results, and the reconciled values are within about 1 MWh of gridemissions' (see [Differences from the gridemissions package](#differences-from-the-gridemissions-package)).
 
 The reconciliation runs on EIA-930 data from October 1 of the previous year through January 2 of the following year, so that the rolling window has data before and after the year of interest.
 
@@ -92,12 +92,13 @@ $$
 
 where $\bar{x}_k$ is the rolling mean of the series over the same 20-day window used for filtering. As a result, the optimization prefers to adjust large series (for example, demand in a large BA) rather than small ones, and the size of an adjustment is roughly proportional to the size of the series.
 
-The problem is solved independently for each hour using [cvxpy](https://www.cvxpy.org/).
+The problem is solved independently for each hour using [cvxpy](https://www.cvxpy.org/) and the [Clarabel](https://clarabel.org/) solver. The problem only differs between hours in its data and weights, so it is built and compiled once, and then solved for each hour with that hour's values. Clarabel is run with tight tolerances (10<sup>-10</sup>), so the reconciled values are within about 0.01 MWh of the exact solution of the problem.
 
 ### Differences from the gridemissions package
 
 * The rolling filter uses a median and percentile range instead of a mean and standard deviation (see above).
 * We do not add the constant geothermal (900 MWh) and biomass (600 MWh) generation that gridemissions adds to CISO.
+* gridemissions solves the reconciliation with the OSQP solver at its default tolerances, which leaves errors of up to about 1 MWh compared to the exact solution, and occasionally violates the constraints (for example, negative demand). We use Clarabel with tight tolerances instead, so our reconciled values differ from gridemissions' by up to about 1 MWh, and are closer to the exact solution.
 * The optimization requires demand, net generation, and generation by energy source to be at least 1 MWh, so a value that should be zero comes out of the reconciliation as about 1 MWh. After reconciliation, we set values with an absolute value below 1.5 MWh to zero, both in the hourly profiles and in the consumption-based emissions calculation.
 
 ### Outputs
