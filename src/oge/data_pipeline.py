@@ -516,14 +516,9 @@ def main(args):
         # Loads, adjusts and reconciles EIA-930 data, and writes each step to
         # outputs/{path_prefix}/eia930/
         eia930_folder = outputs_folder(f"{path_prefix}/eia930/")
-        if not (
-            os.path.exists(
-                os.path.join(
-                    eia930_folder,
-                    "eia930_reconciled_net_generation_by_energy_source.parquet",
-                )
-            )
-        ):
+        # only reuse the reconciled data if all of its tables were written, in case
+        # a previous run was interrupted
+        if not physics_reconciliation.eia930_tables_exist(eia930_folder, "reconciled"):
             eia930.clean_930(year, path_prefix=path_prefix)
         else:
             logger.info(

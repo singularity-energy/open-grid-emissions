@@ -1,6 +1,8 @@
 """Configure logging for the OGE codebase."""
 
 import logging
+import os
+
 import coloredlogs
 
 from oge.filepaths import make_containing_folder
@@ -39,8 +41,17 @@ def configure_root_logger(logfile: str | None = None, level: str = "INFO"):
     # Send everything to the log file by adding a file handler to the root logger.
     if logfile is not None:
         make_containing_folder(logfile)
+        # if a handler already writes to this file (e.g. when this function is called
+        # twice), close and replace it so that each line is only written once. Other
+        # handlers on the root logger are left alone.
+        logfile_path = os.path.abspath(logfile)
+        for handler in list(root_logger.handlers):
+            if (
+                isinstance(handler, logging.FileHandler)
+                and handler.baseFilename == logfile_path
+            ):
+                root_logger.removeHandler(handler)
+                handler.close()
         file_logger = logging.FileHandler(logfile, mode="w")
         file_logger.setFormatter(logging.Formatter(log_format))
-
-        if file_logger not in root_logger.handlers:
-            root_logger.addHandler(file_logger)
+        root_logger.addHandler(file_logger)

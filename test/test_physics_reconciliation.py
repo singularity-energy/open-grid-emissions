@@ -7,9 +7,15 @@ import pandas as pd
 import pytest
 
 from oge.physics_reconciliation import (
+    NET_GENERATION_BY_ENERGY_SOURCE,
+    SERIES_LEVELS,
     EIA930Tables,
+    eia930_tables_exist,
+    melt_series_to_eia930_tables,
+    pivot_eia930_tables_to_series,
     read_eia930_tables,
     reconcile_eia930,
+    write_eia930_tables,
 )
 
 FIXTURE_FOLDER = os.path.join(os.path.dirname(__file__), "data")
@@ -315,3 +321,83 @@ def test_convert_wide_to_tables_round_trips():
         re.match(r"^EBA\.[^-]+-[^.]+\.[A-Z]+(\.[A-Z]+)?\.H$", c) for c in raw.columns
     )
     pd.testing.assert_frame_equal(result, expected, check_exact=True)
+
+
+@pytest.fixture
+def tables_without_energy_sources():
+    """EIA-930 tables with an empty generation by energy source table.
+
+    Two hours before 2018-07-01 for one BA ("CISO") with interchange to a second BA
+    ("BANC"), shaped like the "reconciled_without_energy_sources" tables written by
+    `reconcile_eia930`.
+    """
+    hours = pd.to_datetime(["2018-06-30 00:00", "2018-06-30 01:00"], utc=True)
+    return EIA930Tables(
+        operations=pd.DataFrame(
+            {
+                "datetime_utc": hours,
+                "balancing_authority_code_eia": "CISO",
+                "demand_mwh": [100.0, 110.0],
+                "net_generation_mwh": [90.0, 95.0],
+                "interchange_mwh": [-10.0, -15.0],
+            }
+        ),
+        net_generation_by_energy_source=pd.DataFrame(
+            columns=[
+                "datetime_utc",
+                "balancing_authority_code_eia",
+                "generation_energy_source",
+                "net_generation_mwh",
+            ]
+        ),
+        interchange=pd.DataFrame(
+            {
+                "datetime_utc": hours,
+                "balancing_authority_code_eia": "CISO",
+                "balancing_authority_code_adjacent_eia": "BANC",
+                "interchange_mwh": [-10.0, -15.0],
+            }
+        ),
+    )
+
+
+def test_pivot_eia930_tables_with_empty_energy_sources(tables_without_energy_sources):
+    """Tables with no generation by energy source should pivot and melt back.
+
+    EIA-930 has no generation by energy source before 2018-07-01, so the
+    "reconciled_without_energy_sources" tables have an empty generation table. Pivoting
+    used to fail because the column levels couldn't be inferred from no columns.
+    """
+    series = pivot_eia930_tables_to_series(tables_without_energy_sources)
+    # the column levels are kept, and there are no generation by energy source series
+    assert list(series.columns.names) == SERIES_LEVELS
+    assert (
+        series.columns.get_level_values("field") == NET_GENERATION_BY_ENERGY_SOURCE
+    ).sum() == 0
+    # melting gives back the same tables
+    result = melt_series_to_eia930_tables(series)
+    assert len(result.net_generation_by_energy_source) == 0
+    pd.testing.assert_frame_equal(
+        result.operations, tables_without_energy_sources.operations, check_like=True
+    )
+    pd.testing.assert_frame_equal(
+        result.interchange, tables_without_energy_sources.interchange, check_like=True
+    )
+
+
+def test_eia930_tables_exist_requires_every_table(
+    tables_without_energy_sources, tmp_path
+):
+    """Cached tables should only count as written if every table's file exists.
+
+    The pipeline reuses reconciled data when it exists. If a run was interrupted after
+    writing some of the tables, the next run must reconcile again rather than fail
+    when reading the missing table.
+    """
+    folder = str(tmp_path)
+    assert not eia930_tables_exist(folder, "reconciled")
+    write_eia930_tables(tables_without_energy_sources, folder, "reconciled")
+    assert eia930_tables_exist(folder, "reconciled")
+    # a run interrupted before the interchange table was written
+    os.remove(os.path.join(folder, "eia930_reconciled_interchange.parquet"))
+    assert not eia930_tables_exist(folder, "reconciled")
