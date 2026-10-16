@@ -61,7 +61,7 @@ energy_source_to_fuel_category_eia930 = {
 }
 
 
-def clean_930(year: int, path_prefix: str = "") -> EIA930Tables:
+def clean_930(year: int, path_prefix: str = "") -> EIA930Tables | None:
     """This is the coordinating function for loading, adjusting and reconciling
     EIA-930 data.
 
@@ -75,7 +75,8 @@ def clean_930(year: int, path_prefix: str = "") -> EIA930Tables:
             for the physics-based data cleaning
 
     Returns:
-        EIA930Tables: reconciled EIA-930 data.
+        EIA930Tables | None: reconciled EIA-930 data. None if the data has no hours
+            from 2018-07-01 onwards.
     """
     data_folder = outputs_folder(f"{path_prefix}/eia930/")
 
