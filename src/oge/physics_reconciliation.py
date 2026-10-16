@@ -160,6 +160,7 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables:
     """
     start_time = time.time()
 
+    check_eia930_tables(tables)
     series = pivot_eia930_tables_to_series(tables)
 
     logger.info("Basic data cleaning")
@@ -220,6 +221,36 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables:
 
     logger.info(f"EIA-930 reconciliation took {time.time() - start_time:.0f} seconds")
     return reconciled_tables
+
+
+def check_eia930_tables(tables: EIA930Tables):
+    """Logs which BAs will be treated as outside of the US, and warns about BAs with
+    incomplete data.
+
+    BAs that only appear as the adjacent BA of interchange data are treated as being
+    outside of the US: their demand, net generation and total interchange are estimated
+    from their neighbors' interchange (see `apply_basic_cleaning`). A BA that reports
+    generation by energy source or interchange but has no operations data is also
+    treated this way, which discards the data it reports, so it gets a warning.
+
+    Args:
+        tables (EIA930Tables): EIA-930 data.
+    """
+    operations_bas = set(tables.operations["balancing_authority_code_eia"])
+    generation_bas = set(
+        tables.net_generation_by_energy_source["balancing_authority_code_eia"]
+    )
+    interchange_bas = set(tables.interchange["balancing_authority_code_eia"])
+    adjacent_bas = set(tables.interchange["balancing_authority_code_adjacent_eia"])
+
+    incomplete_bas = sorted((generation_bas | interchange_bas) - operations_bas)
+    if len(incomplete_bas) > 0:
+        logger.warning(
+            f"{incomplete_bas} report generation by energy source or interchange but "
+            "have no operations data, so they will be treated as outside of the US"
+        )
+    outside_us_bas = sorted(adjacent_bas - operations_bas)
+    logger.info(f"Treating {outside_us_bas} as outside of the US")
 
 
 def pivot_eia930_tables_to_series(tables: EIA930Tables) -> pd.DataFrame:
