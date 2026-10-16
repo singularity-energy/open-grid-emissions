@@ -24,7 +24,9 @@ This code was ported from the `gridemissions` package
 (https://github.com/jdechalendar/gridemissions), by way of the Singularity fork
 (https://github.com/singularity-energy/gridemissions, commit
 0cbe7620620f02ab91227940ef107b53bd1f9bb4). The cleaning logic is unchanged from that
-version. The original code is distributed under the following license:
+version, but the reconciliation is solved with a more precise solver (see
+`HourlyReconciliationProblem`), so reconciled values can differ from gridemissions' by
+up to about 1 MWh. The original code is distributed under the following license:
 
     MIT License
 
@@ -55,9 +57,9 @@ from collections import defaultdict
 from typing import NamedTuple
 
 import cvxpy as cp
-import dask
 import numpy as np
 import pandas as pd
+import scipy.sparse
 
 from oge.logging_util import get_logger
 
@@ -73,8 +75,8 @@ NET_GENERATION_BY_ENERGY_SOURCE = "net_generation_by_energy_source"
 # names of the column levels of a series data frame
 SERIES_LEVELS = ["field", "balancing_authority_code_eia", "other"]
 
-# energy sources reported in EIA-930. The order matters: it sets the order in which
-# the optimization problem is built, which can affect the solver's results.
+# energy sources reported in EIA-930, in the order of their series in the
+# reconciliation
 ENERGY_SOURCES = [
     "coal",
     "gas",
@@ -102,6 +104,10 @@ WEIGHT_MINIMUM_DENOMINATOR = 10  # MWh
 # lowest value allowed for demand, net generation and generation by energy source in
 # the optimization
 OPTIMIZATION_LOWER_BOUND = 1.0  # MWh
+
+# settings of the Clarabel solver. With these tolerances, the reconciled values are
+# within about 0.01 MWh of the exact solution.
+CLARABEL_SETTINGS = {"tol_gap_abs": 1e-10, "tol_gap_rel": 1e-10, "tol_feas": 1e-10}
 
 # names of the parquet files written for each table of `EIA930Tables`
 TABLE_FILE_NAMES = {
@@ -781,6 +787,8 @@ def reconcile_energy_balance(
           `include_energy_sources`)
         - demand, net generation and generation by energy source are at least 1 MWh
 
+    The problem is the same for every hour except for its data and weights, so it is
+    built once (see `HourlyReconciliationProblem`) and solved for each hour in turn.
     Blank values and weights are treated as zero.
 
     Args:
@@ -798,20 +806,18 @@ def reconcile_energy_balance(
     logger.info(f"Running the reconciliation for {len(series)} hours")
     series = series.fillna(0)
     weights = weights.fillna(0)
-    regions = get_series_bas(series)
 
-    solve = dask.delayed(solve_hourly_reconciliation)
+    problem = HourlyReconciliationProblem(series, include_energy_sources)
+    values = series.loc[:, problem.keys].to_numpy()
+    value_weights = weights.loc[:, problem.keys].to_numpy()
     results = [
-        solve(
-            series.loc[hour, :], weights.loc[hour, :], regions, include_energy_sources
-        )
-        for hour in series.index
+        problem.solve(values[hour], value_weights[hour]) for hour in range(len(series))
     ]
-    results = dask.compute(*results, scheduler="processes")
 
-    reconciled = pd.DataFrame([values for values, _ in results], index=series.index)
-    reconciled.columns = pd.MultiIndex.from_tuples(
-        reconciled.columns, names=SERIES_LEVELS
+    reconciled = pd.DataFrame(
+        np.array([reconciled_values for reconciled_values, _ in results]),
+        index=series.index,
+        columns=pd.MultiIndex.from_tuples(problem.keys, names=SERIES_LEVELS),
     )
     objective = pd.Series(
         [objective for _, objective in results], index=series.index, name="objective"
@@ -822,158 +828,166 @@ def reconcile_energy_balance(
     return reconciled, objective
 
 
-def solve_hourly_reconciliation(
-    values: pd.Series,
-    weights: pd.Series,
-    regions: list[str],
-    include_energy_sources: bool,
-) -> tuple[pd.Series, float]:
-    """Solves the reconciliation problem for one hour.
+class HourlyReconciliationProblem:
+    """The quadratic program that reconciles the data of one hour.
 
-    See `reconcile_energy_balance` for the constraints. The objective is the sum of the
-    squared adjustments, each multiplied by its weight.
+    The problem is built from the series in the data, with their values and weights as
+    parameters, so cvxpy compiles it only once. `solve` then sets the parameters for an
+    hour and solves it with Clarabel, which is much faster than building the problem
+    again for each hour.
+
+    The objective is the sum of the squared adjustments, each multiplied by its weight.
+    See `reconcile_energy_balance` for the constraints.
+
+    Attributes:
+        keys (list[tuple]): keys of the series in the problem, in the order of the
+            values passed to and returned by `solve`. Generation by energy source is
+            only included if `include_energy_sources`, and only for the energy sources
+            in `ENERGY_SOURCES`.
+    """
+
+    def __init__(self, series: pd.DataFrame, include_energy_sources: bool):
+        """Builds the problem for the series of a series data frame.
+
+        Args:
+            series (pd.DataFrame): series data frame. Only its columns are used. Every
+                BA must have demand, net generation and total interchange series, and
+                every interchange series must have a series in the opposite direction.
+            include_energy_sources (bool): whether to reconcile generation by energy
+                source.
+        """
+        regions = get_series_bas(series)
+        # (BA, adjacent BA) of each interchange series, and (energy source, BA) of each
+        # generation by energy source series
+        interchange_pairs = [
+            (ba, adjacent_ba)
+            for ba in regions
+            for adjacent_ba in regions
+            if (INTERCHANGE, ba, adjacent_ba) in series.columns
+        ]
+        energy_source_pairs = [
+            (energy_source, ba)
+            for energy_source in ENERGY_SOURCES
+            for ba in regions
+            if (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source) in series.columns
+        ]
+
+        keys_by_field = {
+            DEMAND: [(DEMAND, ba, "") for ba in regions],
+            NET_GENERATION: [(NET_GENERATION, ba, "") for ba in regions],
+            TOTAL_INTERCHANGE: [(TOTAL_INTERCHANGE, ba, "") for ba in regions],
+            INTERCHANGE: [(INTERCHANGE, ba, adj) for ba, adj in interchange_pairs],
+        }
+        if include_energy_sources:
+            keys_by_field[NET_GENERATION_BY_ENERGY_SOURCE] = [
+                (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)
+                for energy_source, ba in energy_source_pairs
+            ]
+        self.keys = [key for keys in keys_by_field.values() for key in keys]
+
+        # the data and the square root of the weights are set for each hour by `solve`
+        self.values = cp.Parameter(len(self.keys))
+        self.sqrt_weights = cp.Parameter(len(self.keys), nonneg=True)
+        self.adjustments = cp.Variable(len(self.keys))
+
+        # reconciled values of each field, as slices of the reconciled data
+        reconciled = self.values + self.adjustments
+        reconciled_by_field = {}
+        start = 0
+        for field, keys in keys_by_field.items():
+            reconciled_by_field[field] = reconciled[start : start + len(keys)]
+            start += len(keys)
+        demand = reconciled_by_field[DEMAND]
+        net_generation = reconciled_by_field[NET_GENERATION]
+        total_interchange = reconciled_by_field[TOTAL_INTERCHANGE]
+        interchange = reconciled_by_field[INTERCHANGE]
+
+        # sums the interchange series of each BA
+        interchange_to_ba = create_incidence_matrix(
+            regions, [ba for ba, _ in interchange_pairs]
+        )
+        # the position of the series in the opposite direction of each interchange
+        # series
+        pair_positions = {pair: i for i, pair in enumerate(interchange_pairs)}
+        opposite = [pair_positions[(adj, ba)] for ba, adj in interchange_pairs]
+
+        constraints = [
+            demand >= OPTIMIZATION_LOWER_BOUND,
+            net_generation >= OPTIMIZATION_LOWER_BOUND,
+            # energy balance of each BA
+            demand + total_interchange == net_generation,
+            # total interchange is the sum of interchange with each adjacent BA
+            total_interchange == interchange_to_ba @ interchange,
+            # interchange from A to B is the opposite of interchange from B to A. Each
+            # pair of BAs is constrained twice, which is redundant but harmless.
+            interchange == -interchange[opposite],
+        ]
+        if include_energy_sources:
+            generation = reconciled_by_field[NET_GENERATION_BY_ENERGY_SOURCE]
+            # sums the generation by energy source series of each BA
+            energy_sources_to_ba = create_incidence_matrix(
+                regions, [ba for _, ba in energy_source_pairs]
+            )
+            constraints += [
+                generation >= OPTIMIZATION_LOWER_BOUND,
+                # net generation is the sum of generation by energy source
+                net_generation == energy_sources_to_ba @ generation,
+            ]
+
+        # sum of weight * adjustment ** 2
+        objective = cp.sum_squares(cp.multiply(self.sqrt_weights, self.adjustments))
+        self.problem = cp.Problem(cp.Minimize(objective), constraints)
+
+    def solve(
+        self, values: np.ndarray, weights: np.ndarray
+    ) -> tuple[np.ndarray, float]:
+        """Reconciles the data of one hour.
+
+        Args:
+            values (np.ndarray): value of each series in `keys`, with no blank values.
+            weights (np.ndarray): weight of each series in `keys`, with no blank
+                values.
+
+        Raises:
+            ValueError: if there are blank values, or if the solver does not find a
+                solution.
+
+        Returns:
+            tuple[np.ndarray, float]: reconciled value of each series in `keys`, and
+                the value of the objective.
+        """
+        if np.isnan(values).any() or np.isnan(weights).any():
+            raise ValueError("Cannot reconcile data with blank values")
+        self.values.value = values
+        self.sqrt_weights.value = np.sqrt(weights)
+        self.problem.solve(solver=cp.CLARABEL, **CLARABEL_SETTINGS)
+        if self.problem.status != cp.OPTIMAL:
+            raise ValueError(
+                f"The reconciliation solver stopped with status {self.problem.status}"
+            )
+        return values + self.adjustments.value, self.problem.value
+
+
+def create_incidence_matrix(
+    row_bas: list[str], column_bas: list[str]
+) -> scipy.sparse.csr_array:
+    """Creates a matrix that sums the series of each BA.
 
     Args:
-        values (pd.Series): value of each series in this hour, with no blank values.
-        weights (pd.Series): weight of each series in this hour, with no blank values.
-        regions (list[str]): BAs, in alphabetical order. Every BA must have demand, net
-            generation and total interchange series.
-        include_energy_sources (bool): whether to reconcile generation by energy
-            source.
+        row_bas (list[str]): BA of each row.
+        column_bas (list[str]): BA of each column, i.e. of each series to sum.
 
     Returns:
-        tuple[pd.Series, float]: reconciled value of each series, and the value of the
-            objective.
+        scipy.sparse.csr_array: matrix with one row per BA in `row_bas` and one column
+            per series, with 1 where the series belongs to the BA and 0 elsewhere.
     """
-    if values.isna().sum() > 0:
-        raise ValueError("Cannot reconcile data with blank values")
-
-    n_regions = len(regions)
-
-    demand = values[[(DEMAND, r, "") for r in regions]].values
-    demand_weights = [
-        el**0.5 for el in weights[[(DEMAND, r, "") for r in regions]].values
-    ]
-    net_generation = values[[(NET_GENERATION, r, "") for r in regions]].values
-    net_generation_weights = [
-        el**0.5 for el in weights[[(NET_GENERATION, r, "") for r in regions]].values
-    ]
-    total_interchange = values[[(TOTAL_INTERCHANGE, r, "") for r in regions]].values
-    total_interchange_weights = [
-        el**0.5 for el in weights[[(TOTAL_INTERCHANGE, r, "") for r in regions]].values
-    ]
-
-    delta_demand = cp.Variable(n_regions, name="delta_D")
-    delta_net_generation = cp.Variable(n_regions, name="delta_NG")
-    delta_total_interchange = cp.Variable(n_regions, name="delta_TI")
-
-    objective = (
-        cp.sum_squares(cp.multiply(demand_weights, delta_demand))
-        + cp.sum_squares(cp.multiply(net_generation_weights, delta_net_generation))
-        + cp.sum_squares(
-            cp.multiply(total_interchange_weights, delta_total_interchange)
-        )
+    row_positions = {ba: i for i, ba in enumerate(row_bas)}
+    rows = [row_positions[ba] for ba in column_bas]
+    columns = range(len(column_bas))
+    return scipy.sparse.csr_array(
+        (np.ones(len(column_bas)), (rows, columns)),
+        shape=(len(row_bas), len(column_bas)),
     )
-
-    # the order in which the problem is built is kept from the original code, since it
-    # can affect the solver's results
-    interchange = {}
-    interchange_weights = {}
-    for ri in regions:
-        for rj in regions:
-            if (INTERCHANGE, ri, rj) in values.index:
-                interchange[(ri, rj)] = values[(INTERCHANGE, ri, rj)]
-                interchange_weights[(ri, rj)] = weights[(INTERCHANGE, ri, rj)]
-    delta_interchange = {k: cp.Variable(name=f"{k}") for k in interchange}
-    constraints = [
-        demand + delta_demand >= OPTIMIZATION_LOWER_BOUND,
-        net_generation + delta_net_generation >= OPTIMIZATION_LOWER_BOUND,
-        demand
-        + delta_demand
-        + total_interchange
-        + delta_total_interchange
-        - net_generation
-        - delta_net_generation
-        == 0.0,
-    ]
-
-    if include_energy_sources:
-        generation = {}
-        generation_weights = {}
-        for energy_source in ENERGY_SOURCES:
-            for r in regions:
-                key = (NET_GENERATION_BY_ENERGY_SOURCE, r, energy_source)
-                if key in values.index:
-                    generation[(energy_source, r)] = values[key]
-                    generation_weights[(energy_source, r)] = weights[key]
-        delta_generation = {k: cp.Variable(name=f"{k}") for k in generation}
-
-        for k in generation:
-            constraints += [
-                generation[k] + delta_generation[k] >= OPTIMIZATION_LOWER_BOUND
-            ]
-            objective += generation_weights[k] * delta_generation[k] ** 2
-
-    # interchange is antisymmetric. Adding each constraint twice is less efficient but
-    # not a problem.
-    for ri, rj in interchange:
-        constraints += [
-            interchange[(ri, rj)]
-            + delta_interchange[(ri, rj)]
-            + interchange[(rj, ri)]
-            + delta_interchange[(rj, ri)]
-            == 0.0
-        ]
-        objective += interchange_weights[(ri, rj)] * delta_interchange[(ri, rj)] ** 2
-
-    for i, ri in enumerate(regions):
-        if include_energy_sources:
-            constraints += [
-                net_generation[i]
-                + delta_net_generation[i]
-                - cp.sum(
-                    [
-                        generation[(energy_source, ri)]
-                        + delta_generation[(energy_source, ri)]
-                        for energy_source in ENERGY_SOURCES
-                        if (energy_source, ri) in generation
-                    ]
-                )
-                == 0.0
-            ]
-        constraints += [
-            total_interchange[i]
-            + delta_total_interchange[i]
-            - cp.sum(
-                [
-                    interchange[(ri, rj)] + delta_interchange[(ri, rj)]
-                    for rj in regions
-                    if (ri, rj) in interchange
-                ]
-            )
-            == 0.0
-        ]
-
-    problem = cp.Problem(cp.Minimize(objective), constraints)
-    problem.solve()
-
-    reconciled = {}
-    for i, r in enumerate(regions):
-        reconciled[(NET_GENERATION, r, "")] = (
-            net_generation[i] + delta_net_generation.value[i]
-        )
-        reconciled[(DEMAND, r, "")] = demand[i] + delta_demand.value[i]
-        reconciled[(TOTAL_INTERCHANGE, r, "")] = (
-            total_interchange[i] + delta_total_interchange.value[i]
-        )
-    for (ri, rj), value in interchange.items():
-        reconciled[(INTERCHANGE, ri, rj)] = value + delta_interchange[(ri, rj)].value
-    if include_energy_sources:
-        for (energy_source, r), value in generation.items():
-            reconciled[(NET_GENERATION_BY_ENERGY_SOURCE, r, energy_source)] = (
-                value + delta_generation[(energy_source, r)].value
-            )
-    return pd.Series(reconciled), problem.value
 
 
 def check_energy_balance(series: pd.DataFrame, tolerance: float = 1e-2):

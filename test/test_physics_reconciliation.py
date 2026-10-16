@@ -3,18 +3,29 @@ import io
 import os
 import re
 
+import numpy as np
 import pandas as pd
 import pytest
 
+import oge.physics_reconciliation as physics_reconciliation
 from oge.physics_reconciliation import (
+    DEMAND,
+    GENERATION_BY_ENERGY_SOURCE_START_DATE,
+    INTERCHANGE,
+    NET_GENERATION,
     NET_GENERATION_BY_ENERGY_SOURCE,
+    OPTIMIZATION_LOWER_BOUND,
     SERIES_LEVELS,
+    TOTAL_INTERCHANGE,
     EIA930Tables,
+    apply_basic_cleaning,
+    apply_rolling_window_cleaning,
     eia930_tables_exist,
     melt_series_to_eia930_tables,
     pivot_eia930_tables_to_series,
     read_eia930_tables,
     reconcile_eia930,
+    reconcile_energy_balance,
     write_eia930_tables,
 )
 
@@ -42,6 +53,20 @@ OUTPUT_STAGES = {
 PRE_2018_07_OUTPUT_STAGES = {
     "eia930_opt_no_src.csv": "reconciled_without_energy_sources",
 }
+
+# OGE solves the reconciliation with Clarabel at tight tolerances, while gridemissions
+# uses OSQP at its default tolerances, which leaves errors of up to about 1.1 MWh (on
+# the 2018 fixture) compared to the exact solution. The reconciled data are compared
+# within these tolerances, which cover gridemissions' solver error but not a change to
+# the problem itself.
+RECONCILED_STAGES = ["reconciled", "reconciled_without_energy_sources"]
+RECONCILED_TOLERANCE = 2.0  # MWh
+OBJECTIVE_RELATIVE_TOLERANCE = 1e-4
+
+# largest constraint violation, and largest distance from the exact solution, allowed
+# for the reconciled data
+CONSTRAINT_TOLERANCE = 1e-6  # MWh
+SOLUTION_TOLERANCE = 0.01  # MWh
 
 
 @pytest.fixture(scope="module")
@@ -228,11 +253,12 @@ def read_gridemissions_output(path: str) -> pd.DataFrame:
 def test_reconcile_eia930_matches_gridemissions(
     fixture_name, output_stages, gridemissions_make_dataset, tmp_path
 ):
-    """The data at every step of the reconciliation should exactly match the output of
-    the original `gridemissions` package.
+    """The data at every step of the reconciliation should match the output of the
+    original `gridemissions` package.
 
     `oge.physics_reconciliation` is a port of the `gridemissions` cleaning code to
-    PUDL-shaped tables, and must not change its results. Each fixture is two weeks of
+    PUDL-shaped tables, and must not change its results beyond the precision of
+    gridemissions' solver. Each fixture is two weeks of
     real EIA-930 data for every BA, in the wide format `gridemissions` reads. Every BA
     is included because the optimization couples BAs through interchange, so dropping
     a BA would change the results for the others.
@@ -242,8 +268,13 @@ def test_reconcile_eia930_matches_gridemissions(
     - The 2018 fixture crosses 2018-07-01, so it exercises both the optimization
       without generation by energy source (before) and with it (after).
 
-    For each step, the test checks that both versions have the same series and hours
-    and exactly the same values, for the data, the weights and the objective.
+    For each step, the test checks that both versions have the same series and hours,
+    and:
+        - exactly the same values after basic and rolling window cleaning, and for the
+          weights
+        - values within `RECONCILED_TOLERANCE` after reconciliation, and objective
+          values within `OBJECTIVE_RELATIVE_TOLERANCE`, since OGE uses a more precise
+          solver
     """
     raw_csv = read_raw_fixture(fixture_name)
     # both versions parse the raw fixture with pandas' default float parser, as
@@ -270,10 +301,22 @@ def test_reconcile_eia930_matches_gridemissions(
     for file_name, stage in output_stages.items():
         expected = read_gridemissions_output(gridemissions_folder / file_name)
         result = convert_tables_to_wide(read_eia930_tables(oge_folder, stage))
-        # same series, same hours and exactly the same values
-        pd.testing.assert_frame_equal(
-            result, expected, check_exact=True, check_names=False, obj=stage
-        )
+        if stage in RECONCILED_STAGES:
+            # same series and hours, and values within the solver's precision
+            pd.testing.assert_frame_equal(
+                result,
+                expected,
+                check_exact=False,
+                rtol=0,
+                atol=RECONCILED_TOLERANCE,
+                check_names=False,
+                obj=stage,
+            )
+        else:
+            # same series, same hours and exactly the same values
+            pd.testing.assert_frame_equal(
+                result, expected, check_exact=True, check_names=False, obj=stage
+            )
 
     # weights are only written for every series in the rolling step
     expected = read_gridemissions_output(gridemissions_folder / "eia930_weights.csv")
@@ -298,7 +341,130 @@ def test_reconcile_eia930_matches_gridemissions(
             float_precision="round_trip",
         )["CleaningObjective"]
         result = pd.read_parquet(os.path.join(oge_folder, oge_file))["objective"]
-        assert list(result.to_numpy()) == list(expected.to_numpy()), oge_file
+        np.testing.assert_allclose(
+            result.to_numpy(),
+            expected.to_numpy(),
+            rtol=OBJECTIVE_RELATIVE_TOLERANCE,
+            err_msg=oge_file,
+        )
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "eia930_raw_2024-11-01_2024-11-14.csv.gz",
+        "eia930_raw_2018-06-24_2018-07-07.csv.gz",
+    ],
+)
+def test_reconcile_energy_balance_solves_the_problem(fixture_name):
+    """The reconciled data should satisfy every constraint and be the exact solution.
+
+    This protects the formulation in `HourlyReconciliationProblem`, independently of
+    `gridemissions`. For each fixture, after basic and rolling window cleaning, the
+    hours are reconciled as in `reconcile_eia930`: without generation by energy source
+    before 2018-07-01 (only in the 2018 fixture) and with it from that date, and:
+        - every constraint of the problem holds to `CONSTRAINT_TOLERANCE`
+        - the reconciled data are within `SOLUTION_TOLERANCE` of a solve with much
+          tighter tolerances, which shows the default solver settings are precise
+          enough
+    """
+    series = pivot_eia930_tables_to_series(
+        convert_wide_to_tables(
+            pd.read_csv(
+                io.StringIO(read_raw_fixture(fixture_name)),
+                index_col=0,
+                parse_dates=True,
+            )
+        )
+    )
+    series, weights = apply_rolling_window_cleaning(apply_basic_cleaning(series))
+
+    periods = {
+        False: slice(None, GENERATION_BY_ENERGY_SOURCE_START_DATE),
+        True: slice(GENERATION_BY_ENERGY_SOURCE_START_DATE, None),
+    }
+    for include_energy_sources, hours in periods.items():
+        if len(series.loc[hours]) == 0:
+            continue
+        reconciled, _ = reconcile_energy_balance(
+            series.loc[hours], weights.loc[hours], include_energy_sources
+        )
+        check_reconciliation_constraints(reconciled, include_energy_sources)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                physics_reconciliation,
+                "CLARABEL_SETTINGS",
+                {"tol_gap_abs": 1e-13, "tol_gap_rel": 1e-13, "tol_feas": 1e-13},
+            )
+            reference, _ = reconcile_energy_balance(
+                series.loc[hours], weights.loc[hours], include_energy_sources
+            )
+        # every reconciled value is close to the exact solution
+        pd.testing.assert_frame_equal(
+            reconciled, reference, check_exact=False, rtol=0, atol=SOLUTION_TOLERANCE
+        )
+
+
+def check_reconciliation_constraints(
+    reconciled: pd.DataFrame, include_energy_sources: bool
+):
+    """Asserts that reconciled data satisfy every constraint of the reconciliation.
+
+    The constraints are checked directly on the series, independently of how
+    `HourlyReconciliationProblem` builds them.
+
+    Args:
+        reconciled (pd.DataFrame): reconciled series data frame.
+        include_energy_sources (bool): whether generation by energy source was
+            reconciled.
+    """
+    fields = reconciled.columns.get_level_values("field")
+
+    def by_ba(field: str) -> pd.DataFrame:
+        values = reconciled.loc[:, fields == field]
+        return values.T.groupby(level="balancing_authority_code_eia").sum().T
+
+    demand = by_ba(DEMAND)
+    net_generation = by_ba(NET_GENERATION)
+    total_interchange = by_ba(TOTAL_INTERCHANGE)
+    interchange = reconciled.loc[:, fields == INTERCHANGE]
+
+    # demand + total interchange == net generation
+    assert (
+        (demand + total_interchange - net_generation).abs() < CONSTRAINT_TOLERANCE
+    ).all(axis=None)
+    # total interchange == sum of interchange with each adjacent BA
+    interchange_sum = by_ba(INTERCHANGE).reindex(
+        columns=total_interchange.columns, fill_value=0
+    )
+    assert ((total_interchange - interchange_sum).abs() < CONSTRAINT_TOLERANCE).all(
+        axis=None
+    )
+    # interchange from A to B == -(interchange from B to A)
+    opposite = reconciled.loc[
+        :,
+        [(INTERCHANGE, adjacent_ba, ba) for _, ba, adjacent_ba in interchange.columns],
+    ]
+    assert (
+        abs(interchange.to_numpy() + opposite.to_numpy()) < CONSTRAINT_TOLERANCE
+    ).all()
+    # demand and net generation are at least the lower bound
+    lower_bound = OPTIMIZATION_LOWER_BOUND - CONSTRAINT_TOLERANCE
+    assert (demand >= lower_bound).all(axis=None)
+    assert (net_generation >= lower_bound).all(axis=None)
+
+    is_generation = fields == NET_GENERATION_BY_ENERGY_SOURCE
+    # generation by energy source is only in the problem if it is reconciled
+    assert is_generation.any() == include_energy_sources
+    if include_energy_sources:
+        # net generation == sum of generation by energy source
+        generation_sum = by_ba(NET_GENERATION_BY_ENERGY_SOURCE)
+        assert ((net_generation - generation_sum).abs() < CONSTRAINT_TOLERANCE).all(
+            axis=None
+        )
+        # generation by energy source is at least the lower bound
+        assert (reconciled.loc[:, is_generation] >= lower_bound).all(axis=None)
 
 
 def test_convert_wide_to_tables_round_trips():
