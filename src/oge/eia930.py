@@ -285,7 +285,7 @@ def prepare_eia930_for_shaping(
     """Formats reconciled EIA-930 generation by energy source for hourly shaping.
 
     Keeps the year plus or minus one day, to allow for the conversion to local time
-    later, and drops BAs outside of the US.
+    later, drops BAs outside of the US, and sets negative generation to zero.
 
     Args:
         net_generation_by_energy_source (pd.DataFrame): reconciled EIA-930 generation
@@ -329,6 +329,12 @@ def prepare_eia930_for_shaping(
     data["report_date"] = data["datetime_local"].str[:7]
     data["report_date"] = pd.to_datetime(data["report_date"]).astype("datetime64[s]")
 
+    # the hourly profiles describe when positive generation happens, so hours when an
+    # energy source is a net load (e.g. station use at night, or charging storage) are
+    # set to zero. Otherwise, a month whose total is close to zero or negative would
+    # give profiles with very large or inverted shares of the monthly total.
+    data["net_generation_mwh_930"] = data["net_generation_mwh_930"].clip(lower=0)
+
     # rename the energy sources using the fuel categories in
     # reference_tables/energy_source_groups.csv
     data["fuel_category_eia930"] = data["generation_energy_source"].map(
@@ -347,24 +353,6 @@ def prepare_eia930_for_shaping(
     ].reset_index(drop=True)
 
     return data
-
-
-def remove_imputed_ones(eia930_data: pd.DataFrame) -> pd.DataFrame:
-    """Remove ones in data frame.
-
-    Args:
-        eia930_data (pd.DataFrame): EIA-930 table
-
-    Returns:
-        pd.DataFrame: input data frame with ones replace by zeros
-    """
-    filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
-
-    # replace all 1.0 values with zero
-    logger.info(f"Replacing {sum(filter)} imputed 1 values with 0")
-    eia930_data.loc[filter, "net_generation_mwh_930"] = 0
-
-    return eia930_data
 
 
 ###########################################################

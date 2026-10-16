@@ -531,9 +531,6 @@ def main(args):
         eia930_data = eia930.prepare_eia930_for_shaping(
             eia930_tables.net_generation_by_energy_source, year=year
         )
-        # until we can fix the physics reconciliation, we need to apply some
-        # post-processing steps
-        eia930_data = eia930.remove_imputed_ones(eia930_data)
 
         # 14. Calculate hourly profiles for monthly EIA data
         ################################################################################
