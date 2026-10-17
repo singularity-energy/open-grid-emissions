@@ -21,6 +21,18 @@ In these cases when CEMS generation is greater than EIA-930 generation, the resi
 
 For non-emitting resources like wind and solar, which report data to EIA-930 but not CEMS, the residual profile will always equal the reported EIA-930 value (since the CEMS profile is zero).
 
+### New EIA-930 energy sources
+
+Since 2024, BAs have started to report some resources separately in EIA-930: pumped storage (previously part of hydro), solar and wind with integrated battery storage (previously part of solar and wind), and battery storage, other energy storage, and geothermal (previously part of other). See [EIA-930 Data](../Data%20Cleaning/EIA-930%20Data.md#energy-sources). BAs switched at different times, so for each BA and month, a new energy source is only treated separately in the months after the BA's [cutover date](../Data%20Cleaning/EIA-930%20Data.md#cutover-dates) for it. In the month of the cutover and before, it is added back to the energy source that included it before, as the BA reported it then.
+
+In the months after a cutover:
+- Geothermal plants are shaped using the BA's EIA-930 geothermal profile. Before a cutover, and in BAs that don't report geothermal, geothermal gets a flat profile (see below).
+- The hydro, solar, wind, and other profiles no longer include the resources reported separately. For example, the "other" profile of a BA that reports battery storage no longer includes battery charging and discharging, so it better represents the other resources it is used to shape.
+- Solar and wind at plants with integrated battery storage are shaped with the BA's solar or wind profile. The EIA-930 profile of solar or wind with integrated battery storage reflects the combined output of the generator and its battery, so it isn't used directly for either.
+- Energy storage still gets a flat profile (see below).
+
+To calculate residual profiles in these months, CEMS data for subplants in a category that the BA reports separately (for example, a battery at a plant that reports to CEMS) is subtracted from the EIA-930 profile of that category, rather than from the original category.
+
 EIA-930 profiles only describe when positive generation happens, so negative EIA-930 values (net load, such as station use at night or storage charging) are set to zero before the residual is calculated. A fleet-month in which EIA-930 generation is zero in every hour has no shape to give, so it is treated as missing and gets one of the imputed profiles described below. This includes energy sources that a BA doesn't report in EIA-930 that month (the [physics-based reconciliation](../Data%20Cleaning/Physics-based%20Reconciliation.md) keeps these at exactly zero) and months with only negative values.
 
 

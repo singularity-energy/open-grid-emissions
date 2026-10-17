@@ -626,3 +626,52 @@ def test_add_eia860_resource_flags():
         "unknown_energy_storage",
         "geothermal",
     }
+
+
+def test_prepare_eia930_for_shaping_keeps_new_energy_sources_after_cutover():
+    """New energy sources should be their own category in the months after a BA
+    switched to reporting them, and part of the original category until then.
+
+    The scenario has one IPCO hour in March and one in April 2025 (local time):
+        - battery storage has a cutover on 2025-01-01, so it is its own category in
+          both months, and "other" no longer includes it
+        - geothermal has a cutover on 2025-03-15, so March is the cutover month and
+          geothermal is still part of "other", while it is its own category in April
+        - solar with integrated battery storage has no cutover, so it stays part of
+          "solar"
+    """
+    hours = pd.to_datetime(["2025-03-20 19:00", "2025-04-15 19:00"], utc=True)
+    reconciled = pd.DataFrame(
+        {
+            "datetime_utc": list(hours) * 4,
+            "balancing_authority_code_eia": "IPCO",
+            "generation_energy_source": ["other"] * 2
+            + ["battery_storage"] * 2
+            + ["geothermal"] * 2
+            + ["solar_w_integrated_battery_storage"] * 2,
+            "net_generation_mwh": [100.0, 100.0, -30.0, 20.0, 40.0, 40.0, 5.0, 6.0],
+        }
+    )
+    cutover_dates = pd.DataFrame(
+        {
+            "ba_code": "IPCO",
+            "generation_energy_source": ["battery_storage", "geothermal"],
+            "cutover_date": pd.to_datetime(["2025-01-01", "2025-03-15"]),
+        }
+    )
+
+    result = prepare_eia930_for_shaping(reconciled, 2025, cutover_dates).set_index(
+        ["fuel_category_eia930", "report_date"]
+    )["net_generation_mwh_930"]
+
+    march, april = pd.Timestamp("2025-03-01"), pd.Timestamp("2025-04-01")
+    # batteries are their own category, with charging set to zero
+    assert result.loc[("battery_storage", march)] == 0.0
+    assert result.loc[("battery_storage", april)] == 20.0
+    # geothermal is part of "other" in its cutover month, and its own category after
+    assert result.loc[("other", march)] == 140.0
+    assert result.loc[("other", april)] == 100.0
+    assert result.loc[("geothermal", april)] == 40.0
+    assert ("geothermal", march) not in result.index
+    # solar with integrated battery storage stays in "solar" without a cutover
+    assert result.loc[("solar", march)] == 5.0

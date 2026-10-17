@@ -78,6 +78,13 @@ expanded_fuel_category_to_energy_sources = {
     "geothermal": ["geothermal"],
 }
 
+# the expanded EIA-930 fuel category that each new EIA-930 energy source is reported for
+energy_source_to_expanded_fuel_category = {
+    energy_source: fuel_category
+    for fuel_category, energy_sources in expanded_fuel_category_to_energy_sources.items()
+    for energy_source in energy_sources
+}
+
 # columns of the energy source cutover table
 CUTOVER_COLUMNS = [
     "ba_code",
@@ -355,19 +362,32 @@ def check_bas_outside_us(tables: EIA930Tables):
 
 
 def prepare_eia930_for_shaping(
-    net_generation_by_energy_source: pd.DataFrame, year: int
+    net_generation_by_energy_source: pd.DataFrame,
+    year: int,
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Formats reconciled EIA-930 generation by energy source for hourly shaping.
 
     Keeps the year plus or minus one day, to allow for the conversion to local time
-    later, drops BAs outside of the US, adds the energy sources that EIA-930 introduced
-    in 2024 to the fuel category that included them before (e.g. battery storage to
-    "other"), and sets negative generation to zero.
+    later, drops BAs outside of the US, assigns each energy source a fuel category, and
+    sets negative generation to zero.
+
+    The energy sources that EIA-930 introduced in 2024 (e.g. battery storage) keep
+    their own expanded fuel category (see `expanded_fuel_category_to_energy_sources`)
+    in the months after the BA switched to reporting them (see
+    `calculate_category_cutover_dates`), so that the original category no longer
+    includes them (e.g. "other" without batteries). In the month of the cutover and
+    before, they are added to the category that included them before (e.g. battery
+    storage to "other"), since the BA reported them there for at least part of the
+    month.
 
     Args:
         net_generation_by_energy_source (pd.DataFrame): reconciled EIA-930 generation
             by energy source.
         year (int): a four-digit year.
+        cutover_dates (pd.DataFrame | None, optional): cutover date of each BA and new
+            energy source, as returned by `calculate_energy_source_cutover_dates`.
+            Defaults to None, for no cutovers.
 
     Returns:
         pd.DataFrame: EIA-930 generation with columns "ba_code",
@@ -394,36 +414,54 @@ def prepare_eia930_for_shaping(
     foreign_bas = list(ba_ref.loc[ba_ref["us_ba"] == "No", "ba_code"])
     data = data[~data["ba_code"].isin(foreign_bas)]
 
-    # rename the energy sources using the fuel categories in
-    # reference_tables/energy_source_groups.csv, and add up the energy sources in each
-    # category. The new energy sources are added before negative values are set to
-    # zero below, so that e.g. battery charging still offsets other generation in the
-    # "other" category, as it did before BAs reported batteries separately. Blank
-    # categories ("unknown") are kept.
-    data = (
-        data.assign(
-            fuel_category_eia930=data["generation_energy_source"].map(
-                energy_source_to_fuel_category_eia930
-            )
-        )
-        .groupby(["ba_code", "fuel_category_eia930", "datetime_utc"], dropna=False)[
-            "net_generation_mwh_930"
-        ]
-        .sum(min_count=1)
-        .reset_index()
-    )
-
-    data["datetime_local"] = ""
-    for ba in list(data["ba_code"].unique()):
-        data.loc[data.ba_code == ba, "datetime_local"] = (
-            data.loc[data.ba_code == ba, "datetime_utc"]
+    # the local time and month of each BA-hour. The month decides whether a BA had
+    # switched to reporting a new energy source, and is the month used for shaping.
+    local_times = data[["ba_code", "datetime_utc"]].drop_duplicates()
+    local_times["datetime_local"] = ""
+    for ba in list(local_times["ba_code"].unique()):
+        local_times.loc[local_times.ba_code == ba, "datetime_local"] = (
+            local_times.loc[local_times.ba_code == ba, "datetime_utc"]
             .dt.tz_convert(load_data.ba_timezone(ba=ba, type="local"))
             .astype(str)
         )
+    local_times["report_date"] = pd.to_datetime(
+        local_times["datetime_local"].str[:7]
+    ).astype("datetime64[s]")
+    data = data.merge(
+        local_times, how="left", on=["ba_code", "datetime_utc"], validate="m:1"
+    )
 
-    # create a report date column
-    data["report_date"] = data["datetime_local"].str[:7]
-    data["report_date"] = pd.to_datetime(data["report_date"]).astype("datetime64[s]")
+    # rename the energy sources using the fuel categories in
+    # reference_tables/energy_source_groups.csv. Blank categories ("unknown") are kept.
+    data["fuel_category_eia930"] = data["generation_energy_source"].map(
+        energy_source_to_fuel_category_eia930
+    )
+
+    # in the months after a BA switched to reporting a new energy source, the energy
+    # source keeps its expanded category
+    data["fuel_category_eia930_expanded"] = data["generation_energy_source"].map(
+        energy_source_to_expanded_fuel_category
+    )
+    data = assign_expanded_category_after_cutover(data, cutover_dates)
+
+    # add up the energy sources in each category. Before a BA switches, the new energy
+    # sources are added to the original category before negative values are set to
+    # zero below, so that e.g. battery charging still offsets other generation in the
+    # "other" category, as the BA reported it.
+    data = (
+        data.groupby(
+            [
+                "ba_code",
+                "fuel_category_eia930",
+                "datetime_utc",
+                "datetime_local",
+                "report_date",
+            ],
+            dropna=False,
+        )["net_generation_mwh_930"]
+        .sum(min_count=1)
+        .reset_index()
+    )
 
     # the hourly profiles describe when positive generation happens, so hours when an
     # energy source is a net load (e.g. station use at night, or charging storage) are
@@ -443,6 +481,79 @@ def prepare_eia930_for_shaping(
     ].reset_index(drop=True)
 
     return data
+
+
+def assign_expanded_category_after_cutover(
+    data: pd.DataFrame, cutover_dates: pd.DataFrame | None
+) -> pd.DataFrame:
+    """Replaces the EIA-930 fuel category with the expanded category in the months
+    after the BA switched to reporting it.
+
+    A BA has switched to an expanded category in a month if its cutover date (see
+    `calculate_category_cutover_dates`) is on or before the first day of the month. In
+    the month of the cutover, the BA still reported the category in the original one
+    for part of the month.
+
+    Args:
+        data (pd.DataFrame): data with columns "ba_code", "report_date" (the first day
+            of the month), "fuel_category_eia930" and "fuel_category_eia930_expanded"
+            (blank, or the same as "fuel_category_eia930", for categories that aren't
+            reported in a new energy source).
+        cutover_dates (pd.DataFrame | None): cutover date of each BA and new energy
+            source, as returned by `calculate_energy_source_cutover_dates`. None for no
+            cutovers.
+
+    Returns:
+        pd.DataFrame: `data` with the expanded category in "fuel_category_eia930" where
+            the BA had switched to it, and without "fuel_category_eia930_expanded".
+    """
+    if cutover_dates is not None and len(cutover_dates) > 0:
+        data = data.merge(
+            calculate_category_cutover_dates(cutover_dates),
+            how="left",
+            on=["ba_code", "fuel_category_eia930_expanded"],
+            validate="m:1",
+        )
+        has_switched = data["cutover_date"].notna() & (
+            data["cutover_date"] <= data["report_date"]
+        )
+        data.loc[has_switched, "fuel_category_eia930"] = data.loc[
+            has_switched, "fuel_category_eia930_expanded"
+        ]
+        data = data.drop(columns="cutover_date")
+    return data.drop(columns="fuel_category_eia930_expanded")
+
+
+def calculate_category_cutover_dates(cutover_dates: pd.DataFrame) -> pd.DataFrame:
+    """Calculates the date on which each BA switched to reporting each expanded EIA-930
+    fuel category in a new energy source.
+
+    Some categories are reported in more than one new energy source (e.g. some BAs
+    report battery charging as "unknown_energy_storage"), so a BA switches to a
+    category on the earliest cutover date of its energy sources.
+
+    Args:
+        cutover_dates (pd.DataFrame): cutover date of each BA and new energy source, as
+            returned by `calculate_energy_source_cutover_dates`.
+
+    Returns:
+        pd.DataFrame: one row per BA and expanded category that the BA reports, with
+            columns "ba_code", "fuel_category_eia930_expanded" and "cutover_date".
+    """
+    return (
+        cutover_dates.dropna(subset="cutover_date")
+        .assign(
+            fuel_category_eia930_expanded=lambda df: df["generation_energy_source"].map(
+                energy_source_to_expanded_fuel_category
+            ),
+            cutover_date=lambda df: pd.to_datetime(df["cutover_date"]),
+        )
+        .groupby(["ba_code", "fuel_category_eia930_expanded"], dropna=False)[
+            "cutover_date"
+        ]
+        .min()
+        .reset_index()
+    )
 
 
 def remove_months_with_zero_data(eia930_data: pd.DataFrame) -> pd.DataFrame:
@@ -786,17 +897,10 @@ def add_eia860_resource_flags(
     # category is reported in (e.g. batteries with both battery storage and unknown
     # energy storage). A category with generators but no row for any of its energy
     # sources gets a row for its main energy source.
-    energy_source_to_category = {
-        energy_source: fuel_category
-        for fuel_category, energy_sources in (
-            expanded_fuel_category_to_energy_sources.items()
-        )
-        for energy_source in energy_sources
-    }
     cutover_dates = cutover_dates.assign(
         **{
             category: cutover_dates["generation_energy_source"].map(
-                energy_source_to_category
+                energy_source_to_expanded_fuel_category
             )
         }
     )
