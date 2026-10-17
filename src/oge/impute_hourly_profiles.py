@@ -732,6 +732,13 @@ def impute_missing_hourly_profiles(
             # assign a flat profile
             df_temporary = create_flat_profile(report_date, ba, fuel)
             df_temporary["imputation_method"] = "assumed_flat"
+        # EIA-930 has no storage category to calculate a residual profile from, so
+        # assume a flat profile. Months with negative net generation (more charging
+        # than discharging) also get a flat profile when the data is shaped (see
+        # shape_monthly_eia_data_as_hourly)
+        elif fuel in ["storage"]:
+            df_temporary = create_flat_profile(report_date, ba, fuel)
+            df_temporary["imputation_method"] = "assumed_flat"
         else:
             raise UserWarning(f"Fuel category {fuel} not recognized.")
 

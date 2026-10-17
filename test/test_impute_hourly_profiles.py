@@ -686,3 +686,115 @@ def test_validate_shaped_totals_raises_on_lost_months(
     lower.loc[lower["report_date"].dt.month == 2, "net_generation_mwh"] *= 0.5
     with pytest.raises(UserWarning):
         validation.validate_shaped_totals(lower, monthly_fleet_data, 2025, group_keys)
+
+
+@pytest.fixture
+def eia_only_storage_fleet():
+    """Monthly EIA-923 data, plant attributes and primary fuels for one battery
+    subplant in AECI that only reports to EIA, for January and February 2025.
+
+    January has positive net generation and February negative net generation (more
+    charging than discharging), as is common for storage. The residual profiles only
+    have an AECI natural gas fleet, since EIA-930 has no storage category.
+    """
+    monthly_data = pd.DataFrame(
+        {
+            "plant_id_eia": 1,
+            "subplant_id": 1,
+            "report_date": pd.to_datetime(["2025-01-01", "2025-02-01"]).astype(
+                "datetime64[s]"
+            ),
+            "net_generation_mwh": [744.0, -672.0],
+            "fuel_consumed_mmbtu": 0.0,
+            "fuel_consumed_for_electricity_mmbtu": 0.0,
+        }
+    )
+    plant_attributes = pd.DataFrame({"plant_id_eia": [1], "ba_code": ["AECI"]})
+    primary_fuel_table = pd.DataFrame(
+        {
+            "plant_id_eia": [1],
+            "subplant_id": [1],
+            "subplant_primary_fuel": ["MWH"],
+            "subplant_primary_fuel_from_capacity_mw": ["MWH"],
+            "subplant_primary_prime_mover_code": ["BA"],
+        }
+    )
+    residual_profiles = helpers.create_local_year_timestamps(2025, "US/Central")
+    residual_profiles["ba_code"] = "AECI"
+    residual_profiles["datetime_local"] = (
+        residual_profiles["datetime_utc"].dt.tz_convert("US/Central").astype(str)
+    )
+    residual_profiles["fuel_category"] = "natural_gas"
+    residual_profiles["eia930_profile"] = 100.0
+    residual_profiles["residual_profile"] = 100.0
+    return monthly_data, plant_attributes, primary_fuel_table, residual_profiles
+
+
+def test_impute_missing_hourly_profiles_flat_profile_for_eia_only_storage(
+    eia_only_storage_fleet,
+):
+    """A storage fleet that only reports to EIA should get a flat imputed profile, and
+    shaping it should keep its monthly totals, including a month of negative net
+    generation.
+
+    EIA-930 has no storage category, so every EIA-only storage fleet-month needs an
+    imputed profile. There used to be no imputation method for the "storage" fuel
+    category, which raised "Fuel category storage not recognized" in step 14.
+    """
+    monthly_data, plant_attributes, primary_fuel_table, residual_profiles = (
+        eia_only_storage_fleet
+    )
+    with patch(
+        "oge.impute_hourly_profiles.load_data.load_diba_data",
+        return_value=pd.DataFrame(
+            columns=[
+                "ba_code",
+                "ba_region",
+                "diba_code",
+                "diba_region",
+                "timezone_local",
+                "timezone_local_diba",
+            ]
+        ),
+    ):
+        hourly_profiles = impute_hourly_profiles.impute_missing_hourly_profiles(
+            monthly_data, residual_profiles, plant_attributes, primary_fuel_table, 2025
+        )
+
+    storage_profiles = hourly_profiles[hourly_profiles["fuel_category"] == "storage"]
+    # a flat profile for each month of storage data
+    assert set(storage_profiles["report_date"].dt.month) == {1, 2}
+    assert (storage_profiles["imputation_method"] == "assumed_flat").all()
+    assert (storage_profiles["imputed_profile"] == 1.0).all()
+
+    # shape the monthly data as in data_pipeline step 14 and
+    # shape_monthly_eia_data_as_hourly
+    storage_profiles = storage_profiles.assign(
+        profile=storage_profiles["imputed_profile"],
+        flat_profile=1.0,
+        profile_method="assumed_flat",
+        local_timezone_offset=_offset("US/Central"),
+    )
+    storage_profiles = impute_hourly_profiles.convert_profile_to_percent(
+        storage_profiles,
+        group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
+        columns_to_convert=["profile", "flat_profile"],
+    )
+    monthly_fleet_data = monthly_data.assign(
+        ba_code="AECI",
+        fuel_category="storage",
+        local_timezone_offset=_offset("US/Central"),
+    ).drop(columns=["plant_id_eia", "subplant_id"])
+    shaped = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_fleet_data, storage_profiles, 2025
+    )
+    monthly_totals = shaped.groupby("report_date", dropna=False)[
+        "net_generation_mwh"
+    ].sum()
+    # the monthly totals are kept
+    assert monthly_totals.to_list() == pytest.approx([744.0, -672.0])
+    # each month is spread evenly over its hours
+    assert (shaped.groupby("report_date")["net_generation_mwh"].nunique() == 1).all()
+    # the negative month is flagged as such
+    february = shaped[shaped["report_date"].dt.month == 2]
+    assert (february["profile_method"] == "flat_negative_generation").all()

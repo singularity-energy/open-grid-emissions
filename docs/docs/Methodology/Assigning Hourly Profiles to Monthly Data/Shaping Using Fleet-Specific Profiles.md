@@ -39,6 +39,8 @@ If neither a good-quality residual profile or shifted residual profile are avail
 
 If all other attempts at imputing a reasonable hourly profile fail, we assign a flat hourly profile to the data (which is functionally the same as using a monthly average value). For certain fuels, like geothermal, nuclear, biomass, and waste, which tend to run as baseload resources, this may be a reasonable assumption.
 
+Energy storage that only reports to EIA-923 also gets a flat profile, since EIA-930 has no storage category to calculate a residual profile from. This is a placeholder rather than a reasonable assumption: storage charges and discharges at different times of day. Storage often charges more than it discharges in a month, and any fleet-month with negative net generation gets a flat profile regardless of the profile selected for it, since a profile of when positive generation happens can't describe a negative monthly total.
+
 A flat profile is also used for any month whose selected profile has no positive values (for example, very small EIA-930 values that round to zero), since such a profile can't be converted to shares of the monthly total. Shaping never changes the monthly totals reported to EIA-923: the shaped hourly data are checked against them, and the pipeline stops if they don't match.
 
 
