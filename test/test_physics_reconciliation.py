@@ -139,7 +139,9 @@ def test_reconcile_eia930_matches_reconciled_fixture(dates, tmp_path):
     would change the results for the others.
 
     - The 2024 fixture covers the first weeks of storage reporting in several BAs
-      (e.g. ISNE, ERCO, NEVP), when negative storage values started to appear.
+      (e.g. ISNE, ERCO, NEVP), when negative storage values started to appear. It
+      includes the energy sources that EIA-930 introduced in 2024 (e.g. battery
+      storage, pumped storage) as their own series.
     - The 2018 fixture crosses 2018-07-01, so it exercises both the optimization
       without generation by energy source (before) and with it (after).
 

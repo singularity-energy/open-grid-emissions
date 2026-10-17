@@ -9,7 +9,9 @@ one row per series and hour (columns "datetime_utc", "field",
 `test_physics_reconciliation.py`, which converts them to `EIA930Tables` for OGE.
 
 - `eia930_raw_2024-11-01_2024-11-14.parquet`: covers the first weeks of storage
-  reporting in several BAs.
+  reporting in several BAs, with the energy sources that EIA-930 introduced in 2024
+  (e.g. battery storage in ERCO, IPCO and NEVP, pumped storage in ISNE) as their own
+  series. Rebuilt from PUDL in October 2026.
 - `eia930_raw_2018-06-24_2018-07-07.parquet`: crosses 2018-07-01, the date after which
   the optimization uses generation by energy source.
 

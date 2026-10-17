@@ -23,12 +23,15 @@ the other series.
 This code was ported from the `gridemissions` package
 (https://github.com/jdechalendar/gridemissions), by way of the Singularity fork
 (https://github.com/singularity-energy/gridemissions, commit
-0cbe7620620f02ab91227940ef107b53bd1f9bb4), with two changes: the reconciliation is
-solved with a more precise solver (see `HourlyReconciliationProblem`), and net
-generation and generation by energy source are allowed to be negative where the data
-are negative, since they represent net load (e.g. station use, or charging storage).
-The original code forced them to be at least 1 MWh and set negative solar to zero. The
-original code is distributed under the following license:
+0cbe7620620f02ab91227940ef107b53bd1f9bb4), with three changes: the reconciliation is
+solved with a more precise solver (see `HourlyReconciliationProblem`); net generation
+and generation by energy source are allowed to be negative where the data are
+negative, since they represent net load (e.g. station use, or charging storage); and
+the energy sources that EIA-930 introduced in 2024 (e.g. battery storage) are
+reconciled as their own series (see `ENERGY_SOURCES`). The original code forced net
+generation and generation by energy source to be at least 1 MWh, set negative solar
+to zero, and only knew the original energy sources. The original code is distributed
+under the following license:
 
     MIT License
 
@@ -77,9 +80,9 @@ NET_GENERATION_BY_ENERGY_SOURCE = "net_generation_by_energy_source"
 # names of the column levels of a series data frame
 SERIES_LEVELS = ["field", "balancing_authority_code_eia", "other"]
 
-# energy sources reported in EIA-930, in the order of their series in the
-# reconciliation
-ENERGY_SOURCES = [
+# energy sources reported in EIA-930 since it started to collect generation by energy
+# source
+ORIGINAL_ENERGY_SOURCES = [
     "coal",
     "gas",
     "nuclear",
@@ -90,6 +93,24 @@ ENERGY_SOURCES = [
     "hydro",
     "wind",
 ]
+# energy sources that EIA-930 introduced in 2024, which split pumped storage from
+# hydro, integrated battery storage from solar and wind, and battery storage, other
+# energy storage and geothermal from other. BAs started to report them at different
+# times. "unknown_energy_storage" isn't in the EIA-930 instructions, but some BAs
+# (e.g. ERCO) report the charging of their batteries as this energy source.
+NEW_ENERGY_SOURCES = [
+    "pumped_storage",
+    "solar_w_integrated_battery_storage",
+    "wind_w_integrated_battery_storage",
+    "battery_storage",
+    "unknown_energy_storage",
+    "other_energy_storage",
+    "geothermal",
+]
+# all energy sources, in the order of their series in the reconciliation. The new
+# energy sources come after the original ones, so that adding them doesn't change the
+# order of the series of BAs that don't report them.
+ENERGY_SOURCES = ORIGINAL_ENERGY_SOURCES + NEW_ENERGY_SOURCES
 
 # Canadian BAs whose generation is assumed to be hydro when it is estimated from
 # their interchange with US BAs

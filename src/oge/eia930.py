@@ -13,6 +13,7 @@ from oge.physics_reconciliation import (
     INTERCHANGE,
     NET_GENERATION,
     NET_GENERATION_BY_ENERGY_SOURCE,
+    NEW_ENERGY_SOURCES,
     TOTAL_INTERCHANGE,
     EIA930Tables,
     melt_series_to_eia930_tables,
@@ -24,31 +25,21 @@ from oge.physics_reconciliation import (
 logger = get_logger(__name__)
 
 
-# Dictionary mapping the new energy sources in EIA-930 to existing ones
-new_to_existing_energy_sources = {
-    "coal": "coal",
-    "gas": "gas",
-    "hydro": "hydro",
+# PUDL renamed hydro, solar and wind on 2024-07-01, for every BA, when EIA-930
+# introduced pumped storage and integrated battery storage as separate energy sources.
+# The new names don't mean that a BA reports the new energy sources (BAs started to
+# report those at different times), so each pair is combined into one series, under
+# the original name.
+renamed_energy_sources = {
     "hydro_excluding_pumped_storage": "hydro",
-    "pumped_storage": "hydro",
-    "nuclear": "nuclear",
-    "oil": "oil",
-    "battery_storage": "other",
-    "geothermal": "other",
-    "other": "other",
-    "other_energy_storage": "other",
-    "unknown_energy_storage": "other",
-    "solar": "solar",
-    "solar_w_integrated_battery_storage": "solar",
     "solar_wo_integrated_battery_storage": "solar",
-    "unknown": "unknown",
-    "wind": "wind",
-    "wind_w_integrated_battery_storage": "wind",
     "wind_wo_integrated_battery_storage": "wind",
 }
 
 # Dictionary mapping EIA-930 energy sources to the fuel categories in
-# reference_tables/energy_source_groups.csv. "unknown" is not mapped.
+# reference_tables/energy_source_groups.csv. The energy sources that EIA-930
+# introduced in 2024 are mapped to the category that included them before.
+# "unknown" is not mapped.
 energy_source_to_fuel_category_eia930 = {
     "coal": "coal",
     "gas": "natural_gas",
@@ -58,6 +49,13 @@ energy_source_to_fuel_category_eia930 = {
     "solar": "solar",
     "nuclear": "nuclear",
     "oil": "petroleum",
+    "pumped_storage": "hydro",
+    "solar_w_integrated_battery_storage": "solar",
+    "wind_w_integrated_battery_storage": "wind",
+    "battery_storage": "other",
+    "unknown_energy_storage": "other",
+    "other_energy_storage": "other",
+    "geothermal": "other",
 }
 
 
@@ -99,10 +97,10 @@ def load_eia930_balance_data(year: int) -> EIA930Tables:
     """Loads EIA-930 operations, generation by energy source and interchange from PUDL.
 
     Loads data from October of the previous year through January 2 of the next year,
-    since the rolling window cleaning needs data before and after the year. Generation
-    by energy source is mapped to the energy sources used before EIA-930 introduced new
-    ones (see `new_to_existing_energy_sources`), since BAs started to use the new energy
-    sources at different times.
+    since the rolling window cleaning needs data before and after the year. The energy
+    sources that EIA-930 introduced in 2024 (e.g. battery storage) are kept as their
+    own series, and the energy sources that PUDL renamed on 2024-07-01 are combined
+    with their original names (see `combine_renamed_energy_sources`).
 
     Args:
         year (int): a four-digit year.
@@ -126,11 +124,7 @@ def load_eia930_balance_data(year: int) -> EIA930Tables:
         end_dt=end,
     ).rename(columns={"interchange_reported_mwh": "interchange_mwh"})
 
-    # TODO: consider individual energy sources (e.g. geothermal, battery storage,
-    # etc.) and BAs reporting new energy sources at different times.
-    # note that sum() turns groups with only blank values into zero, as in the
-    # original gridemissions-format code
-    net_generation_by_energy_source = (
+    net_generation_by_energy_source = combine_renamed_energy_sources(
         load_data.load_pudl_table(
             "core_eia930__hourly_net_generation_by_energy_source",
             columns=[
@@ -141,22 +135,7 @@ def load_eia930_balance_data(year: int) -> EIA930Tables:
             ],
             dt=start,
             end_dt=end,
-        )
-        .astype(
-            {"generation_energy_source": "str"}
-        )  # to avoid a FutureWarning when using replace on CategoricalDtype
-        .replace({"generation_energy_source": new_to_existing_energy_sources})
-        .groupby(
-            [
-                "datetime_utc",
-                "balancing_authority_code_eia",
-                "generation_energy_source",
-            ],
-            dropna=True,  # the keys are never blank in PUDL
-        )["net_generation_adjusted_mwh"]
-        .sum()
-        .reset_index()
-        .rename(columns={"net_generation_adjusted_mwh": "net_generation_mwh"})
+        ).rename(columns={"net_generation_adjusted_mwh": "net_generation_mwh"})
     )
 
     operations = load_data.load_pudl_table(
@@ -191,6 +170,64 @@ def load_eia930_balance_data(year: int) -> EIA930Tables:
     )
     check_bas_outside_us(tables)
     return tables
+
+
+def combine_renamed_energy_sources(
+    net_generation_by_energy_source: pd.DataFrame,
+) -> pd.DataFrame:
+    """Combines the energy sources that PUDL renamed on 2024-07-01 with their original
+    names, and drops new energy sources that a BA never reports.
+
+    PUDL's table has a row for every BA, hour and energy source, blank when nothing is
+    reported. Each renamed energy source (see `renamed_energy_sources`) is combined
+    with its original name, which is blank on the other side of the rename. The energy
+    sources that EIA-930 introduced in 2024 (`NEW_ENERGY_SOURCES`) are kept as their
+    own series, except for the BAs that don't report them in any hour, which would only
+    add series of zeros to the reconciliation. The original energy sources are kept for
+    every BA, as before the new ones were introduced.
+
+    Args:
+        net_generation_by_energy_source (pd.DataFrame): PUDL's generation by energy
+            source, with columns "datetime_utc", "balancing_authority_code_eia",
+            "generation_energy_source" and "net_generation_mwh".
+
+    Returns:
+        pd.DataFrame: generation by energy source with one row per BA, hour and energy
+            source.
+    """
+    keys = ["datetime_utc", "balancing_authority_code_eia", "generation_energy_source"]
+    data = net_generation_by_energy_source.astype(
+        {"generation_energy_source": "str"}
+    ).replace({"generation_energy_source": renamed_energy_sources})
+
+    # a BA should report each pair under only one of the names in any hour
+    reported_twice = (
+        data.groupby(keys, dropna=True)["net_generation_mwh"].count() > 1
+    )  # the keys are never blank in PUDL
+    if reported_twice.any():
+        logger.warning(
+            "Some BAs report an energy source under both its original and its "
+            "renamed PUDL name in the same hour. The values are added together:\n"
+            + reported_twice[reported_twice]
+            .reset_index()
+            .groupby(keys[1:], dropna=False)
+            .size()
+            .rename("hours")
+            .to_string()
+        )
+
+    # new energy sources that a BA never reports
+    is_reported = (
+        data.groupby(keys[1:], dropna=True)["net_generation_mwh"]
+        .transform("count")
+        .gt(0)
+    )
+    is_new = data["generation_energy_source"].isin(NEW_ENERGY_SOURCES)
+    data = data[is_reported | ~is_new]
+
+    # note that sum() turns groups with only blank values into zero, as in the
+    # original gridemissions-format code
+    return data.groupby(keys, dropna=True)["net_generation_mwh"].sum().reset_index()
 
 
 def add_missing_operations(tables: EIA930Tables) -> EIA930Tables:
@@ -289,7 +326,9 @@ def prepare_eia930_for_shaping(
     """Formats reconciled EIA-930 generation by energy source for hourly shaping.
 
     Keeps the year plus or minus one day, to allow for the conversion to local time
-    later, drops BAs outside of the US, and sets negative generation to zero.
+    later, drops BAs outside of the US, adds the energy sources that EIA-930 introduced
+    in 2024 to the fuel category that included them before (e.g. battery storage to
+    "other"), and sets negative generation to zero.
 
     Args:
         net_generation_by_energy_source (pd.DataFrame): reconciled EIA-930 generation
@@ -319,7 +358,26 @@ def prepare_eia930_for_shaping(
     # drop BAs not located in the United States
     ba_ref = pd.read_csv(reference_table_folder("ba_reference.csv"))
     foreign_bas = list(ba_ref.loc[ba_ref["us_ba"] == "No", "ba_code"])
-    data = data[~data["ba_code"].isin(foreign_bas)].copy()
+    data = data[~data["ba_code"].isin(foreign_bas)]
+
+    # rename the energy sources using the fuel categories in
+    # reference_tables/energy_source_groups.csv, and add up the energy sources in each
+    # category. The new energy sources are added before negative values are set to
+    # zero below, so that e.g. battery charging still offsets other generation in the
+    # "other" category, as it did before BAs reported batteries separately. Blank
+    # categories ("unknown") are kept.
+    data = (
+        data.assign(
+            fuel_category_eia930=data["generation_energy_source"].map(
+                energy_source_to_fuel_category_eia930
+            )
+        )
+        .groupby(["ba_code", "fuel_category_eia930", "datetime_utc"], dropna=False)[
+            "net_generation_mwh_930"
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
 
     data["datetime_local"] = ""
     for ba in list(data["ba_code"].unique()):
@@ -338,12 +396,6 @@ def prepare_eia930_for_shaping(
     # set to zero. Otherwise, a month whose total is close to zero or negative would
     # give profiles with very large or inverted shares of the monthly total.
     data["net_generation_mwh_930"] = data["net_generation_mwh_930"].clip(lower=0)
-
-    # rename the energy sources using the fuel categories in
-    # reference_tables/energy_source_groups.csv
-    data["fuel_category_eia930"] = data["generation_energy_source"].map(
-        energy_source_to_fuel_category_eia930
-    )
 
     data = data[
         [
