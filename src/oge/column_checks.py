@@ -462,6 +462,7 @@ def get_dtypes() -> dict:
         "flat_profile": "float32",
         "fuel_category": "string",
         "fuel_category_eia930": "string",
+        "fuel_category_eia930_expanded": "string",
         "gross_generation_mwh": "float64",
         "gtn_method": "category",
         "hourly_data_source": "category",

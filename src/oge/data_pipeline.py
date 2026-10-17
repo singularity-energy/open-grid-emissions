@@ -533,6 +533,15 @@ def main(args):
         )
         # months with no EIA-930 generation get an imputed profile instead
         eia930_data = eia930.remove_months_with_zero_data(eia930_data)
+        # identify when each BA started to report the energy sources that EIA-930
+        # introduced in 2024, and compare them with the generators in each BA
+        energy_source_cutover_dates = eia930.calculate_energy_source_cutover_dates(
+            year, plant_attributes, primary_fuel_table
+        )
+        if not args.skip_outputs:
+            energy_source_cutover_dates.to_csv(
+                eia930_folder + "eia930_energy_source_cutover.csv", index=False
+            )
 
         # 14. Calculate hourly profiles for monthly EIA data
         ################################################################################

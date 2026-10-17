@@ -1,6 +1,7 @@
 import pandas as pd
 from datetime import timedelta
 
+import oge.helpers as helpers
 import oge.load_data as load_data
 from oge.filepaths import (
     outputs_folder,
@@ -57,6 +58,40 @@ energy_source_to_fuel_category_eia930 = {
     "other_energy_storage": "other",
     "geothermal": "other",
 }
+
+
+# BAs started to report the energy sources that EIA-930 introduced in 2024 at
+# different times. A BA is considered to have switched to a new energy source on the
+# first day it reports it, but no earlier than this date, so that hourly profiles before
+# 2025 use the original energy sources throughout.
+CUTOVER_START_DATE = pd.Timestamp("2025-01-01")
+
+# the new EIA-930 energy sources that each expanded EIA-930 fuel category (see
+# reference_tables/energy_source_groups.csv and helpers.assign_fuel_category_to_esc)
+# is reported in. Some BAs report battery charging as "unknown_energy_storage".
+expanded_fuel_category_to_energy_sources = {
+    "pumped_storage": ["pumped_storage"],
+    "solar_w_integrated_battery_storage": ["solar_w_integrated_battery_storage"],
+    "wind_w_integrated_battery_storage": ["wind_w_integrated_battery_storage"],
+    "battery_storage": ["battery_storage", "unknown_energy_storage"],
+    "other_energy_storage": ["other_energy_storage"],
+    "geothermal": ["geothermal"],
+}
+
+# columns of the energy source cutover table
+CUTOVER_COLUMNS = [
+    "ba_code",
+    "generation_energy_source",
+    "first_reported_date",
+    "share_of_hours_reported",
+    "share_of_hours_nonzero",
+    "cutover_date",
+    "cutover_date_source",
+    "eia860_subplants",
+    "eia860_capacity_mw",
+    "eia860_flag",
+    "notes",
+]
 
 
 def clean_930(year: int, path_prefix: str = "") -> EIA930Tables | None:
@@ -443,6 +478,372 @@ def remove_months_with_zero_data(eia930_data: pd.DataFrame) -> pd.DataFrame:
         "EIA-930 BA-fuel-months with zero generation in every hour"
     )
     return eia930_data[~is_zero_month].reset_index(drop=True)
+
+
+###########################################################
+# Code for identifying when BAs started to report new energy sources
+#
+###########################################################
+
+
+def calculate_energy_source_cutover_dates(
+    year: int, plant_attributes: pd.DataFrame, primary_fuel_table: pd.DataFrame
+) -> pd.DataFrame:
+    """This is the coordinating function for identifying when each BA started to report
+    each of the energy sources that EIA-930 introduced in 2024.
+
+    BAs started to report the new energy sources at different times, and some only
+    report part of them (e.g. CISO reports geothermal, but still reports its batteries
+    in "other"). Until a BA reports a new energy source, its generators of that type
+    are still included in the energy source that included them before.
+
+    The cutover date of each BA and new energy source is the first day on which the BA
+    reports a non-zero value for it, from `CUTOVER_START_DATE` to the end of `year`
+    (see `identify_energy_source_cutover_dates`). Dates in
+    reference_tables/eia930_energy_source_cutover_overrides.csv replace the detected
+    dates. Each BA and energy source is also compared with the generators of that type
+    in the BA (see `add_eia860_resource_flags`). Years before `CUTOVER_START_DATE` have
+    no cutover dates.
+
+    Args:
+        year (int): a four-digit year.
+        plant_attributes (pd.DataFrame): table of plant-level static attributes, with
+            the BA of each plant.
+        primary_fuel_table (pd.DataFrame): table of subplant-level primary fuels.
+
+    Returns:
+        pd.DataFrame: one row per BA and new energy source with `CUTOVER_COLUMNS`.
+    """
+    if year < CUTOVER_START_DATE.year:
+        return pd.DataFrame(columns=CUTOVER_COLUMNS)
+
+    # load generation by energy source from the first possible cutover date through
+    # the end of the year, so that a BA that switched in an earlier year still gets
+    # its cutover date
+    end_date = pd.Timestamp(year + 1, 1, 1)
+    net_generation_by_energy_source = load_data.load_pudl_table(
+        "core_eia930__hourly_net_generation_by_energy_source",
+        columns=[
+            "datetime_utc",
+            "balancing_authority_code_eia",
+            "generation_energy_source",
+            "net_generation_adjusted_mwh",
+        ],
+        dt=CUTOVER_START_DATE,
+        end_dt=end_date,
+    ).rename(
+        columns={
+            "balancing_authority_code_eia": "ba_code",
+            "net_generation_adjusted_mwh": "net_generation_mwh",
+        }
+    )
+    cutover_dates = identify_energy_source_cutover_dates(
+        net_generation_by_energy_source, end_date
+    )
+    # manually reviewed dates replace the detected ones
+    cutover_dates = apply_cutover_date_overrides(
+        cutover_dates,
+        pd.read_csv(
+            reference_table_folder("eia930_energy_source_cutover_overrides.csv"),
+            dtype={"ba_code": "str", "generation_energy_source": "str", "notes": "str"},
+            parse_dates=["cutover_date"],
+        ),
+    )
+    # compare what each BA reports with the generators it has, only for the BAs that
+    # report generation by energy source to EIA-930
+    cutover_dates = add_eia860_resource_flags(
+        cutover_dates,
+        plant_attributes,
+        primary_fuel_table,
+        year,
+        eia930_bas=sorted(net_generation_by_energy_source["ba_code"].unique()),
+    )
+    logger.info(
+        "BAs that report each new EIA-930 energy source:\n"
+        + cutover_dates.dropna(subset="cutover_date")
+        .groupby("generation_energy_source", dropna=False)["ba_code"]
+        .agg(lambda bas: ", ".join(sorted(bas)))
+        .to_string()
+    )
+    return cutover_dates[CUTOVER_COLUMNS]
+
+
+def identify_energy_source_cutover_dates(
+    net_generation_by_energy_source: pd.DataFrame, end_date: pd.Timestamp
+) -> pd.DataFrame:
+    """Identifies the first day on which each BA reports each new EIA-930 energy
+    source.
+
+    A day counts as reported if any hour (in UTC) has a non-zero value, since some BAs
+    report zeros for energy sources they don't have (e.g. TVA). Two shares of the
+    hours from the first reported day to `end_date` describe how the BA reports the
+    energy source after that day:
+        - "share_of_hours_reported": hours with a value, including zero. A low share
+          means the BA leaves the energy source blank in some hours (e.g. FPC's
+          batteries).
+        - "share_of_hours_nonzero": hours with a non-zero value. A low share with a high
+          share of hours reported means the BA reports the energy source every hour,
+          but it is rarely used, or its generation is mostly reported elsewhere.
+
+    Args:
+        net_generation_by_energy_source (pd.DataFrame): EIA-930 generation by energy
+            source from `CUTOVER_START_DATE`, with one row per BA, energy source and
+            hour (blank if not reported), and columns "datetime_utc", "ba_code",
+            "generation_energy_source" and "net_generation_mwh".
+        end_date (pd.Timestamp): end of the data (exclusive).
+
+    Returns:
+        pd.DataFrame: one row per BA and new energy source that the BA reports, with
+            columns "ba_code", "generation_energy_source", "first_reported_date",
+            "share_of_hours_reported", "share_of_hours_nonzero", "cutover_date" (the
+            first reported date) and "cutover_date_source" ("detected").
+    """
+    keys = ["ba_code", "generation_energy_source"]
+
+    # only the new energy sources, and only hours before the end date (PUDL's end date
+    # filter includes the first hours of the next day)
+    data = net_generation_by_energy_source.astype({"generation_energy_source": "str"})
+    data = data[data["generation_energy_source"].isin(NEW_ENERGY_SOURCES)]
+    data = data.assign(
+        report_day=pd.to_datetime(data["datetime_utc"], utc=True)
+        .dt.tz_localize(None)
+        .dt.floor("D"),
+    )
+    data = data[data["report_day"] < end_date.normalize()]
+    data = data.assign(
+        is_reported=data["net_generation_mwh"].notna(),
+        is_nonzero=data["net_generation_mwh"].fillna(0) != 0,
+    )
+
+    # the first day with a non-zero value, for each BA and energy source that has one
+    cutover_dates = (
+        data[data["is_nonzero"]]
+        .groupby(keys, dropna=False)["report_day"]
+        .min()
+        .rename("first_reported_date")
+        .reset_index()
+    )
+
+    # how consistently each energy source is reported from that day onwards
+    after_cutover = data.merge(cutover_dates, how="inner", on=keys, validate="m:1")
+    after_cutover = after_cutover[
+        after_cutover["report_day"] >= after_cutover["first_reported_date"]
+    ]
+    shares = (
+        after_cutover.groupby(keys, dropna=False)[["is_reported", "is_nonzero"]]
+        .mean()
+        .round(3)
+        .rename(
+            columns={
+                "is_reported": "share_of_hours_reported",
+                "is_nonzero": "share_of_hours_nonzero",
+            }
+        )
+        .reset_index()
+    )
+    cutover_dates = cutover_dates.merge(shares, how="left", on=keys, validate="1:1")
+
+    cutover_dates["cutover_date"] = cutover_dates["first_reported_date"]
+    cutover_dates["cutover_date_source"] = "detected"
+    return cutover_dates
+
+
+def apply_cutover_date_overrides(
+    cutover_dates: pd.DataFrame, overrides: pd.DataFrame
+) -> pd.DataFrame:
+    """Replaces detected cutover dates with manually reviewed ones.
+
+    A blank override date means that the BA hasn't switched to the energy source (e.g.
+    it only reported it for a few days by mistake). An override for a BA and energy
+    source that wasn't detected is added.
+
+    Args:
+        cutover_dates (pd.DataFrame): detected cutover dates, as returned by
+            `identify_energy_source_cutover_dates`.
+        overrides (pd.DataFrame): manual cutover dates, with columns "ba_code",
+            "generation_energy_source", "cutover_date" and "notes".
+
+    Returns:
+        pd.DataFrame: `cutover_dates` with the override dates, and "cutover_date_source"
+            set to "manual" and "notes" for overridden rows.
+    """
+    keys = ["ba_code", "generation_energy_source"]
+    # an outer merge keeps the detected dates without an override, and adds overrides
+    # that weren't detected
+    cutover_dates = cutover_dates.merge(
+        overrides[keys + ["cutover_date", "notes"]],
+        how="outer",
+        on=keys,
+        suffixes=(None, "_override"),
+        validate="1:1",
+        indicator="has_override",
+    )
+    # an override replaces the detected date even if it is blank, which means that the
+    # BA hasn't switched
+    is_override = cutover_dates["has_override"] != "left_only"
+    cutover_dates.loc[is_override, "cutover_date"] = cutover_dates.loc[
+        is_override, "cutover_date_override"
+    ]
+    cutover_dates.loc[is_override, "cutover_date_source"] = "manual"
+    return cutover_dates.drop(columns=["cutover_date_override", "has_override"])
+
+
+def add_eia860_resource_flags(
+    cutover_dates: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+    eia930_bas: list[str] | None = None,
+) -> pd.DataFrame:
+    """Compares the new energy sources that each BA reports with its generators of
+    each type.
+
+    Each subplant is assigned an expanded EIA-930 fuel category (see
+    `helpers.assign_fuel_category_to_esc`) from its capacity-based primary fuel, as
+    when shaping hourly generation, and the subplants of each category are counted for
+    each BA, with their capacity in `year` from EIA-860. Each new energy source is
+    compared with the category it is reported in (see
+    `expanded_fuel_category_to_energy_sources`), and flagged as:
+        - "reporting_and_resources": the BA reports the energy source and has
+          generators of that type
+        - "resources_not_reporting": the BA has generators of that type but doesn't
+          report the energy source, so they are still included in the energy source
+          that included them before
+        - "reporting_without_resources": the BA reports the energy source but OGE has
+          no generators of that type in the BA, which points to a difference in BA
+          assignment or in how generators are categorized
+
+    Args:
+        cutover_dates (pd.DataFrame): cutover dates, with columns "ba_code",
+            "generation_energy_source" and "cutover_date".
+        plant_attributes (pd.DataFrame): table of plant-level static attributes.
+        primary_fuel_table (pd.DataFrame): table of subplant-level primary fuels.
+        year (int): a four-digit year.
+        eia930_bas (list[str] | None, optional): BAs that report generation by energy
+            source to EIA-930. Generators in other BAs (e.g. in Hawaii) and generators
+            without a BA aren't compared. Defaults to None, for every BA with
+            generators.
+
+    Returns:
+        pd.DataFrame: `cutover_dates` with "eia860_subplants", "eia860_capacity_mw" and
+            "eia860_flag" columns, and a row for each BA and expanded category with
+            generators but no row for any of its energy sources.
+    """
+    keys = ["ba_code", "generation_energy_source"]
+
+    # capacity of each subplant in the year, from the capacity of its generators in
+    # EIA-860
+    generator_capacity = load_data.load_pudl_table(
+        "core_eia860__scd_generators",
+        year=year,
+        columns=["plant_id_eia", "generator_id", "capacity_mw"],
+    )
+    subplant_capacity = (
+        primary_fuel_table[["plant_id_eia", "subplant_id", "generator_id"]]
+        .drop_duplicates()
+        .merge(
+            generator_capacity,
+            how="left",
+            on=["plant_id_eia", "generator_id"],
+            validate="1:1",
+        )
+        .groupby(["plant_id_eia", "subplant_id"], dropna=False)["capacity_mw"]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    # assign each subplant a BA and an expanded EIA-930 category in the same way as
+    # for the residual hourly profile calculation, which uses the capacity-based
+    # primary fuel to match how generators are likely reported in EIA-930
+    subplant_capacity = helpers.assign_fleet_to_subplant_data(
+        subplant_capacity,
+        plant_attributes,
+        primary_fuel_table,
+        year,
+        ba_col="ba_code",
+        primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+        fuel_category_col="fuel_category_eia930_expanded",
+    )
+
+    # subplants and capacity by BA and expanded category, for the categories that
+    # EIA-930 reports in new energy sources
+    category = "fuel_category_eia930_expanded"
+    is_compared = (
+        subplant_capacity[category].isin(expanded_fuel_category_to_energy_sources)
+        & subplant_capacity["ba_code"].notna()
+    )
+    if eia930_bas is not None:
+        is_compared &= subplant_capacity["ba_code"].isin(eia930_bas)
+    resources = (
+        subplant_capacity[is_compared]
+        .groupby(["ba_code", category], dropna=False)
+        .agg(
+            eia860_subplants=("subplant_id", "size"),
+            eia860_capacity_mw=("capacity_mw", lambda mw: mw.sum(min_count=1)),
+        )
+        .reset_index()
+    )
+
+    # the generators of a category are compared with each new energy source that the
+    # category is reported in (e.g. batteries with both battery storage and unknown
+    # energy storage). A category with generators but no row for any of its energy
+    # sources gets a row for its main energy source.
+    energy_source_to_category = {
+        energy_source: fuel_category
+        for fuel_category, energy_sources in (
+            expanded_fuel_category_to_energy_sources.items()
+        )
+        for energy_source in energy_sources
+    }
+    cutover_dates = cutover_dates.assign(
+        **{
+            category: cutover_dates["generation_energy_source"].map(
+                energy_source_to_category
+            )
+        }
+    )
+    # BAs and categories with generators that have no row yet, because the BA doesn't
+    # report any of the category's energy sources and has no override for them
+    missing_rows = resources.merge(
+        cutover_dates[["ba_code", category]].drop_duplicates(),
+        how="left",
+        on=["ba_code", category],
+        validate="1:1",
+        indicator="has_row",
+    )
+    missing_rows = missing_rows.loc[
+        missing_rows["has_row"] == "left_only", ["ba_code", category]
+    ].assign(
+        generation_energy_source=lambda df: df[category].map(
+            lambda fuel_category: expanded_fuel_category_to_energy_sources[
+                fuel_category
+            ][0]
+        )
+    )
+    cutover_dates = pd.concat([cutover_dates, missing_rows], ignore_index=True).merge(
+        resources, how="left", on=["ba_code", category], validate="m:1"
+    )
+
+    # a BA and category without generators has zero subplants, while its capacity
+    # stays blank
+    cutover_dates["eia860_subplants"] = (
+        cutover_dates["eia860_subplants"].fillna(0).astype("Int32")
+    )
+
+    # flag each combination of reporting (a cutover date, after overrides) and having
+    # generators of that type
+    is_reported = cutover_dates["cutover_date"].notna()
+    has_resources = cutover_dates["eia860_subplants"] > 0
+    cutover_dates["eia860_flag"] = pd.NA
+    cutover_dates.loc[is_reported & has_resources, "eia860_flag"] = (
+        "reporting_and_resources"
+    )
+    cutover_dates.loc[~is_reported & has_resources, "eia860_flag"] = (
+        "resources_not_reporting"
+    )
+    cutover_dates.loc[is_reported & ~has_resources, "eia860_flag"] = (
+        "reporting_without_resources"
+    )
+    return cutover_dates.drop(columns=category).sort_values(keys).reset_index(drop=True)
 
 
 ###########################################################
