@@ -88,7 +88,11 @@ def clean_930(year: int, path_prefix: str = "") -> EIA930Tables | None:
     write_eia930_tables(tables, data_folder, "raw")
 
     logger.info("Running physics-based data cleaning")
-    return reconcile_eia930(tables, data_folder)
+    # local timezone of each BA, so that the months in which generation by energy
+    # source is zero match the months used for hourly shaping
+    ba_reference = load_data.load_ba_reference().dropna(subset=["timezone_local"])
+    ba_timezones = dict(zip(ba_reference["ba_code"], ba_reference["timezone_local"]))
+    return reconcile_eia930(tables, data_folder, ba_timezones)
 
 
 def load_eia930_balance_data(year: int) -> EIA930Tables:
@@ -285,7 +289,7 @@ def prepare_eia930_for_shaping(
     """Formats reconciled EIA-930 generation by energy source for hourly shaping.
 
     Keeps the year plus or minus one day, to allow for the conversion to local time
-    later, and drops BAs outside of the US.
+    later, drops BAs outside of the US, and sets negative generation to zero.
 
     Args:
         net_generation_by_energy_source (pd.DataFrame): reconciled EIA-930 generation
@@ -329,6 +333,12 @@ def prepare_eia930_for_shaping(
     data["report_date"] = data["datetime_local"].str[:7]
     data["report_date"] = pd.to_datetime(data["report_date"]).astype("datetime64[s]")
 
+    # the hourly profiles describe when positive generation happens, so hours when an
+    # energy source is a net load (e.g. station use at night, or charging storage) are
+    # set to zero. Otherwise, a month whose total is close to zero or negative would
+    # give profiles with very large or inverted shares of the monthly total.
+    data["net_generation_mwh_930"] = data["net_generation_mwh_930"].clip(lower=0)
+
     # rename the energy sources using the fuel categories in
     # reference_tables/energy_source_groups.csv
     data["fuel_category_eia930"] = data["generation_energy_source"].map(
@@ -349,22 +359,38 @@ def prepare_eia930_for_shaping(
     return data
 
 
-def remove_imputed_ones(eia930_data: pd.DataFrame) -> pd.DataFrame:
-    """Remove ones in data frame.
+def remove_months_with_zero_data(eia930_data: pd.DataFrame) -> pd.DataFrame:
+    """Removes the BA-fuel-months in which EIA-930 generation is zero in every hour.
+
+    An all-zero month has no shape to give, so it is removed from the data used to
+    calculate hourly profiles. If EIA-923 reports generation for that BA, fuel and
+    month, the month is then treated as missing and gets an imputed profile (see
+    `impute_hourly_profiles.impute_missing_hourly_profiles`).
+
+    Generation by energy source that is zero for a whole month before reconciliation
+    stays exactly zero after it (see `physics_reconciliation.find_zero_months`). Months
+    with only negative values (e.g. storage charging) are also all zero, since
+    negative values are set to zero in `prepare_eia930_for_shaping`.
 
     Args:
-        eia930_data (pd.DataFrame): EIA-930 table
+        eia930_data (pd.DataFrame): EIA-930 generation, as returned by
+            `prepare_eia930_for_shaping`.
 
     Returns:
-        pd.DataFrame: input data frame with ones replace by zeros
+        pd.DataFrame: `eia930_data` without the BA-fuel-months that are zero in every
+            hour.
     """
-    filter = eia930_data["net_generation_mwh_930"].abs() < 1.5
-
-    # replace all 1.0 values with zero
-    logger.info(f"Replacing {sum(filter)} imputed 1 values with 0")
-    eia930_data.loc[filter, "net_generation_mwh_930"] = 0
-
-    return eia930_data
+    keys = ["ba_code", "fuel_category_eia930", "report_date"]
+    is_zero_month = (
+        eia930_data.groupby(keys, dropna=False)["net_generation_mwh_930"]
+        .transform(lambda values: (values == 0).all())
+        .astype(bool)
+    )
+    logger.info(
+        f"Removing {eia930_data.loc[is_zero_month, keys].drop_duplicates().shape[0]} "
+        "EIA-930 BA-fuel-months with zero generation in every hour"
+    )
+    return eia930_data[~is_zero_month].reset_index(drop=True)
 
 
 ###########################################################

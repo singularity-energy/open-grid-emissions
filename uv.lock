@@ -1747,15 +1747,6 @@ grpc = [
 ]
 
 [[package]]
-name = "gridemissions"
-version = "0.1.0"
-source = { git = "https://github.com/singularity-energy/gridemissions.git?rev=0cbe7620620f02ab91227940ef107b53bd1f9bb4#0cbe7620620f02ab91227940ef107b53bd1f9bb4" }
-dependencies = [
-    { name = "pandas" },
-    { name = "requests" },
-]
-
-[[package]]
 name = "grpc-google-iam-v1"
 version = "0.14.5"
 source = { registry = "https://pypi.org/simple" }
@@ -3085,7 +3076,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "gridemissions" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -3102,7 +3092,6 @@ requires-dist = [
     { name = "coloredlogs" },
     { name = "cvxpy" },
     { name = "geopy" },
-    { name = "gridemissions", marker = "extra == 'dev'", git = "https://github.com/singularity-energy/gridemissions.git?rev=0cbe7620620f02ab91227940ef107b53bd1f9bb4" },
     { name = "ipykernel", marker = "extra == 'notebook'" },
     { name = "notebook", marker = "extra == 'notebook'" },
     { name = "numpy" },

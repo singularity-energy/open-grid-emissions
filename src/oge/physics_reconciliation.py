@@ -23,10 +23,12 @@ the other series.
 This code was ported from the `gridemissions` package
 (https://github.com/jdechalendar/gridemissions), by way of the Singularity fork
 (https://github.com/singularity-energy/gridemissions, commit
-0cbe7620620f02ab91227940ef107b53bd1f9bb4). The cleaning logic is unchanged from that
-version, but the reconciliation is solved with a more precise solver (see
-`HourlyReconciliationProblem`), so reconciled values can differ from gridemissions' by
-up to about 1 MWh. The original code is distributed under the following license:
+0cbe7620620f02ab91227940ef107b53bd1f9bb4), with two changes: the reconciliation is
+solved with a more precise solver (see `HourlyReconciliationProblem`), and net
+generation and generation by energy source are allowed to be negative where the data
+are negative, since they represent net load (e.g. station use, or charging storage).
+The original code forced them to be at least 1 MWh and set negative solar to zero. The
+original code is distributed under the following license:
 
     MIT License
 
@@ -101,9 +103,20 @@ GENERATION_BY_ENERGY_SOURCE_START_DATE = pd.to_datetime("20180701", utc=True)
 WEIGHT_NUMERATOR = 1e4  # MWh
 WEIGHT_MINIMUM_DENOMINATOR = 10  # MWh
 
-# lowest value allowed for demand, net generation and generation by energy source in
-# the optimization
-OPTIMIZATION_LOWER_BOUND = 1.0  # MWh
+# lowest value allowed for demand in the optimization. Net generation and generation
+# by energy source can be negative when a BA or an energy source is a net load, e.g.
+# from station use at night or from charging storage. The optimization keeps each of
+# them at or above the lower of zero and its value before reconciliation, so that it
+# doesn't create net load that wasn't reported (see `HourlyReconciliationProblem`).
+DEMAND_LOWER_BOUND = 0.0  # MWh
+
+# range outside of which values are considered unrealistic in basic cleaning, for
+# demand and for net generation and generation by energy source (see
+# `create_reject_bounds`). The lowest generation by energy source in 2025 is about
+# -8.5 GWh (CISO "other", which includes storage), so generation can be negative well
+# beyond that before it is rejected.
+DEMAND_REJECT_BOUNDS = (0.0, 200e3)  # MWh
+GENERATION_REJECT_BOUNDS = (-50e3, 200e3)  # MWh
 
 # settings of the Clarabel solver. With these tolerances, the reconciled values are
 # within about 0.01 MWh of the exact solution.
@@ -139,7 +152,9 @@ class EIA930Tables(NamedTuple):
     interchange: pd.DataFrame
 
 
-def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables | None:
+def reconcile_eia930(
+    tables: EIA930Tables, output_folder: str, ba_timezones: dict[str, str] | None = None
+) -> EIA930Tables | None:
     """This is the coordinating function for the physics-based reconciliation of
     EIA-930 data.
 
@@ -159,6 +174,9 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables |
     Args:
         tables (EIA930Tables): EIA-930 data to reconcile.
         output_folder (str): folder to write the results of each step to.
+        ba_timezones (dict[str, str] | None, optional): local timezone of each BA,
+            which defines the months in which generation by energy source is zero (see
+            `find_zero_months`). BAs that aren't in it use UTC. Defaults to None.
 
     Returns:
         EIA930Tables | None: reconciled EIA-930 data from 2018-07-01 onwards. None if
@@ -181,6 +199,10 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables |
         output_folder,
         "weights",
     )
+
+    # generation by energy source stays at zero in the months in which it is zero
+    # before reconciliation
+    zero_months = find_zero_months(series, ba_timezones or {})
 
     # before generation by energy source was collected, reconcile without it. Note
     # that the hour at GENERATION_BY_ENERGY_SOURCE_START_DATE is included in both
@@ -218,6 +240,7 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables |
         from_start,
         weights.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :],
         include_energy_sources=True,
+        zero_months=zero_months.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :],
     )
     reconciled_tables = melt_series_to_eia930_tables(reconciled)
     write_eia930_tables(reconciled_tables, output_folder, "reconciled")
@@ -490,8 +513,6 @@ def apply_basic_cleaning(series: pd.DataFrame) -> pd.DataFrame:
           direction, adding the opposite of the existing series if needed.
         - Drop values outside of realistic bounds (see `create_reject_bounds`), only
           for BAs in the original data.
-        - Set negative solar generation to zero. There are many values of around -50
-          MWh at night, from station use.
         - For BAs with no generation by energy source, assign all net generation to
           "other".
 
@@ -568,19 +589,14 @@ def apply_basic_cleaning(series: pd.DataFrame) -> pd.DataFrame:
     for key in keys_to_filter:
         series[key] = filter_to_bounds(series.loc[:, key], reject_bounds[key])
 
-    # do the same for generation by energy source, keeping values of solar down to
-    # -1 GW and then setting negative values to zero
+    # do the same for generation by energy source
     for ba in regions:
         has_energy_sources = False
         for energy_source in ENERGY_SOURCES:
             key = (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)
             if key in series.columns:
                 has_energy_sources = True
-                if energy_source == "solar":
-                    reject_bounds[key] = (-1e3, 200e3)
                 series[key] = filter_to_bounds(series.loc[:, key], reject_bounds[key])
-                if energy_source == "solar":
-                    series[key] = series.loc[:, key].where(~(series.loc[:, key] < 0), 0)
         if not has_energy_sources:
             series[(NET_GENERATION_BY_ENERGY_SOURCE, ba, "other")] = series.loc[
                 :, (NET_GENERATION, ba, "")
@@ -613,8 +629,11 @@ def get_interchange_keys(series: pd.DataFrame, bas: list[str]) -> list[tuple]:
 def create_reject_bounds(series: pd.DataFrame, regions: list[str]) -> defaultdict:
     """Creates the ranges outside of which values are considered unrealistic.
 
-    The default range is -1 MWh to 200 GWh. Interchange and total interchange can be
-    between -100 GWh and 100 GWh. A few series have their own ranges.
+    Demand can be between 0 and 200 GWh (`DEMAND_REJECT_BOUNDS`). Net generation and
+    generation by energy source can be between -50 GWh and 200 GWh
+    (`GENERATION_REJECT_BOUNDS`), since they are negative when a BA or an energy source
+    is a net load. Interchange and total interchange can be between -100 GWh and 100
+    GWh. A few series have their own ranges.
 
     Args:
         series (pd.DataFrame): series data frame.
@@ -623,8 +642,9 @@ def create_reject_bounds(series: pd.DataFrame, regions: list[str]) -> defaultdic
     Returns:
         defaultdict: (lower bound, upper bound) in MWh, keyed by series key.
     """
-    reject_bounds = defaultdict(lambda: (-1.0, 200e3))
+    reject_bounds = defaultdict(lambda: GENERATION_REJECT_BOUNDS)
     for ba in regions:
+        reject_bounds[(DEMAND, ba, "")] = DEMAND_REJECT_BOUNDS
         reject_bounds[(TOTAL_INTERCHANGE, ba, "")] = (-100e3, 100e3)
     for key in get_interchange_keys(series, regions):
         reject_bounds[key] = (-100e3, 100e3)
@@ -774,8 +794,74 @@ def filter_with_rolling_window(
     return series
 
 
+def find_zero_months(
+    series: pd.DataFrame, ba_timezones: dict[str, str]
+) -> pd.DataFrame:
+    """Finds the hours in which a generation by energy source series is zero for the
+    whole month.
+
+    A series that is zero (or blank) for a whole month is an energy source that the BA
+    doesn't have or doesn't report that month. The reconciliation keeps such series at
+    zero, rather than adding small amounts of generation to them, which would then be
+    used to shape the hourly generation of plants. Zeros within a month that has other
+    values are often reporting errors (e.g. every energy source reported as zero for a
+    day), so the reconciliation can still change them. A BA that reports net
+    generation but no generation by energy source for a whole month (e.g. SRP in July
+    2018, before it reported generation by energy source) isn't reporting zero
+    generation, so its energy sources aren't kept at zero that month either.
+
+    Months are in the local time of each BA, so that they match the months used to
+    shape hourly generation (see `eia930.prepare_eia930_for_shaping`).
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        ba_timezones (dict[str, str]): local timezone of each BA. BAs that aren't in it
+            use UTC.
+
+    Returns:
+        pd.DataFrame: with the same index as `series` and one column per generation
+            by energy source series, True in the hours of the months in which the
+            series is zero or blank in every hour.
+    """
+    keys = series.columns[
+        series.columns.get_level_values("field") == NET_GENERATION_BY_ENERGY_SOURCE
+    ]
+    is_zero = series.loc[:, keys].fillna(0) == 0
+    zero_months = pd.DataFrame(False, index=series.index, columns=keys)
+    bas = keys.get_level_values("balancing_authority_code_eia")
+    for timezone in sorted({ba_timezones.get(ba, "UTC") for ba in bas}):
+        timezone_keys = keys[[ba_timezones.get(ba, "UTC") == timezone for ba in bas]]
+        months = series.index.tz_convert(timezone).strftime("%Y-%m")
+        zero_months[timezone_keys] = (
+            is_zero[timezone_keys].groupby(months).transform("all")
+        )
+        # months in which a BA reports net generation but no generation by energy
+        # source
+        for ba in sorted(
+            set(timezone_keys.get_level_values("balancing_authority_code_eia"))
+        ):
+            ba_keys = timezone_keys[
+                timezone_keys.get_level_values("balancing_authority_code_eia") == ba
+            ]
+            net_generation_is_zero = (
+                series.get((NET_GENERATION, ba, ""), pd.Series(0.0, index=series.index))
+                .fillna(0)
+                .eq(0)
+                .groupby(months)
+                .transform("all")
+            )
+            no_energy_sources = (
+                zero_months[ba_keys].all(axis=1) & ~net_generation_is_zero
+            )
+            zero_months.loc[no_energy_sources, ba_keys] = False
+    return zero_months
+
+
 def reconcile_energy_balance(
-    series: pd.DataFrame, weights: pd.DataFrame, include_energy_sources: bool
+    series: pd.DataFrame,
+    weights: pd.DataFrame,
+    include_energy_sources: bool,
+    zero_months: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Makes the data physically consistent in each hour.
 
@@ -785,7 +871,12 @@ def reconcile_energy_balance(
         - interchange from A to B = -(interchange from B to A)
         - net generation = sum of generation by energy source, for each BA (only if
           `include_energy_sources`)
-        - demand, net generation and generation by energy source are at least 1 MWh
+        - demand is at least `DEMAND_LOWER_BOUND`
+        - net generation and generation by energy source are at least the lower of
+          zero and their value before reconciliation. They can be negative where the
+          data are negative, but the reconciliation can't make them more negative or
+          turn positive values negative.
+        - generation by energy source stays at zero in the hours of `zero_months`
 
     The problem is the same for every hour except for its data and weights, so it is
     built once (see `HourlyReconciliationProblem`) and solved for each hour in turn.
@@ -797,6 +888,9 @@ def reconcile_energy_balance(
         weights (pd.DataFrame): weight of each value, with the same shape as `series`.
         include_energy_sources (bool): whether to reconcile generation by energy
             source.
+        zero_months (pd.DataFrame | None, optional): True for the hours in which a
+            generation by energy source series must stay at zero, as returned by
+            `find_zero_months`. Defaults to None, for no such hours.
 
     Returns:
         tuple[pd.DataFrame, pd.Series]: reconciled series data frame, and the value of
@@ -810,8 +904,18 @@ def reconcile_energy_balance(
     problem = HourlyReconciliationProblem(series, include_energy_sources)
     values = series.loc[:, problem.keys].to_numpy()
     value_weights = weights.loc[:, problem.keys].to_numpy()
+    if zero_months is None:
+        zero_months = pd.DataFrame(False, index=series.index, columns=[])
+    is_zero_month = (
+        zero_months.reindex(
+            index=series.index, columns=problem.energy_source_keys, fill_value=False
+        )
+        .fillna(False)
+        .to_numpy(dtype=bool)
+    )
     results = [
-        problem.solve(values[hour], value_weights[hour]) for hour in range(len(series))
+        problem.solve(values[hour], value_weights[hour], is_zero_month[hour])
+        for hour in range(len(series))
     ]
 
     reconciled = pd.DataFrame(
@@ -844,6 +948,8 @@ class HourlyReconciliationProblem:
             values passed to and returned by `solve`. Generation by energy source is
             only included if `include_energy_sources`, and only for the energy sources
             in `ENERGY_SOURCES`.
+        energy_source_keys (list[tuple]): keys of the generation by energy source
+            series in the problem, in the order they appear in `keys`.
     """
 
     def __init__(self, series: pd.DataFrame, include_energy_sources: bool):
@@ -884,11 +990,32 @@ class HourlyReconciliationProblem:
                 for energy_source, ba in energy_source_pairs
             ]
         self.keys = [key for keys in keys_by_field.values() for key in keys]
+        self.energy_source_keys = keys_by_field.get(NET_GENERATION_BY_ENERGY_SOURCE, [])
+        # positions of the generation by energy source series in `keys`
+        self.energy_source_positions = np.array(
+            [
+                i
+                for i, key in enumerate(self.keys)
+                if key[0] == NET_GENERATION_BY_ENERGY_SOURCE
+            ],
+            dtype=int,
+        )
 
         # the data and the square root of the weights are set for each hour by `solve`
         self.values = cp.Parameter(len(self.keys))
         self.sqrt_weights = cp.Parameter(len(self.keys), nonneg=True)
         self.adjustments = cp.Variable(len(self.keys))
+        # positions of the generation series (net generation and generation by energy
+        # source) in `keys`, and the lowest value allowed for each, set by `solve` to
+        # the lower of zero and the value before reconciliation
+        self.generation_positions = np.array(
+            [
+                i
+                for i, key in enumerate(self.keys)
+                if key[0] in [NET_GENERATION, NET_GENERATION_BY_ENERGY_SOURCE]
+            ]
+        )
+        self.generation_lower_bounds = cp.Parameter(len(self.generation_positions))
 
         # reconciled values of each field, as slices of the reconciled data
         reconciled = self.values + self.adjustments
@@ -912,8 +1039,8 @@ class HourlyReconciliationProblem:
         opposite = [pair_positions[(adj, ba)] for ba, adj in interchange_pairs]
 
         constraints = [
-            demand >= OPTIMIZATION_LOWER_BOUND,
-            net_generation >= OPTIMIZATION_LOWER_BOUND,
+            demand >= DEMAND_LOWER_BOUND,
+            reconciled[self.generation_positions] >= self.generation_lower_bounds,
             # energy balance of each BA
             demand + total_interchange == net_generation,
             # total interchange is the sum of interchange with each adjacent BA
@@ -928,10 +1055,19 @@ class HourlyReconciliationProblem:
             energy_sources_to_ba = create_incidence_matrix(
                 regions, [ba for _, ba in energy_source_pairs]
             )
+            # 1 for the generation by energy source series that must stay at zero in
+            # the hour, set by `solve`
+            self.is_zero_month = cp.Parameter(len(self.energy_source_keys), nonneg=True)
             constraints += [
-                generation >= OPTIMIZATION_LOWER_BOUND,
                 # net generation is the sum of generation by energy source
                 net_generation == energy_sources_to_ba @ generation,
+                # series that are zero for the whole month stay at zero. Their value
+                # before reconciliation is zero, so it's enough to constrain their
+                # adjustments, which keeps the problem DPP (compiled only once).
+                cp.multiply(
+                    self.is_zero_month, self.adjustments[self.energy_source_positions]
+                )
+                == 0,
             ]
 
         # sum of weight * adjustment ** 2
@@ -939,7 +1075,10 @@ class HourlyReconciliationProblem:
         self.problem = cp.Problem(cp.Minimize(objective), constraints)
 
     def solve(
-        self, values: np.ndarray, weights: np.ndarray
+        self,
+        values: np.ndarray,
+        weights: np.ndarray,
+        is_zero_month: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
         """Reconciles the data of one hour.
 
@@ -947,6 +1086,9 @@ class HourlyReconciliationProblem:
             values (np.ndarray): value of each series in `keys`, with no blank values.
             weights (np.ndarray): weight of each series in `keys`, with no blank
                 values.
+            is_zero_month (np.ndarray | None, optional): True for each series in
+                `energy_source_keys` that must stay at zero. Defaults to None, for no
+                such series.
 
         Raises:
             ValueError: if there are blank values, or if the solver does not find a
@@ -960,12 +1102,23 @@ class HourlyReconciliationProblem:
             raise ValueError("Cannot reconcile data with blank values")
         self.values.value = values
         self.sqrt_weights.value = np.sqrt(weights)
+        self.generation_lower_bounds.value = np.minimum(
+            values[self.generation_positions], 0
+        )
+        if is_zero_month is None:
+            is_zero_month = np.zeros(len(self.energy_source_keys), dtype=bool)
+        if len(self.energy_source_keys) > 0:
+            self.is_zero_month.value = is_zero_month.astype(float)
         self.problem.solve(solver=cp.CLARABEL, **CLARABEL_SETTINGS)
         if self.problem.status != cp.OPTIMAL:
             raise ValueError(
                 f"The reconciliation solver stopped with status {self.problem.status}"
             )
-        return values + self.adjustments.value, self.problem.value
+        reconciled = values + self.adjustments.value
+        # exactly zero rather than within the solver's tolerance, so that months of
+        # zeros can be recognized after reconciliation
+        reconciled[self.energy_source_positions[is_zero_month]] = 0.0
+        return reconciled, self.problem.value
 
 
 def create_incidence_matrix(
@@ -995,7 +1148,7 @@ def check_energy_balance(series: pd.DataFrame, tolerance: float = 1e-2):
 
     Checks for each BA that there are no blank values, that demand + total interchange
     = net generation, that total interchange = sum of interchange, that interchange is
-    antisymmetric, and that demand and net generation are not negative.
+    antisymmetric, and that demand is at least `DEMAND_LOWER_BOUND`.
 
     Args:
         series (pd.DataFrame): reconciled series data frame.
@@ -1044,8 +1197,9 @@ def check_energy_balance(series: pd.DataFrame, tolerance: float = 1e-2):
             if (antisymmetry.abs() > tolerance).sum():
                 logger.error(f"{ba}-{adjacent_ba}: interchange antisymmetry violated")
 
-        for field, values in [(DEMAND, demand), (NET_GENERATION, net_generation)]:
-            if (values < 0).sum():
-                logger.error(
-                    f"{ba}: there are {(values < 0).sum()} negative values for {field}"
-                )
+        below_bound = demand < DEMAND_LOWER_BOUND - tolerance
+        if below_bound.sum():
+            logger.error(
+                f"{ba}: there are {below_bound.sum()} values of {DEMAND} below "
+                f"{DEMAND_LOWER_BOUND} MWh"
+            )

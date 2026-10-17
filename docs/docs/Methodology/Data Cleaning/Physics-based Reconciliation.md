@@ -10,7 +10,7 @@ stoplight-id: physics_reconciliation_eia930
 
 EIA-930 data are not always physically consistent. In a given hour, a balancing authority's (BA's) demand plus its net exports may not equal its net generation, its total interchange may not equal the sum of its interchange with each neighbor, two neighboring BAs may disagree about the electricity that flowed between them, and a BA's generation by energy source may not add up to its total net generation. EIA-930 data also contain missing hours and anomalous values.
 
-OGE fixes these transient issues with a physics-based reconciliation, after correcting the systematic timestamp and sign issues described in [EIA-930 Data](EIA-930%20Data.md). The method was developed by Jacques de Chalendar, first to track consumption-based emissions in the US electricity system ([de Chalendar, Taggart and Benson, 2019](https://doi.org/10.1073/pnas.1912950116)) and then as a general data reconciliation framework for real-time electricity and emissions tracking ([de Chalendar and Benson, 2021](https://doi.org/10.1016/j.apenergy.2021.117761)). OGE originally used a fork of de Chalendar's [gridemissions](https://github.com/jdechalendar/gridemissions) package, and now uses a port of its cleaning code in `oge.physics_reconciliation`. The cleaning steps give identical results, and the reconciled values are within about 1 MWh of gridemissions' (see [Differences from the gridemissions package](#differences-from-the-gridemissions-package)).
+OGE fixes these transient issues with a physics-based reconciliation, after correcting the systematic timestamp and sign issues described in [EIA-930 Data](EIA-930%20Data.md). The method was developed by Jacques de Chalendar, first to track consumption-based emissions in the US electricity system ([de Chalendar, Taggart and Benson, 2019](https://doi.org/10.1073/pnas.1912950116)) and then as a general data reconciliation framework for real-time electricity and emissions tracking ([de Chalendar and Benson, 2021](https://doi.org/10.1016/j.apenergy.2021.117761)). OGE originally used a fork of de Chalendar's [gridemissions](https://github.com/jdechalendar/gridemissions) package, and now uses a port of its cleaning code in `oge.physics_reconciliation`, which keeps negative net generation and uses a more precise solver (see [Differences from the gridemissions package](#differences-from-the-gridemissions-package)).
 
 The reconciliation runs on EIA-930 data from October 1 of the previous year through January 2 of the following year, so that the rolling window has data before and after the year of interest.
 
@@ -26,15 +26,15 @@ The first step drops values that are outside of realistic bounds and adds data f
 
 | Series | Range (MWh) |
 | --- | --- |
-| Demand, net generation, and generation by energy source (default) | -1 to 200,000 |
+| Demand | 0 to 200,000 |
+| Net generation and generation by energy source | -50,000 to 200,000 |
 | Total interchange and interchange between BAs | -100,000 to 100,000 |
-| Solar generation | -1,000 to 200,000, then negative values are set to 0 |
 | AZPS demand | 1 to 30,000 |
 | BANC demand | 1 to 6,500 |
 | BANC total interchange | -5,000 to 5,000 |
 | CISO net generation | 5,000 to 60,000 |
 
-Solar generation is often reported at around -50 MWh at night, from station use, so negative solar values are set to zero rather than dropped.
+Net generation and generation by energy source can be negative, because a BA or an energy source can be a net load. Plants use electricity for station use when they are not generating (for example, solar plants at night), and storage reports charging as negative net generation. Since EIA-930 combined storage into the older energy source categories, storage charging appears as negative "other" or hydro generation, and charging of solar plants with integrated storage as negative solar generation. In 2025, the lowest value of generation by energy source was about -8,500 MWh (CISO "other"), so the lower bound of -50,000 MWh only drops values that are clearly wrong.
 
 **BAs outside of the US.** Some US BAs exchange electricity with BAs in Canada and Mexico (AESO, BCHA, CEN, CFE, HQT, IESO, MHEB, NBSO, and SPC), which do not report to EIA-930. Their total interchange is set to the opposite of the interchange reported by their US neighbors. Their net exports are treated as their net generation, and their net imports as their demand. Their generation is assumed to be hydro for BCHA, HQT, and MHEB, and "other" for the rest. See [Consumption-based Emissions](../Emissions%20Calculations/Consumption-based%20Emissions.md) for how this generation is used.
 
@@ -78,11 +78,17 @@ $$
 T_i + \delta_{T_i} &= \sum_j \left( I_{ij} + \delta_{I_{ij}} \right) \\
 I_{ij} + \delta_{I_{ij}} &= -\left( I_{ji} + \delta_{I_{ji}} \right) \\
 G_i + \delta_{G_i} &= \sum_s \left( G_{is} + \delta_{G_{is}} \right) \\
-D_i + \delta_{D_i} \geq 1, \quad G_i + \delta_{G_i} &\geq 1, \quad G_{is} + \delta_{G_{is}} \geq 1
+D_i + \delta_{D_i} &\geq 0 \\
+G_i + \delta_{G_i} \geq \min(0, G_i), \quad G_{is} + \delta_{G_{is}} &\geq \min(0, G_{is}) \\
+\delta_{G_{is}} &= 0 \quad \text{if } G_{is} = 0 \text{ in every hour of the month}
 \end{aligned}
 $$
 
-where the sum _k_ is over every value in the hour. The constraints say that demand plus net exports equals net generation, that total interchange equals the sum of interchange with each neighbor, that neighboring BAs agree on the interchange between them, and that generation by energy source adds up to net generation. EIA-930 did not collect generation by energy source before July 1, 2018, so the constraints and adjustments for generation by energy source are only used from that date onwards.
+where the sum _k_ is over every value in the hour. The constraints say that demand plus net exports equals net generation, that total interchange equals the sum of interchange with each neighbor, that neighboring BAs agree on the interchange between them, and that generation by energy source adds up to net generation. Demand can't be negative. Net generation and generation by energy source can be negative where the data are negative, but the reconciliation can't make a negative value more negative or turn a positive value negative, so it doesn't create net load that wasn't reported.
+
+Generation by energy source that is zero in every hour of a month stays at exactly zero. This is an energy source that the BA doesn't have or doesn't report that month, and the reconciliation would otherwise add small amounts of generation to it, which would then be used as an hourly profile for that fuel (see [Shaping Using Fleet-Specific Profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md)). Months are in each BA's local time, to match the months used for shaping. Zeros in a month that has other values can still be adjusted, since they are often reporting errors (e.g., every energy source reported as zero for a day while net generation is not). A BA that reports net generation but no generation by energy source for a whole month (e.g., SRP in early July 2018) isn't held at zero either.
+
+EIA-930 did not collect generation by energy source before July 1, 2018, so the constraints and adjustments for generation by energy source are only used from that date onwards.
 
 **Weights.** The weight of each value is inversely proportional to the typical size of its series:
 
@@ -99,7 +105,7 @@ The problem is solved independently for each hour using [cvxpy](https://www.cvxp
 * The rolling filter uses a median and percentile range instead of a mean and standard deviation (see above).
 * We do not add the constant geothermal (900 MWh) and biomass (600 MWh) generation that gridemissions adds to CISO.
 * gridemissions solves the reconciliation with the OSQP solver at its default tolerances, which leaves errors of up to about 1 MWh compared to the exact solution, and occasionally violates the constraints (for example, negative demand). We use Clarabel with tight tolerances instead, so our reconciled values differ from gridemissions' by up to about 1 MWh, and are closer to the exact solution.
-* The optimization requires demand, net generation, and generation by energy source to be at least 1 MWh, so a value that should be zero comes out of the reconciliation as about 1 MWh. After reconciliation, we set values with an absolute value below 1.5 MWh to zero, both in the hourly profiles and in the consumption-based emissions calculation.
+* gridemissions drops net generation and generation by energy source below -1 MWh (-1,000 MWh for solar), sets negative solar generation to zero, and requires demand, net generation, and generation by energy source to be at least 1 MWh in the reconciliation. This removed storage charging and station use from the data, and the reconciliation raised other values to make up for it. We keep negative values instead (see above), and only require demand to be at least zero.
 
 ### Outputs
 
@@ -115,10 +121,12 @@ Each step writes its results to `outputs/{year}/eia930/` as parquet files, in th
 | `reconciled_without_energy_sources` | Reconciled data before July 1, 2018 (only when the data include those hours) |
 | `reconciled` | Reconciled data, used to build hourly profiles and to calculate consumption-based emissions |
 
+The hourly profiles describe when positive generation happens, so negative reconciled generation by energy source is set to zero before it is used to build them. Otherwise, a month whose total is close to zero or negative would give profiles with very large or inverted shares of the monthly total.
+
 The value of the optimization objective for each hour is written to `eia930_objective.parquet` (and `eia930_objective_without_energy_sources.parquet` before July 1, 2018).
 
 ## Future Work, Known Issues, and Open Questions
-- Since late 2024, BAs have started reporting energy storage separately, as negative net generation when charging. Negative values below -1 MWh are dropped by the basic cleaning, and the new energy source categories are currently combined into the old ones before reconciliation.
-- The reconciliation does not conserve the total energy reported to EIA-930: values that are dropped are re-filled, and the lower bounds of 1 MWh are met by raising other values.
+- Since late 2024, BAs have started reporting energy storage separately, as negative net generation when charging. The new energy source categories are currently combined into the old ones before reconciliation.
+- The reconciliation does not conserve the total energy reported to EIA-930: values that are dropped are re-filled, and adjustments do not need to add up to zero over time.
 - Reconciliation can add hour-to-hour variation to series that should be flat, such as nuclear generation ([details](https://github.com/singularity-energy/open-grid-emissions/issues/240)).
 - Consider reconciling EIA-930 data against OGE's own generation estimates ([details](https://github.com/singularity-energy/open-grid-emissions/issues/220)).

@@ -4,7 +4,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from oge.eia930 import add_missing_operations, check_bas_outside_us
+from oge.eia930 import (
+    add_missing_operations,
+    check_bas_outside_us,
+    remove_months_with_zero_data,
+)
 from oge.physics_reconciliation import EIA930Tables, check_eia930_tables
 
 HOURS = pd.to_datetime(["2025-06-01 06:00", "2025-06-01 07:00"], utc=True)
@@ -159,3 +163,32 @@ def test_check_bas_outside_us_warns_about_us_bas(caplog):
     # SWPP is a US BA; IESO (Ontario) is expected outside of the US
     assert len(warnings) == 1
     assert "['SWPP']" in warnings[0]
+
+
+def test_remove_months_with_zero_data():
+    """BA-fuel-months that are zero in every hour should be removed, and the rest
+    kept, including months with only some zero hours.
+    """
+    hours = pd.date_range("2025-01-31 22:00", periods=4, freq="h")
+    report_dates = pd.to_datetime(["2025-01-01"] * 2 + ["2025-02-01"] * 2)
+    eia930_data = pd.DataFrame(
+        {
+            "ba_code": "SWPP",
+            "fuel_category_eia930": ["petroleum"] * 4 + ["solar"] * 4,
+            "datetime_utc": list(hours) * 2,
+            "report_date": list(report_dates) * 2,
+            # petroleum: zero all January, zero in one hour of February. Solar:
+            # non-zero in January, zero all February.
+            "net_generation_mwh_930": [0.0, 0.0, 0.0, 5.0, 3.0, 1.0, 0.0, 0.0],
+        }
+    )
+
+    result = remove_months_with_zero_data(eia930_data)
+
+    kept = result[["fuel_category_eia930", "report_date"]].drop_duplicates()
+    assert sorted(map(tuple, kept.astype(str).to_numpy())) == [
+        ("petroleum", "2025-02-01"),
+        ("solar", "2025-01-01"),
+    ]
+    # every hour of the kept months is kept
+    assert len(result) == 4

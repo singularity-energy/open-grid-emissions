@@ -2046,6 +2046,16 @@ def shape_monthly_eia_data_as_hourly(
         shaped_monthly_data["net_generation_mwh"] < 0, "profile_method"
     ] = "flat_negative_generation"
 
+    # a profile that has no positive values in a month gives blank shares of the
+    # monthly total, which would drop the monthly data. Assign a flat profile instead.
+    has_no_shares = ~np.isfinite(shaped_monthly_data["profile"]) & np.isfinite(
+        shaped_monthly_data["flat_profile"]
+    )
+    shaped_monthly_data.loc[has_no_shares, "profile"] = shaped_monthly_data.loc[
+        has_no_shares, "flat_profile"
+    ]
+    shaped_monthly_data.loc[has_no_shares, "profile_method"] = "flat_zero_profile"
+
     # shape the data by multiplying the monthly activity data by the fraction of total
     # monthly activity occuring in that hour ("profile")
     for column in DATA_COLUMNS:
