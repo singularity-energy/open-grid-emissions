@@ -79,11 +79,16 @@ T_i + \delta_{T_i} &= \sum_j \left( I_{ij} + \delta_{I_{ij}} \right) \\
 I_{ij} + \delta_{I_{ij}} &= -\left( I_{ji} + \delta_{I_{ji}} \right) \\
 G_i + \delta_{G_i} &= \sum_s \left( G_{is} + \delta_{G_{is}} \right) \\
 D_i + \delta_{D_i} &\geq 0 \\
-G_i + \delta_{G_i} \geq \min(0, G_i), \quad G_{is} + \delta_{G_{is}} &\geq \min(0, G_{is})
+G_i + \delta_{G_i} \geq \min(0, G_i), \quad G_{is} + \delta_{G_{is}} &\geq \min(0, G_{is}) \\
+\delta_{G_{is}} &= 0 \quad \text{if } G_{is} = 0 \text{ in every hour of the month}
 \end{aligned}
 $$
 
-where the sum _k_ is over every value in the hour. The constraints say that demand plus net exports equals net generation, that total interchange equals the sum of interchange with each neighbor, that neighboring BAs agree on the interchange between them, and that generation by energy source adds up to net generation. Demand can't be negative. Net generation and generation by energy source can be negative where the data are negative, but the reconciliation can't make a negative value more negative or turn a positive value negative, so it doesn't create net load that wasn't reported. EIA-930 did not collect generation by energy source before July 1, 2018, so the constraints and adjustments for generation by energy source are only used from that date onwards.
+where the sum _k_ is over every value in the hour. The constraints say that demand plus net exports equals net generation, that total interchange equals the sum of interchange with each neighbor, that neighboring BAs agree on the interchange between them, and that generation by energy source adds up to net generation. Demand can't be negative. Net generation and generation by energy source can be negative where the data are negative, but the reconciliation can't make a negative value more negative or turn a positive value negative, so it doesn't create net load that wasn't reported.
+
+Generation by energy source that is zero in every hour of a month stays at exactly zero. This is an energy source that the BA doesn't have or doesn't report that month, and the reconciliation would otherwise add small amounts of generation to it, which would then be used as an hourly profile for that fuel (see [Shaping Using Fleet-Specific Profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md)). Months are in each BA's local time, to match the months used for shaping. Zeros in a month that has other values can still be adjusted, since they are often reporting errors (e.g., every energy source reported as zero for a day while net generation is not). A BA that reports net generation but no generation by energy source for a whole month (e.g., SRP in early July 2018) isn't held at zero either.
+
+EIA-930 did not collect generation by energy source before July 1, 2018, so the constraints and adjustments for generation by energy source are only used from that date onwards.
 
 **Weights.** The weight of each value is inversely proportional to the typical size of its series:
 

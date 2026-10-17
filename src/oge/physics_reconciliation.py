@@ -152,7 +152,9 @@ class EIA930Tables(NamedTuple):
     interchange: pd.DataFrame
 
 
-def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables | None:
+def reconcile_eia930(
+    tables: EIA930Tables, output_folder: str, ba_timezones: dict[str, str] | None = None
+) -> EIA930Tables | None:
     """This is the coordinating function for the physics-based reconciliation of
     EIA-930 data.
 
@@ -172,6 +174,9 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables |
     Args:
         tables (EIA930Tables): EIA-930 data to reconcile.
         output_folder (str): folder to write the results of each step to.
+        ba_timezones (dict[str, str] | None, optional): local timezone of each BA,
+            which defines the months in which generation by energy source is zero (see
+            `find_zero_months`). BAs that aren't in it use UTC. Defaults to None.
 
     Returns:
         EIA930Tables | None: reconciled EIA-930 data from 2018-07-01 onwards. None if
@@ -194,6 +199,10 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables |
         output_folder,
         "weights",
     )
+
+    # generation by energy source stays at zero in the months in which it is zero
+    # before reconciliation
+    zero_months = find_zero_months(series, ba_timezones or {})
 
     # before generation by energy source was collected, reconcile without it. Note
     # that the hour at GENERATION_BY_ENERGY_SOURCE_START_DATE is included in both
@@ -231,6 +240,7 @@ def reconcile_eia930(tables: EIA930Tables, output_folder: str) -> EIA930Tables |
         from_start,
         weights.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :],
         include_energy_sources=True,
+        zero_months=zero_months.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :],
     )
     reconciled_tables = melt_series_to_eia930_tables(reconciled)
     write_eia930_tables(reconciled_tables, output_folder, "reconciled")
@@ -784,8 +794,74 @@ def filter_with_rolling_window(
     return series
 
 
+def find_zero_months(
+    series: pd.DataFrame, ba_timezones: dict[str, str]
+) -> pd.DataFrame:
+    """Finds the hours in which a generation by energy source series is zero for the
+    whole month.
+
+    A series that is zero (or blank) for a whole month is an energy source that the BA
+    doesn't have or doesn't report that month. The reconciliation keeps such series at
+    zero, rather than adding small amounts of generation to them, which would then be
+    used to shape the hourly generation of plants. Zeros within a month that has other
+    values are often reporting errors (e.g. every energy source reported as zero for a
+    day), so the reconciliation can still change them. A BA that reports net
+    generation but no generation by energy source for a whole month (e.g. SRP in July
+    2018, before it reported generation by energy source) isn't reporting zero
+    generation, so its energy sources aren't kept at zero that month either.
+
+    Months are in the local time of each BA, so that they match the months used to
+    shape hourly generation (see `eia930.prepare_eia930_for_shaping`).
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        ba_timezones (dict[str, str]): local timezone of each BA. BAs that aren't in it
+            use UTC.
+
+    Returns:
+        pd.DataFrame: with the same index as `series` and one column per generation
+            by energy source series, True in the hours of the months in which the
+            series is zero or blank in every hour.
+    """
+    keys = series.columns[
+        series.columns.get_level_values("field") == NET_GENERATION_BY_ENERGY_SOURCE
+    ]
+    is_zero = series.loc[:, keys].fillna(0) == 0
+    zero_months = pd.DataFrame(False, index=series.index, columns=keys)
+    bas = keys.get_level_values("balancing_authority_code_eia")
+    for timezone in sorted({ba_timezones.get(ba, "UTC") for ba in bas}):
+        timezone_keys = keys[[ba_timezones.get(ba, "UTC") == timezone for ba in bas]]
+        months = series.index.tz_convert(timezone).strftime("%Y-%m")
+        zero_months[timezone_keys] = (
+            is_zero[timezone_keys].groupby(months).transform("all")
+        )
+        # months in which a BA reports net generation but no generation by energy
+        # source
+        for ba in sorted(
+            set(timezone_keys.get_level_values("balancing_authority_code_eia"))
+        ):
+            ba_keys = timezone_keys[
+                timezone_keys.get_level_values("balancing_authority_code_eia") == ba
+            ]
+            net_generation_is_zero = (
+                series.get((NET_GENERATION, ba, ""), pd.Series(0.0, index=series.index))
+                .fillna(0)
+                .eq(0)
+                .groupby(months)
+                .transform("all")
+            )
+            no_energy_sources = (
+                zero_months[ba_keys].all(axis=1) & ~net_generation_is_zero
+            )
+            zero_months.loc[no_energy_sources, ba_keys] = False
+    return zero_months
+
+
 def reconcile_energy_balance(
-    series: pd.DataFrame, weights: pd.DataFrame, include_energy_sources: bool
+    series: pd.DataFrame,
+    weights: pd.DataFrame,
+    include_energy_sources: bool,
+    zero_months: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Makes the data physically consistent in each hour.
 
@@ -800,6 +876,7 @@ def reconcile_energy_balance(
           zero and their value before reconciliation. They can be negative where the
           data are negative, but the reconciliation can't make them more negative or
           turn positive values negative.
+        - generation by energy source stays at zero in the hours of `zero_months`
 
     The problem is the same for every hour except for its data and weights, so it is
     built once (see `HourlyReconciliationProblem`) and solved for each hour in turn.
@@ -811,6 +888,9 @@ def reconcile_energy_balance(
         weights (pd.DataFrame): weight of each value, with the same shape as `series`.
         include_energy_sources (bool): whether to reconcile generation by energy
             source.
+        zero_months (pd.DataFrame | None, optional): True for the hours in which a
+            generation by energy source series must stay at zero, as returned by
+            `find_zero_months`. Defaults to None, for no such hours.
 
     Returns:
         tuple[pd.DataFrame, pd.Series]: reconciled series data frame, and the value of
@@ -826,8 +906,18 @@ def reconcile_energy_balance(
     # select the weights by hour, so that each hour gets its own weights even if the
     # hours of `weights` are in a different order
     value_weights = weights.loc[series.index, problem.keys].to_numpy()
+    if zero_months is None:
+        zero_months = pd.DataFrame(False, index=series.index, columns=[])
+    is_zero_month = (
+        zero_months.reindex(
+            index=series.index, columns=problem.energy_source_keys, fill_value=False
+        )
+        .fillna(False)
+        .to_numpy(dtype=bool)
+    )
     results = [
-        problem.solve(values[hour], value_weights[hour]) for hour in range(len(series))
+        problem.solve(values[hour], value_weights[hour], is_zero_month[hour])
+        for hour in range(len(series))
     ]
 
     reconciled = pd.DataFrame(
@@ -860,6 +950,8 @@ class HourlyReconciliationProblem:
             values passed to and returned by `solve`. Generation by energy source is
             only included if `include_energy_sources`, and only for the energy sources
             in `ENERGY_SOURCES`.
+        energy_source_keys (list[tuple]): keys of the generation by energy source
+            series in the problem, in the order they appear in `keys`.
     """
 
     def __init__(self, series: pd.DataFrame, include_energy_sources: bool):
@@ -900,6 +992,16 @@ class HourlyReconciliationProblem:
                 for energy_source, ba in energy_source_pairs
             ]
         self.keys = [key for keys in keys_by_field.values() for key in keys]
+        self.energy_source_keys = keys_by_field.get(NET_GENERATION_BY_ENERGY_SOURCE, [])
+        # positions of the generation by energy source series in `keys`
+        self.energy_source_positions = np.array(
+            [
+                i
+                for i, key in enumerate(self.keys)
+                if key[0] == NET_GENERATION_BY_ENERGY_SOURCE
+            ],
+            dtype=int,
+        )
 
         # the data and the square root of the weights are set for each hour by `solve`
         self.values = cp.Parameter(len(self.keys))
@@ -955,9 +1057,19 @@ class HourlyReconciliationProblem:
             energy_sources_to_ba = create_incidence_matrix(
                 regions, [ba for _, ba in energy_source_pairs]
             )
+            # 1 for the generation by energy source series that must stay at zero in
+            # the hour, set by `solve`
+            self.is_zero_month = cp.Parameter(len(self.energy_source_keys), nonneg=True)
             constraints += [
                 # net generation is the sum of generation by energy source
                 net_generation == energy_sources_to_ba @ generation,
+                # series that are zero for the whole month stay at zero. Their value
+                # before reconciliation is zero, so it's enough to constrain their
+                # adjustments, which keeps the problem DPP (compiled only once).
+                cp.multiply(
+                    self.is_zero_month, self.adjustments[self.energy_source_positions]
+                )
+                == 0,
             ]
 
         # sum of weight * adjustment ** 2
@@ -965,7 +1077,10 @@ class HourlyReconciliationProblem:
         self.problem = cp.Problem(cp.Minimize(objective), constraints)
 
     def solve(
-        self, values: np.ndarray, weights: np.ndarray
+        self,
+        values: np.ndarray,
+        weights: np.ndarray,
+        is_zero_month: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
         """Reconciles the data of one hour.
 
@@ -973,6 +1088,9 @@ class HourlyReconciliationProblem:
             values (np.ndarray): value of each series in `keys`, with no blank values.
             weights (np.ndarray): weight of each series in `keys`, with no blank
                 values.
+            is_zero_month (np.ndarray | None, optional): True for each series in
+                `energy_source_keys` that must stay at zero. Defaults to None, for no
+                such series.
 
         Raises:
             ValueError: if there are blank values, or if the solver does not find a
@@ -989,12 +1107,20 @@ class HourlyReconciliationProblem:
         self.generation_lower_bounds.value = np.minimum(
             values[self.generation_positions], 0
         )
+        if is_zero_month is None:
+            is_zero_month = np.zeros(len(self.energy_source_keys), dtype=bool)
+        if len(self.energy_source_keys) > 0:
+            self.is_zero_month.value = is_zero_month.astype(float)
         self.problem.solve(solver=cp.CLARABEL, **CLARABEL_SETTINGS)
         if self.problem.status != cp.OPTIMAL:
             raise ValueError(
                 f"The reconciliation solver stopped with status {self.problem.status}"
             )
-        return values + self.adjustments.value, self.problem.value
+        reconciled = values + self.adjustments.value
+        # exactly zero rather than within the solver's tolerance, so that months of
+        # zeros can be recognized after reconciliation
+        reconciled[self.energy_source_positions[is_zero_month]] = 0.0
+        return reconciled, self.problem.value
 
 
 def create_incidence_matrix(
