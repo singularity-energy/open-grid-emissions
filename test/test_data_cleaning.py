@@ -299,3 +299,50 @@ def test_identify_generator_primary_fuel_breaks_ties_with_esc_1():
     assert result[(2, "Y")] == "NG"
     # one row per generator
     assert len(result) == 4
+
+
+def test_assign_fuel_category_to_esc_expanded_eia930_categories():
+    """Resources should get the expanded EIA-930 category of the energy source that
+    EIA-930 now reports them in, using their prime mover and plant storage category
+    where the energy source code isn't enough.
+
+    The expanded category decides which EIA-930 series shapes a resource once its BA
+    reports the new energy sources:
+        - pumped storage and conventional hydro both report WAT, and are told apart by
+          prime mover
+        - batteries and other storage both report MWH, and are told apart by prime
+          mover; compressed air storage that burns gas keeps its fuel's category
+        - solar and wind at plants with hybrid or co-located storage are reported with
+          integrated battery storage
+    """
+    resources = pd.DataFrame(
+        [
+            ("WAT", "PS", None, "pumped_storage"),
+            ("WAT", "HY", None, "hydro"),
+            ("MWH", "BA", "standalone", "battery_storage"),
+            ("MWH", "FW", "standalone", "other_energy_storage"),
+            ("MWH", "CE", "standalone", "other_energy_storage"),
+            ("NG", "CE", "hybrid", "natural_gas"),
+            ("GEO", "ST", None, "geothermal"),
+            ("SUN", "PV", "hybrid", "solar_w_integrated_battery_storage"),
+            ("SUN", "PV", "co_located", "solar_w_integrated_battery_storage"),
+            ("SUN", "PV", "standalone", "solar"),
+            ("SUN", "PV", None, "solar"),
+            ("WND", "WT", "hybrid", "wind_w_integrated_battery_storage"),
+            ("NG", "CT", "co_located", "natural_gas"),
+        ],
+        columns=[
+            "energy_source_code",
+            "prime_mover_code",
+            "plant_storage_category",
+            "expected",
+        ],
+    )
+
+    result = helpers.assign_fuel_category_to_esc(
+        resources, fuel_category_names=["fuel_category_eia930_expanded"]
+    )
+
+    assert result["fuel_category_eia930_expanded"].to_list() == (
+        result["expected"].to_list()
+    )

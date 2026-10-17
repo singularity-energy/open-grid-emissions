@@ -29,6 +29,21 @@ PUDL renamed hydro, solar, and wind to "hydro excluding pumped storage", "solar 
 
 For hourly profiles, the new energy sources are currently added back to the energy source that included them before.
 
+#### Cutover dates
+Until a BA reports a new energy source, its generators of that type are still included in the energy source that included them before. For each BA and new energy source, OGE identifies a cutover date: the first day on which the BA reports a non-zero value, but no earlier than January 1, 2025. Zeros don't count, since some BAs (for example, TVA) report zeros for energy sources they don't have. Two shares of the hours after the cutover date describe how consistently it is reported: the share of hours with a value (including zero), which is low for BAs that leave the energy source blank in some hours (for example, FPC's batteries), and the share of hours with a non-zero value, which is low for energy sources that are rarely used or whose generation is mostly reported elsewhere (for example, CPLE's batteries before October 2025). Battery charging that a BA reports as "unknown energy storage" counts as reporting batteries. Data years before 2025 have no cutover dates.
+
+Detected dates can be replaced, or cleared for a BA that hasn't really switched, in [`eia930_energy_source_cutover_overrides.csv`](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/eia930_energy_source_cutover_overrides.csv).
+
+Each BA and new energy source is also compared with OGE's subplants in the BA with the matching `fuel_category_eia930_expanded` (see [Plant Primary Fuel](../Data%20Aggregation/Plant%20Primary%20Fuel.md#eia-930-fuel-categories)), and flagged as:
+
+Flag | Meaning
+---------|---------
+`reporting_and_resources` | The BA reports the energy source and has subplants of that type
+`resources_not_reporting` | The BA has subplants of that type but doesn't report the energy source, so they are still included in the energy source that included them before
+`reporting_without_resources` | The BA reports the energy source but OGE has no subplants of that type in the BA, which points to a difference in BA assignment or in how generators are categorized
+
+The cutover dates and flags are written to `outputs/{year}/eia930/eia930_energy_source_cutover.csv`.
+
 ### Systematic data issues
 We identified two types of issues with the data: 1) data reported with the wrong timestamp and 2) data reported with the wrong sign (this issue was specific to interchange data). To identify the specific time periods, BAs, and data types with each of these issues, we performed iterative lagged and windowed correlation between data sets that we expected to be highly correlated, fixing issues as we found them.
 

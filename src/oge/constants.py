@@ -57,6 +57,15 @@ ENERGY_STORAGE_PRIME_MOVERS = [
     "PS",  # Pumped Storage
 ]
 
+# storage categories (see energy_storage.STORAGE_CATEGORY_BY_METHOD) of plants whose
+# solar and wind generation EIA-930 reports as "with integrated battery storage". The
+# EIA-930 instructions don't define "integrated", but describe it as storage whose
+# charging is netted from the generator's output. Co-located storage is included,
+# since in 2025 most BAs that report solar with integrated battery storage have no
+# solar at plants with hybrid storage, while their solar at plants with co-located
+# storage matches the reported generation.
+EIA930_INTEGRATED_STORAGE_CATEGORIES = ["hybrid", "co_located"]
+
 TIME_RESOLUTIONS = {"hourly": "h", "monthly": "M", "annual": "A"}
 
 # values assumed by eGRID for CHP efficiency
