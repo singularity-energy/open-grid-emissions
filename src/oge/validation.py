@@ -999,8 +999,11 @@ def validate_shaped_totals(
         ["net_generation_mwh", "fuel_consumed_mmbtu"]
     ].sum()
 
-    # calculate the difference between the two datasets
-    compare = (shaped_data_agg - eia_data_agg).round(0)
+    # calculate the difference between the two datasets. Months missing from either
+    # dataset count as zero, so that months lost in shaping are caught too.
+    compare = shaped_data_agg.sub(eia_data_agg, fill_value=0).round(0)
+    # any difference counts, whether shaping adds to or loses from the monthly totals
+    has_differences = (compare != 0).any(axis=None)
     # not all dfs are at the plant level
     if "plant_id_eia" in compare.columns:
         compare = compare.merge(
@@ -1009,7 +1012,7 @@ def validate_shaped_totals(
             on="plant_id_eia",
             validate="m:1",
         )
-    if compare.sum().sum() > 0:
+    if has_differences:
         logger.warning(
             "\n"
             + limit_error_output_df(

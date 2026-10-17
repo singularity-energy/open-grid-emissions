@@ -18,6 +18,7 @@ from oge.physics_reconciliation import (
     apply_basic_cleaning,
     apply_rolling_window_cleaning,
     eia930_tables_exist,
+    find_zero_months,
     melt_series_to_eia930_tables,
     pivot_eia930_tables_to_series,
     read_eia930_tables,
@@ -205,6 +206,81 @@ def test_reconcile_energy_balance_solves_the_problem(dates):
         pd.testing.assert_frame_equal(
             reconciled, reference, check_exact=False, rtol=0, atol=SOLUTION_TOLERANCE
         )
+
+
+def test_find_zero_months_uses_local_months():
+    """Zero months should be the months of each BA's local time.
+
+    The series is zero for all of February in US/Pacific time, but not in UTC, since
+    UTC February starts with 8 hours of local January. Hourly profiles are calculated
+    for local months, so the months must match.
+    """
+    hours = pd.date_range("2025-01-31 00:00", "2025-03-01 23:00", freq="h", tz="UTC")
+    local_month = hours.tz_convert("US/Pacific").month
+    key = (NET_GENERATION_BY_ENERGY_SOURCE, "CISO", "oil")
+    series = pd.DataFrame(
+        {key: np.where(local_month == 2, 0.0, 5.0)},
+        index=hours,
+    )
+    series.columns = pd.MultiIndex.from_tuples([key], names=SERIES_LEVELS)
+
+    local = find_zero_months(series, {"CISO": "US/Pacific"})[key]
+    # every hour of local February, and no other hour
+    assert (local == (local_month == 2)).all()
+    # in UTC, no month is zero in every hour
+    assert not find_zero_months(series, {})[key].any()
+
+
+def test_find_zero_months_skips_bas_without_energy_sources():
+    """A BA that reports net generation but no generation by energy source for a
+    whole month isn't reporting zero generation, so its energy sources shouldn't be
+    kept at zero. A BA with no generation at all should.
+
+    E.g. SRP in July 2018, before it reported generation by energy source. Keeping its
+    energy sources at zero would force its net generation to zero.
+    """
+    hours = pd.date_range("2018-07-01", periods=48, freq="h", tz="UTC")
+    keys = [
+        (NET_GENERATION, "SRP", ""),
+        (NET_GENERATION_BY_ENERGY_SOURCE, "SRP", "gas"),
+        (NET_GENERATION_BY_ENERGY_SOURCE, "SRP", "solar"),
+        (NET_GENERATION, "HST", ""),
+        (NET_GENERATION_BY_ENERGY_SOURCE, "HST", "solar"),
+    ]
+    series = pd.DataFrame(
+        [[6500.0, 0.0, 0.0, 0.0, 0.0]] * len(hours),
+        index=hours,
+        columns=pd.MultiIndex.from_tuples(keys, names=SERIES_LEVELS),
+    )
+
+    zero_months = find_zero_months(series, {})
+
+    assert not zero_months.loc[:, (NET_GENERATION_BY_ENERGY_SOURCE, "SRP")].any(
+        axis=None
+    )
+    assert zero_months[(NET_GENERATION_BY_ENERGY_SOURCE, "HST", "solar")].all()
+
+
+def test_reconcile_energy_balance_keeps_zero_months_at_zero():
+    """Generation by energy source that is zero for a whole month should stay exactly
+    zero after reconciliation, while every other constraint still holds.
+
+    Without this, the reconciliation adds small amounts of generation to energy
+    sources a BA doesn't have, which are then used as hourly profiles.
+    """
+    series = pivot_eia930_tables_to_series(read_raw_fixture(FIXTURE_DATES[0]))
+    series, weights = apply_rolling_window_cleaning(apply_basic_cleaning(series))
+    zero_months = find_zero_months(series, {})
+    # the fixture has energy sources that are zero for a whole month
+    assert zero_months.any(axis=None)
+
+    reconciled, _ = reconcile_energy_balance(
+        series, weights, include_energy_sources=True, zero_months=zero_months
+    )
+
+    locked = zero_months.reindex(columns=reconciled.columns, fill_value=False)
+    assert (reconciled.where(locked) == 0).sum().sum() == locked.sum().sum()
+    check_reconciliation_constraints(reconciled, series, include_energy_sources=True)
 
 
 def check_reconciliation_constraints(

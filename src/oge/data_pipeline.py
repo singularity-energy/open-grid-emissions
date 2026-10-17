@@ -531,6 +531,8 @@ def main(args):
         eia930_data = eia930.prepare_eia930_for_shaping(
             eia930_tables.net_generation_by_energy_source, year=year
         )
+        # months with no EIA-930 generation get an imputed profile instead
+        eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
         # 14. Calculate hourly profiles for monthly EIA data
         ################################################################################
