@@ -13,6 +13,22 @@ For the EIA-930 output tables published in PUDL, in addition to the original rep
 
 EIA has been collecting fuel-specific generation since July 2018, making this the newest of the data sources and the limiting factor in why our provided dataset begins in 2019. The data is provided to EIA from balancing authorities daily. There have been several reporting improvements since the beginning of collection, and some issues remain with the data reported to EIA from BAs. These issues include systematic issues with reported data and transient inconsistencies between data types and regions. We fix systematic issues using a correlation-based manual inspection process, then fix transient inconsistencies using the physics-based reconciliation process developed by [Chalendar and Benson (2021)](https://doi.org/10.1016/j.apenergy.2021.117761)
 
+### Energy sources
+EIA-930 originally reported generation for eight energy sources: coal, natural gas, nuclear, petroleum, hydro, solar, wind, and other, plus unknown. Starting in mid-2024, it split some of these into more specific energy sources. BAs started to report them at different times, and some only report part of them (for example, CISO reports geothermal separately but still reports its batteries in "other").
+
+| Original energy source | New energy sources |
+| --- | --- |
+| Hydro (including pumped storage) | Hydro (excluding pumped storage), pumped storage |
+| Solar | Solar (without integrated battery storage), solar with integrated battery storage |
+| Wind | Wind (without integrated battery storage), wind with integrated battery storage |
+| Other | Other, battery storage, other energy storage, geothermal |
+
+Each original energy source equals the sum of the new energy sources it was split into, so a BA's generation means the same thing before and after it starts reporting them. OGE keeps the new energy sources as their own series in the [physics-based reconciliation](Physics-based%20Reconciliation.md). Storage is reported as negative net generation when it charges more than it discharges. Some BAs (for example, ERCO) report battery charging as "unknown energy storage", which isn't in the EIA-930 instructions, and OGE keeps this as its own series too.
+
+PUDL renamed hydro, solar, and wind to "hydro excluding pumped storage", "solar without integrated battery storage", and "wind without integrated battery storage" on July 1, 2024 for every BA, so the new names don't mean that a BA has started reporting the new energy sources. OGE combines each pair into one series under the original name.
+
+For hourly profiles, the new energy sources are currently added back to the energy source that included them before.
+
 ### Systematic data issues
 We identified two types of issues with the data: 1) data reported with the wrong timestamp and 2) data reported with the wrong sign (this issue was specific to interchange data). To identify the specific time periods, BAs, and data types with each of these issues, we performed iterative lagged and windowed correlation between data sets that we expected to be highly correlated, fixing issues as we found them.
 
