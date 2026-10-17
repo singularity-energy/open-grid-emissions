@@ -123,7 +123,7 @@ Each step writes its results to `outputs/{year}/eia930/` as parquet files, in th
 | `reconciled_without_energy_sources` | Reconciled data before July 1, 2018 (only when the data include those hours) |
 | `reconciled` | Reconciled data, used to build hourly profiles and to calculate consumption-based emissions |
 
-To build hourly profiles, the new energy sources are first added to the energy source that included them before (for example, battery storage to "other"), since the profiles still use the original categories. The hourly profiles describe when positive generation happens, so negative reconciled generation by energy source is then set to zero. Otherwise, a month whose total is close to zero or negative would give profiles with very large or inverted shares of the monthly total.
+To build hourly profiles, the new energy sources are added to the energy source that included them before (for example, battery storage to "other") until each BA's cutover date (see [EIA-930 Data](EIA-930%20Data.md#cutover-dates)). The hourly profiles describe when positive generation happens, so negative reconciled generation by energy source is then set to zero. Otherwise, a month whose total is close to zero or negative would give profiles with very large or inverted shares of the monthly total.
 
 The value of the optimization objective for each hour is written to `eia930_objective.parquet` (and `eia930_objective_without_energy_sources.parquet` before July 1, 2018).
 
