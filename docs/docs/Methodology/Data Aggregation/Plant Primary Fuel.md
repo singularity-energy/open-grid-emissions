@@ -49,3 +49,18 @@ Compressed air energy storage (`CE`) is the exception. It is only assigned a `fu
 Plants and subplants with a primary fuel of `MWH` are assigned a `fuel_category` of `storage`, regardless of prime mover.
 
 Plants and subplants that contain energy storage are also assigned a storage category (standalone, co-located, or hybrid), which is described in [Energy Storage](Energy%20Storage.md).
+
+### EIA-930 fuel categories
+
+To compare OGE data with the hourly generation by energy source reported in EIA-930, each subplant is also assigned the EIA-930 energy source that its generation is most likely reported in. `fuel_category_eia930` uses the original EIA-930 energy sources (coal, natural gas, nuclear, petroleum, hydro, solar, wind, and other). `fuel_category_eia930_expanded` uses the energy sources that EIA-930 introduced in 2024 (see [EIA-930 Data](../Data%20Cleaning/EIA-930%20Data.md#energy-sources)), which the primary fuel alone can't always tell apart:
+
+`fuel_category_eia930_expanded` | Assigned to
+---------|---------
+`pumped_storage` | Primary prime mover `PS`
+`battery_storage` | Primary prime mover `BA`, or a primary fuel of `MWH` with another prime mover not listed below
+`other_energy_storage` | Primary prime mover `CE`, `ES`, or `FW` with a primary fuel of `MWH`
+`geothermal` | Primary fuel `GEO`
+`solar_w_integrated_battery_storage` | Primary fuel `SUN` at a plant with `hybrid` or `co_located` storage
+`wind_w_integrated_battery_storage` | Primary fuel `WND` at a plant with `hybrid` or `co_located` storage
+
+Everything else gets the same category as `fuel_category_eia930`. The EIA-930 instructions don't define integrated storage, but describe it as storage whose charging is subtracted from the generator's reported output. That suggests `hybrid` storage, which is metered together with its generator, but most BAs that report solar with integrated battery storage in 2025 have no solar at plants with `hybrid` storage. Their solar at plants with `co_located` storage matches the reported generation better (implied capacity factors of 16-27% in BPAT, EPE, LDWP, SOCO, TEC, TVA and WALC), so both are included. The storage at these plants keeps its own category (`battery_storage`).

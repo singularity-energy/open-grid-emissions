@@ -35,7 +35,9 @@ EMISSION_COLS = [
 ]
 
 # maps EIA-930 energy sources to the fuel categories of the US fleet average emission
-# rates used for BAs outside of the US
+# rates used for BAs outside of the US. Energy storage uses the rate of the US storage
+# fleet, which has no direct emissions, so its rate is zero. Emissions from the
+# electricity used to charge storage are not yet tracked through storage.
 FUEL_TYPE_MAP = {
     "coal": "coal",
     "gas": "natural_gas",
@@ -46,6 +48,13 @@ FUEL_TYPE_MAP = {
     "unknown": "total",
     "hydro": "hydro",
     "wind": "wind",
+    "pumped_storage": "storage",
+    "solar_w_integrated_battery_storage": "solar",
+    "wind_w_integrated_battery_storage": "wind",
+    "battery_storage": "storage",
+    "unknown_energy_storage": "storage",
+    "other_energy_storage": "storage",
+    "geothermal": "geothermal",
 }
 
 POLLUTANTS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
@@ -128,7 +137,11 @@ def get_average_emission_factors(prefix: str) -> dict[str, dict[str, dict[str, f
             efs[pol][adjustment] = {}
             for fuel in ENERGY_SOURCES:
                 column = get_pollutant_rate_column_name(pol, adjustment, generated=True)
-                if FUEL_TYPE_MAP[fuel] not in genavg.index:
+                # guard: storage has no direct emissions, so use zero rather than the
+                # total average if the US fleet data has no storage row
+                if FUEL_TYPE_MAP[fuel] == "storage" and "storage" not in genavg.index:
+                    efs[pol][adjustment][fuel] = 0.0
+                elif FUEL_TYPE_MAP[fuel] not in genavg.index:
                     logger.warning(
                         f"fuel {FUEL_TYPE_MAP[fuel]} not found in US fleet average "
                         "data, using total average"

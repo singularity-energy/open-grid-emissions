@@ -15,6 +15,7 @@ from oge.helpers import (
     create_local_year_timestamps,
 )
 from oge.data_cleaning import complete_hourly_timeseries
+from oge.eia930 import assign_expanded_category_after_cutover
 
 logger = get_logger(__name__)
 
@@ -30,6 +31,7 @@ def calculate_hourly_profiles(
     year: int,
     transmission_only: bool = False,
     ba_column_name: str = "ba_code",
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Coordinating function for calculating the hourly residual profiles that will be
     used to shape monthly EIA data.
@@ -68,6 +70,11 @@ def calculate_hourly_profiles(
             profiles. Defaults to False.
         ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
             to define fleet composition. Defaults to "ba_code".
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source, as returned by
+            `eia930.calculate_energy_source_cutover_dates`. CEMS subplants in those
+            categories are subtracted from the new energy source in the months after
+            the cutover. Defaults to None, for no cutovers.
 
     Returns:
         pd.DataFrame: dataframe of hourly profiles (in MW) for each fleet. The table
@@ -85,6 +92,7 @@ def calculate_hourly_profiles(
         year,
         transmission_only=transmission_only,
         ba_column_name=ba_column_name,
+        cutover_dates=cutover_dates,
     )
 
     # add backstop profiles where residuals were not available
@@ -286,6 +294,7 @@ def aggregate_cems_to_fleet_for_residual_calc(
     datetime_col: str = "datetime_utc",
     ba_column_name: str = "ba_code",
     transmission_only: bool = False,
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Utility function for trying different BA aggregations in 930 and 923 data
 
@@ -303,6 +312,12 @@ def aggregate_cems_to_fleet_for_residual_calc(
         transmission_only (bool, optional): Whether or not to only consider subplants
             that are connected to the transmission grid when calculating residual
             profiles. Defaults to False.
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source, as returned by
+            `eia930.calculate_energy_source_cutover_dates`. In the months after a
+            cutover, subplants in that category are aggregated with the new energy
+            source instead of the original category. Defaults to None, for no
+            cutovers.
 
     Raises:
         UserWarning: If a fuel category cannot be assigned to a CEMS subplant
@@ -332,6 +347,29 @@ def aggregate_cems_to_fleet_for_residual_calc(
         fuel_category_col="fuel_category_eia930",
         other_attribute_cols=["distribution_flag"],
     )
+
+    # in the months after the BA switched to reporting a subplant's category in a new
+    # EIA-930 energy source (e.g. battery storage), the subplant is subtracted from that
+    # energy source instead of the original category. The month is the month of the
+    # CEMS data, which can differ from the BA's local month in the first and last
+    # hours of a month.
+    cems_agg = cems_agg.merge(
+        assign_fleet_to_subplant_data(
+            subplant_data=cems_agg[["plant_id_eia", "subplant_id"]].drop_duplicates(),
+            plant_attributes_table=plant_attributes,
+            primary_fuel_table=primary_fuel_table,
+            year=year,
+            ba_col=ba_column_name,
+            primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+            fuel_category_col="fuel_category_eia930_expanded",
+        )[["plant_id_eia", "subplant_id", "fuel_category_eia930_expanded"]],
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
+    cems_agg = assign_expanded_category_after_cutover(
+        cems_agg.rename(columns={ba_column_name: "ba_code"}), cutover_dates
+    ).rename(columns={"ba_code": ba_column_name})
 
     if transmission_only:
         cems_agg = cems_agg[cems_agg["distribution_flag"] is False]
@@ -388,6 +426,7 @@ def calculate_residual(
     year: int,
     transmission_only: bool = False,
     ba_column_name: str = "ba_code",
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Creates a dataframe of residual hourly profiles for each fleet.
 
@@ -408,6 +447,10 @@ def calculate_residual(
             profiles. Defaults to False.
         ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
             to define fleet composition. Defaults to "ba_code".
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source (see
+            `aggregate_cems_to_fleet_for_residual_calc`). Defaults to None, for no
+            cutovers.
 
     Returns:
         pd.DataFrame: Dataframe of hourly profiles, containing columns
@@ -423,6 +466,7 @@ def calculate_residual(
         "datetime_utc",
         ba_column_name,
         transmission_only,
+        cutover_dates=cutover_dates,
     )
 
     # clean up the eia930 data before merging
@@ -730,6 +774,13 @@ def impute_missing_hourly_profiles(
             df_temporary["imputation_method"] = "assumed_flat"
         elif fuel in ["other"]:
             # assign a flat profile
+            df_temporary = create_flat_profile(report_date, ba, fuel)
+            df_temporary["imputation_method"] = "assumed_flat"
+        # EIA-930 has no storage category to calculate a residual profile from, so
+        # assume a flat profile. Months with negative net generation (more charging
+        # than discharging) also get a flat profile when the data is shaped (see
+        # shape_monthly_eia_data_as_hourly)
+        elif fuel in ["storage"]:
             df_temporary = create_flat_profile(report_date, ba, fuel)
             df_temporary["imputation_method"] = "assumed_flat"
         else:

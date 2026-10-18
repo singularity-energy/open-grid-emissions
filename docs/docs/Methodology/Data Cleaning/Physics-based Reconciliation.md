@@ -14,6 +14,8 @@ OGE fixes these transient issues with a physics-based reconciliation, after corr
 
 The reconciliation runs on EIA-930 data from October 1 of the previous year through January 2 of the following year, so that the rolling window has data before and after the year of interest.
 
+Generation by energy source is reconciled for every energy source that EIA-930 reports, including the ones it introduced in 2024 (pumped storage, solar and wind with integrated battery storage, battery storage, other energy storage, geothermal, and "unknown energy storage", which some BAs use for battery charging). Each is its own series, so storage reported separately is reconciled as storage rather than as part of hydro or "other". A new energy source is only included for the BAs that report it at some point in the data. Before a BA starts reporting it, its series is zero, and it stays at zero in the reconciliation (see below). See [EIA-930 Data](EIA-930%20Data.md#energy-sources) for how the energy sources are loaded.
+
 PUDL's operations table (demand, net generation, and total interchange) can be missing BAs that report other EIA-930 data. For example, SIKE, a generation-only BA that started reporting in June 2025, has generation and interchange data but no operations data. For such BAs, we derive net generation as the sum of their generation by energy source, total interchange as the sum of their interchange with each neighbor, and demand as net generation minus total interchange. Otherwise, the reconciliation would treat them as BAs outside of the US (see below) and discard the data they report.
 
 The reconciliation has three steps.
@@ -34,7 +36,7 @@ The first step drops values that are outside of realistic bounds and adds data f
 | BANC total interchange | -5,000 to 5,000 |
 | CISO net generation | 5,000 to 60,000 |
 
-Net generation and generation by energy source can be negative, because a BA or an energy source can be a net load. Plants use electricity for station use when they are not generating (for example, solar plants at night), and storage reports charging as negative net generation. Since EIA-930 combined storage into the older energy source categories, storage charging appears as negative "other" or hydro generation, and charging of solar plants with integrated storage as negative solar generation. In 2025, the lowest value of generation by energy source was about -8,500 MWh (CISO "other"), so the lower bound of -50,000 MWh only drops values that are clearly wrong.
+Net generation and generation by energy source can be negative, because a BA or an energy source can be a net load. Plants use electricity for station use when they are not generating (for example, solar plants at night), and storage reports charging as negative net generation, either in the new storage energy sources or, for BAs that haven't started reporting those, as negative "other" or hydro generation. In 2025, the lowest value of generation by energy source was about -8,500 MWh (CISO "other"), so the lower bound of -50,000 MWh only drops values that are clearly wrong.
 
 **BAs outside of the US.** Some US BAs exchange electricity with BAs in Canada and Mexico (AESO, BCHA, CEN, CFE, HQT, IESO, MHEB, NBSO, and SPC), which do not report to EIA-930. Their total interchange is set to the opposite of the interchange reported by their US neighbors. Their net exports are treated as their net generation, and their net imports as their demand. Their generation is assumed to be hydro for BCHA, HQT, and MHEB, and "other" for the rest. See [Consumption-based Emissions](../Emissions%20Calculations/Consumption-based%20Emissions.md) for how this generation is used.
 
@@ -121,12 +123,13 @@ Each step writes its results to `outputs/{year}/eia930/` as parquet files, in th
 | `reconciled_without_energy_sources` | Reconciled data before July 1, 2018 (only when the data include those hours) |
 | `reconciled` | Reconciled data, used to build hourly profiles and to calculate consumption-based emissions |
 
-The hourly profiles describe when positive generation happens, so negative reconciled generation by energy source is set to zero before it is used to build them. Otherwise, a month whose total is close to zero or negative would give profiles with very large or inverted shares of the monthly total.
+To build hourly profiles, the new energy sources are added to the energy source that included them before (for example, battery storage to "other") until each BA's cutover date (see [EIA-930 Data](EIA-930%20Data.md#cutover-dates)). The hourly profiles describe when positive generation happens, so negative reconciled generation by energy source is then set to zero. Otherwise, a month whose total is close to zero or negative would give profiles with very large or inverted shares of the monthly total.
 
 The value of the optimization objective for each hour is written to `eia930_objective.parquet` (and `eia930_objective_without_energy_sources.parquet` before July 1, 2018).
 
 ## Future Work, Known Issues, and Open Questions
-- Since late 2024, BAs have started reporting energy storage separately, as negative net generation when charging. The new energy source categories are currently combined into the old ones before reconciliation.
+- BAs that report the new energy sources still report storage they haven't split out in hydro or "other", so these series can include storage charging.
+- When a BA starts reporting a new energy source, the energy source that included it before drops sharply. The rolling window around that date then has a narrower range, so the rolling filter can drop real values in the days just before the switch. For example, ERCO's "other" generation at 2024-10-22 23:00 UTC (3,507 MWh, while its batteries were still reported in "other") is replaced with 764 MWh. Filtering each original energy source with its new energy sources added back would avoid this.
 - The reconciliation does not conserve the total energy reported to EIA-930: values that are dropped are re-filled, and adjustments do not need to add up to zero over time.
 - Reconciliation can add hour-to-hour variation to series that should be flat, such as nuclear generation ([details](https://github.com/singularity-energy/open-grid-emissions/issues/240)).
 - Consider reconciling EIA-930 data against OGE's own generation estimates ([details](https://github.com/singularity-energy/open-grid-emissions/issues/220)).

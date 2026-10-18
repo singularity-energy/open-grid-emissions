@@ -528,8 +528,20 @@ def main(args):
         eia930_tables = physics_reconciliation.read_eia930_tables(
             eia930_folder, "reconciled"
         )
+        # identify when each BA started to report the energy sources that EIA-930
+        # introduced in 2024, and compare them with the generators in each BA
+        energy_source_cutover_dates = eia930.calculate_energy_source_cutover_dates(
+            year, plant_attributes, primary_fuel_table
+        )
+        if not args.skip_outputs:
+            energy_source_cutover_dates.to_csv(
+                eia930_folder + "eia930_energy_source_cutover.csv", index=False
+            )
+        # the new energy sources keep their own category after each BA's cutover
         eia930_data = eia930.prepare_eia930_for_shaping(
-            eia930_tables.net_generation_by_energy_source, year=year
+            eia930_tables.net_generation_by_energy_source,
+            year=year,
+            cutover_dates=energy_source_cutover_dates,
         )
         # months with no EIA-930 generation get an imputed profile instead
         eia930_data = eia930.remove_months_with_zero_data(eia930_data)
@@ -548,6 +560,7 @@ def main(args):
             year,
             transmission_only=False,
             ba_column_name="ba_code",
+            cutover_dates=energy_source_cutover_dates,
         )
         del eia930_data, eia930_tables
         gc.collect()
