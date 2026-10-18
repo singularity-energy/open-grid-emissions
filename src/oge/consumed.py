@@ -61,6 +61,10 @@ POLLUTANTS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 
 ADJUSTMENTS = ["for_electricity", "for_electricity_adjusted"]
 
+# every (pollutant, adjustment) series solved for consumed emission rates, in the
+# order of the last axis of the emission array built by `HourlyConsumed.build_matrices`
+POLLUTANT_ADJUSTMENTS = [(pol, adj) for pol in POLLUTANTS for adj in ADJUSTMENTS]
+
 
 def get_pollutant_mass_column_name(poll: str, adjustment: str, ba: str = "") -> str:
     """Get name of pollutant mass column.
@@ -159,14 +163,19 @@ def consumption_emissions(
 
     From GRIDEMISSIONS: https://github.com/jdechalendar/gridemissions
 
+    The system matrix only depends on generation and interchange, so several emission
+    series for the same hour can be solved at once by passing them as the columns of
+    `F`.
+
     Args:
-        F (np.ndarray): emission vector.
-        P (np.ndarray): generation vector.
-        ID (np.ndarray): interchange matrix.
+        F (np.ndarray): emission vector (n,), or emission matrix (n, k) with one column
+            per emission series.
+        P (np.ndarray): generation vector (n,).
+        ID (np.ndarray): interchange matrix (n, n).
 
     Returns:
-        tuple[np.ndarray, int]: intensity consumption emissions vector and number of
-            perturbed nodes
+        tuple[np.ndarray, int]: intensity consumption emissions, with the same shape as
+            `F`, and number of perturbed nodes
 
     Notes:
     Create linear system to calculate consumption emissions
@@ -189,7 +198,8 @@ def consumption_emissions(
     Imp = (-ID).clip(min=0)  # trade matrix reports exports - we want imports
     I_tot = Imp.sum(axis=1)  # sum over columns
     A = np.diag(P + I_tot) - Imp
-    b = F
+    # copy so that zeroing perturbed nodes below doesn't modify the caller's array
+    b = np.array(F, dtype=np.float64)
 
     perturbed = []
     if np.linalg.cond(A) > (1.0 / sys.float_info.epsilon):
@@ -198,17 +208,18 @@ def consumption_emissions(
             if (np.abs(A[:, i]).sum() == 0.0) & (np.abs(A[i, :]).sum() == 0.0):
                 A[i, i] = 1.0  # slightly perturb that element
                 perturbed += [i]
-                # force this to be zero so the linear system makes sense
+                # force this to be zero (in every emission series) so the linear
+                # system makes sense
                 b[i] = 0.0
 
     X = np.linalg.solve(A, b)
 
     for j in perturbed:
-        if X[j] != 0.0:
-            logger.warning("\n" + b[j].to_string())
-            logger.warning("\n" + np.abs(A[j, :]).sum().to_string())
-            logger.warning("\n" + np.abs(A[:, j]).sum().to_string())
-            raise ValueError("X[%d] is %.2f instead of 0" % (j, X[j]))
+        if np.any(X[j] != 0.0):
+            logger.warning(f"b[{j}]: {b[j]}")
+            logger.warning(f"sum of abs(A[{j}, :]): {np.abs(A[j, :]).sum()}")
+            logger.warning(f"sum of abs(A[:, {j}]): {np.abs(A[:, j]).sum()}")
+            raise ValueError(f"X[{j}] is {X[j]} instead of 0")
 
     return X, len(perturbed)
 
@@ -542,85 +553,94 @@ class HourlyConsumed:
 
         return mass_emissions, generation
 
-    def build_matrices(
-        self, pol: str, adj: str, date: pd.Timestamp
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Build interchange matrix, emission vector, and generation vector for a given
-        timestamp.
+    def build_matrices(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Build emission, generation, and interchange arrays for every hour.
 
-        Args:
-            pol (str): pollutant name.
-            adj (str): adjustment type.
-            date (pd.Timestamp): timestamp for which to build matrices.
+        The arrays cover every hour of `self.generation.index` and every region of
+        `self.regions`, in that order, so each hour's linear system is a slice of them.
 
         Returns:
-            tuple[np.ndarray, np.ndarray, np.ndarray]: interchange matrix, emission vector,
-                and generation vector.
+            tuple[np.ndarray, np.ndarray, np.ndarray]: emission array (hours, regions,
+                series) with one series per entry of `POLLUTANT_ADJUSTMENTS`,
+                generation array (hours, regions), and interchange array (hours,
+                regions, regions).
         """
-        # Build transmission matrix from cleaned EIA-930 data
-        ID = np.zeros((len(self.regions), len(self.regions)))
-        for i, ri in enumerate(self.regions):
-            for j, rj in enumerate(self.regions):
-                if (ri, rj) in self.interchange.columns:
-                    ID[i][j] = self.interchange.loc[date, (ri, rj)]
+        hours = self.generation.index
+        position = {r: i for i, r in enumerate(self.regions)}
 
-        # Build pollutant mass vector, using default per-fuel factors for import-only
-        # regions.
-        E = self.pollutant_mass_emissions[(adj, pol)].loc[date, self.regions].to_numpy()
+        # Build transmission matrices from cleaned EIA-930 data. Only pairs of regions
+        # that both take part in the linear system and have interchange data are
+        # filled; every other pair is zero.
+        pairs = [
+            (ri, rj)
+            for (ri, rj) in self.interchange.columns
+            if (ri in position) and (rj in position)
+        ]
+        ID = np.zeros((len(hours), len(self.regions), len(self.regions)))
+        if len(pairs) > 0:
+            rows = [position[ri] for ri, _ in pairs]
+            cols = [position[rj] for _, rj in pairs]
+            ID[:, rows, cols] = self.interchange.loc[hours, pairs].to_numpy()
 
-        # Build generation vector, using 930 for import-only regions
-        G = np.zeros(len(self.regions))
+        # Build pollutant mass arrays, using default per-fuel factors for import-only
+        # regions, with one series per (pollutant, adjustment) along the last axis.
+        E = np.stack(
+            [
+                self.pollutant_mass_emissions[(adj, pol)]
+                .loc[hours, self.regions]
+                .to_numpy()
+                for pol, adj in POLLUTANT_ADJUSTMENTS
+            ],
+            axis=-1,
+        )
+
+        # Build generation array, using 930 for import-only regions
+        G = np.zeros((len(hours), len(self.regions)))
         for i, r in enumerate(self.regions):
             if r in self.import_regions:
-                G[i] = self.net_generation.loc[date, r]
+                G[:, i] = self.net_generation.loc[hours, r].to_numpy()
             else:
-                G[i] = self.generation.loc[date, r]
+                G[:, i] = self.generation.loc[hours, r].to_numpy()
 
         E = np.nan_to_num(E)
         G = np.nan_to_num(G)
         ID = np.nan_to_num(ID)
 
-        # In some cases, we have zero generation but non-zero transmission
-        to_fix = (ID.sum(axis=1) > 0) & (G == 0)
-        ID[:, to_fix] = 0
-        ID[to_fix, :] = 0
+        # In some cases, we have zero generation but non-zero transmission. For those
+        # region-hours, drop the region's row and column of the interchange matrix.
+        to_fix = (ID.sum(axis=2) > 0) & (G == 0)
+        ID[to_fix[:, :, np.newaxis] | to_fix[:, np.newaxis, :]] = 0.0
 
         return E, G, ID
 
     def run(self):
         """Orchestration method to calculate consumed emission rates"""
-        for pol in POLLUTANTS:
-            for adj in ADJUSTMENTS:
-                total_failed = 0
-                col = get_pollutant_rate_column_name(
-                    pol, adjustment=adj, generated=False
-                )
-                logger.info(f"Solving consumed {pol} {adj} emissions...")
-                # Calculate emissions
-                for date in self.generation.index:
-                    E, G, ID = self.build_matrices(pol, adj, date)
-                    # If we have NaNs, don't bother
-                    if (
-                        (np.isnan(G).sum() > 0)
-                        or (np.isnan(E).sum() > 0)
-                        or (np.isnan(ID).sum() > 0)
-                    ):
-                        consumed_emissions = np.full(len(self.regions), np.nan)
-                    else:
-                        # Run
-                        try:
-                            consumed_emissions, _ = consumption_emissions(E, G, ID)
-                        except np.linalg.LinAlgError:
-                            # These issues happen at boundary hours (beginning and end
-                            # of year) where we don't have full data for all BAs
-                            total_failed += 1
-                            consumed_emissions = np.full(len(self.regions), np.nan)
+        logger.info("Solving consumed emissions for all pollutants and adjustments...")
+        E, G, ID = self.build_matrices()
 
-                    # Export
-                    for i, r in enumerate(self.regions):
-                        self.results[r].loc[date, col] = consumed_emissions[i]
-                if total_failed > 0:
-                    logger.warning(
-                        f"{total_failed} hours failed to solve for consumed "
-                        f"{pol} {adj} emissions."
-                    )
+        # Solve each hour's linear system once for all emission series, since the
+        # system matrix only depends on generation and interchange. Hours that can't
+        # be solved stay NaN.
+        consumed_emissions = np.full(E.shape, np.nan)
+        total_failed = 0
+        for t in range(len(G)):
+            # If we have NaNs, don't bother
+            if np.isnan(G[t]).any() or np.isnan(E[t]).any() or np.isnan(ID[t]).any():
+                continue
+            try:
+                consumed_emissions[t], _ = consumption_emissions(E[t], G[t], ID[t])
+            except np.linalg.LinAlgError:
+                # These issues happen at boundary hours (beginning and end of year)
+                # where we don't have full data for all BAs
+                total_failed += 1
+        if total_failed > 0:
+            logger.warning(
+                f"{total_failed} hours failed to solve for consumed emissions, for "
+                "every pollutant and adjustment."
+            )
+
+        # Export each region's consumed emission rates as whole columns
+        for s, (pol, adj) in enumerate(POLLUTANT_ADJUSTMENTS):
+            col = get_pollutant_rate_column_name(pol, adjustment=adj, generated=False)
+            for i, r in enumerate(self.regions):
+                self.results[r][col] = consumed_emissions[:, i, s]
