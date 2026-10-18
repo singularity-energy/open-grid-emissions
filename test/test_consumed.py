@@ -182,12 +182,12 @@ def test_consumption_emissions_with_several_series():
         ]
     )
     F = rng.uniform(0, 1e6, size=(4, 3))
-    F[2] = 5.0  # an isolated node's emissions are forced to zero
+    F[2] = 5.0  # an isolated region's emissions are forced to zero
     F_before = F.copy()
 
-    X, n_perturbed = consumed.consumption_emissions(F, P, ID)
+    X, n_isolated = consumed.consumption_emissions(F, P, ID)
 
-    assert n_perturbed == 1
+    assert n_isolated == 1
     np.testing.assert_array_equal(F, F_before)
     for s in range(F.shape[1]):
         np.testing.assert_allclose(
