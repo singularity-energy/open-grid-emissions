@@ -170,12 +170,13 @@ def consumption_emissions(
     the emissions embodied in those imports. The consumed emission rate x_i of each
     region therefore solves:
 
-        x_i * (g_i + sum_j m_ij) - sum_j m_ij * x_j = f_i
+        x_i * (p_i + U_i) - sum_j u_ij * x_j = f_i
 
-    where:
+    where (using the notation of the consumption-based emissions methodology docs):
         x_i: consumed emission rate of region i (mass per MWh)
-        g_i: net generation in region i (MWh)
-        m_ij: electricity imported by region i from region j (MWh)
+        p_i: net generation in region i (MWh)
+        u_ij: electricity imported into region i from region j (MWh)
+        U_i: total imports into region i, sum_j u_ij (MWh)
         f_i: emissions from generation in region i (mass)
 
     In matrix form this is `system_matrix @ x = emissions`, with
