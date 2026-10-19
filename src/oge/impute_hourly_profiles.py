@@ -2910,7 +2910,8 @@ def assign_storage_shaping_category(
     )
     categories["storage_shaping_category"] = np.select(
         [
-            categories["subplant_primary_prime_mover_code"] == "PS",
+            # some subplants are missing a prime mover code
+            categories["subplant_primary_prime_mover_code"].eq("PS").fillna(False),
             is_integrated & categories["has_solar"].eq(True),
             is_integrated & categories["has_wind"].eq(True),
         ],
