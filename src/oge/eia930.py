@@ -394,6 +394,75 @@ def prepare_eia930_for_shaping(
             "fuel_category_eia930", "datetime_utc", "datetime_local", "report_date" and
             "net_generation_mwh_930".
     """
+    data = assign_local_time_and_category_to_eia930_data(
+        net_generation_by_energy_source, year, cutover_dates
+    )
+
+    # add up the energy sources in each category. Before a BA switches, the new energy
+    # sources are added to the original category before negative values are set to
+    # zero below, so that e.g. battery charging still offsets other generation in the
+    # "other" category, as the BA reported it.
+    data = (
+        data.groupby(
+            [
+                "ba_code",
+                "fuel_category_eia930",
+                "datetime_utc",
+                "datetime_local",
+                "report_date",
+            ],
+            dropna=False,
+        )["net_generation_mwh_930"]
+        .sum(min_count=1)
+        .reset_index()
+    )
+
+    # the hourly profiles describe when positive generation happens, so hours when an
+    # energy source is a net load (e.g. station use at night, or charging storage) are
+    # set to zero. Otherwise, a month whose total is close to zero or negative would
+    # give profiles with very large or inverted shares of the monthly total.
+    data["net_generation_mwh_930"] = data["net_generation_mwh_930"].clip(lower=0)
+
+    data = data[
+        [
+            "ba_code",
+            "fuel_category_eia930",
+            "datetime_utc",
+            "datetime_local",
+            "report_date",
+            "net_generation_mwh_930",
+        ]
+    ].reset_index(drop=True)
+
+    return data
+
+
+def assign_local_time_and_category_to_eia930_data(
+    net_generation_by_energy_source: pd.DataFrame,
+    year: int,
+    cutover_dates: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Assigns each BA's local time, month and fuel category to reconciled EIA-930
+    generation by energy source.
+
+    Keeps the year plus or minus one day, to allow for the conversion to local time
+    later, and drops BAs outside of the US. Each energy source gets its EIA-930 fuel
+    category, or its expanded category in the months after the BA switched to
+    reporting it (see `prepare_eia930_for_shaping`).
+
+    Args:
+        net_generation_by_energy_source (pd.DataFrame): reconciled EIA-930 generation
+            by energy source.
+        year (int): a four-digit year.
+        cutover_dates (pd.DataFrame | None, optional): cutover date of each BA and new
+            energy source, as returned by `calculate_energy_source_cutover_dates`.
+            Defaults to None, for no cutovers.
+
+    Returns:
+        pd.DataFrame: EIA-930 generation by energy source, with columns "ba_code",
+            "generation_energy_source", "fuel_category_eia930", "datetime_utc",
+            "datetime_local", "report_date" and "net_generation_mwh_930".
+    """
     data = net_generation_by_energy_source.rename(
         columns={
             "balancing_authority_code_eia": "ba_code",
@@ -444,34 +513,10 @@ def prepare_eia930_for_shaping(
     )
     data = assign_expanded_category_after_cutover(data, cutover_dates)
 
-    # add up the energy sources in each category. Before a BA switches, the new energy
-    # sources are added to the original category before negative values are set to
-    # zero below, so that e.g. battery charging still offsets other generation in the
-    # "other" category, as the BA reported it.
-    data = (
-        data.groupby(
-            [
-                "ba_code",
-                "fuel_category_eia930",
-                "datetime_utc",
-                "datetime_local",
-                "report_date",
-            ],
-            dropna=False,
-        )["net_generation_mwh_930"]
-        .sum(min_count=1)
-        .reset_index()
-    )
-
-    # the hourly profiles describe when positive generation happens, so hours when an
-    # energy source is a net load (e.g. station use at night, or charging storage) are
-    # set to zero. Otherwise, a month whose total is close to zero or negative would
-    # give profiles with very large or inverted shares of the monthly total.
-    data["net_generation_mwh_930"] = data["net_generation_mwh_930"].clip(lower=0)
-
-    data = data[
+    return data[
         [
             "ba_code",
+            "generation_energy_source",
             "fuel_category_eia930",
             "datetime_utc",
             "datetime_local",
@@ -479,8 +524,6 @@ def prepare_eia930_for_shaping(
             "net_generation_mwh_930",
         ]
     ].reset_index(drop=True)
-
-    return data
 
 
 def assign_expanded_category_after_cutover(

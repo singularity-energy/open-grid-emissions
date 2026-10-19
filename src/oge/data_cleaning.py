@@ -2643,12 +2643,16 @@ def identify_partial_cems_plants(all_data):
     # for plants where the data source is eia only, and it exists in partial plant,
     # change the source to partial_cems_plant
     # but only if the fuel type is consistent with CEMS fuel types
+    # Battery storage isn't operated like the plant's combustion units, so it keeps the
+    # eia source and is shaped with storage profiles (see
+    # impute_hourly_profiles.calculate_storage_profiles)
     all_data.loc[
         (all_data["hourly_data_source"] == "eia")
         & (all_data["partial_plant"] == "both")
         & (
             ~all_data["plant_primary_fuel"].isin(non_cems_fuels)
-        ),  # CEMS data should only be used to shape if plant is primarilly fossil
+        )  # CEMS data should only be used to shape if plant is primarilly fossil
+        & (all_data["subplant_primary_fuel"] != "MWH"),
         "hourly_data_source",
     ] = "partial_cems_plant"
 
