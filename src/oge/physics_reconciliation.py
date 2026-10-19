@@ -6,8 +6,9 @@ always equal the sum of interchange with each neighbor, and two neighboring BAs 
 always agree on the interchange between them. This module cleans the data in three
 steps:
 
-1. Basic cleaning: drop values outside of realistic bounds and add series for BAs
-   outside of the US.
+1. Basic cleaning: drop values outside of realistic bounds, add series for BAs
+   outside of the US, and set the series of BAs to zero before they are activated
+   and after they retire.
 2. Rolling window cleaning: drop anomalous values using a rolling median and
    percentile range, then fill gaps.
 3. Reconciliation: for each hour, find the smallest weighted adjustments to the data
@@ -175,7 +176,10 @@ class EIA930Tables(NamedTuple):
 
 
 def reconcile_eia930(
-    tables: EIA930Tables, output_folder: str, ba_timezones: dict[str, str] | None = None
+    tables: EIA930Tables,
+    output_folder: str,
+    ba_timezones: dict[str, str] | None = None,
+    ba_active_periods: dict[str, tuple[pd.Timestamp, pd.Timestamp]] | None = None,
 ) -> EIA930Tables:
     """This is the coordinating function for the physics-based reconciliation of
     EIA-930 data.
@@ -190,6 +194,11 @@ def reconcile_eia930(
         ba_timezones (dict[str, str] | None, optional): local timezone of each BA,
             which defines the months in which generation by energy source is zero (see
             `find_zero_months`). BAs that aren't in it use UTC. Defaults to None.
+        ba_active_periods (dict[str, tuple[pd.Timestamp, pd.Timestamp]] | None,
+            optional): first hour in which each BA exists and first hour in which it
+            no longer exists (UTC), either of which can be NaT (see
+            `zero_inactive_bas`). BAs that aren't in it are always active. Defaults to
+            None.
 
     Raises:
         ValueError: if the data has hours before
@@ -209,9 +218,11 @@ def reconcile_eia930(
             f"{GENERATION_BY_ENERGY_SOURCE_START_DATE} can't be reconciled, since it "
             "has no generation by energy source"
         )
+    check_bas_start_or_stop_reporting(series, ba_active_periods or {})
 
     logger.info("Basic data cleaning")
     series = apply_basic_cleaning(series)
+    series = zero_inactive_bas(series, ba_active_periods or {})
 
     logger.info("Rolling window data cleaning")
     series, weights = apply_rolling_window_cleaning(series)
@@ -583,6 +594,128 @@ def apply_basic_cleaning(series: pd.DataFrame) -> pd.DataFrame:
     series.columns.names = SERIES_LEVELS
     logger.info(f"Basic cleaning took {time.time() - start_time:.2f} seconds")
     return series
+
+
+def get_ba_keys(series: pd.DataFrame, ba: str) -> pd.Index:
+    """Returns the keys of a BA's series and of other BAs' interchange with it.
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        ba (str): BA code.
+
+    Returns:
+        pd.Index: keys of the BA's series, and of the interchange series whose
+            adjacent BA is `ba`.
+    """
+    columns = series.columns
+    return columns[
+        (columns.get_level_values("balancing_authority_code_eia") == ba)
+        | (
+            (columns.get_level_values("field") == INTERCHANGE)
+            & (columns.get_level_values("other") == ba)
+        )
+    ]
+
+
+def zero_inactive_bas(
+    series: pd.DataFrame,
+    ba_active_periods: dict[str, tuple[pd.Timestamp, pd.Timestamp]],
+) -> pd.DataFrame:
+    """Sets the series of BAs, and the interchange of other BAs with them, to zero
+    before the BAs are activated and from the hour they retire.
+
+    The data include months before and after the year, for the rolling window
+    cleaning. A BA that retires in those months or during the year (e.g. GRIF on
+    2023-11-01, in the data for 2023 and 2024) stops reporting, and the gap filling in
+    `apply_rolling_window_cleaning` would otherwise carry its last reported days
+    forward through the rest of the data. In the same way, a BA that is activated
+    during the data would have its first reported days carried back to the start of
+    the data. Zero series are kept at about zero by the reconciliation, since their
+    weights are high and generation by energy source that is zero for a whole month
+    stays at zero (see `find_zero_months`).
+
+    Args:
+        series (pd.DataFrame): series data frame.
+        ba_active_periods (dict[str, tuple[pd.Timestamp, pd.Timestamp]]): first hour
+            in which each BA exists and first hour in which it no longer exists (UTC),
+            either of which can be NaT.
+
+    Returns:
+        pd.DataFrame: series data frame, with the series of each BA set to zero
+            outside of its active period.
+    """
+    series = series.copy()
+    for ba, (activation_date, retirement_date) in sorted(ba_active_periods.items()):
+        keys = get_ba_keys(series, ba)
+        if len(keys) == 0:
+            continue
+        for inactive, description in [
+            (
+                series.index < activation_date,
+                f"before its activation on {activation_date}",
+            ),
+            (
+                series.index >= retirement_date,
+                f"from its retirement on {retirement_date}",
+            ),
+        ]:
+            if not inactive.any():
+                continue
+            reported = (series.loc[inactive, keys].fillna(0) != 0).to_numpy().sum()
+            logger.info(
+                f"Setting the series of {ba} to zero {description}, replacing "
+                f"{reported} non-zero values"
+            )
+            series.loc[inactive, keys] = 0.0
+    return series
+
+
+def check_bas_start_or_stop_reporting(
+    series: pd.DataFrame,
+    ba_active_periods: dict[str, tuple[pd.Timestamp, pd.Timestamp]],
+    min_gap: pd.Timedelta = pd.Timedelta(days=30),
+):
+    """Warns about BAs that start or stop reporting during the data, when the start or
+    stop isn't explained by their activation or retirement date.
+
+    Such a BA may have been activated or retired without its dates being in
+    `ba_reference.csv`. The gap filling in `apply_rolling_window_cleaning` would then
+    carry its first or last reported days through the gap (see `zero_inactive_bas`).
+    A BA reports in an hour if any of its own series has a value in that hour.
+
+    Args:
+        series (pd.DataFrame): series data frame, before basic cleaning.
+        ba_active_periods (dict[str, tuple[pd.Timestamp, pd.Timestamp]]): first hour
+            in which each BA exists and first hour in which it no longer exists (UTC),
+            either of which can be NaT.
+        min_gap (pd.Timedelta, optional): shortest gap at the start or end of the data
+            to warn about. Defaults to 30 days.
+    """
+    for ba in get_series_bas(series):
+        keys = series.columns[
+            series.columns.get_level_values("balancing_authority_code_eia") == ba
+        ]
+        reported = series.loc[:, keys].notna().any(axis=1)
+        if not reported.any():
+            continue
+        first, last = reported[reported].index[[0, -1]]
+        activation_date, retirement_date = ba_active_periods.get(ba, (pd.NaT, pd.NaT))
+        if first - series.index[0] >= min_gap and not (
+            pd.notna(activation_date) and activation_date >= first - min_gap
+        ):
+            logger.warning(
+                f"{ba} starts reporting EIA-930 data on {first}, but its activation "
+                "date in ba_reference.csv isn't close to that, so its first days are "
+                "filled back to the start of the data"
+            )
+        if series.index[-1] - last >= min_gap and not (
+            pd.notna(retirement_date) and retirement_date <= last + min_gap
+        ):
+            logger.warning(
+                f"{ba} stops reporting EIA-930 data on {last}, but its retirement date "
+                "in ba_reference.csv isn't close to that, so its last days are filled "
+                "forward to the end of the data"
+            )
 
 
 def get_interchange_keys(series: pd.DataFrame, bas: list[str]) -> list[tuple]:

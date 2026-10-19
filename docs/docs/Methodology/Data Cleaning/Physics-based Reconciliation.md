@@ -44,6 +44,7 @@ Net generation and generation by energy source can be negative, because a BA or 
 * Every interchange series must have a matching series in the opposite direction. If one is missing, it is added as the opposite of the existing series.
 * AVRN only exports to BPAT. If AVRN has no interchange data, its exports to BPAT are set to its net generation.
 * If a BA reports no generation by energy source, all of its net generation is assigned to "other".
+* BAs don't report before they are activated or after they retire (see `activation_date` and `retirement_date` in `ba_reference.csv`). Before midnight local time on its activation date, and from midnight local time on its retirement date, a BA's series and its neighbors' interchange with it are set to zero. The data include the months before and after the year, so otherwise the gap filling in step 2 would carry its first or last reported days through the rest of the data. For example, GRIF retired on 1 November 2023. Without this rule, its October 2023 values were repeated through all of 2024, giving it 4.6 TWh of net generation. A warning is logged for any BA that starts or stops reporting at least 30 days into the data, or at least 30 days before its end, without an activation or retirement date to explain it.
 
 ### 2. Rolling window cleaning
 

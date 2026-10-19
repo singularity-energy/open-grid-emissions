@@ -131,7 +131,21 @@ def clean_930(year: int, path_prefix: str = "") -> EIA930Tables:
     # source is zero match the months used for hourly shaping
     ba_reference = load_data.load_ba_reference().dropna(subset=["timezone_local"])
     ba_timezones = dict(zip(ba_reference["ba_code"], ba_reference["timezone_local"]))
-    return reconcile_eia930(tables, data_folder, ba_timezones)
+    # BAs don't report before they are activated or after they retire, so their series
+    # are set to zero outside of those dates (midnight local time), rather than filled
+    ba_active_periods = {
+        ba: tuple(
+            date.tz_localize(timezone).tz_convert("UTC") if pd.notna(date) else pd.NaT
+            for date in (activation_date, retirement_date)
+        )
+        for ba, activation_date, retirement_date, timezone in zip(
+            ba_reference["ba_code"],
+            ba_reference["activation_date"],
+            ba_reference["retirement_date"],
+            ba_reference["timezone_local"],
+        )
+    }
+    return reconcile_eia930(tables, data_folder, ba_timezones, ba_active_periods)
 
 
 def load_eia930_balance_data(year: int) -> EIA930Tables:
