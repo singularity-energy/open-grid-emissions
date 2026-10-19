@@ -24,7 +24,9 @@ from oge.physics_reconciliation import (
     read_eia930_tables,
     reconcile_eia930,
     reconcile_energy_balance,
+    check_bas_start_or_stop_reporting,
     write_eia930_tables,
+    zero_inactive_bas,
 )
 
 FIXTURE_FOLDER = os.path.join(os.path.dirname(__file__), "data")
@@ -208,6 +210,113 @@ def test_reconcile_energy_balance_solves_the_problem(dates):
         pd.testing.assert_frame_equal(
             reconciled, reference, check_exact=False, rtol=0, atol=SOLUTION_TOLERANCE
         )
+
+
+@pytest.fixture
+def series_with_retired_ba():
+    """Two months of series for GRIF, which retires on 2023-11-01 (07:00 UTC) and
+    reports nothing after, and its neighbor WALC."""
+    hours = pd.date_range("2023-10-01", periods=60 * 24, freq="h", tz="UTC")
+    grif_keys = [
+        (DEMAND, "GRIF", ""),
+        (NET_GENERATION, "GRIF", ""),
+        (TOTAL_INTERCHANGE, "GRIF", ""),
+        (NET_GENERATION_BY_ENERGY_SOURCE, "GRIF", "gas"),
+        (INTERCHANGE, "GRIF", "WALC"),
+        (INTERCHANGE, "WALC", "GRIF"),
+    ]
+    values = {key: 500.0 for key in grif_keys}
+    values[(DEMAND, "GRIF", "")] = 1.0
+    values[(INTERCHANGE, "WALC", "GRIF")] = -500.0
+    values[(NET_GENERATION, "WALC", "")] = 3000.0
+    series = pd.DataFrame(values, index=hours)
+    series.columns = pd.MultiIndex.from_tuples(series.columns, names=SERIES_LEVELS)
+    series.loc[hours >= pd.Timestamp("2023-11-01 07:00", tz="UTC"), grif_keys] = np.nan
+    return series, grif_keys
+
+
+def test_zero_inactive_bas_stops_gap_filling_after_retirement(series_with_retired_ba):
+    """A retired BA's series, and its neighbors' interchange with it, should be zero
+    from its retirement, rather than filled with its last reported days.
+
+    E.g. GRIF retired on 2023-11-01 and reports nothing after, but the data for 2024
+    start in October 2023, and the gap filling carried its October values through all
+    of 2024.
+    """
+    series, grif_keys = series_with_retired_ba
+    retirement_date = pd.Timestamp("2023-11-01 07:00", tz="UTC")
+    retired = series.index >= retirement_date
+    walc_key = (NET_GENERATION, "WALC", "")
+    # a neighbor still reports a small value for a few hours after the retirement
+    series.loc[retirement_date, (INTERCHANGE, "WALC", "GRIF")] = -9.0
+
+    zeroed = zero_inactive_bas(series, {"GRIF": (pd.NaT, retirement_date)})
+
+    assert (zeroed.loc[retired, grif_keys] == 0).all(axis=None)
+    pd.testing.assert_frame_equal(zeroed.loc[~retired], series.loc[~retired])
+    pd.testing.assert_series_equal(zeroed[walc_key], series[walc_key])
+    # without the zeros, the gap filling carries the October values forward
+    filled, _ = apply_rolling_window_cleaning(series)
+    assert (filled.loc[retired, (NET_GENERATION, "GRIF", "")] == 500).all()
+    cleaned, _ = apply_rolling_window_cleaning(zeroed)
+    assert (cleaned.loc[retired, grif_keys] == 0).all(axis=None)
+    # BAs that are active throughout the data, or that aren't in the data, are
+    # unchanged
+    pd.testing.assert_frame_equal(
+        zero_inactive_bas(
+            series,
+            {
+                "GRIF": (pd.Timestamp("2004-01-01", tz="UTC"), pd.NaT),
+                "WALC": (pd.NaT, series.index[-1] + pd.Timedelta("1h")),
+                "GRMA": (pd.NaT, series.index[0]),
+            },
+        ),
+        series,
+    )
+
+
+def test_zero_inactive_bas_stops_gap_filling_before_activation(series_with_retired_ba):
+    """A BA's series should be zero before its activation, rather than filled with
+    its first reported days, e.g. SIKE, activated on 2025-06-01."""
+    series, grif_keys = series_with_retired_ba
+    # reverse the hours, so that GRIF starts reporting a month into the data
+    series = pd.DataFrame(
+        series.to_numpy()[::-1], index=series.index, columns=series.columns
+    )
+    activation_date = (
+        series.index[-1]
+        - pd.Timedelta(pd.Timestamp("2023-11-01 07:00", tz="UTC") - series.index[0])
+        + pd.Timedelta("1h")
+    )
+    inactive = series.index < activation_date
+    assert series.loc[inactive, grif_keys].isna().all(axis=None)
+    assert series.loc[~inactive, grif_keys].notna().all(axis=None)
+
+    zeroed = zero_inactive_bas(series, {"GRIF": (activation_date, pd.NaT)})
+
+    assert (zeroed.loc[inactive, grif_keys] == 0).all(axis=None)
+    pd.testing.assert_frame_equal(zeroed.loc[~inactive], series.loc[~inactive])
+
+
+def test_check_bas_start_or_stop_reporting(series_with_retired_ba, caplog):
+    """A BA that stops reporting for the rest of the data should be reported, unless
+    its retirement date explains it. The data only have 28 days after GRIF stops, so
+    the shortest gap is lowered to 20 days."""
+    series, _ = series_with_retired_ba
+    with caplog.at_level("WARNING"):
+        check_bas_start_or_stop_reporting(series, {}, min_gap=pd.Timedelta(days=20))
+    warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert warnings[0].startswith("GRIF stops reporting")
+
+    caplog.clear()
+    with caplog.at_level("WARNING"):
+        check_bas_start_or_stop_reporting(
+            series,
+            {"GRIF": (pd.NaT, pd.Timestamp("2023-11-01 07:00", tz="UTC"))},
+            min_gap=pd.Timedelta(days=20),
+        )
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
 
 
 def test_find_zero_months_uses_local_months():
