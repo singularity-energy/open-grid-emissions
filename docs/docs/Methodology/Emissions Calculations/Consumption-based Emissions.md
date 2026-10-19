@@ -22,7 +22,7 @@ In practice, consumed emissions are generally dirtier than generated emissions i
 
 Before solving each hour, missing generation, emissions, and interchange values are treated as zero. Three cases are then handled separately:
 
-- **BAs with zero generation that report net exports.** These exports can't be traced to any emissions, so the BA's interchange with all of its neighbors is dropped for that hour.
+- **BAs with zero or negative generation that report inconsistent exports.** A BA that generates nothing, or consumes more than it generates (for example, a BA whose only resource is pumped storage, while it is pumping), can only pass on the imports it doesn't consume itself. Some BAs report exports beyond that. Such exports can't be traced to any emissions, and would give the BA, and the BAs importing from it, very large or negative consumed emission rates. So in those hours, the BA's interchange with all of its neighbors is dropped.
 - **BAs with no generation and no interchange.** These BAs make the linear system singular. When this happens, each such BA's consumed emission rate is set to zero so that the rest of the system can be solved.
 - **Hours where the linear system can't be solved.** The consumed emission rates of every BA are left blank for that hour. This happens in a few hours at the edges of the UTC time series, which extends past the year to cover every BA's local time zone, and where some BAs have incomplete data. In 2025, the 5 unsolved hours (01:00 to 04:00 UTC on January 1, 2025, and 08:00 UTC on January 1, 2026) are all outside the year in every BA's local time, so no published hourly, monthly, or annual consumed rate is affected.
 
