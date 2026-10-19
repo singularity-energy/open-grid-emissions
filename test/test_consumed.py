@@ -18,8 +18,12 @@ def hourly_consumed() -> consumed.HourlyConsumed:
     Regions A, B and C are U.S. regions, D is import-only (generation from EIA-930) and
     E never generates or trades, so its row and column of the system matrix are zero.
     Hour 1 has a missing interchange value, in hour 2 region C has zero generation but
-    exports, and hour 5 has no data except one inconsistent interchange value, so its
-    linear system is singular and can't be solved.
+    exports, in hour 3 region B has negative generation (e.g. pumped storage pumping)
+    but exports, in hour 4 region C has negative generation and imports more than it
+    exports and consumes, in hour 0 region B has negative generation, imports less than
+    it consumes and still exports, and hour 5 has
+    no data except one inconsistent interchange value, so its linear system is
+    singular and can't be solved.
     """
     rng = np.random.default_rng(0)
     hc = object.__new__(consumed.HourlyConsumed)
@@ -34,6 +38,9 @@ def hourly_consumed() -> consumed.HourlyConsumed:
     )
     generation["E"] = 0.0
     generation.loc[HOURS[2], "C"] = 0.0
+    generation.loc[HOURS[3], "B"] = -40.0
+    generation.loc[HOURS[4], "C"] = -40.0
+    generation.loc[HOURS[0], "B"] = -40.0
     generation.loc[HOURS[5]] = 0.0
     hc.generation = generation
 
@@ -58,6 +65,22 @@ def hourly_consumed() -> consumed.HourlyConsumed:
     interchange.loc[HOURS[2], ("A", "C")] = -50.0
     interchange.loc[HOURS[2], ("B", "C")] = 20.0
     interchange.loc[HOURS[2], ("C", "B")] = -20.0
+    # B exports to A and C while consuming (net exporter and net consumer)
+    interchange.loc[HOURS[3], ("B", "A")] = 30.0
+    interchange.loc[HOURS[3], ("A", "B")] = -30.0
+    interchange.loc[HOURS[3], ("B", "C")] = 10.0
+    interchange.loc[HOURS[3], ("C", "B")] = -10.0
+    # C imports from A while consuming, and passes some of it on to B, which is
+    # consistent
+    interchange.loc[HOURS[4], ("C", "A")] = -60.0
+    interchange.loc[HOURS[4], ("A", "C")] = 60.0
+    interchange.loc[HOURS[4], ("C", "B")] = 15.0
+    interchange.loc[HOURS[4], ("B", "C")] = -15.0
+    # B imports 20 from A while consuming 40, but still exports 10 to C
+    interchange.loc[HOURS[0], ("B", "A")] = -20.0
+    interchange.loc[HOURS[0], ("A", "B")] = 20.0
+    interchange.loc[HOURS[0], ("B", "C")] = 10.0
+    interchange.loc[HOURS[0], ("C", "B")] = -10.0
     # in the hour with no data, A reports importing from C but C reports nothing, so
     # C's row of the system matrix is zero but its column isn't
     interchange.loc[HOURS[5]] = 0.0
@@ -106,7 +129,9 @@ def reference_build_matrices(hc, pol, adj, date):
     E = np.nan_to_num(E)
     G = np.nan_to_num(G)
     ID = np.nan_to_num(ID)
-    to_fix = (ID.sum(axis=1) > 0) & (G == 0)
+    exports = ID.clip(min=0).sum(axis=1)
+    imports = (-ID).clip(min=0).sum(axis=1)
+    to_fix = (G <= 0) & (exports > imports + G)
     ID[:, to_fix] = 0
     ID[to_fix, :] = 0
     return E, G, ID
@@ -196,3 +221,29 @@ def test_consumption_emissions_with_several_series():
             rtol=1e-12,
         )
     assert (X[2] == 0).all()
+
+
+def test_build_matrices_drops_trade_of_net_consumers_that_export(hourly_consumed):
+    """A region with zero or negative generation should not trade in an hour when it
+    exports more than its imports minus its own consumption. A region with negative
+    generation whose imports cover its consumption and exports should keep trading.
+
+    Such exports can't be traced to any emissions. SEPA, whose only resource is
+    pumped storage, is a net consumer when pumping but reports exports to DUK and SOCO
+    in EIA-930, which gave them negative consumed emission rates.
+    """
+    _, generation, interchange = hourly_consumed.build_matrices()
+    b, c = REGIONS.index("B"), REGIONS.index("C")
+
+    # B consumes and exports in hour 3: none of its trade is kept
+    assert generation[3, b] < 0
+    assert (interchange[3, b, :] == 0).all()
+    assert (interchange[3, :, b] == 0).all()
+    # B consumes 40 and imports only 20 in hour 0, but exports 10: dropped
+    assert generation[0, b] < 0
+    assert (interchange[0, b, :] == 0).all()
+    assert (interchange[0, :, b] == 0).all()
+    # C consumes 40, imports 60 and passes 15 on in hour 4: its trade is kept
+    assert generation[4, c] < 0
+    assert interchange[4, c, :].sum() < 0
+    assert (interchange[4, c, :] > 0).any()

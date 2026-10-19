@@ -346,3 +346,32 @@ def test_assign_fuel_category_to_esc_expanded_eia930_categories():
     assert result["fuel_category_eia930_expanded"].to_list() == (
         result["expected"].to_list()
     )
+
+
+def test_identify_partial_cems_plants_keeps_battery_storage_as_eia():
+    """At a plant where some subplants report to CEMS, other fossil subplants should
+    be shaped with the plant's CEMS data, but battery storage should keep the EIA
+    source, since it isn't operated like the plant's combustion units.
+
+    Plant 1 has a gas turbine that reports to CEMS, another gas turbine that doesn't,
+    and a battery (e.g. Moss Landing or DeCordova).
+    """
+    all_data = pd.DataFrame(
+        {
+            "plant_id_eia": 1,
+            "subplant_id": [1, 2, 3],
+            "generator_id": ["GT1", "GT2", "BAT"],
+            "report_date": pd.Timestamp("2025-01-01"),
+            "hourly_data_source": ["cems", "eia", "eia"],
+            "plant_primary_fuel": "NG",
+            "subplant_primary_fuel": ["NG", "NG", "MWH"],
+        }
+    )
+
+    result = data_cleaning.identify_partial_cems_plants(all_data)
+
+    assert result.set_index("generator_id")["hourly_data_source"].to_dict() == {
+        "GT1": "cems",
+        "GT2": "partial_cems_plant",
+        "BAT": "eia",
+    }

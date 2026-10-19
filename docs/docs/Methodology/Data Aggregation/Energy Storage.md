@@ -69,7 +69,7 @@ Column | Description
 `storage_charge_mwh` | The electricity used to charge energy storage resources, in MWh
 `storage_discharge_mwh` | The electricity discharged by energy storage resources, in MWh
 
-These columns are only reported for energy storage resources. They are blank for all other resources, and are zero for storage resources that did not charge or discharge in a given month. The `net_generation_mwh` column is unchanged, and for most storage resources is equal to `storage_discharge_mwh` minus `storage_charge_mwh`. These columns are not yet included in the hourly results.
+These columns are only reported for energy storage resources. They are blank for all other resources, and are zero for storage resources that did not charge or discharge in a given month. The `net_generation_mwh` column is unchanged, and for most storage resources is equal to `storage_discharge_mwh` minus `storage_charge_mwh`. These columns are not published in the hourly results, but they are used to shape the hourly net generation of storage (see [Energy storage profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md#energy-storage-profiles)).
 
 ### Source data
 
@@ -90,6 +90,8 @@ Other inconsistencies are reported in the pipeline log, but the reported values 
 
 - **Consistent differences in every month.** Some plants report a small, consistent difference between net generation and discharge minus charge every month. This likely reflects gross generation being reported before station service or auxiliary loads are subtracted.
 - **Annual discharge greater than annual charge.** A storage resource cannot discharge more energy than it charges. This is reported for some solar-plus-storage plants, where the battery may charge partly from the on-site solar array in a way that is not metered, and for plants in their first months of operation.
+
+When shaping hourly net generation, the difference in these months is added to the charge (if net generation is lower than discharge minus charge) or to the discharge (if it is higher), so that the hourly data keeps the reported monthly net generation (see [Energy storage profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md#energy-storage-profiles)). In 2025, these differences total about 54 GWh, compared with about 51 TWh of discharge and 60 TWh of charge for the storage shaped this way.
 
 Because the discharge of pumped storage with natural inflow is left blank, and because compressed air storage is included in the `natural_gas` fleet, `storage_discharge_mwh` minus `storage_charge_mwh` will not equal `net_generation_mwh` when aggregated to the fleet or balancing authority level.
 
