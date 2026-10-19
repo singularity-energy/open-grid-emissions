@@ -604,7 +604,9 @@ class HourlyConsumed:
                   EIA-930 net generation for import-only regions.
                 * interchange (hours, regions, regions): `[t, i, j]` is the net flow
                   from region i to region j reported by region i (positive for exports)
-                  in EIA-930. Zero for pairs of regions that don't trade.
+                  in EIA-930. Zero for pairs of regions that don't trade, and for
+                  regions with zero or negative generation that export more than
+                  their imports minus their consumption.
         """
         hours = self.generation.index
         n_regions = len(self.regions)
@@ -651,15 +653,21 @@ class HourlyConsumed:
         generation_by_hour = np.nan_to_num(generation_by_hour)
         interchange_by_hour = np.nan_to_num(interchange_by_hour)
 
-        # In some cases, a region has zero generation but reports net exports, which
-        # can't be traced to any emissions. For those region-hours, drop the region's
-        # row and column of the interchange matrix so that it doesn't trade.
-        zero_generation_exporters = (interchange_by_hour.sum(axis=2) > 0) & (
-            generation_by_hour == 0
+        # A region with zero or negative net generation (a net consumer, e.g. a region
+        # whose only resource is pumped storage that is pumping) can only pass on the
+        # imports that it doesn't consume itself. Some report exports beyond that, which
+        # can't be traced to any emissions, and would make the region's consumed rate
+        # (and those of the regions importing from it) very large or negative. For
+        # those region-hours, drop the region's row and column of the interchange
+        # matrix so that it doesn't trade.
+        exports = interchange_by_hour.clip(min=0).sum(axis=2)
+        imports = (-interchange_by_hour).clip(min=0).sum(axis=2)
+        inconsistent_exporters = (generation_by_hour <= 0) & (
+            exports > imports + generation_by_hour
         )
         interchange_by_hour[
-            zero_generation_exporters[:, :, np.newaxis]
-            | zero_generation_exporters[:, np.newaxis, :]
+            inconsistent_exporters[:, :, np.newaxis]
+            | inconsistent_exporters[:, np.newaxis, :]
         ] = 0.0
 
         return emissions_by_hour, generation_by_hour, interchange_by_hour
