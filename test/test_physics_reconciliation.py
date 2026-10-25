@@ -406,6 +406,35 @@ def test_reconcile_energy_balance_solves_the_problem(fixture_name):
         )
 
 
+def test_reconcile_energy_balance_matches_weights_by_hour():
+    """Each hour should be reconciled with its own weights, even if the hours of the
+    weights are in a different order from the hours of the series."""
+    series = pivot_eia930_tables_to_series(
+        convert_wide_to_tables(
+            pd.read_csv(
+                io.StringIO(
+                    read_raw_fixture("eia930_raw_2024-11-01_2024-11-14.csv.gz")
+                ),
+                index_col=0,
+                parse_dates=True,
+            )
+        )
+    )
+    series, weights = apply_rolling_window_cleaning(apply_basic_cleaning(series))
+    series, weights = series.iloc[:24], weights.iloc[:24]
+    # the weights differ between hours, so pairing them by position would change the
+    # results
+    assert not (weights.iloc[0] == weights.iloc[-1]).all()
+
+    reconciled, objective = reconcile_energy_balance(series, weights, True)
+    reconciled_reversed, objective_reversed = reconcile_energy_balance(
+        series, weights.iloc[::-1], True
+    )
+
+    pd.testing.assert_frame_equal(reconciled, reconciled_reversed)
+    pd.testing.assert_series_equal(objective, objective_reversed)
+
+
 def check_reconciliation_constraints(
     reconciled: pd.DataFrame, include_energy_sources: bool
 ):

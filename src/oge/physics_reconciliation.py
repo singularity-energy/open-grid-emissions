@@ -809,7 +809,9 @@ def reconcile_energy_balance(
 
     problem = HourlyReconciliationProblem(series, include_energy_sources)
     values = series.loc[:, problem.keys].to_numpy()
-    value_weights = weights.loc[:, problem.keys].to_numpy()
+    # select the weights by hour, so that each hour gets its own weights even if the
+    # hours of `weights` are in a different order
+    value_weights = weights.loc[series.index, problem.keys].to_numpy()
     results = [
         problem.solve(values[hour], value_weights[hour]) for hour in range(len(series))
     ]
