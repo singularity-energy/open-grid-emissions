@@ -19,6 +19,8 @@ from oge.constants import (
 from oge.filepaths import (
     downloads_folder,
     find_downloaded_file,
+    get_pudl_build_version,
+    get_pudl_data_store,
     outputs_folder,
     pudl_folder,
     reference_table_folder,
@@ -58,9 +60,8 @@ def load_cems_data(year: int) -> pd.DataFrame:
 
     # load the CEMS data
     if PUDL_ENGINE is None:
-        logger.info(
-            f"Loading core_epacems__hourly_emissions from PUDL {get_pudl_release()}"
-        )
+        pudl_release = get_pudl_release(get_pudl_build_version(), get_pudl_data_store())
+        logger.info(f"Loading core_epacems__hourly_emissions from PUDL {pudl_release}")
     cems = pd.read_parquet(
         pudl_folder("core_epacems__hourly_emissions.parquet"),
         filters=[["year", "==", year]],
@@ -151,9 +152,8 @@ def load_cems_ids(year: int | None = None) -> pd.DataFrame:
     # duplicates before concatenating the next year to the dataframe
     cems_ids = []
     if PUDL_ENGINE is None:
-        logger.info(
-            f"Loading core_epacems__hourly_emissions from PUDL {get_pudl_release()}"
-        )
+        pudl_release = get_pudl_release(get_pudl_build_version(), get_pudl_data_store())
+        logger.info(f"Loading core_epacems__hourly_emissions from PUDL {pudl_release}")
     for year_for_id in range(min_year, max_year + 1):
         cems_id_year = pd.read_parquet(
             pudl_folder("core_epacems__hourly_emissions.parquet"),
@@ -752,7 +752,8 @@ def load_pudl_table_from_s3(
             "datetime_column must be specified if and only if start_datetime and "
             "end_datetime are provided"
         )
-    logger.info(f"Loading {table_name} from PUDL {get_pudl_release()}")
+    pudl_release = get_pudl_release(get_pudl_build_version(), get_pudl_data_store())
+    logger.info(f"Loading {table_name} from PUDL {pudl_release}")
     if datetime_column is None:
         # No filtering on datetime
         table = pd.read_parquet(

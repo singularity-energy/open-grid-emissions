@@ -12,7 +12,6 @@ from oge.filepaths import (
     downloads_folder,
     data_folder,
     get_pudl_build_version,
-    get_pudl_data_store,
 )
 from oge.logging_util import get_logger
 from oge.constants import current_early_release_year, latest_validated_year
@@ -157,7 +156,9 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
                 downloads_folder(f"pudl/{build}/tmp/pudl.sqlite"), output_filepath
             )
             os.rmdir(downloads_folder(f"pudl/{build}/tmp"))
-        logger.info(f"Using PUDL {get_pudl_release()}")
+        logger.info(
+            f"Using PUDL {get_pudl_release(build, downloads_folder(f'pudl/{build}'))}"
+        )
 
         # download the epacems parquet file
         epacems_parquet_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/core_epacems__hourly_emissions.parquet"
@@ -214,21 +215,26 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
 
 
 @functools.cache
-def get_pudl_release() -> str:
-    """Describes the release of the PUDL data being used by the pipeline.
+def get_pudl_release(build: str, data_store: str) -> str:
+    """Describes the release of a PUDL build.
 
     Each PUDL build writes a marker file to its S3 directory whose name identifies the
     build, e.g. "stable-2026-10-14-1552-90561c620-v2026-10-0" (build date and time, git
     commit, and release tag). This file is also downloaded alongside local copies of
     the PUDL data, so the same lookup works for local and S3 data.
 
-    The result is cached so S3 is only checked once per Python process.
+    The result is cached for each build and data store, so each is only checked once
+    per Python process.
+
+    Args:
+        build (str): the PUDL build, "stable" or "nightly".
+        data_store (str): the folder or S3 path that contains the build's data, e.g.
+            `get_pudl_data_store()`.
 
     Returns:
         str: e.g. "stable build v2026.10.0 (built 2026-10-14)"
     """
-    build = get_pudl_build_version()
-    fs, path = fsspec.core.url_to_fs(get_pudl_data_store(), anon=True)
+    fs, path = fsspec.core.url_to_fs(data_store, anon=True)
     markers = fs.glob(f"{path}/{build}-*")
     if not markers:
         return f"{build} build (unknown release)"
