@@ -1600,8 +1600,10 @@ def expand_hourly_profiles_to_plant_timezones(
 
     expanded_profiles = []
     for ba_code, group in non_native_combos.groupby("ba_code", dropna=False):
-        ba_profile = hourly_profiles.loc[hourly_profiles["ba_code"] == ba_code].drop(
-            columns=["ba_code", "report_date"]
+        ba_profile = (
+            hourly_profiles.loc[hourly_profiles["ba_code"] == ba_code]
+            .drop(columns="ba_code")
+            .rename(columns={"report_date": "ba_report_date"})
         )
         if ba_profile.empty:
             continue
@@ -1658,6 +1660,33 @@ def expand_hourly_profiles_to_plant_timezones(
                 .sort_values(["fuel_category", "datetime_utc"])
                 .reset_index(drop=True)
             )
+            # if the adjacent ba-local month uses another method (e.g. a flat profile
+            # of 1s next to a profile in MW), its values aren't on the same scale, so
+            # those hours take the nearest value of the plant's own month instead
+            month_method = (
+                ba_profile.groupby(["fuel_category", "ba_report_date"])[
+                    "profile_method"
+                ]
+                .first()
+                .reindex(
+                    pd.MultiIndex.from_frame(
+                        reassembled[["fuel_category", "report_date"]]
+                    )
+                )
+                .to_numpy()
+            )
+            other_method = (
+                reassembled["ba_report_date"].notna()
+                & (reassembled["ba_report_date"] != reassembled["report_date"])
+                & (reassembled["profile_method"] != month_method)
+            )
+            reassembled.loc[other_method, fill_columns] = (
+                reassembled[fill_columns]
+                .mask(other_method)
+                .groupby([reassembled["fuel_category"], reassembled["report_date"]])
+                .transform(lambda column: column.ffill().bfill())
+                .loc[other_method]
+            )
 
             # fill only missing hours within EDGE_WINDOW_HOURS of the true start/end
             # of the year, where no adjacent-year ba data exists to join against,
@@ -1688,6 +1717,7 @@ def expand_hourly_profiles_to_plant_timezones(
                 edge_mask, fill_columns
             ]
 
+            reassembled = reassembled.drop(columns="ba_report_date")
             reassembled["ba_code"] = ba_code
             reassembled["local_timezone_offset"] = local_timezone_offset
             expanded_profiles.append(reassembled)

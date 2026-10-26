@@ -385,6 +385,44 @@ def test_expand_hourly_profiles_to_plant_timezones(
     assert (expanded["fuel_category"] == "natural_gas").all()
 
 
+def test_expand_hourly_profiles_fills_hours_from_months_with_another_method(
+    native_hourly_profiles, plant_attributes_mixed_timezones
+):
+    """An Eastern plant in SOCO (Central) starts each month an hour before SOCO. If
+    SOCO's previous month uses another method, that hour's value isn't on the same
+    scale, so it takes the nearest value of the plant's own month instead. If both
+    months use the same method, the hour keeps SOCO's value.
+
+    SOCO's January and April are flat (1), February and March are residuals in MW
+    (200 and 300).
+    """
+    year = 2025
+    profiles = native_hourly_profiles.copy()
+    month = profiles["report_date"].dt.month
+    profiles["profile"] = month.map({2: 200.0, 3: 300.0}).fillna(1.0)
+    profiles["profile_method"] = month.map(
+        {2: "residual_profile", 3: "residual_profile"}
+    ).fillna("assumed_flat")
+
+    expanded = impute_hourly_profiles.expand_hourly_profiles_to_plant_timezones(
+        profiles, plant_attributes_mixed_timezones, year
+    ).set_index("datetime_utc")
+
+    # the first hour of the plant's month, which is the last hour of SOCO's month
+    def first_hour(day):
+        return expanded.loc[pd.Timestamp(day, tz="America/New_York").tz_convert("UTC")]
+
+    # flat January to February in MW: the hour takes February's value
+    assert first_hour("2025-02-01")["profile"] == 200.0
+    assert first_hour("2025-02-01")["profile_method"] == "residual_profile"
+    # February to March, both in MW: the hour keeps SOCO's February value
+    assert first_hour("2025-03-01")["profile"] == 200.0
+    # March in MW to flat April: the hour takes April's flat value
+    assert first_hour("2025-04-01")["profile"] == 1.0
+    assert first_hour("2025-04-01")["profile_method"] == "assumed_flat"
+    assert expanded["profile"].notna().all()
+
+
 def test_expand_hourly_profiles_to_plant_timezones_no_off_native_plants(
     native_hourly_profiles,
 ):
