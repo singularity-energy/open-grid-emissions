@@ -798,3 +798,70 @@ def test_impute_missing_hourly_profiles_flat_profile_for_eia_only_storage(
     # the negative month is flagged as such
     february = shaped[shaped["report_date"].dt.month == 2]
     assert (february["profile_method"] == "flat_negative_generation").all()
+
+
+def test_residual_cems_switches_category_in_ba_local_month(monkeypatch):
+    """CEMS generation should switch to a new EIA-930 energy source in the BA's local
+    month, as EIA-930 does, not the plant's.
+
+    A battery in Georgia (US/Eastern) is in SOCO (US/Central), which started to report
+    battery storage on 2025-05-15, so from SOCO's June onwards. At 2025-06-01 04:00 UTC
+    the plant is in June but SOCO is still in May, so that hour stays in "other".
+    """
+    hours = pd.date_range("2025-06-01 03:00", periods=3, freq="h", tz="UTC")
+    cems = pd.DataFrame(
+        {
+            "plant_id_eia": 1,
+            "subplant_id": 1,
+            "datetime_utc": hours,
+            # the plant's local month
+            "report_date": pd.to_datetime(["2025-05-01", "2025-06-01", "2025-06-01"]),
+            "net_generation_mwh": [1.0, 2.0, 4.0],
+        }
+    )
+
+    def assign_fleet(subplant_data, fuel_category_col, **_):
+        return subplant_data.assign(
+            ba_code="SOCO",
+            distribution_flag=False,
+            **{
+                fuel_category_col: "battery_storage"
+                if fuel_category_col == "fuel_category_eia930_expanded"
+                else "other"
+            },
+        )
+
+    monkeypatch.setattr(
+        impute_hourly_profiles, "assign_fleet_to_subplant_data", assign_fleet
+    )
+    cutover_dates = pd.DataFrame(
+        {
+            "ba_code": ["SOCO"],
+            "generation_energy_source": ["battery_storage"],
+            "cutover_date": [pd.Timestamp("2025-05-15")],
+        }
+    )
+
+    cems_agg = impute_hourly_profiles.aggregate_cems_to_fleet_for_residual_calc(
+        cems,
+        cems.iloc[0:0],
+        cems.iloc[0:0],
+        plant_attributes=None,
+        primary_fuel_table=None,
+        year=2025,
+        cutover_dates=cutover_dates,
+    )
+
+    assert cems_agg.set_index("datetime_utc")["fuel_category"].to_dict() == {
+        # 2025-05-31 22:00 in SOCO
+        hours[0]: "other",
+        # 2025-05-31 23:00 in SOCO, but already June at the plant
+        hours[1]: "other",
+        # 2025-06-01 00:00 in SOCO
+        hours[2]: "battery_storage",
+    }
+    assert cems_agg.set_index("datetime_utc")["cems_profile"].to_dict() == {
+        hours[0]: 1.0,
+        hours[1]: 2.0,
+        hours[2]: 4.0,
+    }

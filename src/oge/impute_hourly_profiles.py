@@ -348,11 +348,8 @@ def aggregate_cems_to_fleet_for_residual_calc(
         other_attribute_cols=["distribution_flag"],
     )
 
-    # in the months after the BA switched to reporting a subplant's category in a new
-    # EIA-930 energy source (e.g. battery storage), the subplant is subtracted from that
-    # energy source instead of the original category. The month is the month of the
-    # CEMS data, which can differ from the BA's local month in the first and last
-    # hours of a month.
+    # the expanded category of each subplant, used in the months after the BA switched
+    # to reporting it in a new EIA-930 energy source (e.g. battery storage)
     cems_agg = cems_agg.merge(
         assign_fleet_to_subplant_data(
             subplant_data=cems_agg[["plant_id_eia", "subplant_id"]].drop_duplicates(),
@@ -367,13 +364,35 @@ def aggregate_cems_to_fleet_for_residual_calc(
         on=["plant_id_eia", "subplant_id"],
         validate="m:1",
     )
-    cems_agg = assign_expanded_category_after_cutover(
-        cems_agg.rename(columns={ba_column_name: "ba_code"}), cutover_dates
-    ).rename(columns={"ba_code": ba_column_name})
 
     if transmission_only:
         cems_agg = cems_agg[cems_agg["distribution_flag"] is False]
 
+    cems_agg = (
+        cems_agg.groupby(
+            [
+                ba_column_name,
+                "fuel_category_eia930",
+                "fuel_category_eia930_expanded",
+                datetime_col,
+            ],
+            dropna=False,
+        )["net_generation_mwh"]
+        .sum()
+        .reset_index()
+    )
+    # in the months after the BA switched to reporting a category in a new energy
+    # source, the category's generation is subtracted from that energy source instead
+    # of the original category. The months are the BA's local months, as in
+    # `eia930.prepare_eia930_for_shaping`, which differ from a plant's local months in
+    # the first and last hours of a month if the plant is in another timezone.
+    if cutover_dates is not None and len(cutover_dates) > 0:
+        cems_agg["report_date"] = calculate_ba_local_month(
+            cems_agg, ba_column_name, datetime_col
+        )
+    cems_agg = assign_expanded_category_after_cutover(
+        cems_agg.rename(columns={ba_column_name: "ba_code"}), cutover_dates
+    ).rename(columns={"ba_code": ba_column_name})
     cems_agg = (
         cems_agg.groupby(
             [ba_column_name, "fuel_category_eia930", datetime_col], dropna=False
@@ -392,6 +411,32 @@ def aggregate_cems_to_fleet_for_residual_calc(
     cems_agg = cems_agg.rename(columns={"net_generation_mwh": "cems_profile"})
 
     return cems_agg
+
+
+def calculate_ba_local_month(
+    data: pd.DataFrame, ba_column_name: str, datetime_col: str
+) -> pd.Series:
+    """Calculates the first day of the month of each hour in its BA's local time.
+
+    Args:
+        data (pd.DataFrame): data with a BA column and a UTC datetime column.
+        ba_column_name (str): name of the BA column.
+        datetime_col (str): name of the UTC datetime column.
+
+    Returns:
+        pd.Series: the first day of the BA-local month of each row (without a
+            timezone), or NaT for rows without a BA.
+    """
+    report_date = pd.Series(pd.NaT, index=data.index, dtype="datetime64[ns]")
+    for ba, rows in data.groupby(ba_column_name).groups.items():
+        report_date[rows] = (
+            data.loc[rows, datetime_col]
+            .dt.tz_convert(load_data.ba_timezone(ba=ba, type="local"))
+            .dt.tz_localize(None)
+            .dt.to_period("M")
+            .dt.to_timestamp()
+        )
+    return report_date
 
 
 def aggregate_non_930_fuel_categories(cems, plant_attributes):
