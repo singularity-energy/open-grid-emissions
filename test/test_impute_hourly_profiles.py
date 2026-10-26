@@ -1583,3 +1583,60 @@ def test_storage_fleet_shaping_matches_sum_of_subplants(
     local_hour = fleet_total.index.tz_convert("US/Central").hour
     assert fleet_total[local_hour == 19].sum() == pytest.approx(210.0)
     assert fleet_total[local_hour == 3].sum() == pytest.approx(-250.0)
+
+
+def test_calculate_storage_profiles_without_storage_series(monkeypatch):
+    """Without any EIA-930 storage series (e.g. before any BA reports storage), the
+    profiles should come from the net-load proxy instead of failing."""
+    timezone = "US/Arizona"
+    generation = _hourly_series(
+        "SRP",
+        timezone,
+        [1],
+        {"net_generation_mwh_930": lambda hour: 5.0},
+        ["net_generation_mwh_930"],
+        extra={"fuel_category_eia930": "solar", "generation_energy_source": "solar"},
+    )
+    monthly_storage = pd.DataFrame(
+        {
+            "ba_code": ["SRP"],
+            "fuel_category": ["battery_storage"],
+            "report_date": pd.to_datetime(["2025-01-01"]).astype("datetime64[s]"),
+            "storage_charge_mwh": [100.0],
+            "storage_discharge_mwh": [90.0],
+        }
+    )
+    net_load_proxy = _hourly_series(
+        "SRP",
+        timezone,
+        range(1, 13),
+        {
+            "storage_discharge_profile": lambda hour: 3.0 if hour == 20 else 0.0,
+            "storage_charge_profile": lambda hour: 4.0 if hour == 12 else 0.0,
+        },
+        impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "assign_local_time_and_category_to_eia930_data",
+        lambda *_: generation,
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "aggregate_storage_data_to_ba",
+        lambda *_: monthly_storage,
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "calculate_net_load_storage_proxy",
+        lambda *_: net_load_proxy,
+    )
+
+    profiles, other_storage_months = impute_hourly_profiles.calculate_storage_profiles(
+        None, None, None, None, None, None, 2025
+    )
+
+    assert len(other_storage_months) == 0
+    january = profiles[profiles["report_date"].dt.month == 1]
+    assert (january["profile_method"] == "net_load_proxy").all()
+    assert (january["storage_charge_profile_method"] == "net_load_proxy").all()

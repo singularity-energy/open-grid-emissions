@@ -2895,6 +2895,7 @@ def calculate_storage_profiles(
     )
 
     eia930_storage_series = calculate_eia930_storage_series(eia930_generation)
+    # without any series, the empty EIA-930 series keeps the columns and their types
     storage_series = [
         series
         for series in [
@@ -2907,11 +2908,7 @@ def calculate_storage_profiles(
             ),
         ]
         if len(series) > 0
-    ]
-    if len(storage_series) == 0:
-        storage_series = [
-            pd.DataFrame(columns=STORAGE_SERIES_KEYS + STORAGE_PROFILE_COLUMNS)
-        ]
+    ] or [eia930_storage_series]
     storage_series = identify_usable_storage_series(
         pd.concat(storage_series, ignore_index=True), monthly_storage_to_shape
     )
