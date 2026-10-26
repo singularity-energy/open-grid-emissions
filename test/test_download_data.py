@@ -162,3 +162,27 @@ def test_download_raw_eia923_early_release_from_archive(monkeypatch, tmp_path):
 
     assert requested[-1] == archive_url
     assert (tmp_path / "eia923/f923_2025er/data.xlsx").exists()
+
+
+def test_get_pudl_release_uses_requested_build_and_data_store(tmp_path):
+    """The release should be read from the marker file of the requested build in the
+    requested folder, regardless of the PUDL_BUILD and PUDL_DATA_STORE settings."""
+    for build, marker in [
+        ("stable", "stable-2026-10-14-1552-90561c620-v2026-10-0"),
+        ("nightly", "nightly-2026-10-20-0602-1a2b3c4d5-main"),
+    ]:
+        (tmp_path / build).mkdir()
+        (tmp_path / build / marker).touch()
+
+    assert (
+        download_data.get_pudl_release("stable", str(tmp_path / "stable"))
+        == "stable build v2026.10.0 (built 2026-10-14)"
+    )
+    assert (
+        download_data.get_pudl_release("nightly", str(tmp_path / "nightly"))
+        == "nightly build main (built 2026-10-20)"
+    )
+    assert (
+        download_data.get_pudl_release("nightly", str(tmp_path / "stable"))
+        == "nightly build (unknown release)"
+    )
