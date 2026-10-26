@@ -10,8 +10,6 @@ one row per series and hour (columns "datetime_utc", "field",
 
 - `eia930_raw_2024-11-01_2024-11-14.parquet`: covers the first weeks of storage
   reporting in several BAs.
-- `eia930_raw_2018-06-24_2018-07-07.parquet`: crosses 2018-07-01, the date after which
-  the optimization uses generation by energy source.
 
 To rebuild one from PUDL data:
 
@@ -20,17 +18,16 @@ from oge import eia930
 from oge.physics_reconciliation import pivot_eia930_tables_to_series
 from test.test_physics_reconciliation import melt_series_to_long
 
-tables = eia930.manual_930_adjust(eia930.load_eia930_balance_data(2018))
-series = pivot_eia930_tables_to_series(tables).loc["2018-06-24":"2018-07-07"]
+tables = eia930.manual_930_adjust(eia930.load_eia930_balance_data(2024))
+series = pivot_eia930_tables_to_series(tables).loc["2024-11-01":"2024-11-14"]
 melt_series_to_long(series).to_parquet(
-    "eia930_raw_2018-06-24_2018-07-07.parquet", index=False, compression="zstd"
+    "eia930_raw_2024-11-01_2024-11-14.parquet", index=False, compression="zstd"
 )
 ```
 
 ## `eia930_reconciled_*.parquet`
 
-The reconciled data for each raw fixture, rounded to 0.001 MWh, with a "stage" column
-("reconciled_without_energy_sources" or "reconciled"). The test checks that
+The reconciled data for each raw fixture, rounded to 0.001 MWh. The test checks that
 `reconcile_eia930` still gives these values. After an intended change to the
 reconciliation, rewrite them and review the differences before committing:
 

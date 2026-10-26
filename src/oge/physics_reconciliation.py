@@ -95,8 +95,8 @@ ENERGY_SOURCES = [
 # their interchange with US BAs
 HYDRO_FOREIGN_BAS = ["BCHA", "HQT", "MHEB"]
 
-# the optimization only reconciles generation by energy source after this date,
-# because EIA-930 did not collect generation by energy source before it
+# EIA-930 did not collect generation by energy source before this date, so the
+# reconciliation only accepts data from this date onwards
 GENERATION_BY_ENERGY_SOURCE_START_DATE = pd.to_datetime("20180701", utc=True)
 
 # parameters used to compute the weight of each series in the optimization
@@ -154,17 +154,13 @@ class EIA930Tables(NamedTuple):
 
 def reconcile_eia930(
     tables: EIA930Tables, output_folder: str, ba_timezones: dict[str, str] | None = None
-) -> EIA930Tables | None:
+) -> EIA930Tables:
     """This is the coordinating function for the physics-based reconciliation of
     EIA-930 data.
 
-    Writes the results to `output_folder` as parquet files:
-        - "reconciled_without_energy_sources": reconciled data before 2018-07-01,
-          when generation by energy source is not reconciled. Only written if the data
-          includes hours before that date.
-        - "reconciled": reconciled data from 2018-07-01 onwards
-    The value of the optimization objective for each hour is written to
-    "eia930_objective.parquet" (and "eia930_objective_without_energy_sources.parquet").
+    Writes the reconciled data to `output_folder` as parquet files ("reconciled"), and
+    the value of the optimization objective for each hour to
+    "eia930_objective.parquet".
 
     Args:
         tables (EIA930Tables): EIA-930 data to reconcile.
@@ -173,14 +169,24 @@ def reconcile_eia930(
             which defines the months in which generation by energy source is zero (see
             `find_zero_months`). BAs that aren't in it use UTC. Defaults to None.
 
+    Raises:
+        ValueError: if the data has hours before
+            `GENERATION_BY_ENERGY_SOURCE_START_DATE`, when EIA-930 did not collect
+            generation by energy source.
+
     Returns:
-        EIA930Tables | None: reconciled EIA-930 data from 2018-07-01 onwards. None if
-            the data has no hours from 2018-07-01 onwards.
+        EIA930Tables: reconciled EIA-930 data.
     """
     start_time = time.time()
 
     check_eia930_tables(tables)
     series = pivot_eia930_tables_to_series(tables)
+    if series.index.min() < GENERATION_BY_ENERGY_SOURCE_START_DATE:
+        raise ValueError(
+            "EIA-930 data before "
+            f"{GENERATION_BY_ENERGY_SOURCE_START_DATE} can't be reconciled, since it "
+            "has no generation by energy source"
+        )
 
     logger.info("Basic data cleaning")
     series = apply_basic_cleaning(series)
@@ -192,44 +198,8 @@ def reconcile_eia930(
     # before reconciliation
     zero_months = find_zero_months(series, ba_timezones or {})
 
-    # before generation by energy source was collected, reconcile without it. Note
-    # that the hour at GENERATION_BY_ENERGY_SOURCE_START_DATE is included in both
-    # periods.
-    before_start = series.loc[:GENERATION_BY_ENERGY_SOURCE_START_DATE, :]
-    if len(before_start) > 0:
-        logger.info(
-            "Optimization-based cleaning without generation by energy source, before "
-            f"{GENERATION_BY_ENERGY_SOURCE_START_DATE}"
-        )
-        reconciled, objective = reconcile_energy_balance(
-            before_start,
-            weights.loc[:GENERATION_BY_ENERGY_SOURCE_START_DATE, :],
-            include_energy_sources=False,
-        )
-        write_eia930_tables(
-            melt_series_to_eia930_tables(reconciled),
-            output_folder,
-            "reconciled_without_energy_sources",
-        )
-        objective.to_frame().to_parquet(
-            os.path.join(
-                output_folder, "eia930_objective_without_energy_sources.parquet"
-            )
-        )
-
-    from_start = series.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :]
-    if len(from_start) == 0:
-        return None
-    logger.info(
-        "Optimization-based cleaning with generation by energy source, from "
-        f"{GENERATION_BY_ENERGY_SOURCE_START_DATE}"
-    )
-    reconciled, objective = reconcile_energy_balance(
-        from_start,
-        weights.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :],
-        include_energy_sources=True,
-        zero_months=zero_months.loc[GENERATION_BY_ENERGY_SOURCE_START_DATE:, :],
-    )
+    logger.info("Optimization-based cleaning")
+    reconciled, objective = reconcile_energy_balance(series, weights, zero_months)
     reconciled_tables = melt_series_to_eia930_tables(reconciled)
     write_eia930_tables(reconciled_tables, output_folder, "reconciled")
     objective.to_frame().to_parquet(
@@ -325,8 +295,7 @@ def pivot_eia930_tables_to_series(tables: EIA930Tables) -> pd.DataFrame:
     )
 
     # series that are missing for some hours (e.g. after a timestamp shift) are blank
-    # for those hours. The column names keep the levels when a table is empty, e.g.
-    # generation by energy source before 2018-07-01.
+    # for those hours. The column names keep the levels when a table is empty.
     series = pd.concat(
         [net_generation_by_energy_source, operations, interchange], axis="columns"
     ).sort_index()
@@ -401,7 +370,6 @@ def melt_series_with_other_key(
             "balancing_authority_code_eia", `other_name` and `value_name`.
     """
     columns = ["datetime_utc", "balancing_authority_code_eia", other_name, value_name]
-    # e.g. reconciled data before 2018-07-01 has no generation by energy source
     if series.shape[1] == 0:
         return pd.DataFrame(columns=columns)
     return (
@@ -848,7 +816,6 @@ def find_zero_months(
 def reconcile_energy_balance(
     series: pd.DataFrame,
     weights: pd.DataFrame,
-    include_energy_sources: bool,
     zero_months: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Makes the data physically consistent in each hour.
@@ -857,8 +824,7 @@ def reconcile_energy_balance(
         - demand + total interchange = net generation, for each BA
         - total interchange = sum of interchange with each adjacent BA, for each BA
         - interchange from A to B = -(interchange from B to A)
-        - net generation = sum of generation by energy source, for each BA (only if
-          `include_energy_sources`)
+        - net generation = sum of generation by energy source, for each BA
         - demand is at least `DEMAND_LOWER_BOUND`
         - net generation and generation by energy source are at least the lower of
           zero and their value before reconciliation. They can be negative where the
@@ -874,8 +840,6 @@ def reconcile_energy_balance(
         series (pd.DataFrame): series data frame, with no blank values except where a
             series has no data.
         weights (pd.DataFrame): weight of each value, with the same shape as `series`.
-        include_energy_sources (bool): whether to reconcile generation by energy
-            source.
         zero_months (pd.DataFrame | None, optional): True for the hours in which a
             generation by energy source series must stay at zero, as returned by
             `find_zero_months`. Defaults to None, for no such hours.
@@ -889,7 +853,7 @@ def reconcile_energy_balance(
     series = series.fillna(0)
     weights = weights.fillna(0)
 
-    problem = HourlyReconciliationProblem(series, include_energy_sources)
+    problem = HourlyReconciliationProblem(series)
     values = series.loc[:, problem.keys].to_numpy()
     # select the weights by hour, so that each hour gets its own weights even if the
     # hours of `weights` are in a different order
@@ -936,21 +900,18 @@ class HourlyReconciliationProblem:
     Attributes:
         keys (list[tuple]): keys of the series in the problem, in the order of the
             values passed to and returned by `solve`. Generation by energy source is
-            only included if `include_energy_sources`, and only for the energy sources
-            in `ENERGY_SOURCES`.
+            only included for the energy sources in `ENERGY_SOURCES`.
         energy_source_keys (list[tuple]): keys of the generation by energy source
             series in the problem, in the order they appear in `keys`.
     """
 
-    def __init__(self, series: pd.DataFrame, include_energy_sources: bool):
+    def __init__(self, series: pd.DataFrame):
         """Builds the problem for the series of a series data frame.
 
         Args:
             series (pd.DataFrame): series data frame. Only its columns are used. Every
                 BA must have demand, net generation and total interchange series, and
                 every interchange series must have a series in the opposite direction.
-            include_energy_sources (bool): whether to reconcile generation by energy
-                source.
         """
         regions = get_series_bas(series)
         # (BA, adjacent BA) of each interchange series, and (energy source, BA) of each
@@ -973,14 +934,13 @@ class HourlyReconciliationProblem:
             NET_GENERATION: [(NET_GENERATION, ba, "") for ba in regions],
             TOTAL_INTERCHANGE: [(TOTAL_INTERCHANGE, ba, "") for ba in regions],
             INTERCHANGE: [(INTERCHANGE, ba, adj) for ba, adj in interchange_pairs],
-        }
-        if include_energy_sources:
-            keys_by_field[NET_GENERATION_BY_ENERGY_SOURCE] = [
+            NET_GENERATION_BY_ENERGY_SOURCE: [
                 (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)
                 for energy_source, ba in energy_source_pairs
-            ]
+            ],
+        }
         self.keys = [key for keys in keys_by_field.values() for key in keys]
-        self.energy_source_keys = keys_by_field.get(NET_GENERATION_BY_ENERGY_SOURCE, [])
+        self.energy_source_keys = keys_by_field[NET_GENERATION_BY_ENERGY_SOURCE]
         # positions of the generation by energy source series in `keys`
         self.energy_source_positions = np.array(
             [
@@ -1039,26 +999,25 @@ class HourlyReconciliationProblem:
             # pair of BAs is constrained twice, which is redundant but harmless.
             interchange == -interchange[opposite],
         ]
-        if include_energy_sources:
-            generation = reconciled_by_field[NET_GENERATION_BY_ENERGY_SOURCE]
-            # sums the generation by energy source series of each BA
-            energy_sources_to_ba = create_incidence_matrix(
-                regions, [ba for _, ba in energy_source_pairs]
+        generation = reconciled_by_field[NET_GENERATION_BY_ENERGY_SOURCE]
+        # sums the generation by energy source series of each BA
+        energy_sources_to_ba = create_incidence_matrix(
+            regions, [ba for _, ba in energy_source_pairs]
+        )
+        # 1 for the generation by energy source series that must stay at zero in
+        # the hour, set by `solve`
+        self.is_zero_month = cp.Parameter(len(self.energy_source_keys), nonneg=True)
+        constraints += [
+            # net generation is the sum of generation by energy source
+            net_generation == energy_sources_to_ba @ generation,
+            # series that are zero for the whole month stay at zero. Their value
+            # before reconciliation is zero, so it's enough to constrain their
+            # adjustments, which keeps the problem DPP (compiled only once).
+            cp.multiply(
+                self.is_zero_month, self.adjustments[self.energy_source_positions]
             )
-            # 1 for the generation by energy source series that must stay at zero in
-            # the hour, set by `solve`
-            self.is_zero_month = cp.Parameter(len(self.energy_source_keys), nonneg=True)
-            constraints += [
-                # net generation is the sum of generation by energy source
-                net_generation == energy_sources_to_ba @ generation,
-                # series that are zero for the whole month stay at zero. Their value
-                # before reconciliation is zero, so it's enough to constrain their
-                # adjustments, which keeps the problem DPP (compiled only once).
-                cp.multiply(
-                    self.is_zero_month, self.adjustments[self.energy_source_positions]
-                )
-                == 0,
-            ]
+            == 0,
+        ]
 
         # sum of weight * adjustment ** 2
         objective = cp.sum_squares(cp.multiply(self.sqrt_weights, self.adjustments))

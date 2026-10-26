@@ -88,7 +88,7 @@ where the sum _k_ is over every value in the hour. The constraints say that dema
 
 Generation by energy source that is zero in every hour of a month stays at exactly zero. This is an energy source that the BA doesn't have or doesn't report that month, and the reconciliation would otherwise add small amounts of generation to it, which would then be used as an hourly profile for that fuel (see [Shaping Using Fleet-Specific Profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md)). Months are in each BA's local time, to match the months used for shaping. Zeros in a month that has other values can still be adjusted, since they are often reporting errors (e.g., every energy source reported as zero for a day while net generation is not). A BA that reports net generation but no generation by energy source for a whole month (e.g., SRP in early July 2018) isn't held at zero either.
 
-EIA-930 did not collect generation by energy source before July 1, 2018, so the constraints and adjustments for generation by energy source are only used from that date onwards.
+EIA-930 did not collect generation by energy source before July 1, 2018, so the reconciliation only accepts data from that date onwards. OGE's hourly data start in 2019, so its EIA-930 data start in October 2018.
 
 **Weights.** The weight of each value is inversely proportional to the typical size of its series:
 
@@ -114,12 +114,11 @@ The data are written to `outputs/{year}/eia930/` as parquet files, in three tabl
 | Step | Description |
 | --- | --- |
 | `raw` | After the manual timestamp and sign adjustments. The reconciliation can be run again from these without loading the data from PUDL |
-| `reconciled_without_energy_sources` | Reconciled data before July 1, 2018 (only when the data include those hours) |
 | `reconciled` | Reconciled data, used to build hourly profiles and to calculate consumption-based emissions |
 
 The hourly profiles describe when positive generation happens, so negative reconciled generation by energy source is set to zero before it is used to build them. Otherwise, a month whose total is close to zero or negative would give profiles with very large or inverted shares of the monthly total.
 
-The value of the optimization objective for each hour is written to `eia930_objective.parquet` (and `eia930_objective_without_energy_sources.parquet` before July 1, 2018).
+The value of the optimization objective for each hour is written to `eia930_objective.parquet`.
 
 ## Future Work, Known Issues, and Open Questions
 - Since late 2024, BAs have started reporting energy storage separately, as negative net generation when charging. The new energy source categories are currently combined into the old ones before reconciliation.
