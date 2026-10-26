@@ -446,7 +446,6 @@ def main(args):
     monthly_subplant_data = energy_storage.add_monthly_energy_storage_data(
         monthly_subplant_data, monthly_storage_data
     )
-    del monthly_storage_data
 
     # export subplant attributes table
     helpers.create_subplant_attributes_table(
@@ -510,6 +509,12 @@ def main(args):
 
     # calculate hourly outputs for years after 2019
     if year >= earliest_hourly_data_year:
+        # storage is shaped using its monthly charging and discharging
+        monthly_eia_data_to_shape = (
+            impute_hourly_profiles.add_storage_data_to_monthly_eia_data(
+                monthly_eia_data_to_shape, monthly_storage_data
+            )
+        )
         # 13. Clean and Reconcile EIA-930 data
         ################################################################################
         logger.info("13. Cleaning EIA-930 data")
@@ -549,6 +554,20 @@ def main(args):
         # 14. Calculate hourly profiles for monthly EIA data
         ################################################################################
         logger.info("14. Estimating hourly profiles for EIA data")
+        # discharging and charging profiles for storage
+        storage_profiles, other_storage_months = (
+            impute_hourly_profiles.calculate_storage_profiles(
+                eia930_tables.net_generation_by_energy_source,
+                eia930_tables.operations,
+                monthly_eia_data_to_shape,
+                monthly_storage_data,
+                plant_attributes,
+                primary_fuel_table,
+                year,
+                cutover_dates=energy_source_cutover_dates,
+            )
+        )
+        del monthly_storage_data
         hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
             cems,
             partial_cems_subplant,
@@ -561,8 +580,10 @@ def main(args):
             transmission_only=False,
             ba_column_name="ba_code",
             cutover_dates=energy_source_cutover_dates,
+            storage_profiles=storage_profiles,
+            other_storage_months=other_storage_months,
         )
-        del eia930_data, eia930_tables
+        del eia930_data, eia930_tables, storage_profiles
         gc.collect()
         # validate how well the wind and solar imputation methods work
         output_data.output_data_quality_metrics(
@@ -612,7 +633,8 @@ def main(args):
         hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
             hourly_profiles,
             group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
-            columns_to_convert=["profile", "flat_profile"],
+            columns_to_convert=["profile", "flat_profile"]
+            + impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
         )
 
         # 15. Export hourly plant-level data
