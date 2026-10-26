@@ -46,5 +46,5 @@ stoplight-id: input_data
 
 **gridemissions repository**
 * **What is it**: Tools for tracking EIA-930 power sector data
-* **How we use it**: To clean raw EIA-930 data and to calculate consumption-based emissions totals
+* **How we use it**: Our cleaning of raw EIA-930 data (`oge.physics_reconciliation`) and our calculation of consumption-based emissions totals are adapted from this package
 * **More information**: [https://gridemissions.jdechalendar.su.domains/#/code](https://gridemissions.jdechalendar.su.domains/#/code)

@@ -1765,7 +1765,7 @@ grpc = [
 [[package]]
 name = "gridemissions"
 version = "0.1.0"
-source = { git = "https://github.com/singularity-energy/gridemissions.git#0cbe7620620f02ab91227940ef107b53bd1f9bb4" }
+source = { git = "https://github.com/singularity-energy/gridemissions.git?rev=0cbe7620620f02ab91227940ef107b53bd1f9bb4#0cbe7620620f02ab91227940ef107b53bd1f9bb4" }
 dependencies = [
     { name = "pandas" },
     { name = "requests" },
@@ -3086,8 +3086,8 @@ dependencies = [
     { name = "coloredlogs" },
     { name = "cvxopt" },
     { name = "cvxpy" },
+    { name = "dask" },
     { name = "geopy" },
-    { name = "gridemissions" },
     { name = "numpy" },
     { name = "openpyxl" },
     { name = "osqp" },
@@ -3103,6 +3103,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "gridemissions" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -3118,8 +3119,9 @@ requires-dist = [
     { name = "coloredlogs" },
     { name = "cvxopt" },
     { name = "cvxpy" },
+    { name = "dask" },
     { name = "geopy" },
-    { name = "gridemissions", git = "https://github.com/singularity-energy/gridemissions.git" },
+    { name = "gridemissions", marker = "extra == 'dev'", git = "https://github.com/singularity-energy/gridemissions.git?rev=0cbe7620620f02ab91227940ef107b53bd1f9bb4" },
     { name = "ipykernel", marker = "extra == 'notebook'" },
     { name = "notebook", marker = "extra == 'notebook'" },
     { name = "numpy" },

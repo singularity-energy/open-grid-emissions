@@ -1,21 +1,25 @@
 import pandas as pd
-import re
 from datetime import timedelta
-import os
 
 import oge.load_data as load_data
-from oge.column_checks import get_dtypes
 from oge.filepaths import (
-    top_folder,
     outputs_folder,
     reference_table_folder,
 )
 from oge.logging_util import get_logger
-
-# Tell gridemissions where to find config before we load gridemissions
-os.environ["GRIDEMISSIONS_CONFIG_FILE_PATH"] = top_folder("config/gridemissions.json")
-
-from gridemissions.workflows import make_dataset  # noqa E402
+from oge.physics_reconciliation import (
+    DEMAND,
+    ENERGY_SOURCES,
+    INTERCHANGE,
+    NET_GENERATION,
+    NET_GENERATION_BY_ENERGY_SOURCE,
+    TOTAL_INTERCHANGE,
+    EIA930Tables,
+    melt_series_to_eia930_tables,
+    pivot_eia930_tables_to_series,
+    reconcile_eia930,
+    write_eia930_tables,
+)
 
 logger = get_logger(__name__)
 
@@ -42,75 +46,70 @@ new_to_existing_energy_sources = {
     "wind_w_integrated_battery_storage": "wind",
     "wind_wo_integrated_battery_storage": "wind",
 }
-existing_energy_source_names_to_codes = {
-    "coal": "COL",
-    "gas": "NG",
-    "hydro": "WAT",
-    "nuclear": "NUC",
-    "oil": "OIL",
-    "other": "OTH",
-    "solar": "SUN",
-    "unknown": "UNK",
-    "wind": "WND",
+
+# Dictionary mapping EIA-930 energy sources to the fuel categories in
+# reference_tables/energy_source_groups.csv. "unknown" is not mapped.
+energy_source_to_fuel_category_eia930 = {
+    "coal": "coal",
+    "gas": "natural_gas",
+    "other": "other",
+    "hydro": "hydro",
+    "wind": "wind",
+    "solar": "solar",
+    "nuclear": "nuclear",
+    "oil": "petroleum",
 }
 
 
-def clean_930(year: int, path_prefix: str = ""):
-    """Scrape and process EIA-930 data.
+def clean_930(year: int, path_prefix: str = "") -> EIA930Tables | None:
+    """This is the coordinating function for loading, adjusting and reconciling
+    EIA-930 data.
+
+    Writes the data at each step to `outputs/{path_prefix}/eia930/` as parquet files:
+    "unadjusted" (as loaded from PUDL), "raw" (after timestamp adjustments) and the
+    steps written by `physics_reconciliation.reconcile_eia930`.
 
     Args:
         year (int): a four-digit year.
         path_prefix (str): path to folder enclosing the eia930 folder with files needed
             for the physics-based data cleaning
-    """
 
+    Returns:
+        EIA930Tables | None: reconciled EIA-930 data. None if the data has no hours
+            from 2018-07-01 onwards.
+    """
     data_folder = outputs_folder(f"{path_prefix}/eia930/")
 
-    # Format raw file
-    df = convert_balance_data_to_gridemissions_format(year)
-    raw_file = data_folder + "eia930_unadjusted_raw.csv"
-    df.to_csv(raw_file)
+    tables = load_eia930_balance_data(year)
+    write_eia930_tables(tables, data_folder, "unadjusted")
 
-    # scrape 2 months before start of year for rolling window cleaning
-    start = f"{year - 1}1001T00Z"
-    # Scrape 1 year (plus one day for timezone flexibility)
-    end = f"{year + 1}0101T23Z"
-
-    # Adjust
     logger.info("Adjusting EIA-930 time stamps")
-    df = manual_930_adjust(df)
-    df.to_csv(data_folder + "eia930_raw.csv")  # Will be read by gridemissions workflow
+    tables = manual_930_adjust(tables)
+    write_eia930_tables(tables, data_folder, "raw")
 
-    # Run cleaning
     logger.info("Running physics-based data cleaning")
-    make_dataset(
-        start,
-        end,
-        file_name="eia930",
-        tmp_folder=data_folder,
-        folder_hist=data_folder,
-        scrape=False,
-        add_ca_fuels=False,
-        calc_consumed=False,
-    )
+    return reconcile_eia930(tables, data_folder)
 
 
-def convert_balance_data_to_gridemissions_format(year: int) -> pd.DataFrame:
-    """Convert PUDL's EIA-930 data to gridemissions format.
+def load_eia930_balance_data(year: int) -> EIA930Tables:
+    """Loads EIA-930 operations, generation by energy source and interchange from PUDL.
+
+    Loads data from October of the previous year through January 2 of the next year,
+    since the rolling window cleaning needs data before and after the year. Generation
+    by energy source is mapped to the energy sources used before EIA-930 introduced new
+    ones (see `new_to_existing_energy_sources`), since BAs started to use the new energy
+    sources at different times.
 
     Args:
         year (int): a four-digit year.
 
     Returns:
-        pd.DataFrame: balance data for each BA
+        EIA930Tables: EIA-930 data, with adjusted net generation and interchange and
+            demand imputed by PUDL.
     """
-    # Set date range
-    # Need extra time at start and end for rolling data cleaning
     start = pd.Timestamp(year - 1, 10, 1)
     end = pd.Timestamp(year + 1, 1, 2)
 
-    # Load and transform data from PUDL
-    ## Hourly time series of balancing authority interchange.
     interchange = load_data.load_pudl_table(
         "core_eia930__hourly_interchange",
         columns=[
@@ -121,25 +120,13 @@ def convert_balance_data_to_gridemissions_format(year: int) -> pd.DataFrame:
         ],
         dt=start,
         end_dt=end,
-    ).pivot(
-        index="datetime_utc",
-        columns=[
-            "balancing_authority_code_eia",
-            "balancing_authority_code_adjacent_eia",
-        ],
-        values="interchange_reported_mwh",
-    )
-    interchange.columns = ["EBA.{}-{}.ID.H".format(*c) for c in interchange.columns]
+    ).rename(columns={"interchange_reported_mwh": "interchange_mwh"})
 
-    ## Hourly time series of balancing authority net generation by energy source.
-    ## EIA-930 energy sources have changed and not all BAs started to utilize the new
-    ## energy source categories at the same time.
-    ## As a first step, we map the new energy sources to existing ones. This means that
-    ## all BAs, independently of when they started to report the new energy sources,
-    ## will have one solar, wind, hydro, and other category.
-    ## TODO: consider individual energy sources (e.g. geothermal, battery storage, etc.)
-    ## and BAs reporting new energy sources at different times.
-    net_generation = (
+    # TODO: consider individual energy sources (e.g. geothermal, battery storage,
+    # etc.) and BAs reporting new energy sources at different times.
+    # note that sum() turns groups with only blank values into zero, as in the
+    # original gridemissions-format code
+    net_generation_by_energy_source = (
         load_data.load_pudl_table(
             "core_eia930__hourly_net_generation_by_energy_source",
             columns=[
@@ -156,23 +143,18 @@ def convert_balance_data_to_gridemissions_format(year: int) -> pd.DataFrame:
         )  # to avoid a FutureWarning when using replace on CategoricalDtype
         .replace({"generation_energy_source": new_to_existing_energy_sources})
         .groupby(
-            ["datetime_utc", "balancing_authority_code_eia", "generation_energy_source"]
+            [
+                "datetime_utc",
+                "balancing_authority_code_eia",
+                "generation_energy_source",
+            ],
+            dropna=True,  # the keys are never blank in PUDL
         )["net_generation_adjusted_mwh"]
         .sum()
         .reset_index()
-        .pivot(
-            index="datetime_utc",
-            columns=["balancing_authority_code_eia", "generation_energy_source"],
-            values="net_generation_adjusted_mwh",
-        )
+        .rename(columns={"net_generation_adjusted_mwh": "net_generation_mwh"})
     )
-    net_generation.columns = [
-        "EBA.{}-ALL.NG.{}.H".format(c[0], existing_energy_source_names_to_codes[c[1]])
-        for c in net_generation.columns
-    ]
 
-    ## Hourly time series of balancing authority net generation, interchange, and demand
-    ## with imputed demand.
     operations = load_data.load_pudl_table(
         "out_eia930__hourly_operations",
         columns=[
@@ -180,87 +162,160 @@ def convert_balance_data_to_gridemissions_format(year: int) -> pd.DataFrame:
             "balancing_authority_code_eia",
             "net_generation_adjusted_mwh",
             "interchange_adjusted_mwh",
-            "demand_adjusted_mwh",
             "demand_imputed_pudl_mwh",
         ],
         dt=start,
         end_dt=end,
-    ).pivot(
-        index="datetime_utc",
-        columns="balancing_authority_code_eia",
-        values=[
-            "net_generation_adjusted_mwh",
-            "interchange_adjusted_mwh",
-            "demand_imputed_pudl_mwh",
-        ],
-    )
-    operations.columns = [
-        "EBA.{}-ALL.NG.H".format(c[1])
-        if c[0] == "net_generation_adjusted_mwh"
-        else "EBA.{}-ALL.TI.H".format(c[1])
-        if c[0] == "interchange_adjusted_mwh"
-        else "EBA.{}-ALL.D.H".format(c[1])
-        for c in operations.columns
+    ).rename(
+        columns={
+            "net_generation_adjusted_mwh": "net_generation_mwh",
+            "interchange_adjusted_mwh": "interchange_mwh",
+            "demand_imputed_pudl_mwh": "demand_mwh",
+        }
+    )[
+        [
+            "datetime_utc",
+            "balancing_authority_code_eia",
+            "demand_mwh",
+            "net_generation_mwh",
+            "interchange_mwh",
+        ]
     ]
 
-    # balance
-    balance = pd.concat([net_generation, operations, interchange], axis="columns")
+    tables = add_missing_operations(
+        EIA930Tables(operations, net_generation_by_energy_source, interchange)
+    )
+    check_bas_outside_us(tables)
+    return tables
 
-    return balance
 
+def add_missing_operations(tables: EIA930Tables) -> EIA930Tables:
+    """Adds operations data for BAs that report generation or interchange but have no
+    operations data.
 
-def load_chalendar_for_pipeline(cleaned_data_filepath: str, year: int) -> pd.DataFrame:
-    """Loads and formats cleaned hourly net generation data for use in the data
-    pipeline.
+    PUDL's operations table can miss BAs that EIA-930 does report, e.g. SIKE, a
+    generation-only BA that started reporting on 2025-06-01 with net generation and
+    total interchange but no demand. Without operations data, the reconciliation would
+    treat such a BA as outside of the US and estimate all of its data from its
+    neighbors' interchange.
+
+    For these BAs, net generation is the sum of their generation by energy source,
+    total interchange is the sum of their reported interchange with each adjacent BA,
+    and demand is net generation minus total interchange. Hours where a value can't be
+    computed are left blank.
 
     Args:
-        cleaned_data_filepath (str): path to cleaned EIA-930 file:
+        tables (EIA930Tables): EIA-930 data.
+
+    Returns:
+        EIA930Tables: EIA-930 data, with operations data added for BAs that were
+            missing it.
+    """
+    operations_bas = set(tables.operations["balancing_authority_code_eia"])
+    reporting_bas = set(
+        tables.net_generation_by_energy_source["balancing_authority_code_eia"]
+    ) | set(tables.interchange["balancing_authority_code_eia"])
+    missing_bas = sorted(reporting_bas - operations_bas)
+    if len(missing_bas) == 0:
+        return tables
+    logger.warning(
+        f"Adding EIA-930 operations data for {missing_bas}, which report generation "
+        "or interchange but have no operations data in PUDL"
+    )
+
+    # min_count=1 keeps hours with no data blank
+    keys = ["datetime_utc", "balancing_authority_code_eia"]
+    net_generation = (
+        tables.net_generation_by_energy_source[
+            tables.net_generation_by_energy_source["balancing_authority_code_eia"].isin(
+                missing_bas
+            )
+        ]
+        .groupby(keys, dropna=False)["net_generation_mwh"]
+        .sum(min_count=1)
+    )
+    total_interchange = (
+        tables.interchange[
+            tables.interchange["balancing_authority_code_eia"].isin(missing_bas)
+        ]
+        .groupby(keys, dropna=False)["interchange_mwh"]
+        .sum(min_count=1)
+    )
+    added_operations = pd.concat(
+        [net_generation, total_interchange], axis="columns"
+    ).reset_index()
+    added_operations["demand_mwh"] = (
+        added_operations["net_generation_mwh"] - added_operations["interchange_mwh"]
+    )
+
+    operations = pd.concat(
+        [tables.operations, added_operations[tables.operations.columns]],
+        ignore_index=True,
+    )
+    return tables._replace(operations=operations)
+
+
+def check_bas_outside_us(tables: EIA930Tables):
+    """Warns about BAs that will be treated as outside of the US but are listed as US
+    BAs in `ba_reference.csv`.
+
+    The reconciliation treats BAs that only appear as the adjacent BA of interchange
+    data as being outside of the US, and estimates their data from their neighbors'
+    interchange (see `physics_reconciliation.apply_basic_cleaning`).
+
+    Args:
+        tables (EIA930Tables): EIA-930 data.
+    """
+    adjacent_only_bas = set(
+        tables.interchange["balancing_authority_code_adjacent_eia"]
+    ) - set(tables.operations["balancing_authority_code_eia"])
+    ba_ref = pd.read_csv(reference_table_folder("ba_reference.csv"))
+    us_bas = set(ba_ref.loc[ba_ref["us_ba"] == "Yes", "ba_code"])
+    us_adjacent_only_bas = sorted(adjacent_only_bas & us_bas)
+    if len(us_adjacent_only_bas) > 0:
+        logger.warning(
+            f"{us_adjacent_only_bas} only appear as adjacent BAs in EIA-930 interchange "
+            "data, so the reconciliation will treat them as outside of the US"
+        )
+
+
+def prepare_eia930_for_shaping(
+    net_generation_by_energy_source: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Formats reconciled EIA-930 generation by energy source for hourly shaping.
+
+    Keeps the year plus or minus one day, to allow for the conversion to local time
+    later, and drops BAs outside of the US.
+
+    Args:
+        net_generation_by_energy_source (pd.DataFrame): reconciled EIA-930 generation
+            by energy source.
         year (int): a four-digit year.
 
     Returns:
-        pd.DataFrame: cleaned EIA-930 table formatted for use in data pipeline.
+        pd.DataFrame: EIA-930 generation with columns "ba_code",
+            "fuel_category_eia930", "datetime_utc", "datetime_local", "report_date" and
+            "net_generation_mwh_930".
     """
-    # read the data, only keeping net generation columns
-    data = pd.read_csv(
-        cleaned_data_filepath,
-        index_col=0,
-        parse_dates=True,
-        dtype=get_dtypes(),
-    ).filter(like="-ALL.NG.")
-
-    # name the index
-    data.index = data.index.rename("datetime_utc")
+    data = net_generation_by_energy_source.rename(
+        columns={
+            "balancing_authority_code_eia": "ba_code",
+            "net_generation_mwh": "net_generation_mwh_930",
+        }
+    )
+    data["datetime_utc"] = data["datetime_utc"].astype("datetime64[ns, UTC]")
 
     # only keep data for the single year we are interested, plus or minus one
     # day, to account for conversion to local time later
     data = data.loc[
-        (data.index >= f"{year - 1}-12-31") & (data.index < f"{year + 1}-01-02"), :
+        (data["datetime_utc"] >= f"{year - 1}-12-31")
+        & (data["datetime_utc"] < f"{year + 1}-01-02")
     ]
-
-    # remove columns for total net generation
-    data = data.loc[
-        :,
-        [
-            col
-            for col in data.columns
-            if col not in data.filter(like="-ALL.NG.H").columns
-        ],
-    ]
-
-    # melt the data into long format
-    data = data.reset_index().melt(
-        id_vars="datetime_utc", value_name="net_generation_mwh_930"
-    )
-
-    # create columns for ba_code and fuel category
-    data[["ba_code", "fuel_category_eia930"]] = data["variable"].str.split(
-        r"[.-]", expand=True, regex=True
-    )[[1, 4]]
 
     # drop BAs not located in the United States
     ba_ref = pd.read_csv(reference_table_folder("ba_reference.csv"))
     foreign_bas = list(ba_ref.loc[ba_ref["us_ba"] == "No", "ba_code"])
-    data = data[~data["ba_code"].isin(foreign_bas)]
+    data = data[~data["ba_code"].isin(foreign_bas)].copy()
 
     data["datetime_local"] = ""
     for ba in list(data["ba_code"].unique()):
@@ -274,24 +329,12 @@ def load_chalendar_for_pipeline(cleaned_data_filepath: str, year: int) -> pd.Dat
     data["report_date"] = data["datetime_local"].str[:7]
     data["report_date"] = pd.to_datetime(data["report_date"]).astype("datetime64[s]")
 
-    # rename the fuel categories using format in
-    # data/manual/energy_source_groups
-    fuel_categories = {
-        "COL": "coal",
-        "NG": "natural_gas",
-        "OTH": "other",
-        "WAT": "hydro",
-        "WND": "wind",
-        "SUN": "solar",
-        "NUC": "nuclear",
-        "OIL": "petroleum",
-        "BIO": "biomass",
-        "GEO": "geothermal",
-    }
+    # rename the energy sources using the fuel categories in
+    # reference_tables/energy_source_groups.csv
+    data["fuel_category_eia930"] = data["generation_energy_source"].map(
+        energy_source_to_fuel_category_eia930
+    )
 
-    data["fuel_category_eia930"] = data["fuel_category_eia930"].map(fuel_categories)
-
-    # reorder the columns and remove the variable column
     data = data[
         [
             "ba_code",
@@ -301,7 +344,7 @@ def load_chalendar_for_pipeline(cleaned_data_filepath: str, year: int) -> pd.Dat
             "report_date",
             "net_generation_mwh_930",
         ]
-    ]
+    ].reset_index(drop=True)
 
     return data
 
@@ -325,56 +368,65 @@ def remove_imputed_ones(eia930_data: pd.DataFrame) -> pd.DataFrame:
 
 
 ###########################################################
-# Code for adjusting 930 data in gridemissions format
+# Code for adjusting 930 timestamps
 #
 ###########################################################
 
 
-def manual_930_adjust(raw: pd.DataFrame) -> pd.DataFrame:
-    """Adjust timestamps in EIA-930 timeseries.
+def manual_930_adjust(tables: EIA930Tables) -> EIA930Tables:
+    """Adjust timestamps in EIA-930 data.
+
+    Adjustment Steps:
+        - Make all end-of-hour
+            - Generation
+                - PJM: + 1 hour.
+                - CISO: + 1 hour before June 16, 2022.
+                        - 1 hour from November 1, 2023 to December 1, 2024.
+                - TEPC: + 1 hour. Fixed after Nov 1, 2021.
+                - SC: - 4 hours during daylight savings hours.
+                      - 5 hours during standard hours (this happens to be
+                      Eastern <-> UTC offset)
+                      Fixed after Jan 1, 2021
+                - AVA: + 1 hour during daylight saving hours in 2024.
+                - BANC: + 1 hour during first month of saving hours in 2024.
+            - Interchange
+                - PJM: + 4 hours
+                - TEPC: + 7 hours
+                - IID:  + 4 hours
+            - Interchange sign flipped
+                - PJM-{CPLE, CPLW, DUK, LGEE, MISO, NYIS, TVA} before 10/31/2019,
+                  4:00 UTC. This affects all interchange partners except OVEC, and
+                  excluding total interchange
+            - Other interchange
+                - AZPS - SRP flips gradually in Nov 2019, then abruptly back in
+                  06/2020 throughout, SRP - AZPS remains constant around 3000 MWh
+                  imported to AZPS from SRP. We assume SRP - AZPS is correct, and
+                  assign AZPS - SRP to be the inverse
+        - Make all start-of-hour.
 
     Args:
-        raw (pd.DataFrame): data frame to adjust.
+        tables (EIA930Tables): EIA-930 data to adjust.
 
     Returns:
-        pd.DataFrame: adjusted data frame.
+        EIA930Tables: adjusted EIA-930 data.
+    """
+    return melt_series_to_eia930_tables(
+        adjust_series_timestamps(pivot_eia930_tables_to_series(tables))
+    )
 
-    Note:
-        Assumes dataframe with timestamp as indices and one column per series (wide
-        format), where column names correspond to EIA series IDs:
-            "EBA.%s-ALL.D.H",  # Demand
-            "EBA.%s-ALL.NG.H",  # Generation
-            "EBA.%s-ALL.NG.%s.H",  # Generation by fuel type
-            "EBA.%s-ALL.TI.H",  # Total Interchange
-            "EBA.%s-%s.ID.H",  # Interchange
 
-        Adjustment Steps:
-            - Make all end-of-hour
-                - Generation
-                    - PJM: + 1 hour.
-                    - CISO: + 1 hour before June 16, 2022.
-                            - 1 hour from November 1, 2023 to December 1, 2024.
-                    - TEPC: + 1 hour. Fixed after Nov 1, 2021.
-                    - SC: - 4 hours during daylight savings hours.
-                          - 5 hours during standard hours (this happens to be
-                          Eastern <-> UTC offset)
-                          Fixed after Jan 1, 2021
-                    - AVA: + 1 hour during daylight saving hours in 2024.
-                    - BANC: + 1 hour during first month of saving hours in 2024.
-                - Interchange
-                    - PJM: + 4 hours
-                    - TEPC: + 7 hours
-                    - IID:  + 4 hours
-                - Interchange sign flipped
-                    - PJM-{CPLE, CPLW, DUK, LGEE, MISO, NYIS, TVA} before 10/31/2019,
-                      4:00 UTC. This affects all interchange partners except OVEC, and
-                      excluding total interchange
-                - Other interchange
-                    - AZPS - SRP flips gradually in Nov 2019, then abruptly back in
-                      06/2020 throughout, SRP - AZPS remains constant around 3000 MWh
-                      imported to AZPS from SRP. We assume SRP - AZPS is correct, and
-                      assign AZPS - SRP to be the inverse
-            - Make all start-of-hour.
+def adjust_series_timestamps(raw: pd.DataFrame) -> pd.DataFrame:
+    """Applies the adjustments described in `manual_930_adjust` to a series data frame.
+
+    Shifting a series by whole hours adds hours at the start or end of the data, where
+    the other series are blank.
+
+    Args:
+        raw (pd.DataFrame): series data frame, as returned by
+            `physics_reconciliation.pivot_eia930_tables_to_series`.
+
+    Returns:
+        pd.DataFrame: adjusted series data frame.
     """
     # SC offset = UTC <-> Eastern offset
     # This issue was corrected after Dec 31, 2020
@@ -499,15 +551,14 @@ def manual_930_adjust(raw: pd.DataFrame) -> pd.DataFrame:
     # Interchange AZPS - SRP is wonky before 6/1/2020 7:00 UTC. Use SRP - AZPS (inverted)
     azps_srp = get_int_columns("AZPS", raw.columns, ["SRP"])
     srp_azps = get_int_columns("SRP", raw.columns, ["AZPS"])
-    replacement = (raw.loc[:, srp_azps] * (-1)).rename(
-        columns={srp_azps[0]: azps_srp[0]}  # rename so Pandas will do the right thing
-    )
-    raw.loc[:"2020-06-01 07:00:00+00", azps_srp] = replacement[
-        :"2020-06-01 07:00:00+00"
-    ]
+    raw.loc[:"2020-06-01 07:00:00+00", azps_srp[0]] = raw.loc[
+        :"2020-06-01 07:00:00+00", srp_azps[0]
+    ] * (-1)
     # Update total interchange
-    all_cols = [c for c in get_int_columns("AZPS", raw.columns) if "ALL" not in c]
-    total_col = "EBA.AZPS-ALL.TI.H"
+    all_cols = [
+        c for c in get_int_columns("AZPS", raw.columns) if c[0] != TOTAL_INTERCHANGE
+    ]
+    total_col = (TOTAL_INTERCHANGE, "AZPS", "")
     raw.loc[:"2020-06-01 07:00:00+00", total_col] = raw.loc[
         :"2020-06-01 07:00:00+00", all_cols
     ].sum(axis=1)
@@ -556,41 +607,57 @@ def manual_930_adjust(raw: pd.DataFrame) -> pd.DataFrame:
     raw = pd.concat([raw, pjm_dat], axis="columns")
 
     # Shift all -1 hour to make start-of-hour
-    return raw.shift(-1, freq="h")
+    raw = raw.shift(-1, freq="h")
+    raw.index.name = "datetime_utc"
+    return raw
 
 
-def get_columns(ba: str, columns: list[str]) -> list:
-    GEN_ID = "EBA.{}-ALL.NG.H"
-    GEN_TYPE_ID = "EBA.{}-ALL.NG.{}.H"
-    DEM_ID = "EBA.{}-ALL.D.H"
-    SRC = ["COL", "NG", "NUC", "OIL", "OTH", "SUN", "UNK", "WAT", "WND", "GEO", "BIO"]
+def get_columns(ba: str, columns: pd.MultiIndex) -> list[tuple]:
+    """Returns the keys of a BA's generation by energy source, net generation and
+    demand series.
 
+    Args:
+        ba (str): BA code.
+        columns (pd.MultiIndex): columns of a series data frame.
+
+    Returns:
+        list[tuple]: keys of the BA's generation by energy source series that exist,
+            followed by the keys of its net generation and demand series.
+    """
     cols = [
-        GEN_TYPE_ID.format(ba, f) for f in SRC if GEN_TYPE_ID.format(ba, f) in columns
+        (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source)
+        for energy_source in ENERGY_SOURCES
+        if (NET_GENERATION_BY_ENERGY_SOURCE, ba, energy_source) in columns
     ]
-    cols.append(GEN_ID.format(ba))
-    cols.append(DEM_ID.format(ba))
+    cols.append((NET_GENERATION, ba, ""))
+    cols.append((DEMAND, ba, ""))
     return cols
 
 
-def get_int_columns(ba1: str, columns: list[str], ba2: list = []) -> list:
-    INTER_ID = "EBA.{}-{}.ID.H"
-    IT_ID = "EBA.{}-ALL.TI.H"
+def get_int_columns(
+    ba1: str, columns: pd.MultiIndex, ba2: list[str] | None = None
+) -> list[tuple]:
+    """Returns the keys of a BA's interchange series.
 
+    Args:
+        ba1 (str): BA code.
+        columns (pd.MultiIndex): columns of a series data frame.
+        ba2 (list[str] | None, optional): adjacent BAs to include. "ALL" means total
+            interchange. If None or empty, include all adjacent BAs and total
+            interchange. Defaults to None.
+
+    Returns:
+        list[tuple]: keys of the interchange series that exist, followed by the key of
+            total interchange if included.
+    """
     # Looking for everyone, including ALL
-    if ba2 == []:
-        other_cols = [
-            c
-            for c in columns
-            if re.split(r"[-.]", c)[1] == ba1 and re.split(r"[-.]", c)[2] != "ALL"
+    if not ba2:
+        ba2 = [key[2] for key in columns if key[0] == INTERCHANGE and key[1] == ba1] + [
+            "ALL"
         ]
-        ba2 = [re.split(r"[-.]", c)[2] for c in other_cols]
-        ba2.append("ALL")
 
-    cols = [
-        INTER_ID.format(ba1, ba) for ba in ba2 if (INTER_ID.format(ba1, ba) in columns)
-    ]
+    cols = [(INTERCHANGE, ba1, ba) for ba in ba2 if (INTERCHANGE, ba1, ba) in columns]
     if "ALL" in ba2:
-        if IT_ID.format(ba1) in columns:  # CFE lacks "ALL" interchange
-            cols.append(IT_ID.format(ba1))
+        if (TOTAL_INTERCHANGE, ba1, "") in columns:  # CFE lacks "ALL" interchange
+            cols.append((TOTAL_INTERCHANGE, ba1, ""))
     return cols
