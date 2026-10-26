@@ -109,15 +109,11 @@ The problem is solved independently for each hour using [cvxpy](https://www.cvxp
 
 ### Outputs
 
-Each step writes its results to `outputs/{year}/eia930/` as parquet files, in three tables that follow PUDL's EIA-930 tables: `operations` (demand, net generation, and total interchange for each BA), `net_generation_by_energy_source`, and `interchange` (between each pair of BAs). The files are named `eia930_{step}_{table}.parquet`, where the steps are:
+The data are written to `outputs/{year}/eia930/` as parquet files, in three tables that follow PUDL's EIA-930 tables: `operations` (demand, net generation, and total interchange for each BA), `net_generation_by_energy_source`, and `interchange` (between each pair of BAs). The files are named `eia930_{step}_{table}.parquet`, where the steps are:
 
 | Step | Description |
 | --- | --- |
-| `unadjusted` | EIA-930 data as loaded from PUDL |
-| `raw` | After the manual timestamp and sign adjustments |
-| `basic` | After basic cleaning |
-| `rolling` | After rolling window cleaning |
-| `weights` | The weight of each value in the reconciliation |
+| `raw` | After the manual timestamp and sign adjustments. The reconciliation can be run again from these without loading the data from PUDL |
 | `reconciled_without_energy_sources` | Reconciled data before July 1, 2018 (only when the data include those hours) |
 | `reconciled` | Reconciled data, used to build hourly profiles and to calculate consumption-based emissions |
 

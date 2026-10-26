@@ -65,9 +65,10 @@ def clean_930(year: int, path_prefix: str = "") -> EIA930Tables | None:
     """This is the coordinating function for loading, adjusting and reconciling
     EIA-930 data.
 
-    Writes the data at each step to `outputs/{path_prefix}/eia930/` as parquet files:
-    "unadjusted" (as loaded from PUDL), "raw" (after timestamp adjustments) and the
-    steps written by `physics_reconciliation.reconcile_eia930`.
+    Writes the data to `outputs/{path_prefix}/eia930/` as parquet files: "raw" (after
+    timestamp adjustments) and the steps written by
+    `physics_reconciliation.reconcile_eia930`. The raw data can be reconciled again
+    without loading it from PUDL.
 
     Args:
         year (int): a four-digit year.
@@ -81,7 +82,6 @@ def clean_930(year: int, path_prefix: str = "") -> EIA930Tables | None:
     data_folder = outputs_folder(f"{path_prefix}/eia930/")
 
     tables = load_eia930_balance_data(year)
-    write_eia930_tables(tables, data_folder, "unadjusted")
 
     logger.info("Adjusting EIA-930 time stamps")
     tables = manual_930_adjust(tables)

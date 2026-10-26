@@ -158,12 +158,7 @@ def reconcile_eia930(
     """This is the coordinating function for the physics-based reconciliation of
     EIA-930 data.
 
-    Each step writes its results to `output_folder` as parquet files, so they can be
-    inspected later:
-        - "basic": after basic cleaning
-        - "rolling": after rolling window cleaning
-        - "weights": the weight of each series in the optimization (values are weights,
-          not MWh)
+    Writes the results to `output_folder` as parquet files:
         - "reconciled_without_energy_sources": reconciled data before 2018-07-01,
           when generation by energy source is not reconciled. Only written if the data
           includes hours before that date.
@@ -189,16 +184,9 @@ def reconcile_eia930(
 
     logger.info("Basic data cleaning")
     series = apply_basic_cleaning(series)
-    write_eia930_tables(melt_series_to_eia930_tables(series), output_folder, "basic")
 
     logger.info("Rolling window data cleaning")
     series, weights = apply_rolling_window_cleaning(series)
-    write_eia930_tables(melt_series_to_eia930_tables(series), output_folder, "rolling")
-    write_eia930_tables(
-        melt_series_to_eia930_tables(weights, value_suffix="_weight"),
-        output_folder,
-        "weights",
-    )
 
     # generation by energy source stays at zero in the months in which it is zero
     # before reconciliation
