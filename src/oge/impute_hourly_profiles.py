@@ -2185,6 +2185,16 @@ def aggregate_eia_data_to_fleet(
     # create a column with shaped plant ids
     eia_agg = get_shaped_plant_id_from_ba_fuel(eia_agg)
 
+    # storage is shaped with the volumes of each subplant, as in the plant-level data,
+    # so that subplants whose net generation differs from discharge minus charge in
+    # opposite directions don't cancel out in the fleet
+    if set(STORAGE_DATA_COLUMNS).issubset(eia_agg.columns):
+        has_storage = eia_agg[STORAGE_DATA_COLUMNS].notna().any(axis=1)
+        (
+            eia_agg.loc[has_storage, "storage_discharge_mwh"],
+            eia_agg.loc[has_storage, "storage_charge_mwh"],
+        ) = calculate_storage_volumes_for_shaping(eia_agg.loc[has_storage])
+
     # Group
     fleet_groups = eia_agg.groupby(
         [
@@ -2209,6 +2219,30 @@ def aggregate_eia_data_to_fleet(
     )
 
     return eia_agg
+
+
+def calculate_storage_volumes_for_shaping(
+    data: pd.DataFrame,
+) -> tuple[pd.Series, pd.Series]:
+    """Calculates the monthly discharge and charge that storage is shaped with.
+
+    Where the monthly net generation isn't equal to the discharge minus the charge (see
+    `energy_storage.identify_inconsistent_net_generation`), the difference is added to
+    the charge if the net generation is lower, or to the discharge if it is higher, as
+    under-reported energy in that direction, so that shaping keeps the monthly net
+    generation. A blank charge or discharge counts as zero.
+
+    Args:
+        data (pd.DataFrame): monthly data with "net_generation_mwh" and
+            `STORAGE_DATA_COLUMNS`.
+
+    Returns:
+        tuple[pd.Series, pd.Series]: the discharge and the charge to shape.
+    """
+    discharge = data["storage_discharge_mwh"].fillna(0)
+    charge = data["storage_charge_mwh"].fillna(0)
+    difference = data["net_generation_mwh"] - (discharge - charge)
+    return discharge + difference.clip(lower=0), charge + (-difference).clip(lower=0)
 
 
 def shape_monthly_eia_data_as_hourly(
@@ -2307,21 +2341,14 @@ def shape_monthly_eia_data_as_hourly(
     ]
     shaped_monthly_data.loc[has_no_shares, "profile_method"] = "flat_zero_profile"
 
-    # hourly net generation of storage: the shaped discharge minus the shaped charge.
-    # Where the monthly net generation isn't equal to the discharge minus the charge
-    # (see energy_storage.identify_inconsistent_net_generation), the difference is
-    # added to the charge if the net generation is lower, or to the discharge if it is
-    # higher, as under-reported energy in that direction. This scales that direction's
-    # shaped values and keeps the monthly net generation. A blank charge or discharge
-    # counts as zero here, and the difference makes up for it.
+    # hourly net generation of storage: the shaped discharge minus the shaped charge
     if is_shaped_storage.any():
         storage = shaped_monthly_data.loc[is_shaped_storage]
-        discharge = storage["storage_discharge_mwh"].fillna(0)
-        charge = storage["storage_charge_mwh"].fillna(0)
-        difference = storage["net_generation_mwh"] - (discharge - charge)
-        storage_net_generation = (discharge + difference.clip(lower=0)) * storage[
-            "storage_discharge_profile"
-        ] - (charge + (-difference).clip(lower=0)) * storage["storage_charge_profile"]
+        discharge, charge = calculate_storage_volumes_for_shaping(storage)
+        storage_net_generation = (
+            discharge * storage["storage_discharge_profile"]
+            - charge * storage["storage_charge_profile"]
+        )
 
     # shape the data by multiplying the monthly activity data by the fraction of total
     # monthly activity occuring in that hour ("profile")

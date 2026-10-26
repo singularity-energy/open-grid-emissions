@@ -1516,3 +1516,70 @@ def test_select_storage_profiles_ignores_national_average_at_year_edges():
     assert (result[impute_hourly_profiles.STORAGE_PROFILE_COLUMNS] == 1.0).all(
         axis=None
     )
+
+
+def test_storage_fleet_shaping_matches_sum_of_subplants(
+    storage_profiles_for_shaping, monkeypatch
+):
+    """Storage fleets should be shaped with the sum of their subplants' shaping
+    volumes, so that the hourly fleet data is the sum of the hourly subplant data.
+
+    Two batteries each discharge 100 MWh and charge 120 MWh. The first's net
+    generation (-30 MWh) is 10 MWh lower than discharge minus charge, and the second's
+    (-10 MWh) is 10 MWh higher. Each is shaped with 100/130 and 110/120 MWh, so the
+    fleet should be shaped with 210/250 MWh, not with 200/240 MWh, where the
+    differences cancel.
+    """
+    monthly_data = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2],
+            "subplant_id": 1,
+            "ba_code": "AECI",
+            "fuel_category": "battery_storage",
+            "report_date": pd.to_datetime(["2025-01-01"] * 2).astype("datetime64[s]"),
+            "net_generation_mwh": [-30.0, -10.0],
+            "fuel_consumed_mmbtu": 0.0,
+            "storage_charge_mwh": 120.0,
+            "storage_discharge_mwh": 100.0,
+            "local_timezone_offset": _offset("US/Central"),
+        }
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "assign_fleet_to_subplant_data",
+        lambda data, *_, fuel_category_col, **__: data.assign(
+            **{fuel_category_col: "battery_storage"}
+        ),
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "assign_storage_shaping_category",
+        lambda data, *_, **__: data,
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "get_shaped_plant_id_from_ba_fuel",
+        lambda data: data.assign(shaped_plant_id=9001),
+    )
+
+    subplants = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_data, storage_profiles_for_shaping, 2025
+    )
+    fleet = impute_hourly_profiles.aggregate_eia_data_to_fleet(
+        monthly_data.drop(columns="local_timezone_offset"), None, None, 2025
+    ).assign(local_timezone_offset=_offset("US/Central"))
+    fleet = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        fleet,
+        storage_profiles_for_shaping,
+        2025,
+        fuel_category_col_for_shaping="fuel_category_for_shaping",
+    )
+
+    subplant_total = subplants.groupby("datetime_utc")["net_generation_mwh"].sum()
+    fleet_total = fleet.set_index("datetime_utc")["net_generation_mwh"]
+    assert fleet_total.to_numpy() == pytest.approx(
+        subplant_total.loc[fleet_total.index].to_numpy()
+    )
+    local_hour = fleet_total.index.tz_convert("US/Central").hour
+    assert fleet_total[local_hour == 19].sum() == pytest.approx(210.0)
+    assert fleet_total[local_hour == 3].sum() == pytest.approx(-250.0)
