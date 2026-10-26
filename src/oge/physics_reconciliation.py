@@ -117,6 +117,7 @@ DEMAND_LOWER_BOUND = 0.0  # MWh
 # beyond that before it is rejected.
 DEMAND_REJECT_BOUNDS = (0.0, 200e3)  # MWh
 GENERATION_REJECT_BOUNDS = (-50e3, 200e3)  # MWh
+INTERCHANGE_REJECT_BOUNDS = (-100e3, 100e3)  # MWh
 
 # settings of the Clarabel solver. With these tolerances, the reconciled values are
 # within about 0.01 MWh of the exact solution.
@@ -601,9 +602,9 @@ def create_reject_bounds(series: pd.DataFrame, regions: list[str]) -> defaultdic
     reject_bounds = defaultdict(lambda: GENERATION_REJECT_BOUNDS)
     for ba in regions:
         reject_bounds[(DEMAND, ba, "")] = DEMAND_REJECT_BOUNDS
-        reject_bounds[(TOTAL_INTERCHANGE, ba, "")] = (-100e3, 100e3)
+        reject_bounds[(TOTAL_INTERCHANGE, ba, "")] = INTERCHANGE_REJECT_BOUNDS
     for key in get_interchange_keys(series, regions):
-        reject_bounds[key] = (-100e3, 100e3)
+        reject_bounds[key] = INTERCHANGE_REJECT_BOUNDS
     reject_bounds[(DEMAND, "AZPS", "")] = (1.0, 30e3)
     reject_bounds[(DEMAND, "BANC", "")] = (1.0, 6.5e3)
     reject_bounds[(TOTAL_INTERCHANGE, "BANC", "")] = (-5e3, 5e3)
