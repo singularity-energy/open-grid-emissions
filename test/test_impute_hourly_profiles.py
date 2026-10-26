@@ -5,6 +5,7 @@ import pytest
 
 import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
+import oge.validation as validation
 
 
 def _offset(timezone, year=2025):
@@ -583,3 +584,105 @@ def test_expand_hourly_profiles_to_plant_timezones_caps_fill_at_edge_window(
     # the remaining 3 hours of the gap should still be missing, not filled
     assert eastern["profile"].iloc[4:7].isna().sum() == 3
     assert eastern["profile"].iloc[7:].isna().sum() == 0
+
+
+@pytest.fixture
+def zero_january_profiles():
+    """Hourly profiles for one 2025 fleet, with a profile of zero in every hour of
+    January, already converted to a percent of the monthly total.
+    """
+    year = 2025
+    grid = helpers.create_local_year_timestamps(year, "US/Central")
+    grid["ba_code"] = "AECI"
+    grid["fuel_category"] = "natural_gas"
+    grid["profile"] = (grid["report_date"].dt.month != 1).astype(float)
+    grid["flat_profile"] = 1.0
+    grid["profile_method"] = "residual_profile"
+    grid["local_timezone_offset"] = _offset("US/Central", year)
+    return impute_hourly_profiles.convert_profile_to_percent(
+        grid[
+            [
+                "ba_code",
+                "fuel_category",
+                "datetime_utc",
+                "report_date",
+                "profile",
+                "flat_profile",
+                "profile_method",
+                "local_timezone_offset",
+            ]
+        ],
+        group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
+        columns_to_convert=["profile", "flat_profile"],
+    )
+
+
+@pytest.fixture
+def monthly_fleet_data():
+    """Monthly EIA-923 data for the fleet in `zero_january_profiles`."""
+    return pd.DataFrame(
+        {
+            "ba_code": "AECI",
+            "fuel_category": "natural_gas",
+            "report_date": pd.date_range("2025-01-01", periods=12, freq="MS"),
+            "net_generation_mwh": 100.0,
+            "fuel_consumed_mmbtu": 50.0,
+            "local_timezone_offset": _offset("US/Central"),
+        }
+    )
+
+
+def test_shape_monthly_eia_data_as_hourly_flat_profile_for_zero_month(
+    zero_january_profiles, monthly_fleet_data
+):
+    """A month whose profile is zero in every hour should be shaped with a flat
+    profile, rather than dropped.
+
+    A profile of zeros gives blank shares of the monthly total (0 / 0), which used to
+    make the month's generation disappear from the hourly data.
+    """
+    shaped = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_fleet_data, zero_january_profiles, 2025
+    )
+
+    # no generation is lost
+    assert shaped["net_generation_mwh"].sum() == pytest.approx(1200.0)
+    january = shaped[shaped["report_date"].dt.month == 1]
+    # January is spread evenly over its hours, and flagged as such
+    assert january["net_generation_mwh"].sum() == pytest.approx(100.0)
+    assert january["net_generation_mwh"].nunique() == 1
+    assert (january["profile_method"] == "flat_zero_profile").all()
+    # the other months keep their own profile
+    assert (
+        shaped.loc[shaped["report_date"].dt.month != 1, "profile_method"]
+        == "residual_profile"
+    ).all()
+
+
+def test_validate_shaped_totals_raises_on_lost_months(
+    zero_january_profiles, monthly_fleet_data
+):
+    """Shaped data that lose part of the monthly totals should fail validation.
+
+    The check used to raise only if shaping added to the totals, so months lost in
+    shaping passed.
+    """
+    shaped = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_fleet_data, zero_january_profiles, 2025
+    )
+    group_keys = ["ba_code", "fuel_category"]
+    # complete data pass
+    validation.validate_shaped_totals(shaped, monthly_fleet_data, 2025, group_keys)
+    # a month with no shaped data fails
+    with pytest.raises(UserWarning):
+        validation.validate_shaped_totals(
+            shaped[shaped["report_date"].dt.month != 1],
+            monthly_fleet_data,
+            2025,
+            group_keys,
+        )
+    # so does a month whose shaped generation is too low
+    lower = shaped.copy()
+    lower.loc[lower["report_date"].dt.month == 2, "net_generation_mwh"] *= 0.5
+    with pytest.raises(UserWarning):
+        validation.validate_shaped_totals(lower, monthly_fleet_data, 2025, group_keys)

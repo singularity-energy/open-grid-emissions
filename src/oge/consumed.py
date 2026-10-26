@@ -246,32 +246,28 @@ class HourlyConsumed:
         per (BA, energy source)), all indexed by "datetime_utc", and `eia930_regions`,
         the BAs with any EIA-930 data.
 
-        Values with abs(x) < 1.5 are rounded to zero, to clear out the 1 MWh values
-        imputed by the reconciliation, mimicking `eia930.remove_imputed_ones`.
-
         Args:
             eia930_folder (str): folder with the reconciled EIA-930 parquet files.
         """
         tables = read_eia930_tables(eia930_folder, "reconciled")
 
-        def pivot_and_round(table, columns, values):
+        def pivot(table, columns, values):
             wide = table.pivot(index="datetime_utc", columns=columns, values=values)
             wide.index = wide.index.astype("datetime64[ns, UTC]")
-            wide[wide.abs() < 1.5] = 0
             return wide
 
-        self.demand = pivot_and_round(
+        self.demand = pivot(
             tables.operations, "balancing_authority_code_eia", "demand_mwh"
         )
-        self.net_generation = pivot_and_round(
+        self.net_generation = pivot(
             tables.operations, "balancing_authority_code_eia", "net_generation_mwh"
         )
-        self.interchange = pivot_and_round(
+        self.interchange = pivot(
             tables.interchange,
             ["balancing_authority_code_eia", "balancing_authority_code_adjacent_eia"],
             "interchange_mwh",
         )
-        self.net_generation_by_energy_source = pivot_and_round(
+        self.net_generation_by_energy_source = pivot(
             tables.net_generation_by_energy_source,
             ["balancing_authority_code_eia", "generation_energy_source"],
             "net_generation_mwh",
@@ -572,8 +568,6 @@ class HourlyConsumed:
         ID = np.nan_to_num(ID)
 
         # In some cases, we have zero generation but non-zero transmission
-        # usually due to imputed zeros during physics-based cleaning being set to 1.0
-        # but sometimes due to ok values being set to 1.0
         to_fix = (ID.sum(axis=1) > 0) & (G == 0)
         ID[:, to_fix] = 0
         ID[to_fix, :] = 0
