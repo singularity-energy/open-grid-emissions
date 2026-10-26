@@ -132,7 +132,9 @@ def test_reconcile_eia930_matches_reconciled_fixture(dates, tmp_path):
     would change the results for the others.
 
     The 2024 fixture covers the first weeks of storage reporting in several BAs (e.g.
-    ISNE, ERCO, NEVP), when negative storage values started to appear.
+    ISNE, ERCO, NEVP), when negative storage values started to appear. It includes the
+    energy sources that EIA-930 introduced in 2024 (e.g. battery storage, pumped
+    storage) as their own series.
 
     The reconciled fixtures were written by `write_reconciled_fixture`. The test checks
     that the same series and hours are reconciled, to values within

@@ -13,6 +13,37 @@ For the EIA-930 output tables published in PUDL, in addition to the original rep
 
 EIA has been collecting fuel-specific generation since July 2018, making this the newest of the data sources and the limiting factor in why our provided dataset begins in 2019. The data is provided to EIA from balancing authorities daily. There have been several reporting improvements since the beginning of collection, and some issues remain with the data reported to EIA from BAs. These issues include systematic issues with reported data and transient inconsistencies between data types and regions. We fix systematic issues using a correlation-based manual inspection process, then fix transient inconsistencies using the physics-based reconciliation process developed by [Chalendar and Benson (2021)](https://doi.org/10.1016/j.apenergy.2021.117761)
 
+### Energy sources
+EIA-930 originally reported generation for eight energy sources: coal, natural gas, nuclear, petroleum, hydro, solar, wind, and other, plus unknown. Starting in mid-2024, it split some of these into more specific energy sources. BAs started to report them at different times, and some only report part of them (for example, CISO reports geothermal separately but still reports its batteries in "other").
+
+| Original energy source | New energy sources |
+| --- | --- |
+| Hydro (including pumped storage) | Hydro (excluding pumped storage), pumped storage |
+| Solar | Solar (without integrated battery storage), solar with integrated battery storage |
+| Wind | Wind (without integrated battery storage), wind with integrated battery storage |
+| Other | Other, battery storage, other energy storage, geothermal |
+
+Each original energy source equals the sum of the new energy sources it was split into, so a BA's generation means the same thing before and after it starts reporting them. OGE keeps the new energy sources as their own series in the [physics-based reconciliation](Physics-based%20Reconciliation.md). Storage is reported as negative net generation when it charges more than it discharges. Some BAs (for example, ERCO) report battery charging as "unknown energy storage", which isn't in the EIA-930 instructions, and OGE keeps this as its own series too.
+
+PUDL renamed hydro, solar, and wind to "hydro excluding pumped storage", "solar without integrated battery storage", and "wind without integrated battery storage" on July 1, 2024 for every BA, so the new names don't mean that a BA has started reporting the new energy sources. OGE combines each pair into one series under the original name.
+
+For hourly profiles, the new energy sources are kept separate in the months after each BA started reporting them (see [Cutover dates](#cutover-dates) below and [Shaping Using Fleet-Specific Profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md#new-eia-930-energy-sources)), and added back to the energy source that included them before until then.
+
+#### Cutover dates
+Until a BA reports a new energy source, its generators of that type are still included in the energy source that included them before. For each BA and new energy source, OGE identifies a cutover date: the first day on which the BA reports a non-zero value, but no earlier than January 1, 2025. Zeros don't count, since some BAs (for example, TVA) report zeros for energy sources they don't have. Two shares of the hours after the cutover date describe how consistently it is reported: the share of hours with a value (including zero), which is low for BAs that leave the energy source blank in some hours (for example, FPC's batteries), and the share of hours with a non-zero value, which is low for energy sources that are rarely used or whose generation is mostly reported elsewhere (for example, CPLE's batteries before October 2025). Battery charging that a BA reports as "unknown energy storage" counts as reporting batteries. Data years before 2025 have no cutover dates.
+
+Detected dates can be replaced, or cleared for a BA that hasn't really switched, in [`eia930_energy_source_cutover_overrides.csv`](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/eia930_energy_source_cutover_overrides.csv).
+
+Each BA and new energy source is also compared with OGE's subplants in the BA with the matching `fuel_category_eia930_expanded` (see [Plant Primary Fuel](../Data%20Aggregation/Plant%20Primary%20Fuel.md#eia-930-fuel-categories)), and flagged as:
+
+Flag | Meaning
+---------|---------
+`reporting_and_resources` | The BA reports the energy source and has subplants of that type
+`resources_not_reporting` | The BA has subplants of that type but doesn't report the energy source, so they are still included in the energy source that included them before
+`reporting_without_resources` | The BA reports the energy source but OGE has no subplants of that type in the BA, which points to a difference in BA assignment or in how generators are categorized
+
+The cutover dates and flags are written to `outputs/{year}/eia930/eia930_energy_source_cutover.csv`.
+
 ### Systematic data issues
 We identified two types of issues with the data: 1) data reported with the wrong timestamp and 2) data reported with the wrong sign (this issue was specific to interchange data). To identify the specific time periods, BAs, and data types with each of these issues, we performed iterative lagged and windowed correlation between data sets that we expected to be highly correlated, fixing issues as we found them.
 

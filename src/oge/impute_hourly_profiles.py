@@ -15,6 +15,7 @@ from oge.helpers import (
     create_local_year_timestamps,
 )
 from oge.data_cleaning import complete_hourly_timeseries
+from oge.eia930 import assign_expanded_category_after_cutover
 
 logger = get_logger(__name__)
 
@@ -30,6 +31,7 @@ def calculate_hourly_profiles(
     year: int,
     transmission_only: bool = False,
     ba_column_name: str = "ba_code",
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Coordinating function for calculating the hourly residual profiles that will be
     used to shape monthly EIA data.
@@ -68,6 +70,11 @@ def calculate_hourly_profiles(
             profiles. Defaults to False.
         ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
             to define fleet composition. Defaults to "ba_code".
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source, as returned by
+            `eia930.calculate_energy_source_cutover_dates`. CEMS subplants in those
+            categories are subtracted from the new energy source in the months after
+            the cutover. Defaults to None, for no cutovers.
 
     Returns:
         pd.DataFrame: dataframe of hourly profiles (in MW) for each fleet. The table
@@ -85,6 +92,7 @@ def calculate_hourly_profiles(
         year,
         transmission_only=transmission_only,
         ba_column_name=ba_column_name,
+        cutover_dates=cutover_dates,
     )
 
     # add backstop profiles where residuals were not available
@@ -286,6 +294,7 @@ def aggregate_cems_to_fleet_for_residual_calc(
     datetime_col: str = "datetime_utc",
     ba_column_name: str = "ba_code",
     transmission_only: bool = False,
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Utility function for trying different BA aggregations in 930 and 923 data
 
@@ -303,6 +312,12 @@ def aggregate_cems_to_fleet_for_residual_calc(
         transmission_only (bool, optional): Whether or not to only consider subplants
             that are connected to the transmission grid when calculating residual
             profiles. Defaults to False.
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source, as returned by
+            `eia930.calculate_energy_source_cutover_dates`. In the months after a
+            cutover, subplants in that category are aggregated with the new energy
+            source instead of the original category. Defaults to None, for no
+            cutovers.
 
     Raises:
         UserWarning: If a fuel category cannot be assigned to a CEMS subplant
@@ -333,9 +348,51 @@ def aggregate_cems_to_fleet_for_residual_calc(
         other_attribute_cols=["distribution_flag"],
     )
 
+    # the expanded category of each subplant, used in the months after the BA switched
+    # to reporting it in a new EIA-930 energy source (e.g. battery storage)
+    cems_agg = cems_agg.merge(
+        assign_fleet_to_subplant_data(
+            subplant_data=cems_agg[["plant_id_eia", "subplant_id"]].drop_duplicates(),
+            plant_attributes_table=plant_attributes,
+            primary_fuel_table=primary_fuel_table,
+            year=year,
+            ba_col=ba_column_name,
+            primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+            fuel_category_col="fuel_category_eia930_expanded",
+        )[["plant_id_eia", "subplant_id", "fuel_category_eia930_expanded"]],
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
+
     if transmission_only:
         cems_agg = cems_agg[cems_agg["distribution_flag"] is False]
 
+    cems_agg = (
+        cems_agg.groupby(
+            [
+                ba_column_name,
+                "fuel_category_eia930",
+                "fuel_category_eia930_expanded",
+                datetime_col,
+            ],
+            dropna=False,
+        )["net_generation_mwh"]
+        .sum()
+        .reset_index()
+    )
+    # in the months after the BA switched to reporting a category in a new energy
+    # source, the category's generation is subtracted from that energy source instead
+    # of the original category. The months are the BA's local months, as in
+    # `eia930.prepare_eia930_for_shaping`, which differ from a plant's local months in
+    # the first and last hours of a month if the plant is in another timezone.
+    if cutover_dates is not None and len(cutover_dates) > 0:
+        cems_agg["report_date"] = calculate_ba_local_month(
+            cems_agg, ba_column_name, datetime_col
+        )
+    cems_agg = assign_expanded_category_after_cutover(
+        cems_agg.rename(columns={ba_column_name: "ba_code"}), cutover_dates
+    ).rename(columns={"ba_code": ba_column_name})
     cems_agg = (
         cems_agg.groupby(
             [ba_column_name, "fuel_category_eia930", datetime_col], dropna=False
@@ -354,6 +411,32 @@ def aggregate_cems_to_fleet_for_residual_calc(
     cems_agg = cems_agg.rename(columns={"net_generation_mwh": "cems_profile"})
 
     return cems_agg
+
+
+def calculate_ba_local_month(
+    data: pd.DataFrame, ba_column_name: str, datetime_col: str
+) -> pd.Series:
+    """Calculates the first day of the month of each hour in its BA's local time.
+
+    Args:
+        data (pd.DataFrame): data with a BA column and a UTC datetime column.
+        ba_column_name (str): name of the BA column.
+        datetime_col (str): name of the UTC datetime column.
+
+    Returns:
+        pd.Series: the first day of the BA-local month of each row (without a
+            timezone), or NaT for rows without a BA.
+    """
+    report_date = pd.Series(pd.NaT, index=data.index, dtype="datetime64[ns]")
+    for ba, rows in data.groupby(ba_column_name).groups.items():
+        report_date[rows] = (
+            data.loc[rows, datetime_col]
+            .dt.tz_convert(load_data.ba_timezone(ba=ba, type="local"))
+            .dt.tz_localize(None)
+            .dt.to_period("M")
+            .dt.to_timestamp()
+        )
+    return report_date
 
 
 def aggregate_non_930_fuel_categories(cems, plant_attributes):
@@ -388,6 +471,7 @@ def calculate_residual(
     year: int,
     transmission_only: bool = False,
     ba_column_name: str = "ba_code",
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Creates a dataframe of residual hourly profiles for each fleet.
 
@@ -408,6 +492,10 @@ def calculate_residual(
             profiles. Defaults to False.
         ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
             to define fleet composition. Defaults to "ba_code".
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source (see
+            `aggregate_cems_to_fleet_for_residual_calc`). Defaults to None, for no
+            cutovers.
 
     Returns:
         pd.DataFrame: Dataframe of hourly profiles, containing columns
@@ -423,6 +511,7 @@ def calculate_residual(
         "datetime_utc",
         ba_column_name,
         transmission_only,
+        cutover_dates=cutover_dates,
     )
 
     # clean up the eia930 data before merging
@@ -730,6 +819,13 @@ def impute_missing_hourly_profiles(
             df_temporary["imputation_method"] = "assumed_flat"
         elif fuel in ["other"]:
             # assign a flat profile
+            df_temporary = create_flat_profile(report_date, ba, fuel)
+            df_temporary["imputation_method"] = "assumed_flat"
+        # EIA-930 has no storage category to calculate a residual profile from, so
+        # assume a flat profile. Months with negative net generation (more charging
+        # than discharging) also get a flat profile when the data is shaped (see
+        # shape_monthly_eia_data_as_hourly)
+        elif fuel in ["storage"]:
             df_temporary = create_flat_profile(report_date, ba, fuel)
             df_temporary["imputation_method"] = "assumed_flat"
         else:
@@ -1504,8 +1600,10 @@ def expand_hourly_profiles_to_plant_timezones(
 
     expanded_profiles = []
     for ba_code, group in non_native_combos.groupby("ba_code", dropna=False):
-        ba_profile = hourly_profiles.loc[hourly_profiles["ba_code"] == ba_code].drop(
-            columns=["ba_code", "report_date"]
+        ba_profile = (
+            hourly_profiles.loc[hourly_profiles["ba_code"] == ba_code]
+            .drop(columns="ba_code")
+            .rename(columns={"report_date": "ba_report_date"})
         )
         if ba_profile.empty:
             continue
@@ -1562,6 +1660,33 @@ def expand_hourly_profiles_to_plant_timezones(
                 .sort_values(["fuel_category", "datetime_utc"])
                 .reset_index(drop=True)
             )
+            # if the adjacent ba-local month uses another method (e.g. a flat profile
+            # of 1s next to a profile in MW), its values aren't on the same scale, so
+            # those hours take the nearest value of the plant's own month instead
+            month_method = (
+                ba_profile.groupby(["fuel_category", "ba_report_date"])[
+                    "profile_method"
+                ]
+                .first()
+                .reindex(
+                    pd.MultiIndex.from_frame(
+                        reassembled[["fuel_category", "report_date"]]
+                    )
+                )
+                .to_numpy()
+            )
+            other_method = (
+                reassembled["ba_report_date"].notna()
+                & (reassembled["ba_report_date"] != reassembled["report_date"])
+                & (reassembled["profile_method"] != month_method)
+            )
+            reassembled.loc[other_method, fill_columns] = (
+                reassembled[fill_columns]
+                .mask(other_method)
+                .groupby([reassembled["fuel_category"], reassembled["report_date"]])
+                .transform(lambda column: column.ffill().bfill())
+                .loc[other_method]
+            )
 
             # fill only missing hours within EDGE_WINDOW_HOURS of the true start/end
             # of the year, where no adjacent-year ba data exists to join against,
@@ -1592,6 +1717,7 @@ def expand_hourly_profiles_to_plant_timezones(
                 edge_mask, fill_columns
             ]
 
+            reassembled = reassembled.drop(columns="ba_report_date")
             reassembled["ba_code"] = ba_code
             reassembled["local_timezone_offset"] = local_timezone_offset
             expanded_profiles.append(reassembled)

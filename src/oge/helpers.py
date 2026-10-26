@@ -12,6 +12,7 @@ from oge.constants import (
     earliest_data_year,
     latest_validated_year,
     current_early_release_year,
+    EIA930_INTEGRATED_STORAGE_CATEGORIES,
     ENERGY_STORAGE_PRIME_MOVERS,
 )
 from oge.filepaths import reference_table_folder, outputs_folder, results_folder
@@ -325,6 +326,11 @@ def assign_fleet_to_subplant_data(
     primary_fuel_table[primary_fuel_col] = primary_fuel_table[primary_fuel_col].fillna(
         primary_fuel_table[default_col]
     )
+    # the storage category of the plant identifies solar and wind with integrated
+    # storage in the expanded EIA-930 category
+    storage_category_cols = [
+        col for col in ["plant_storage_category"] if col in primary_fuel_table.columns
+    ]
     subplant_primary_fuel = primary_fuel_table[
         [
             "plant_id_eia",
@@ -332,6 +338,7 @@ def assign_fleet_to_subplant_data(
             primary_fuel_col,
             "subplant_primary_prime_mover_code",
         ]
+        + storage_category_cols
     ].drop_duplicates()
 
     subplant_primary_fuel = assign_fuel_category_to_esc(
@@ -339,7 +346,7 @@ def assign_fleet_to_subplant_data(
         fuel_category_names=[fuel_category_col],
         esc_column=primary_fuel_col,
         pm_column="subplant_primary_prime_mover_code",
-    )
+    ).drop(columns=storage_category_cols)
     if drop_primary_fuel_col:
         subplant_primary_fuel = subplant_primary_fuel.drop(
             columns=[primary_fuel_col, "subplant_primary_prime_mover_code"]
@@ -977,6 +984,7 @@ def assign_fuel_category_to_esc(
     fuel_category_names: list = ["fuel_category", "fuel_category_eia930"],
     esc_column: str = "energy_source_code",
     pm_column: str = "prime_mover_code",
+    storage_category_column: str = "plant_storage_category",
 ) -> pd.DataFrame:
     """Assigns a fuel category to each energy source code in a dataframe.
 
@@ -984,6 +992,15 @@ def assign_fuel_category_to_esc(
     also uses `prime_mover_code` to identify storage resources. A warning is logged for
     any resources that are missing a prime mover code, since these cannot be checked for
     the storage fuel category.
+
+    The "fuel_category_eia930_expanded" category follows the energy sources that
+    EIA-930 introduced in 2024, which the energy source code alone can't tell apart. If
+    prime mover data is available, pumped storage (prime mover PS) is assigned
+    "pumped_storage", batteries (BA) "battery_storage", and other storage that doesn't
+    burn a fuel (e.g. flywheels) "other_energy_storage". If the plant storage category
+    is available, solar and wind at plants with integrated storage (see
+    `EIA930_INTEGRATED_STORAGE_CATEGORIES`) are assigned
+    "solar_w_integrated_battery_storage" and "wind_w_integrated_battery_storage".
 
     Args:
         df (pd.DataFrame): table containing the `esc_column` column, and optionally
@@ -996,6 +1013,10 @@ def assign_fuel_category_to_esc(
         pm_column (str, optional): name of the column in `df` that contains the prime
             mover codes used to identify storage resources. Defaults to
             "prime_mover_code".
+        storage_category_column (str, optional): name of the column in `df` that
+            contains the storage category of the plant, used to identify solar and wind
+            with integrated storage for "fuel_category_eia930_expanded". Defaults to
+            "plant_storage_category".
 
     Returns:
         pd.DataFrame: original data frame with additional `fuel_category_names`
@@ -1069,6 +1090,37 @@ def assign_fuel_category_to_esc(
                 f"No prime mover code column '{pm_column}' provided to complete storage"
                 " fuel category assignment"
             )
+
+    # the expanded EIA-930 category separates storage by prime mover, and solar and
+    # wind with integrated storage by the storage category of their plant
+    if "fuel_category_eia930_expanded" in fuel_category_names:
+        if pm_column in df.columns:
+            df.loc[df[pm_column] == "PS", "fuel_category_eia930_expanded"] = (
+                "pumped_storage"
+            )
+            df.loc[df[pm_column] == "BA", "fuel_category_eia930_expanded"] = (
+                "battery_storage"
+            )
+            # storage that burns a fuel (e.g. compressed air storage that burns natural
+            # gas) keeps the category of its fuel
+            is_other_storage = df[pm_column].isin(["CE", "ES", "FW"]) & (
+                df[esc_column] == "MWH"
+            )
+            df.loc[is_other_storage.fillna(False), "fuel_category_eia930_expanded"] = (
+                "other_energy_storage"
+            )
+        if storage_category_column in df.columns:
+            is_integrated = df[storage_category_column].isin(
+                EIA930_INTEGRATED_STORAGE_CATEGORIES
+            )
+            df.loc[
+                is_integrated & (df["fuel_category_eia930_expanded"] == "solar"),
+                "fuel_category_eia930_expanded",
+            ] = "solar_w_integrated_battery_storage"
+            df.loc[
+                is_integrated & (df["fuel_category_eia930_expanded"] == "wind"),
+                "fuel_category_eia930_expanded",
+            ] = "wind_w_integrated_battery_storage"
 
     return df
 

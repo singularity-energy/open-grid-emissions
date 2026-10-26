@@ -385,6 +385,44 @@ def test_expand_hourly_profiles_to_plant_timezones(
     assert (expanded["fuel_category"] == "natural_gas").all()
 
 
+def test_expand_hourly_profiles_fills_hours_from_months_with_another_method(
+    native_hourly_profiles, plant_attributes_mixed_timezones
+):
+    """An Eastern plant in SOCO (Central) starts each month an hour before SOCO. If
+    SOCO's previous month uses another method, that hour's value isn't on the same
+    scale, so it takes the nearest value of the plant's own month instead. If both
+    months use the same method, the hour keeps SOCO's value.
+
+    SOCO's January and April are flat (1), February and March are residuals in MW
+    (200 and 300).
+    """
+    year = 2025
+    profiles = native_hourly_profiles.copy()
+    month = profiles["report_date"].dt.month
+    profiles["profile"] = month.map({2: 200.0, 3: 300.0}).fillna(1.0)
+    profiles["profile_method"] = month.map(
+        {2: "residual_profile", 3: "residual_profile"}
+    ).fillna("assumed_flat")
+
+    expanded = impute_hourly_profiles.expand_hourly_profiles_to_plant_timezones(
+        profiles, plant_attributes_mixed_timezones, year
+    ).set_index("datetime_utc")
+
+    # the first hour of the plant's month, which is the last hour of SOCO's month
+    def first_hour(day):
+        return expanded.loc[pd.Timestamp(day, tz="America/New_York").tz_convert("UTC")]
+
+    # flat January to February in MW: the hour takes February's value
+    assert first_hour("2025-02-01")["profile"] == 200.0
+    assert first_hour("2025-02-01")["profile_method"] == "residual_profile"
+    # February to March, both in MW: the hour keeps SOCO's February value
+    assert first_hour("2025-03-01")["profile"] == 200.0
+    # March in MW to flat April: the hour takes April's flat value
+    assert first_hour("2025-04-01")["profile"] == 1.0
+    assert first_hour("2025-04-01")["profile_method"] == "assumed_flat"
+    assert expanded["profile"].notna().all()
+
+
 def test_expand_hourly_profiles_to_plant_timezones_no_off_native_plants(
     native_hourly_profiles,
 ):
@@ -686,3 +724,182 @@ def test_validate_shaped_totals_raises_on_lost_months(
     lower.loc[lower["report_date"].dt.month == 2, "net_generation_mwh"] *= 0.5
     with pytest.raises(UserWarning):
         validation.validate_shaped_totals(lower, monthly_fleet_data, 2025, group_keys)
+
+
+@pytest.fixture
+def eia_only_storage_fleet():
+    """Monthly EIA-923 data, plant attributes and primary fuels for one battery
+    subplant in AECI that only reports to EIA, for January and February 2025.
+
+    January has positive net generation and February negative net generation (more
+    charging than discharging), as is common for storage. The residual profiles only
+    have an AECI natural gas fleet, since EIA-930 has no storage category.
+    """
+    monthly_data = pd.DataFrame(
+        {
+            "plant_id_eia": 1,
+            "subplant_id": 1,
+            "report_date": pd.to_datetime(["2025-01-01", "2025-02-01"]).astype(
+                "datetime64[s]"
+            ),
+            "net_generation_mwh": [744.0, -672.0],
+            "fuel_consumed_mmbtu": 0.0,
+            "fuel_consumed_for_electricity_mmbtu": 0.0,
+        }
+    )
+    plant_attributes = pd.DataFrame({"plant_id_eia": [1], "ba_code": ["AECI"]})
+    primary_fuel_table = pd.DataFrame(
+        {
+            "plant_id_eia": [1],
+            "subplant_id": [1],
+            "subplant_primary_fuel": ["MWH"],
+            "subplant_primary_fuel_from_capacity_mw": ["MWH"],
+            "subplant_primary_prime_mover_code": ["BA"],
+        }
+    )
+    residual_profiles = helpers.create_local_year_timestamps(2025, "US/Central")
+    residual_profiles["ba_code"] = "AECI"
+    residual_profiles["datetime_local"] = (
+        residual_profiles["datetime_utc"].dt.tz_convert("US/Central").astype(str)
+    )
+    residual_profiles["fuel_category"] = "natural_gas"
+    residual_profiles["eia930_profile"] = 100.0
+    residual_profiles["residual_profile"] = 100.0
+    return monthly_data, plant_attributes, primary_fuel_table, residual_profiles
+
+
+def test_impute_missing_hourly_profiles_flat_profile_for_eia_only_storage(
+    eia_only_storage_fleet,
+):
+    """A storage fleet that only reports to EIA should get a flat imputed profile, and
+    shaping it should keep its monthly totals, including a month of negative net
+    generation.
+
+    EIA-930 has no storage category, so every EIA-only storage fleet-month needs an
+    imputed profile. There used to be no imputation method for the "storage" fuel
+    category, which raised "Fuel category storage not recognized" in step 14.
+    """
+    monthly_data, plant_attributes, primary_fuel_table, residual_profiles = (
+        eia_only_storage_fleet
+    )
+    with patch(
+        "oge.impute_hourly_profiles.load_data.load_diba_data",
+        return_value=pd.DataFrame(
+            columns=[
+                "ba_code",
+                "ba_region",
+                "diba_code",
+                "diba_region",
+                "timezone_local",
+                "timezone_local_diba",
+            ]
+        ),
+    ):
+        hourly_profiles = impute_hourly_profiles.impute_missing_hourly_profiles(
+            monthly_data, residual_profiles, plant_attributes, primary_fuel_table, 2025
+        )
+
+    storage_profiles = hourly_profiles[hourly_profiles["fuel_category"] == "storage"]
+    # a flat profile for each month of storage data
+    assert set(storage_profiles["report_date"].dt.month) == {1, 2}
+    assert (storage_profiles["imputation_method"] == "assumed_flat").all()
+    assert (storage_profiles["imputed_profile"] == 1.0).all()
+
+    # shape the monthly data as in data_pipeline step 14 and
+    # shape_monthly_eia_data_as_hourly
+    storage_profiles = storage_profiles.assign(
+        profile=storage_profiles["imputed_profile"],
+        flat_profile=1.0,
+        profile_method="assumed_flat",
+        local_timezone_offset=_offset("US/Central"),
+    )
+    storage_profiles = impute_hourly_profiles.convert_profile_to_percent(
+        storage_profiles,
+        group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
+        columns_to_convert=["profile", "flat_profile"],
+    )
+    monthly_fleet_data = monthly_data.assign(
+        ba_code="AECI",
+        fuel_category="storage",
+        local_timezone_offset=_offset("US/Central"),
+    ).drop(columns=["plant_id_eia", "subplant_id"])
+    shaped = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_fleet_data, storage_profiles, 2025
+    )
+    monthly_totals = shaped.groupby("report_date", dropna=False)[
+        "net_generation_mwh"
+    ].sum()
+    # the monthly totals are kept
+    assert monthly_totals.to_list() == pytest.approx([744.0, -672.0])
+    # each month is spread evenly over its hours
+    assert (shaped.groupby("report_date")["net_generation_mwh"].nunique() == 1).all()
+    # the negative month is flagged as such
+    february = shaped[shaped["report_date"].dt.month == 2]
+    assert (february["profile_method"] == "flat_negative_generation").all()
+
+
+def test_residual_cems_switches_category_in_ba_local_month(monkeypatch):
+    """CEMS generation should switch to a new EIA-930 energy source in the BA's local
+    month, as EIA-930 does, not the plant's.
+
+    A battery in Georgia (US/Eastern) is in SOCO (US/Central), which started to report
+    battery storage on 2025-05-15, so from SOCO's June onwards. At 2025-06-01 04:00 UTC
+    the plant is in June but SOCO is still in May, so that hour stays in "other".
+    """
+    hours = pd.date_range("2025-06-01 03:00", periods=3, freq="h", tz="UTC")
+    cems = pd.DataFrame(
+        {
+            "plant_id_eia": 1,
+            "subplant_id": 1,
+            "datetime_utc": hours,
+            # the plant's local month
+            "report_date": pd.to_datetime(["2025-05-01", "2025-06-01", "2025-06-01"]),
+            "net_generation_mwh": [1.0, 2.0, 4.0],
+        }
+    )
+
+    def assign_fleet(subplant_data, fuel_category_col, **_):
+        return subplant_data.assign(
+            ba_code="SOCO",
+            distribution_flag=False,
+            **{
+                fuel_category_col: "battery_storage"
+                if fuel_category_col == "fuel_category_eia930_expanded"
+                else "other"
+            },
+        )
+
+    monkeypatch.setattr(
+        impute_hourly_profiles, "assign_fleet_to_subplant_data", assign_fleet
+    )
+    cutover_dates = pd.DataFrame(
+        {
+            "ba_code": ["SOCO"],
+            "generation_energy_source": ["battery_storage"],
+            "cutover_date": [pd.Timestamp("2025-05-15")],
+        }
+    )
+
+    cems_agg = impute_hourly_profiles.aggregate_cems_to_fleet_for_residual_calc(
+        cems,
+        cems.iloc[0:0],
+        cems.iloc[0:0],
+        plant_attributes=None,
+        primary_fuel_table=None,
+        year=2025,
+        cutover_dates=cutover_dates,
+    )
+
+    assert cems_agg.set_index("datetime_utc")["fuel_category"].to_dict() == {
+        # 2025-05-31 22:00 in SOCO
+        hours[0]: "other",
+        # 2025-05-31 23:00 in SOCO, but already June at the plant
+        hours[1]: "other",
+        # 2025-06-01 00:00 in SOCO
+        hours[2]: "battery_storage",
+    }
+    assert cems_agg.set_index("datetime_utc")["cems_profile"].to_dict() == {
+        hours[0]: 1.0,
+        hours[1]: 2.0,
+        hours[2]: 4.0,
+    }
