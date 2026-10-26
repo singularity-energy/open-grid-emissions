@@ -61,6 +61,10 @@ POLLUTANTS = ["CO2", "CH4", "N2O", "CO2E", "NOX", "SO2"]
 
 ADJUSTMENTS = ["for_electricity", "for_electricity_adjusted"]
 
+# every (pollutant, adjustment) series solved for consumed emission rates, in the
+# order of the last axis of the emission array built by `HourlyConsumed.build_matrices`
+POLLUTANT_ADJUSTMENTS = [(pol, adj) for pol in POLLUTANTS for adj in ADJUSTMENTS]
+
 
 def get_pollutant_mass_column_name(poll: str, adjustment: str, ba: str = "") -> str:
     """Get name of pollutant mass column.
@@ -153,64 +157,105 @@ def get_average_emission_factors(prefix: str) -> dict[str, dict[str, dict[str, f
 
 
 def consumption_emissions(
-    F: np.ndarray, P: np.ndarray, ID: np.ndarray
+    emissions: np.ndarray, generation: np.ndarray, interchange: np.ndarray
 ) -> tuple[np.ndarray, int]:
-    """Form and solve linear system to compute consumption emissions
+    """Solve for the consumed emission rate of every region in one hour.
 
-    From GRIDEMISSIONS: https://github.com/jdechalendar/gridemissions
+    Adapted from gridemissions (https://github.com/jdechalendar/gridemissions), which
+    implements the multi-regional input-output method of de Chalendar et al. (2019),
+    https://www.pnas.org/doi/full/10.1073/pnas.1912950116 (Equations 1 to 4).
+
+    Electricity available in region i comes from its own generation and from its
+    imports, and the emissions embodied in it come from region i's own emissions and
+    the emissions embodied in those imports. The consumed emission rate x_i of each
+    region therefore solves:
+
+        x_i * (p_i + U_i) - sum_j u_ij * x_j = f_i
+
+    where (using the notation of the consumption-based emissions methodology docs):
+        x_i: consumed emission rate of region i (mass per MWh)
+        p_i: net generation in region i (MWh)
+        u_ij: electricity imported into region i from region j (MWh)
+        U_i: total imports into region i, sum_j u_ij (MWh)
+        f_i: emissions from generation in region i (mass)
+
+    In matrix form this is `system_matrix @ x = emissions`, with
+    `system_matrix = diag(generation + total_imports) - imports`.
+
+    The system matrix only depends on generation and interchange, so several emission
+    series (e.g. different pollutants) for the same hour can be solved at once by
+    passing them as the columns of `emissions`.
 
     Args:
-        F (np.ndarray): emission vector.
-        P (np.ndarray): generation vector.
-        ID (np.ndarray): interchange matrix.
+        emissions (np.ndarray): emissions from generation in each region, as a vector
+            (n_regions,), or as a matrix (n_regions, n_series) with one column per
+            emission series.
+        generation (np.ndarray): net generation in each region (n_regions,).
+        interchange (np.ndarray): interchange between regions (n_regions, n_regions),
+            where `interchange[i, j]` is the net flow from region i to region j as
+            reported by region i: positive for exports, negative for imports.
 
     Returns:
-        tuple[np.ndarray, int]: intensity consumption emissions vector and number of
-            perturbed nodes
+        tuple[np.ndarray, int]: consumed emission rates, with the same shape as
+            `emissions`, and the number of isolated regions whose rate was set to zero.
 
-    Notes:
-    Create linear system to calculate consumption emissions
-    - See https://www.pnas.org/doi/full/10.1073/pnas.1912950116 (Equations 1 to 4)
-    - Start from Equation 1: x_i * d_i = f_i + sum_j x_j u_{ij}) - sum_k x_i u_{ki}
-    where:
-        x_i: intensity of electricity consumed at node i
-        x_j: intensity of electricity consumed at node j
-        d_i: electricity consumed at node i
-        u_{ij}: electricity imported from j to i
-        u_{ki}: electricity exported from i to k
-        f_i: pollutant production at node i
+    Raises:
+        np.linalg.LinAlgError: if the system matrix is singular, e.g. a region with no
+            generation and no imports that other regions report importing from.
+        ValueError: if an isolated region's solved rate isn't zero.
     """
 
     # numpy version must be high enough, otherwise np.linalg.cond fails on a matrix with
     # only zeros.
     assert Version(np.__version__) >= Version("1.15.1")
 
-    # Create and solve linear system
-    Imp = (-ID).clip(min=0)  # trade matrix reports exports - we want imports
-    I_tot = Imp.sum(axis=1)  # sum over columns
-    A = np.diag(P + I_tot) - Imp
-    b = F
+    # interchange reports flows from each region's point of view; keep only the
+    # imports, as non-negative flows into region i from region j
+    imports = (-interchange).clip(min=0)
+    total_imports = imports.sum(axis=1)
 
-    perturbed = []
-    if np.linalg.cond(A) > (1.0 / sys.float_info.epsilon):
-        # matrix is ill-conditioned
-        for i in range(len(A)):
-            if (np.abs(A[:, i]).sum() == 0.0) & (np.abs(A[i, :]).sum() == 0.0):
-                A[i, i] = 1.0  # slightly perturb that element
-                perturbed += [i]
-                # force this to be zero so the linear system makes sense
-                b[i] = 0.0
+    # electricity available in each region is its generation plus its imports, and
+    # each import brings in the consumed emission rate of the region it comes from
+    system_matrix = np.diag(generation + total_imports) - imports
+    # copy so that zeroing isolated regions below doesn't modify the caller's array
+    rhs = np.array(emissions, dtype=np.float64)
 
-    X = np.linalg.solve(A, b)
+    # A region with no generation, no imports, and no other region importing from it
+    # has an all-zero row and column, which makes the system singular. When the
+    # system is ill-conditioned, give each such isolated region the equation
+    # x_i = 0 so that the rest of the system can be solved.
+    isolated_regions = []
+    if np.linalg.cond(system_matrix) > (1.0 / sys.float_info.epsilon):
+        for i in range(len(system_matrix)):
+            if (np.abs(system_matrix[:, i]).sum() == 0.0) & (
+                np.abs(system_matrix[i, :]).sum() == 0.0
+            ):
+                system_matrix[i, i] = 1.0
+                isolated_regions += [i]
+                # zero the region's emissions in every series to match x_i = 0
+                rhs[i] = 0.0
 
-    for j in perturbed:
-        if X[j] != 0.0:
-            logger.warning("\n" + b[j].to_string())
-            logger.warning("\n" + np.abs(A[j, :]).sum().to_string())
-            logger.warning("\n" + np.abs(A[:, j]).sum().to_string())
-            raise ValueError("X[%d] is %.2f instead of 0" % (j, X[j]))
+    consumed_rates = np.linalg.solve(system_matrix, rhs)
 
-    return X, len(perturbed)
+    # isolated regions don't interact with the rest of the system, so their solved
+    # rate must be exactly the zero they were given
+    for i in isolated_regions:
+        if np.any(consumed_rates[i] != 0.0):
+            logger.warning(f"emissions of region {i}: {rhs[i]}")
+            logger.warning(
+                f"sum of abs(system_matrix[{i}, :]): "
+                f"{np.abs(system_matrix[i, :]).sum()}"
+            )
+            logger.warning(
+                f"sum of abs(system_matrix[:, {i}]): "
+                f"{np.abs(system_matrix[:, i]).sum()}"
+            )
+            raise ValueError(
+                f"consumed rate of isolated region {i} is {consumed_rates[i]} "
+                "instead of 0"
+            )
+
+    return consumed_rates, len(isolated_regions)
 
 
 class HourlyConsumed:
@@ -542,85 +587,124 @@ class HourlyConsumed:
 
         return mass_emissions, generation
 
-    def build_matrices(
-        self, pol: str, adj: str, date: pd.Timestamp
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Build interchange matrix, emission vector, and generation vector for a given
-        timestamp.
+    def build_matrices(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Build the inputs of `consumption_emissions` for every hour at once.
 
-        Args:
-            pol (str): pollutant name.
-            adj (str): adjustment type.
-            date (pd.Timestamp): timestamp for which to build matrices.
+        Each array covers every hour of `self.generation.index` (first axis) and every
+        region of `self.regions` (in that order), so the inputs for hour t are
+        `emissions_by_hour[t]`, `generation_by_hour[t]` and `interchange_by_hour[t]`.
+        Missing values are treated as zero.
 
         Returns:
-            tuple[np.ndarray, np.ndarray, np.ndarray]: interchange matrix, emission vector,
-                and generation vector.
+            tuple[np.ndarray, np.ndarray, np.ndarray]:
+                * emissions (hours, regions, series): emissions from generation in each
+                  region, with one series per entry of `POLLUTANT_ADJUSTMENTS`. Uses
+                  default per-fuel emission factors for import-only regions.
+                * generation (hours, regions): net generation in each region. Uses
+                  EIA-930 net generation for import-only regions.
+                * interchange (hours, regions, regions): `[t, i, j]` is the net flow
+                  from region i to region j reported by region i (positive for exports)
+                  in EIA-930. Zero for pairs of regions that don't trade.
         """
-        # Build transmission matrix from cleaned EIA-930 data
-        ID = np.zeros((len(self.regions), len(self.regions)))
-        for i, ri in enumerate(self.regions):
-            for j, rj in enumerate(self.regions):
-                if (ri, rj) in self.interchange.columns:
-                    ID[i][j] = self.interchange.loc[date, (ri, rj)]
+        hours = self.generation.index
+        n_regions = len(self.regions)
+        region_index = {region: i for i, region in enumerate(self.regions)}
 
-        # Build pollutant mass vector, using default per-fuel factors for import-only
-        # regions.
-        E = self.pollutant_mass_emissions[(adj, pol)].loc[date, self.regions].to_numpy()
+        # Build interchange arrays from cleaned EIA-930 data. Only pairs of regions
+        # that both take part in the linear system and have interchange data are
+        # filled; every other pair stays zero.
+        region_pairs = [
+            (from_region, to_region)
+            for (from_region, to_region) in self.interchange.columns
+            if (from_region in region_index) and (to_region in region_index)
+        ]
+        interchange_by_hour = np.zeros((len(hours), n_regions, n_regions))
+        if len(region_pairs) > 0:
+            from_index = [region_index[from_region] for from_region, _ in region_pairs]
+            to_index = [region_index[to_region] for _, to_region in region_pairs]
+            interchange_by_hour[:, from_index, to_index] = self.interchange.loc[
+                hours, region_pairs
+            ].to_numpy()
 
-        # Build generation vector, using 930 for import-only regions
-        G = np.zeros(len(self.regions))
-        for i, r in enumerate(self.regions):
-            if r in self.import_regions:
-                G[i] = self.net_generation.loc[date, r]
+        # Build emission arrays, using default per-fuel factors for import-only
+        # regions, with one series per (pollutant, adjustment) along the last axis.
+        emissions_by_hour = np.stack(
+            [
+                self.pollutant_mass_emissions[(adj, pol)]
+                .loc[hours, self.regions]
+                .to_numpy()
+                for pol, adj in POLLUTANT_ADJUSTMENTS
+            ],
+            axis=-1,
+        )
+
+        # Build generation arrays, using 930 for import-only regions
+        generation_by_hour = np.zeros((len(hours), n_regions))
+        for i, region in enumerate(self.regions):
+            if region in self.import_regions:
+                generation_by_hour[:, i] = self.net_generation.loc[hours, region]
             else:
-                G[i] = self.generation.loc[date, r]
+                generation_by_hour[:, i] = self.generation.loc[hours, region]
 
-        E = np.nan_to_num(E)
-        G = np.nan_to_num(G)
-        ID = np.nan_to_num(ID)
+        # treat missing values as zero so that every hour has a complete system
+        emissions_by_hour = np.nan_to_num(emissions_by_hour)
+        generation_by_hour = np.nan_to_num(generation_by_hour)
+        interchange_by_hour = np.nan_to_num(interchange_by_hour)
 
-        # In some cases, we have zero generation but non-zero transmission
-        to_fix = (ID.sum(axis=1) > 0) & (G == 0)
-        ID[:, to_fix] = 0
-        ID[to_fix, :] = 0
+        # In some cases, a region has zero generation but reports net exports, which
+        # can't be traced to any emissions. For those region-hours, drop the region's
+        # row and column of the interchange matrix so that it doesn't trade.
+        zero_generation_exporters = (interchange_by_hour.sum(axis=2) > 0) & (
+            generation_by_hour == 0
+        )
+        interchange_by_hour[
+            zero_generation_exporters[:, :, np.newaxis]
+            | zero_generation_exporters[:, np.newaxis, :]
+        ] = 0.0
 
-        return E, G, ID
+        return emissions_by_hour, generation_by_hour, interchange_by_hour
 
     def run(self):
-        """Orchestration method to calculate consumed emission rates"""
-        for pol in POLLUTANTS:
-            for adj in ADJUSTMENTS:
-                total_failed = 0
-                col = get_pollutant_rate_column_name(
-                    pol, adjustment=adj, generated=False
-                )
-                logger.info(f"Solving consumed {pol} {adj} emissions...")
-                # Calculate emissions
-                for date in self.generation.index:
-                    E, G, ID = self.build_matrices(pol, adj, date)
-                    # If we have NaNs, don't bother
-                    if (
-                        (np.isnan(G).sum() > 0)
-                        or (np.isnan(E).sum() > 0)
-                        or (np.isnan(ID).sum() > 0)
-                    ):
-                        consumed_emissions = np.full(len(self.regions), np.nan)
-                    else:
-                        # Run
-                        try:
-                            consumed_emissions, _ = consumption_emissions(E, G, ID)
-                        except np.linalg.LinAlgError:
-                            # These issues happen at boundary hours (beginning and end
-                            # of year) where we don't have full data for all BAs
-                            total_failed += 1
-                            consumed_emissions = np.full(len(self.regions), np.nan)
+        """Calculate hourly consumed emission rates for every region and series.
 
-                    # Export
-                    for i, r in enumerate(self.regions):
-                        self.results[r].loc[date, col] = consumed_emissions[i]
-                if total_failed > 0:
-                    logger.warning(
-                        f"{total_failed} hours failed to solve for consumed "
-                        f"{pol} {adj} emissions."
-                    )
+        Solves one linear system per hour with `consumption_emissions`, for all
+        (pollutant, adjustment) series at once, and writes the rates to the
+        consumed rate columns of `self.results`. Hours whose system can't be solved
+        are left as NaN.
+        """
+        logger.info("Solving consumed emissions for all pollutants and adjustments...")
+        emissions_by_hour, generation_by_hour, interchange_by_hour = (
+            self.build_matrices()
+        )
+
+        # Solve each hour's linear system once for all emission series, since the
+        # system matrix only depends on generation and interchange
+        consumed_rates = np.full(emissions_by_hour.shape, np.nan)
+        total_failed = 0
+        for t in range(len(generation_by_hour)):
+            # If we have NaNs, don't bother
+            if (
+                np.isnan(generation_by_hour[t]).any()
+                or np.isnan(emissions_by_hour[t]).any()
+                or np.isnan(interchange_by_hour[t]).any()
+            ):
+                continue
+            try:
+                consumed_rates[t], _ = consumption_emissions(
+                    emissions_by_hour[t], generation_by_hour[t], interchange_by_hour[t]
+                )
+            except np.linalg.LinAlgError:
+                # These issues happen at boundary hours (beginning and end of year)
+                # where we don't have full data for all BAs
+                total_failed += 1
+        if total_failed > 0:
+            logger.warning(
+                f"{total_failed} hours failed to solve for consumed emissions, for "
+                "every pollutant and adjustment."
+            )
+
+        # Export each region's consumed emission rates as whole columns
+        for s, (pol, adj) in enumerate(POLLUTANT_ADJUSTMENTS):
+            col = get_pollutant_rate_column_name(pol, adjustment=adj, generated=False)
+            for i, region in enumerate(self.regions):
+                self.results[region][col] = consumed_rates[:, i, s]
