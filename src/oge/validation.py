@@ -1346,28 +1346,37 @@ def hourly_profile_source_metric(
         .reset_index()
     )
 
-    method_order = {
-        "cems_reported": "0_cems_reported",
-        "eia_scaled_partial_cems_subplant": "1_eia_scaled_partial_cems_subplant",
-        "eia_shaped_partial_cems_plant": "2_eia_shaped_partial_cems_plant",
-        "eia_shaped_residual_profile": "3_eia_shaped_residual_profile",
-        "eia_shaped_shifted_residual_profile": "4_eia_shaped_shifted_residual_profile",
-        "eia_shaped_eia930_profile": "5_eia_shaped_eia930_profile",
-        "eia_shaped_cems_profile": "6_eia_shaped_cems_profile",
-        "eia_shaped_DIBA_average": "7_eia_shaped_DIBA_average",
-        "eia_shaped_national_average": "8_eia_shaped_national_average",
-        "eia_shaped_assumed_flat": "9_eia_shaped_assumed_flat",
-    }
-    profile_source["profile_method"] = profile_source["profile_method"].replace(
-        method_order
-    )
+    # sort the methods in this order within each ba, and any other methods after them
+    method_order = [
+        "cems_reported",
+        "eia_scaled_partial_cems_subplant",
+        "eia_shaped_partial_cems_plant",
+        "eia_shaped_residual_profile",
+        "eia_shaped_shifted_residual_profile",
+        "eia_shaped_eia930_profile",
+        "eia_shaped_other_residual_profile",
+        "eia_shaped_integrated_residual_profile",
+        "eia_shaped_net_load_proxy",
+        "eia_shaped_cems_profile",
+        "eia_shaped_DIBA_average",
+        "eia_shaped_national_average",
+        "eia_shaped_assumed_flat",
+        "eia_shaped_flat_negative_generation",
+        "eia_shaped_flat_zero_profile",
+    ]
 
-    profile_source = profile_source.sort_values(by=["ba_code", "profile_method"])
-
-    profile_source["profile_method"] = profile_source["profile_method"].str[2:]
+    def sort_methods(df: pd.DataFrame) -> pd.DataFrame:
+        rank = df["profile_method"].map({m: i for i, m in enumerate(method_order)})
+        return (
+            df.assign(rank=rank.fillna(len(method_order)))
+            .sort_values(by=["ba_code", "rank", "profile_method"])
+            .drop(columns="rank")
+        )
 
     # concat the national data to the ba data
-    profile_source = pd.concat([profile_source, national_source], axis=0)
+    profile_source = pd.concat(
+        [sort_methods(profile_source), sort_methods(national_source)], axis=0
+    )
 
     return profile_source
 
