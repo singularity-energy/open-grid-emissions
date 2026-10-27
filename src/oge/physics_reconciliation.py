@@ -6,11 +6,11 @@ always equal the sum of interchange with each neighbor, and two neighboring BAs 
 always agree on the interchange between them. This module cleans the data in three
 steps:
 
-1. Basic cleaning: drop values outside of realistic bounds, add series for BAs
-   outside of the US, and set the series of BAs to zero before they are activated
-   and after they retire.
+1. Basic cleaning: drop values outside of realistic bounds and add series for BAs
+   outside of the US.
 2. Rolling window cleaning: drop anomalous values using a rolling median and
-   percentile range, then fill gaps.
+   percentile range, then fill gaps. BAs are then set to zero in the hours before
+   they are activated and after they retire.
 3. Reconciliation: for each hour, find the smallest weighted adjustments to the data
    that make it physically consistent, using a quadratic program.
 
@@ -195,10 +195,9 @@ def reconcile_eia930(
             which defines the months in which generation by energy source is zero (see
             `find_zero_months`). BAs that aren't in it use UTC. Defaults to None.
         ba_active_periods (dict[str, tuple[pd.Timestamp, pd.Timestamp]] | None,
-            optional): first hour in which each BA exists and first hour in which it
-            no longer exists (UTC), either of which can be NaT (see
-            `zero_inactive_bas`). BAs that aren't in it are always active. Defaults to
-            None.
+            optional): for each BA, its activation date and its retirement date
+            (UTC), either of which can be NaT (see `find_inactive_hours`). BAs that
+            aren't in it are always active. Defaults to None.
 
     Raises:
         ValueError: if the data has hours before
@@ -222,17 +221,27 @@ def reconcile_eia930(
 
     logger.info("Basic data cleaning")
     series = apply_basic_cleaning(series)
-    series = zero_inactive_bas(series, ba_active_periods or {})
 
     logger.info("Rolling window data cleaning")
     series, weights = apply_rolling_window_cleaning(series)
 
-    # generation by energy source stays at zero in the months in which it is zero
-    # before reconciliation
+    # a BA reports nothing before it is activated or after it retires, but the gap
+    # filling above fills those hours with its nearest reported days. Set them back
+    # to zero.
+    inactive = find_inactive_hours(series, ba_active_periods or {})
+    series = series.mask(inactive, 0.0)
+
+    # the reconciliation keeps two kinds of values at zero: generation by energy
+    # source in the months in which it is zero, and the series of inactive BAs.
+    # Otherwise it could move them away from zero, e.g. to supply imports that a
+    # neighbor of a retired BA still reports.
     zero_months = find_zero_months(series, ba_timezones or {})
+    keep_at_zero = inactive | zero_months.reindex(
+        columns=series.columns, fill_value=False
+    )
 
     logger.info("Optimization-based cleaning")
-    reconciled, objective = reconcile_energy_balance(series, weights, zero_months)
+    reconciled, objective = reconcile_energy_balance(series, weights, keep_at_zero)
     reconciled_tables = melt_series_to_eia930_tables(reconciled)
     write_eia930_tables(reconciled_tables, output_folder, "reconciled")
     objective.to_frame().to_parquet(
@@ -596,78 +605,50 @@ def apply_basic_cleaning(series: pd.DataFrame) -> pd.DataFrame:
     return series
 
 
-def get_ba_keys(series: pd.DataFrame, ba: str) -> pd.Index:
-    """Returns the keys of a BA's series and of other BAs' interchange with it.
-
-    Args:
-        series (pd.DataFrame): series data frame.
-        ba (str): BA code.
-
-    Returns:
-        pd.Index: keys of the BA's series, and of the interchange series whose
-            adjacent BA is `ba`.
-    """
-    columns = series.columns
-    return columns[
-        (columns.get_level_values("balancing_authority_code_eia") == ba)
-        | (
-            (columns.get_level_values("field") == INTERCHANGE)
-            & (columns.get_level_values("other") == ba)
-        )
-    ]
-
-
-def zero_inactive_bas(
+def find_inactive_hours(
     series: pd.DataFrame,
     ba_active_periods: dict[str, tuple[pd.Timestamp, pd.Timestamp]],
 ) -> pd.DataFrame:
-    """Sets the series of BAs, and the interchange of other BAs with them, to zero
-    before the BAs are activated and from the hour they retire.
+    """Finds the hours in which each BA doesn't exist yet or no longer exists.
 
-    The data include months before and after the year, for the rolling window
-    cleaning. A BA that retires in those months or during the year (e.g. GRIF on
-    2023-11-01, in the data for 2023 and 2024) stops reporting, and the gap filling in
-    `apply_rolling_window_cleaning` would otherwise carry its last reported days
-    forward through the rest of the data. In the same way, a BA that is activated
-    during the data would have its first reported days carried back to the start of
-    the data. Zero series are kept at about zero by the reconciliation, since their
-    weights are high and generation by energy source that is zero for a whole month
-    stays at zero (see `find_zero_months`).
+    A BA is inactive before its activation date and from its retirement date on. In
+    those hours, its own series are inactive, and so is every other BA's interchange
+    with it.
+
+    The data include the three months before the year, so a BA that retires in those
+    months or during the year (e.g. GRIF on 2023-11-01, in the data for 2024) has a
+    gap that runs to the end of the data, and a BA activated during the data has a gap
+    from its start. The gap filling in `apply_rolling_window_cleaning` fills these
+    gaps with the BA's nearest reported days.
 
     Args:
         series (pd.DataFrame): series data frame.
-        ba_active_periods (dict[str, tuple[pd.Timestamp, pd.Timestamp]]): first hour
-            in which each BA exists and first hour in which it no longer exists (UTC),
-            either of which can be NaT.
+        ba_active_periods (dict[str, tuple[pd.Timestamp, pd.Timestamp]]): for each BA,
+            its activation date and its retirement date (UTC). Either can be NaT. BAs
+            that aren't in it are active in every hour.
 
     Returns:
-        pd.DataFrame: series data frame, with the series of each BA set to zero
-            outside of its active period.
+        pd.DataFrame: with the same index and columns as `series`, True where a BA is
+            inactive.
     """
-    series = series.copy()
+    columns = series.columns
+    inactive = pd.DataFrame(False, index=series.index, columns=columns)
     for ba, (activation_date, retirement_date) in sorted(ba_active_periods.items()):
-        keys = get_ba_keys(series, ba)
-        if len(keys) == 0:
-            continue
-        for inactive, description in [
-            (
-                series.index < activation_date,
-                f"before its activation on {activation_date}",
-            ),
-            (
-                series.index >= retirement_date,
-                f"from its retirement on {retirement_date}",
-            ),
-        ]:
-            if not inactive.any():
-                continue
-            reported = (series.loc[inactive, keys].fillna(0) != 0).to_numpy().sum()
+        is_ba_series = (
+            columns.get_level_values("balancing_authority_code_eia") == ba
+        ) | (
+            (columns.get_level_values("field") == INTERCHANGE)
+            & (columns.get_level_values("other") == ba)
+        )
+        hours = (series.index < activation_date) | (series.index >= retirement_date)
+        if is_ba_series.any() and hours.any():
             logger.info(
-                f"Setting the series of {ba} to zero {description}, replacing "
-                f"{reported} non-zero values"
+                f"{ba} is inactive in {hours.sum()} hours of the data, before its "
+                f"activation ({activation_date}) or from its retirement "
+                f"({retirement_date})"
             )
-            series.loc[inactive, keys] = 0.0
-    return series
+            inactive.loc[hours, is_ba_series] = True
+    return inactive
 
 
 def check_bas_start_or_stop_reporting(
@@ -675,31 +656,50 @@ def check_bas_start_or_stop_reporting(
     ba_active_periods: dict[str, tuple[pd.Timestamp, pd.Timestamp]],
     min_gap: pd.Timedelta = pd.Timedelta(days=30),
 ):
-    """Warns about BAs that start or stop reporting during the data, when the start or
-    stop isn't explained by their activation or retirement date.
+    """Warns about BAs whose reporting doesn't match their activation and retirement
+    dates.
 
-    Such a BA may have been activated or retired without its dates being in
-    `ba_reference.csv`. The gap filling in `apply_rolling_window_cleaning` would then
-    carry its first or last reported days through the gap (see `zero_inactive_bas`).
-    A BA reports in an hour if any of its own series has a value in that hour.
+    A BA that starts or stops reporting during the data without a date to explain it
+    may have been activated or retired without its dates being in `ba_reference.csv`.
+    It isn't set to zero by `find_inactive_hours`, so the gap filling would fill the
+    hours it doesn't report with its nearest reported days. A BA that reports data
+    before its activation date or after its retirement date may have a wrong date,
+    and that data is set to zero.
+
+    A BA reports in an hour if any of its demand, net generation, total interchange
+    or interchange series has a value. Generation by energy source isn't checked,
+    since the loader turns blank generation into zeros (see
+    `eia930.combine_renamed_energy_sources`).
 
     Args:
         series (pd.DataFrame): series data frame, before basic cleaning.
-        ba_active_periods (dict[str, tuple[pd.Timestamp, pd.Timestamp]]): first hour
-            in which each BA exists and first hour in which it no longer exists (UTC),
-            either of which can be NaT.
+        ba_active_periods (dict[str, tuple[pd.Timestamp, pd.Timestamp]]): for each BA,
+            its activation date and its retirement date (UTC). Either can be NaT.
         min_gap (pd.Timedelta, optional): shortest gap at the start or end of the data
             to warn about. Defaults to 30 days.
     """
     for ba in get_series_bas(series):
         keys = series.columns[
-            series.columns.get_level_values("balancing_authority_code_eia") == ba
+            (series.columns.get_level_values("balancing_authority_code_eia") == ba)
+            & (
+                series.columns.get_level_values("field")
+                != NET_GENERATION_BY_ENERGY_SOURCE
+            )
         ]
         reported = series.loc[:, keys].notna().any(axis=1)
         if not reported.any():
             continue
         first, last = reported[reported].index[[0, -1]]
         activation_date, retirement_date = ba_active_periods.get(ba, (pd.NaT, pd.NaT))
+        is_inactive = (series.index < activation_date) | (
+            series.index >= retirement_date
+        )
+        if (reported & is_inactive).any():
+            logger.warning(
+                f"{ba} reports EIA-930 data in {(reported & is_inactive).sum()} hours "
+                f"before its activation ({activation_date}) or from its retirement "
+                f"({retirement_date}) in ba_reference.csv, which is set to zero"
+            )
         if first - series.index[0] >= min_gap and not (
             pd.notna(activation_date) and activation_date >= first - min_gap
         ):
@@ -971,7 +971,7 @@ def find_zero_months(
 def reconcile_energy_balance(
     series: pd.DataFrame,
     weights: pd.DataFrame,
-    zero_months: pd.DataFrame | None = None,
+    keep_at_zero: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Makes the data physically consistent in each hour.
 
@@ -985,7 +985,7 @@ def reconcile_energy_balance(
           zero and their value before reconciliation. They can be negative where the
           data are negative, but the reconciliation can't make them more negative or
           turn positive values negative.
-        - generation by energy source stays at zero in the hours of `zero_months`
+        - series stay at zero where `keep_at_zero` is True
 
     The problem is the same for every hour except for its data and weights, so it is
     built once (see `HourlyReconciliationProblem`) and solved for each hour in turn.
@@ -995,9 +995,10 @@ def reconcile_energy_balance(
         series (pd.DataFrame): series data frame, with no blank values except where a
             series has no data.
         weights (pd.DataFrame): weight of each value, with the same shape as `series`.
-        zero_months (pd.DataFrame | None, optional): True for the hours in which a
-            generation by energy source series must stay at zero, as returned by
-            `find_zero_months`. Defaults to None, for no such hours.
+        keep_at_zero (pd.DataFrame | None, optional): True where a series must stay
+            at zero, e.g. generation by energy source in the months returned by
+            `find_zero_months`, or the series of inactive BAs returned by
+            `find_inactive_hours`. Defaults to None, for no such values.
 
     Returns:
         tuple[pd.DataFrame, pd.Series]: reconciled series data frame, and the value of
@@ -1013,17 +1014,15 @@ def reconcile_energy_balance(
     # select the weights by hour, so that each hour gets its own weights even if the
     # hours of `weights` are in a different order
     value_weights = weights.loc[series.index, problem.keys].to_numpy()
-    if zero_months is None:
-        zero_months = pd.DataFrame(False, index=series.index, columns=[])
-    is_zero_month = (
-        zero_months.reindex(
-            index=series.index, columns=problem.energy_source_keys, fill_value=False
-        )
+    if keep_at_zero is None:
+        keep_at_zero = pd.DataFrame(False, index=series.index, columns=[])
+    is_kept_at_zero = (
+        keep_at_zero.reindex(index=series.index, columns=problem.keys, fill_value=False)
         .fillna(False)
         .to_numpy(dtype=bool)
     )
     results = [
-        problem.solve(values[hour], value_weights[hour], is_zero_month[hour])
+        problem.solve(values[hour], value_weights[hour], is_kept_at_zero[hour])
         for hour in range(len(series))
     ]
 
@@ -1056,8 +1055,6 @@ class HourlyReconciliationProblem:
         keys (list[tuple]): keys of the series in the problem, in the order of the
             values passed to and returned by `solve`. Generation by energy source is
             only included for the energy sources in `ENERGY_SOURCES`.
-        energy_source_keys (list[tuple]): keys of the generation by energy source
-            series in the problem, in the order they appear in `keys`.
     """
 
     def __init__(self, series: pd.DataFrame):
@@ -1095,16 +1092,6 @@ class HourlyReconciliationProblem:
             ],
         }
         self.keys = [key for keys in keys_by_field.values() for key in keys]
-        self.energy_source_keys = keys_by_field[NET_GENERATION_BY_ENERGY_SOURCE]
-        # positions of the generation by energy source series in `keys`
-        self.energy_source_positions = np.array(
-            [
-                i
-                for i, key in enumerate(self.keys)
-                if key[0] == NET_GENERATION_BY_ENERGY_SOURCE
-            ],
-            dtype=int,
-        )
 
         # the data and the square root of the weights are set for each hour by `solve`
         self.values = cp.Parameter(len(self.keys))
@@ -1159,19 +1146,16 @@ class HourlyReconciliationProblem:
         energy_sources_to_ba = create_incidence_matrix(
             regions, [ba for _, ba in energy_source_pairs]
         )
-        # 1 for the generation by energy source series that must stay at zero in
-        # the hour, set by `solve`
-        self.is_zero_month = cp.Parameter(len(self.energy_source_keys), nonneg=True)
+        # 1 for the series that must stay at zero in the hour, set by `solve`
+        self.keep_at_zero = cp.Parameter(len(self.keys), nonneg=True)
         constraints += [
             # net generation is the sum of generation by energy source
             net_generation == energy_sources_to_ba @ generation,
-            # series that are zero for the whole month stay at zero. Their value
-            # before reconciliation is zero, so it's enough to constrain their
-            # adjustments, which keeps the problem DPP (compiled only once).
-            cp.multiply(
-                self.is_zero_month, self.adjustments[self.energy_source_positions]
-            )
-            == 0,
+            # series that must stay at zero (e.g. generation by energy source that is
+            # zero for the whole month) stay at zero. Their value before
+            # reconciliation is zero, so it's enough to constrain their adjustments,
+            # which keeps the problem DPP (compiled only once).
+            cp.multiply(self.keep_at_zero, self.adjustments) == 0,
         ]
 
         # sum of weight * adjustment ** 2
@@ -1182,7 +1166,7 @@ class HourlyReconciliationProblem:
         self,
         values: np.ndarray,
         weights: np.ndarray,
-        is_zero_month: np.ndarray | None = None,
+        keep_at_zero: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
         """Reconciles the data of one hour.
 
@@ -1190,9 +1174,8 @@ class HourlyReconciliationProblem:
             values (np.ndarray): value of each series in `keys`, with no blank values.
             weights (np.ndarray): weight of each series in `keys`, with no blank
                 values.
-            is_zero_month (np.ndarray | None, optional): True for each series in
-                `energy_source_keys` that must stay at zero. Defaults to None, for no
-                such series.
+            keep_at_zero (np.ndarray | None, optional): True for each series in
+                `keys` that must stay at zero. Defaults to None, for no such series.
 
         Raises:
             ValueError: if there are blank values, or if the solver does not find a
@@ -1209,10 +1192,9 @@ class HourlyReconciliationProblem:
         self.generation_lower_bounds.value = np.minimum(
             values[self.generation_positions], 0
         )
-        if is_zero_month is None:
-            is_zero_month = np.zeros(len(self.energy_source_keys), dtype=bool)
-        if len(self.energy_source_keys) > 0:
-            self.is_zero_month.value = is_zero_month.astype(float)
+        if keep_at_zero is None:
+            keep_at_zero = np.zeros(len(self.keys), dtype=bool)
+        self.keep_at_zero.value = keep_at_zero.astype(float)
         self.problem.solve(solver=cp.CLARABEL, **CLARABEL_SETTINGS)
         if self.problem.status != cp.OPTIMAL:
             raise ValueError(
@@ -1221,7 +1203,7 @@ class HourlyReconciliationProblem:
         reconciled = values + self.adjustments.value
         # exactly zero rather than within the solver's tolerance, so that months of
         # zeros can be recognized after reconciliation
-        reconciled[self.energy_source_positions[is_zero_month]] = 0.0
+        reconciled[keep_at_zero] = 0.0
         return reconciled, self.problem.value
 
 
