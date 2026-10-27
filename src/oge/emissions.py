@@ -340,7 +340,7 @@ def adjust_fuel_and_emissions_for_chp(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates an electric allocation factor for CHP subplants.
+    """Calculates an electric allocation factor for each subplant.
 
     The methodology is based on the formula in the eGRID2020 technical guide.
 
@@ -348,12 +348,19 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     generator_id or emissions_unit_id_epa since fuel consumption and generation data are
     not always assigned to the same generator within a subplant.
 
-    Calculates a unique EAF for each subplant-month-fuel.
+    Calculates a unique EAF for each subplant-month (and fuel, for EIA-923).
 
+    The formula is undefined or misleading in some cases, which are handled as follows:
+        - When generation is missing, the EAF is the reported ratio of fuel consumed
+          for electricity to total fuel consumed.
+        - At CHP subplants (subplants that report useful thermal output in any month),
+          the EAF is set to zero when generation is zero or negative and no useful
+          thermal output is reported, since no electricity was produced.
+        - Any remaining missing factors are set to one.
 
     Args:
         df (pd.DataFrame): dataframe with 'fuel_consumed_mmbtu', 'net_generation_mwh',
-            and fuel_consumed_mmbtu_for_electricity columns, mapped to 'subplant_id'
+            and 'fuel_consumed_for_electricity_mmbtu' columns, mapped to 'subplant_id'
 
     Returns:
         pd.DataFrame: the input dataframe with an 'electric_allocation_factor' column
@@ -373,7 +380,7 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
                 "net_generation_mwh",
             ]
         ]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
 
@@ -408,6 +415,28 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     df_subplant["electric_allocation_factor"] = df_subplant[
         "electric_allocation_factor"
     ].clip(0, 1)
+
+    # where generation is missing, use the reported fraction of fuel for electricity
+    missing_generation = df_subplant["net_generation_mwh"].isna()
+    df_subplant.loc[missing_generation, "electric_allocation_factor"] = (
+        df_subplant.loc[missing_generation, "fuel_consumed_for_electricity_mmbtu"]
+        / df_subplant.loc[missing_generation, "fuel_consumed_mmbtu"]
+    ).clip(0, 1)
+
+    # at CHP subplants, set the factor to zero when no electricity was generated (zero
+    # or negative generation) and no useful thermal output was reported
+    chp_subplant = (
+        df_subplant.groupby(["plant_id_eia", "subplant_id"])[
+            "useful_thermal_output_mmbtu"
+        ].transform("max")
+        > 0
+    )
+    df_subplant.loc[
+        chp_subplant
+        & (df_subplant["net_generation_mwh"] <= 0)
+        & (df_subplant["useful_thermal_output_mmbtu"] <= 0),
+        "electric_allocation_factor",
+    ] = 0
 
     # fill any missing factors with 1
     df_subplant["electric_allocation_factor"] = (

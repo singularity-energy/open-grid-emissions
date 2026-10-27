@@ -137,3 +137,84 @@ def test_adjust_emissions_for_biomass_cems():
         name="co2_mass_lb_adjusted",
     )
     pd.testing.assert_series_equal(result["co2_mass_lb_adjusted"], expected)
+
+
+@pytest.fixture
+def df_chp():
+    """Subplant-month data modeled on the University of Washington Power Plant (54809)
+    in 2023 (plant 1, subplant 1), plus a non-CHP subplant at the same plant (plant 1,
+    subplant 2), a non-CHP plant (plant 2), and a plant with missing generation and
+    reported thermal output (plant 3)."""
+    df = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1, 2, 3, 1, 2, 1],
+            "subplant_id": [1, 1, 1, 1, 1, 1, 1, 1, 2],
+            "report_date": pd.to_datetime(
+                [
+                    "2023-01-01",
+                    "2023-02-01",
+                    "2023-09-01",
+                    "2023-11-01",
+                    "2023-01-01",
+                    "2023-01-01",
+                    "2023-03-01",
+                    "2023-02-01",
+                    "2023-01-01",
+                ]
+            ),
+            "energy_source_code": ["NG"] * 9,
+            "fuel_consumed_mmbtu": [
+                163542.0,
+                150040.0,
+                30768.0,
+                56214.0,
+                100.0,
+                315.0,
+                57819.0,
+                100.0,
+                100.0,
+            ],
+            "fuel_consumed_for_electricity_mmbtu": [
+                163542.0,
+                150040.0,
+                30768.0,
+                788.0,
+                100.0,
+                291.0,
+                57819.0,
+                100.0,
+                100.0,
+            ],
+            "net_generation_mwh": [0.0, -5.0, 2.0, 478.0, 0.0, None, None, None, 0.0],
+        }
+    )
+    return emissions.calculate_electric_allocation_factor(df)
+
+
+def test_eaf_chp_zero_generation(df_chp):
+    """At a CHP subplant, zero or negative generation with no reported thermal output
+    allocates nothing to electricity."""
+    assert (df_chp.loc[[0, 1], "electric_allocation_factor"] == 0).all()
+
+
+def test_eaf_chp_positive_generation(df_chp):
+    """At a CHP subplant, positive generation uses the eGRID formula."""
+    assert df_chp.loc[2, "electric_allocation_factor"] == 1
+    assert df_chp.loc[3, "electric_allocation_factor"] == pytest.approx(
+        478 * 3.412 / (478 * 3.412 + 0.6 * (56214 - 788)), rel=1e-4
+    )
+
+
+def test_eaf_non_chp_zero_generation(df_chp):
+    """At a subplant that is not CHP, zero or missing generation allocates everything to
+    electricity, even if another subplant at the same plant is CHP."""
+    assert (df_chp.loc[[4, 7, 8], "electric_allocation_factor"] == 1).all()
+
+
+def test_eaf_missing_generation(df_chp):
+    """When generation is missing, the reported fraction of fuel for electricity is
+    used, including at a CHP subplant that reports no thermal output that month."""
+    assert df_chp.loc[5, "electric_allocation_factor"] == pytest.approx(
+        291 / 315, rel=1e-4
+    )
+    assert df_chp.loc[6, "electric_allocation_factor"] == 1
