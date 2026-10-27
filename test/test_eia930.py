@@ -24,7 +24,9 @@ from oge.physics_reconciliation import (
     ENERGY_SOURCES,
     NET_GENERATION_BY_ENERGY_SOURCE,
     EIA930Tables,
+    check_bas_start_or_stop_reporting,
     check_eia930_tables,
+    pivot_eia930_tables_to_series,
 )
 
 HOURS = pd.to_datetime(["2025-06-01 06:00", "2025-06-01 07:00"], utc=True)
@@ -278,6 +280,52 @@ def test_combine_renamed_energy_sources(pudl_generation_across_rename):
     # original energy sources are kept for every BA, even if never reported
     assert values.loc[("ISNE", "unknown")].to_list() == [0.0, 0.0]
     assert values.loc[("SOCO", "unknown")].to_list() == [0.0, 0.0]
+
+
+def test_check_bas_start_or_stop_reporting_after_loading(caplog):
+    """A BA that stops reporting should be reported after loading, even though PUDL
+    has blank generation rows for it, which the loader turns into zeros.
+    """
+    hours = pd.date_range("2023-10-01", periods=60 * 24, freq="h", tz="UTC")
+    stopped = hours >= pd.Timestamp("2023-10-21", tz="UTC")
+    generation = combine_renamed_energy_sources(
+        pd.DataFrame(
+            {
+                "datetime_utc": hours,
+                "balancing_authority_code_eia": "GRIF",
+                "generation_energy_source": "gas",
+                "net_generation_mwh": np.where(stopped, np.nan, 500.0),
+            }
+        )
+    )
+    assert (generation.loc[stopped, "net_generation_mwh"] == 0).all()
+    operations = pd.DataFrame(
+        {
+            "datetime_utc": hours,
+            "balancing_authority_code_eia": "GRIF",
+            "demand_mwh": np.where(stopped, np.nan, 1.0),
+            "net_generation_mwh": np.where(stopped, np.nan, 500.0),
+            "interchange_mwh": np.where(stopped, np.nan, 499.0),
+        }
+    )
+    interchange = pd.DataFrame(
+        columns=[
+            "datetime_utc",
+            "balancing_authority_code_eia",
+            "balancing_authority_code_adjacent_eia",
+            "interchange_mwh",
+        ]
+    )
+    series = pivot_eia930_tables_to_series(
+        EIA930Tables(operations, generation, interchange)
+    )
+
+    with caplog.at_level("WARNING"):
+        check_bas_start_or_stop_reporting(series, {})
+
+    assert [r.message for r in caplog.records if r.levelname == "WARNING"][
+        0
+    ].startswith("GRIF stops reporting")
 
 
 def test_combine_renamed_energy_sources_warns_about_both_names(
