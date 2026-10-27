@@ -1103,7 +1103,9 @@ def add_generators_for_missing_cems_subplants(
 
 def calculate_subplant_efs(gen_fuel_allocated):
     """
-    Calculates weighted emission factors for each subplant-month for filling in missing data.
+    Calculates weighted emission factors for each subplant-month for filling in missing
+    data, and the fraction of each subplant-month's CO2 that comes from biomass, which
+    is used to biomass-adjust CEMS data.
     """
 
     # Select only needed columns from gen_fuel_allocated to reduce memory
@@ -1114,6 +1116,7 @@ def calculate_subplant_efs(gen_fuel_allocated):
             "report_date",
             "fuel_consumed_mmbtu",
             "co2_mass_lb",
+            "co2_mass_lb_adjusted",
             "ch4_mass_lb",
             "n2o_mass_lb",
             "co2e_mass_lb",
@@ -1129,6 +1132,7 @@ def calculate_subplant_efs(gen_fuel_allocated):
         [
             "fuel_consumed_mmbtu",
             "co2_mass_lb",
+            "co2_mass_lb_adjusted",
             "ch4_mass_lb",
             "n2o_mass_lb",
             "co2e_mass_lb",
@@ -1146,6 +1150,11 @@ def calculate_subplant_efs(gen_fuel_allocated):
             subplant_efs[f"{pollutant}_mass_lb"] / subplant_efs["fuel_consumed_mmbtu"]
         )
 
+    # calculate the fraction of CO2 from biomass fuels
+    subplant_efs["biomass_co2_fraction"] = 1 - (
+        subplant_efs["co2_mass_lb_adjusted"] / subplant_efs["co2_mass_lb"]
+    )
+
     # only keep relevant columns
     subplant_efs = subplant_efs.reset_index()[
         [
@@ -1158,6 +1167,7 @@ def calculate_subplant_efs(gen_fuel_allocated):
             "co2e_lb_per_mmbtu",
             "nox_lb_per_mmbtu",
             "so2_lb_per_mmbtu",
+            "biomass_co2_fraction",
         ]
     ]
 
