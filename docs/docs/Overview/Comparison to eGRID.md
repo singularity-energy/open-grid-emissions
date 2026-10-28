@@ -2,6 +2,8 @@
 stoplight-id: egrid_comparison
 ---
 
+# Comparing Data to eGRID
+
 The Open Grid Emissions (OGE) methodology is based on the U.S. EPA's [eGRID](https://www.epa.gov/egrid) methodology, and both datasets are built mostly from the same public data (EPA CAMD/CEMS, EIA-860, and EIA-923). This page compares the two in three parts:
 
 1. **[What OGE provides that eGRID does not](#1-new-features-and-data-added-in-oge)**
