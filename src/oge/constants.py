@@ -57,6 +57,31 @@ ENERGY_STORAGE_PRIME_MOVERS = [
     "PS",  # Pumped Storage
 ]
 
+# fuel categories of energy storage resources (see
+# helpers.assign_fuel_category_to_esc). Pumped storage is identified by its prime mover
+# (PS), and all other storage (batteries, flywheels, etc.) is "battery_storage".
+STORAGE_FUEL_CATEGORIES = ["battery_storage", "pumped_storage"]
+
+# every fuel category that subplants, plants and fleets can be assigned in
+# `fuel_category`: the categories in reference_tables/energy_source_groups.csv and
+# STORAGE_FUEL_CATEGORIES. The power sector results also include "total" and
+# "residual" rows.
+FUEL_CATEGORIES = [
+    "battery_storage",
+    "biomass",
+    "coal",
+    "geothermal",
+    "hydro",
+    "natural_gas",
+    "nuclear",
+    "other",
+    "petroleum",
+    "pumped_storage",
+    "solar",
+    "waste",
+    "wind",
+]
+
 # storage categories (see energy_storage.STORAGE_CATEGORY_BY_METHOD) of plants whose
 # solar and wind generation EIA-930 reports as "with integrated battery storage". The
 # EIA-930 instructions don't define "integrated", but describe it as storage whose

@@ -431,12 +431,16 @@ def test_fuel_type_map_covers_every_energy_source():
     assert set(ENERGY_SOURCES) <= set(FUEL_TYPE_MAP)
 
 
-@pytest.mark.parametrize("has_storage_row", [True, False])
+@pytest.mark.parametrize(
+    "missing_storage_rows",
+    [[], ["pumped_storage"], ["battery_storage", "pumped_storage"]],
+)
 def test_get_average_emission_factors_uses_zero_for_storage(
-    has_storage_row, tmp_path, monkeypatch
+    missing_storage_rows, tmp_path, monkeypatch
 ):
-    """EIA-930 storage energy sources should get the US storage fleet's emission rate,
-    which is zero, and zero if the US fleet data has no storage row.
+    """EIA-930 storage energy sources should get the emission rate of the US pumped or
+    battery storage fleet, which is zero, and zero if the US fleet data has no row for
+    that storage fuel category.
 
     These rates apply to BAs outside of the US. Storage has no direct emissions, and
     emissions from the electricity used to charge it aren't tracked through storage
@@ -447,9 +451,15 @@ def test_get_average_emission_factors_uses_zero_for_storage(
         for pol in consumed.POLLUTANTS
         for adjustment in consumed.ADJUSTMENTS
     ]
-    rates = {"total": 800.0, "geothermal": 50.0, "solar": 0.0, "storage": -0.0}
-    if not has_storage_row:
-        del rates["storage"]
+    rates = {
+        "total": 800.0,
+        "geothermal": 50.0,
+        "solar": 0.0,
+        "battery_storage": -0.0,
+        "pumped_storage": -0.0,
+    }
+    for fuel_category in missing_storage_rows:
+        del rates[fuel_category]
     us_fleet = pd.DataFrame(
         {column: list(rates.values()) for column in columns},
         index=pd.Index(list(rates), name="fuel_category"),

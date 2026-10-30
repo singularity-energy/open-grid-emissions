@@ -797,10 +797,10 @@ def _hourly_series(ba, timezone, months, values, columns, extra=None):
 
 
 def test_assign_storage_shaping_category():
-    """Storage subplants should get the storage shaping category of their prime mover
-    and plant, and other subplants should keep their fuel category.
+    """Battery storage subplants should get the storage shaping category of their
+    plant, and pumped storage and other subplants should keep their fuel category.
 
-    - pumped storage gets "pumped_storage"
+    - pumped storage keeps "pumped_storage"
     - a battery at a co-located solar plant gets "solar_w_integrated_battery_storage"
     - a battery at a hybrid wind plant gets "wind_w_integrated_battery_storage"
     - a standalone battery gets "battery_storage"
@@ -822,7 +822,14 @@ def test_assign_storage_shaping_category():
         }
     )
     subplant_data = primary_fuel_table[["plant_id_eia", "subplant_id"]].assign(
-        fuel_category=["storage", "storage", "solar", "storage", "wind", "storage"]
+        fuel_category=[
+            "pumped_storage",
+            "battery_storage",
+            "solar",
+            "battery_storage",
+            "wind",
+            "battery_storage",
+        ]
     )
 
     result = impute_hourly_profiles.assign_storage_shaping_category(

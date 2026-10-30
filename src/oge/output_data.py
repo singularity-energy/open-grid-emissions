@@ -13,6 +13,7 @@ from oge.logging_util import get_logger
 from oge.constants import (
     ConversionFactors,
     CLEAN_FUELS,
+    FUEL_CATEGORIES,
     RESIDUAL_MIX_FUEL_CATEGORIES,
     earliest_validated_year,
     earliest_hourly_data_year,
@@ -571,7 +572,22 @@ def write_power_sector_results(
         include_hourly (bool): whether to include hourly results.
         include_monthly (bool): whether to include monthly results.
         include_annual (bool): whether to include annual results.
+
+    Raises:
+        ValueError: if `fleet_data` has a fuel category that isn't in
+            `FUEL_CATEGORIES`.
     """
+    # every fuel category in the results should be a known one, so that a category
+    # renamed in one module but not another doesn't silently become its own row
+    unknown_fuel_categories = set(fleet_data["fuel_category"].dropna()) - set(
+        FUEL_CATEGORIES
+    )
+    if len(unknown_fuel_categories) > 0:
+        raise ValueError(
+            "Power sector data has fuel categories that aren't in FUEL_CATEGORIES: "
+            f"{sorted(unknown_fuel_categories)}"
+        )
+
     # sum the data for all BAs to the national level
     national_keys = ["fuel_category", "report_date"] + (
         ["datetime_utc"] if include_hourly else []

@@ -32,8 +32,8 @@ def monthly_fleet_data():
     """Monthly fleet data for two BAs over two months.
 
     BA1 and BA2 both have natural gas and solar, with every data column equal to 1 for
-    BA1 and 2 for BA2. Only BA2 has storage, with negative net generation and non-zero
-    charging and discharging. Storage columns are blank for all other fuels. A third
+    BA1 and 2 for BA2. Only BA2 has battery storage, with negative net generation and
+    non-zero charging and discharging. Storage columns are blank for all other fuels. A third
     set of records has no BA and large values (100), so any test totals that include
     these records will be obviously wrong.
     """
@@ -54,7 +54,7 @@ def monthly_fleet_data():
             for month in ["2023-01-01", "2023-02-01"]:
                 record = {
                     "ba_code": ba,
-                    "fuel_category": "storage",
+                    "fuel_category": "battery_storage",
                     "report_date": pd.Timestamp(month),
                 }
                 record.update({col: 0.0 for col in DATA_COLUMNS})
@@ -126,11 +126,55 @@ def test_national_annual_results(monthly_fleet_data):
     assert national.loc["natural_gas", "net_generation_mwh"] == 6.0
     # storage columns are blank for non-storage fuels, and included in the total
     assert national.loc["natural_gas", STORAGE_DATA_COLUMNS].isna().all()
-    assert national.loc["storage", "storage_charge_mwh"] == 10.0
+    assert national.loc["battery_storage", "storage_charge_mwh"] == 10.0
     assert national.loc["total", "storage_charge_mwh"] == 10.0
     assert national.loc["total", "storage_discharge_mwh"] == 8.0
     # the total row sums all fuels, including negative storage net generation
     assert national.loc["total", "net_generation_mwh"] == 6.0 + 6.0 - 2.0
+
+
+def test_fuel_categories_without_data_have_no_row(monthly_fleet_data):
+    """A BA without data for a fuel category should have no row for it, rather than a
+    row of blanks or zeros.
+
+    Most BAs have no pumped storage, and many have no battery storage, so their files
+    only include the fuel categories they have (plus the total and residual rows).
+    """
+    outputs = capture_outputs(
+        monthly_fleet_data,
+        skip_outputs=False,
+        include_hourly=False,
+        include_monthly=False,
+        include_annual=True,
+    )
+    ba1 = outputs[("power_sector_data/annual/", "BA1")][0]
+    ba2 = outputs[("power_sector_data/annual/", "BA2")][0]
+
+    assert "battery_storage" not in set(ba1["fuel_category"])
+    assert "battery_storage" in set(ba2["fuel_category"])
+    assert "pumped_storage" not in set(ba2["fuel_category"])
+
+
+def test_unknown_fuel_category_raises(monthly_fleet_data):
+    """Fleet data with a fuel category that isn't in `FUEL_CATEGORIES` should raise an
+    error rather than be written as its own row.
+
+    This catches a fuel category that was renamed in one module but not another, such
+    as the old "storage" category that was split into "battery_storage" and
+    "pumped_storage".
+    """
+    monthly_fleet_data["fuel_category"] = monthly_fleet_data["fuel_category"].replace(
+        {"battery_storage": "storage"}
+    )
+
+    with pytest.raises(ValueError, match="storage"):
+        capture_outputs(
+            monthly_fleet_data,
+            skip_outputs=False,
+            include_hourly=False,
+            include_monthly=False,
+            include_annual=True,
+        )
 
 
 def test_national_annual_written_when_skipping_outputs(monthly_fleet_data):

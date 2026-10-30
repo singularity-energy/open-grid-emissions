@@ -34,19 +34,21 @@ In some cases, no generator's energy source code matches the primary fuel. This 
 
 ## Assigning Fuel Categories
 
-Each plant and subplant is assigned a `fuel_category` based on its primary fuel, using [this mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/energy_source_groups.csv). Any plant or subplant whose primary prime mover is one of the following energy storage prime movers is then assigned a `fuel_category` of `storage`, regardless of its primary fuel:
+Each plant and subplant is assigned a `fuel_category` based on its primary fuel, using [this mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/energy_source_groups.csv). Any plant or subplant whose primary prime mover is one of the following energy storage prime movers is then assigned a storage `fuel_category`, regardless of its primary fuel:
 
-Prime mover code | Description
----------|---------
-BA | Battery energy storage
-CE | Compressed air energy storage
-ES | Energy storage, other
-FW | Flywheel energy storage
-PS | Pumped storage hydroelectric
+Prime mover code | Description | `fuel_category`
+---------|---------|---------
+BA | Battery energy storage | `battery_storage`
+CE | Compressed air energy storage | `battery_storage`
+ES | Energy storage, other | `battery_storage`
+FW | Flywheel energy storage | `battery_storage`
+PS | Pumped storage hydroelectric | `pumped_storage`
 
-Compressed air energy storage (`CE`) is the exception. It is only assigned a `fuel_category` of `storage` if its primary fuel is `MWH`. Older compressed air storage plants burn natural gas to supplement the stored energy when discharging, so these keep the fuel category of their primary fuel (for example, `natural_gas`), and their emissions are reported with that fuel category. They are identified as `hybrid` storage instead (see [Energy Storage](Energy%20Storage.md)).
+Pumped storage is separated from other storage because it is a different technology that only exists in some BAs, and EIA-930 reports it as its own energy source. Batteries make up nearly all of the other storage (in 2025, flywheels discharged about 0.1% as much energy as batteries), so these are combined into `battery_storage`. Pumped storage also reports a primary fuel of `WAT`, the same as conventional hydro, so it is told apart by its prime mover. A plant with both conventional hydro and pumped storage subplants is assigned the fuel category of its primary prime mover, while each of its subplants keeps its own fuel category.
 
-Plants and subplants with a primary fuel of `MWH` are assigned a `fuel_category` of `storage`, regardless of prime mover.
+Compressed air energy storage (`CE`) is the exception. It is only assigned a `fuel_category` of `battery_storage` if its primary fuel is `MWH`. Older compressed air storage plants burn natural gas to supplement the stored energy when discharging, so these keep the fuel category of their primary fuel (for example, `natural_gas`), and their emissions are reported with that fuel category. They are identified as `hybrid` storage instead (see [Energy Storage](Energy%20Storage.md)).
+
+Plants and subplants with a primary fuel of `MWH` are assigned a `fuel_category` of `battery_storage` unless their prime mover is `PS`, including those with a missing prime mover.
 
 Plants and subplants that contain energy storage are also assigned a storage category (standalone, co-located, or hybrid), which is described in [Energy Storage](Energy%20Storage.md).
 

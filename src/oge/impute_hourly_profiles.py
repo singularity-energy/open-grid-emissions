@@ -4,7 +4,10 @@ import numpy as np
 
 # import open-grid-emissions modules
 from oge.column_checks import apply_dtypes, DATA_COLUMNS, STORAGE_DATA_COLUMNS
-from oge.constants import EIA930_INTEGRATED_STORAGE_CATEGORIES
+from oge.constants import (
+    EIA930_INTEGRATED_STORAGE_CATEGORIES,
+    STORAGE_FUEL_CATEGORIES,
+)
 import oge.load_data as load_data
 from oge.filepaths import reference_table_folder
 import oge.validation as validation
@@ -975,7 +978,8 @@ def identify_missing_profiles(
     # storage gets its own discharging and charging profiles (see
     # calculate_storage_profiles)
     ba_fuel_to_distribute = monthly_eia_data_to_shape.loc[
-        monthly_eia_data_to_shape["fuel_category"] != "storage", MONTHLY_GROUP_COLUMNS
+        ~monthly_eia_data_to_shape["fuel_category"].isin(STORAGE_FUEL_CATEGORIES),
+        MONTHLY_GROUP_COLUMNS,
     ].drop_duplicates()
     missing_profiles = ba_fuel_to_distribute.merge(
         available_profiles,
@@ -2094,9 +2098,8 @@ def get_shaped_plant_id_from_ba_fuel(df: pd.DataFrame) -> pd.DataFrame:
         "other": "07",
         "petroleum": "08",
         "solar": "09",
-        "storage": "10",
         "battery_storage": "10",
-        "pumped_storage": "10",
+        "pumped_storage": "13",
         "solar_w_integrated_battery_storage": "10",
         "wind_w_integrated_battery_storage": "10",
         "waste": "11",
@@ -2962,35 +2965,30 @@ def assign_storage_shaping_category(
     primary_fuel_table: pd.DataFrame,
     fuel_category_col: str = "fuel_category",
 ) -> pd.DataFrame:
-    """Replaces the "storage" fuel category of storage subplants with the storage
-    shaping category whose profiles shape them.
+    """Replaces the "battery_storage" fuel category of storage subplants at plants with
+    integrated storage with the storage shaping category whose profiles shape them.
 
-    Pumped storage (prime mover PS) is "pumped_storage". Other storage at plants with
-    integrated storage (`EIA930_INTEGRATED_STORAGE_CATEGORIES`, as for solar and wind
-    in `helpers.assign_fuel_category_to_esc`) is "solar_w_integrated_battery_storage"
-    if the plant has solar, or "wind_w_integrated_battery_storage" if it has wind. All
-    other storage is "battery_storage".
+    Battery storage at plants with integrated storage
+    (`EIA930_INTEGRATED_STORAGE_CATEGORIES`, as for solar and wind in
+    `helpers.assign_fuel_category_to_esc`) is "solar_w_integrated_battery_storage" if
+    the plant has solar, or "wind_w_integrated_battery_storage" if it has wind. All
+    other battery storage stays "battery_storage", and pumped storage is shaped with
+    the "pumped_storage" profiles of its own fuel category.
 
     Args:
         subplant_data (pd.DataFrame): data with "plant_id_eia", "subplant_id" and
             `fuel_category_col` columns.
         primary_fuel_table (pd.DataFrame): table of primary fuels by generator, with
-            "subplant_primary_prime_mover_code", "plant_storage_category" and
-            "energy_source_code" columns.
+            "plant_storage_category" and "energy_source_code" columns.
         fuel_category_col (str, optional): the fuel category column to update.
             Defaults to "fuel_category".
 
     Returns:
         pd.DataFrame: `subplant_data` with the storage shaping category instead of
-            "storage" in `fuel_category_col`.
+            "battery_storage" in `fuel_category_col`.
     """
     categories = primary_fuel_table.copy()[
-        [
-            "plant_id_eia",
-            "subplant_id",
-            "subplant_primary_prime_mover_code",
-            "plant_storage_category",
-        ]
+        ["plant_id_eia", "subplant_id", "plant_storage_category"]
     ].drop_duplicates(subset=["plant_id_eia", "subplant_id"])
     categories = categories.merge(
         primary_fuel_table.assign(
@@ -3009,13 +3007,10 @@ def assign_storage_shaping_category(
     )
     categories["storage_shaping_category"] = np.select(
         [
-            # some subplants are missing a prime mover code
-            categories["subplant_primary_prime_mover_code"].eq("PS").fillna(False),
             is_integrated & categories["has_solar"].eq(True),
             is_integrated & categories["has_wind"].eq(True),
         ],
         [
-            "pumped_storage",
             "solar_w_integrated_battery_storage",
             "wind_w_integrated_battery_storage",
         ],
@@ -3027,9 +3022,9 @@ def assign_storage_shaping_category(
         on=["plant_id_eia", "subplant_id"],
         validate="m:1",
     )
-    is_storage = subplant_data[fuel_category_col] == "storage"
-    subplant_data.loc[is_storage, fuel_category_col] = subplant_data.loc[
-        is_storage, "storage_shaping_category"
+    is_battery_storage = subplant_data[fuel_category_col] == "battery_storage"
+    subplant_data.loc[is_battery_storage, fuel_category_col] = subplant_data.loc[
+        is_battery_storage, "storage_shaping_category"
     ]
     return subplant_data.drop(columns="storage_shaping_category")
 

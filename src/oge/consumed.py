@@ -8,7 +8,7 @@ from packaging.version import Version
 from oge.physics_reconciliation import ENERGY_SOURCES, read_eia930_tables
 from oge.filepaths import reference_table_folder, results_folder
 from oge.logging_util import get_logger
-from oge.constants import TIME_RESOLUTIONS
+from oge.constants import STORAGE_FUEL_CATEGORIES, TIME_RESOLUTIONS
 from oge.output_data import (
     GENERATED_EMISSION_RATE_COLS,
     CONSUMED_EMISSION_RATE_COLS,
@@ -35,8 +35,8 @@ EMISSION_COLS = [
 ]
 
 # maps EIA-930 energy sources to the fuel categories of the US fleet average emission
-# rates used for BAs outside of the US. Energy storage uses the rate of the US storage
-# fleet, which has no direct emissions, so its rate is zero. Emissions from the
+# rates used for BAs outside of the US. Energy storage uses the rate of the US pumped or
+# battery storage fleet, which has no direct emissions, so its rate is zero. Emissions from the
 # electricity used to charge storage are not yet tracked through storage.
 FUEL_TYPE_MAP = {
     "coal": "coal",
@@ -48,12 +48,12 @@ FUEL_TYPE_MAP = {
     "unknown": "total",
     "hydro": "hydro",
     "wind": "wind",
-    "pumped_storage": "storage",
+    "pumped_storage": "pumped_storage",
     "solar_w_integrated_battery_storage": "solar",
     "wind_w_integrated_battery_storage": "wind",
-    "battery_storage": "storage",
-    "unknown_energy_storage": "storage",
-    "other_energy_storage": "storage",
+    "battery_storage": "battery_storage",
+    "unknown_energy_storage": "battery_storage",
+    "other_energy_storage": "battery_storage",
     "geothermal": "geothermal",
 }
 
@@ -142,8 +142,11 @@ def get_average_emission_factors(prefix: str) -> dict[str, dict[str, dict[str, f
             for fuel in ENERGY_SOURCES:
                 column = get_pollutant_rate_column_name(pol, adjustment, generated=True)
                 # guard: storage has no direct emissions, so use zero rather than the
-                # total average if the US fleet data has no storage row
-                if FUEL_TYPE_MAP[fuel] == "storage" and "storage" not in genavg.index:
+                # total average if the US fleet data has no row for its storage type
+                if (
+                    FUEL_TYPE_MAP[fuel] in STORAGE_FUEL_CATEGORIES
+                    and FUEL_TYPE_MAP[fuel] not in genavg.index
+                ):
                     efs[pol][adjustment][fuel] = 0.0
                 elif FUEL_TYPE_MAP[fuel] not in genavg.index:
                     logger.warning(

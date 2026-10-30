@@ -6,6 +6,8 @@ import pytest
 
 import oge.data_cleaning as data_cleaning
 import oge.helpers as helpers
+from oge.constants import FUEL_CATEGORIES, STORAGE_FUEL_CATEGORIES
+from oge.filepaths import reference_table_folder
 
 
 @pytest.fixture
@@ -345,6 +347,57 @@ def test_assign_fuel_category_to_esc_expanded_eia930_categories():
 
     assert result["fuel_category_eia930_expanded"].to_list() == (
         result["expected"].to_list()
+    )
+
+
+def test_assign_fuel_category_to_esc_storage_categories():
+    """Pumped storage should get the "pumped_storage" fuel category, and all other
+    storage "battery_storage", using the prime mover where the energy source code
+    isn't enough.
+
+    These are the fuel categories of storage in the plant, fleet and power sector
+    results:
+        - pumped storage and conventional hydro both report WAT, and are told apart by
+          prime mover
+        - batteries, flywheels and compressed air storage that stores electricity are
+          all "battery_storage", as is MWH storage without a prime mover
+        - compressed air storage that burns gas keeps its fuel's category
+    """
+    resources = pd.DataFrame(
+        [
+            ("WAT", "PS", "pumped_storage"),
+            ("WAT", "HY", "hydro"),
+            ("MWH", "BA", "battery_storage"),
+            ("MWH", "FW", "battery_storage"),
+            ("MWH", "ES", "battery_storage"),
+            ("MWH", "CE", "battery_storage"),
+            ("MWH", None, "battery_storage"),
+            ("NG", "CE", "natural_gas"),
+            ("SUN", "PV", "solar"),
+        ],
+        columns=["energy_source_code", "prime_mover_code", "expected"],
+    )
+
+    result = helpers.assign_fuel_category_to_esc(
+        resources, fuel_category_names=["fuel_category"]
+    )
+
+    assert result["fuel_category"].to_list() == result["expected"].to_list()
+
+
+def test_fuel_categories_include_every_reference_table_category():
+    """`FUEL_CATEGORIES` should list every fuel category that the energy source groups
+    table and the storage prime movers can assign, and nothing else.
+
+    `FUEL_CATEGORIES` is the one place that lists the fuel categories of the results,
+    so a category added to the reference table must be added to it too.
+    """
+    energy_source_groups = pd.read_csv(
+        reference_table_folder("energy_source_groups.csv")
+    )
+
+    assert set(FUEL_CATEGORIES) == set(energy_source_groups["fuel_category"]) | set(
+        STORAGE_FUEL_CATEGORIES
     )
 
 

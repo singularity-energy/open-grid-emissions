@@ -14,6 +14,7 @@ from oge.constants import (
     current_early_release_year,
     EIA930_INTEGRATED_STORAGE_CATEGORIES,
     ENERGY_STORAGE_PRIME_MOVERS,
+    STORAGE_FUEL_CATEGORIES,
 )
 from oge.filepaths import reference_table_folder, outputs_folder, results_folder
 
@@ -246,8 +247,9 @@ def assign_fleet_to_subplant_data(
 
     This facilitates aggregating the data to the fleet level. The fuel category is
     assigned based on the subplant primary fuel specified by `primary_fuel_col`, and
-    subplants with a storage `subplant_primary_prime_mover_code` are assigned a
-    "storage" fuel category when `fuel_category_col` is "fuel_category".
+    subplants with a storage `subplant_primary_prime_mover_code` are assigned a storage
+    fuel category (`STORAGE_FUEL_CATEGORIES`) when `fuel_category_col` is
+    "fuel_category".
 
     When assigning a primary fuel/fuel category, the general options we should follow
     are:
@@ -989,9 +991,11 @@ def assign_fuel_category_to_esc(
     """Assigns a fuel category to each energy source code in a dataframe.
 
     Not all energy storage resources have a MWH energy source code, so this function
-    also uses `prime_mover_code` to identify storage resources. A warning is logged for
-    any resources that are missing a prime mover code, since these cannot be checked for
-    the storage fuel category.
+    also uses `prime_mover_code` to identify storage resources. Pumped storage (prime
+    mover PS) is assigned the "pumped_storage" fuel category, and all other storage
+    "battery_storage". A warning is logged for any resources that are missing a prime
+    mover code, since these cannot be checked for the storage fuel categories (MWH
+    resources without a prime mover code are "battery_storage").
 
     The "fuel_category_eia930_expanded" category follows the energy sources that
     EIA-930 introduced in 2024, which the energy source code alone can't tell apart. If
@@ -1037,16 +1041,19 @@ def assign_fuel_category_to_esc(
         validate="m:1",
     )
 
-    # the storage fuel category only applies to the main fuel_category column, and can
+    # the storage fuel categories only apply to the main fuel_category column, and can
     # only be assigned if prime mover data is available
     if "fuel_category" in fuel_category_names:
         if pm_column in df.columns:
             # storage that is supplemented with a combustion fuel (e.g. compressed air
             # storage that burns natural gas) keeps the fuel category of its fuel
-            is_storage = df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS) & ~(
-                df[pm_column].isin(["CE"]) & (df[esc_column] != "MWH")
-            )
-            df.loc[is_storage.fillna(False), "fuel_category"] = "storage"
+            is_storage = (
+                df[pm_column].isin(ENERGY_STORAGE_PRIME_MOVERS)
+                & ~(df[pm_column].isin(["CE"]) & (df[esc_column] != "MWH"))
+            ).fillna(False)
+            is_pumped_storage = (df[pm_column] == "PS").fillna(False)
+            df.loc[is_storage & is_pumped_storage, "fuel_category"] = "pumped_storage"
+            df.loc[is_storage & ~is_pumped_storage, "fuel_category"] = "battery_storage"
 
             id_cols = [
                 id
@@ -1075,7 +1082,7 @@ def assign_fuel_category_to_esc(
             # Warn if a storage fuel category is assigned to a non pumped storage (WAT)
             # or battery (MWH) resource
             non_mwh_storage_resources = df.loc[
-                (df["fuel_category"] == "storage")
+                df["fuel_category"].isin(STORAGE_FUEL_CATEGORIES)
                 & ~(df[esc_column].isin(["MWH", "WAT"])),
                 id_cols + [esc_column, pm_column],
             ].drop_duplicates()
