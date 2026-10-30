@@ -375,3 +375,44 @@ def test_identify_partial_cems_plants_keeps_battery_storage_as_eia():
         "GT2": "partial_cems_plant",
         "BAT": "eia",
     }
+
+
+def test_calculate_subplant_efs_biomass_co2_fraction():
+    """The biomass fraction is the share of each subplant-month's CO2 (not fuel) that
+    comes from biomass, and is undefined when the subplant-month has no CO2."""
+    gen_fuel_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1, 2, 3],
+            "subplant_id": [1, 1, 1, 2, 1, 1],
+            "report_date": pd.to_datetime(
+                [
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-02-01",
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-01-01",
+                ]
+            ),
+            "fuel_consumed_mmbtu": [100.0, 100.0, 100.0, 100.0, 0.0, 100.0],
+            # natural gas and wood co-fired in January, gas only in February, wood only
+            # at subplant 2, no fuel at plant 2, and fuel without CO2 at plant 3
+            "co2_mass_lb": [11700.0, 20900.0, 11700.0, 20900.0, 0.0, 0.0],
+            "co2_mass_lb_adjusted": [11700.0, 0.0, 11700.0, 0.0, 0.0, 0.0],
+        }
+    )
+    for pollutant in ["ch4", "n2o", "co2e", "nox", "so2"]:
+        gen_fuel_allocated[f"{pollutant}_mass_lb"] = 1.0
+
+    result = data_cleaning.calculate_subplant_efs(gen_fuel_allocated).set_index(
+        ["plant_id_eia", "subplant_id", "report_date"]
+    )["biomass_co2_fraction"]
+
+    assert result[(1, 1, pd.Timestamp("2024-01-01"))] == pytest.approx(
+        20900 / (11700 + 20900)
+    )
+    assert result[(1, 1, pd.Timestamp("2024-02-01"))] == 0
+    assert result[(1, 2, pd.Timestamp("2024-01-01"))] == 1
+    # subplant-months without fuel are dropped
+    assert 2 not in result.index.get_level_values("plant_id_eia")
+    assert np.isnan(result[(3, 1, pd.Timestamp("2024-01-01"))])
