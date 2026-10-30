@@ -204,7 +204,6 @@ def main(args):
     ####################################################################################
     logger.info("4. Cleaning CEMS data")
     cems = data_cleaning.clean_cems(year, primary_fuel_table, subplant_emission_factors)
-    del subplant_emission_factors
     # output data quality metrics about measured vs imputed CEMS data
     output_data.output_data_quality_metrics(
         validation.summarize_cems_measurement_quality(cems),
@@ -235,7 +234,8 @@ def main(args):
     )
 
     # calculate biomass-adjusted emissions while cems data is at the unit level
-    cems = emissions.adjust_emissions_for_biomass(cems)
+    cems = emissions.adjust_emissions_for_biomass(cems, subplant_emission_factors)
+    del subplant_emission_factors
 
     # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
     ####################################################################################

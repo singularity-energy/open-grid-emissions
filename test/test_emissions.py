@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 import pandas as pd
 
@@ -82,3 +83,57 @@ def test_co2e_SAR_100(df_co2_ch4_no2):
         and "co2e_mass_lb_adjusted" in df.columns
         and "co2e_mass_lb_for_electricity" in df.columns
     )
+
+
+def test_adjust_emissions_for_biomass_cems():
+    """Each hourly CEMS row is reduced by its subplant-month's biomass fraction, and
+    rows without a fraction fall back to the primary fuel of the unit."""
+    subplant_emission_factors = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 3],
+            "subplant_id": [1, 1, 2, 1],
+            "report_date": pd.to_datetime(
+                ["2024-01-01", "2024-02-01", "2024-01-01", "2024-01-01"]
+            ),
+            "biomass_co2_fraction": [0.25, 0.0, 1.0, np.nan],
+        }
+    )
+    cems = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2, 1, 1, 3, 1, 2],
+            "subplant_id": [1, 1, 2, 1, 1, 1, 2],
+            "report_date": pd.to_datetime(
+                [
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-02-01",
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-01-01",
+                ]
+            ),
+            "energy_source_code": ["NG", "WDS", "NG", "WDS", "MSB", "NG", "NG"],
+            "co2_mass_lb": [100.0, 100.0, 100.0, 100.0, 100.0, 200.0, 100.0],
+        },
+        index=[10, 3, 7, 0, 25, 4, 12],
+    )
+
+    result = emissions.adjust_emissions_for_biomass(
+        cems, subplant_emission_factors=subplant_emission_factors
+    )
+
+    expected = pd.Series(
+        [
+            75.0,  # fraction of 0.25
+            0.0,  # no fraction, so the biomass primary fuel is used
+            0.0,  # fraction of 1, even though the primary fuel is not biomass
+            100.0,  # fraction of 0, even though the primary fuel is biomass
+            0.0,  # undefined fraction, so the biomass primary fuel is used
+            150.0,  # same subplant-month as the first row, in a different hour
+            100.0,  # no fraction, so the fossil primary fuel is used
+        ],
+        index=[10, 3, 7, 0, 25, 4, 12],
+        name="co2_mass_lb_adjusted",
+    )
+    pd.testing.assert_series_equal(result["co2_mass_lb_adjusted"], expected)

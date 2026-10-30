@@ -425,15 +425,26 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def adjust_emissions_for_biomass(df: pd.DataFrame) -> pd.DataFrame:
+def adjust_emissions_for_biomass(
+    df: pd.DataFrame, subplant_emission_factors: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """Adds emission in data frame where biomass emissions have been removed.
+
+    By default, CO2 is removed from any row whose `energy_source_code` is a biomass
+    fuel. Because CEMS units are each assigned a single fuel, CEMS data should instead
+    pass `subplant_emission_factors`, so that CO2 is reduced by the fraction of each
+    subplant-month's EIA-923 CO2 that comes from biomass. Subplant-months without a
+    fraction fall back to the default.
 
     Args:
         df (pd.DataFrame): original data frame.
+        subplant_emission_factors (pd.DataFrame, optional): subplant-month table with
+            a `biomass_co2_fraction` column, from `data_cleaning.calculate_subplant_efs`.
+            Defaults to None.
 
     Returns:
-        pd.DataFrame: original data frame with new adjusted emissions column that
-            sets any biomass emissions to zero.
+        pd.DataFrame: original data frame with new adjusted emissions columns that
+            remove biomass CO2 emissions.
     """
 
     # create a column for adjusted biomass emissions, setting these emissions to zero
@@ -441,6 +452,28 @@ def adjust_emissions_for_biomass(df: pd.DataFrame) -> pd.DataFrame:
     if "co2_mass_lb" in df.columns:
         df["co2_mass_lb_adjusted"] = df["co2_mass_lb"]
         df.loc[df["energy_source_code"].isin(BIOMASS_FUELS), "co2_mass_lb_adjusted"] = 0
+        if subplant_emission_factors is not None:
+            biomass_co2_fraction = (
+                df[["plant_id_eia", "subplant_id", "report_date"]]
+                .merge(
+                    subplant_emission_factors[
+                        [
+                            "plant_id_eia",
+                            "subplant_id",
+                            "report_date",
+                            "biomass_co2_fraction",
+                        ]
+                    ],
+                    how="left",
+                    on=["plant_id_eia", "subplant_id", "report_date"],
+                    validate="m:1",
+                )["biomass_co2_fraction"]
+                .to_numpy()
+            )
+            has_fraction = ~np.isnan(biomass_co2_fraction)
+            df.loc[has_fraction, "co2_mass_lb_adjusted"] = df.loc[
+                has_fraction, "co2_mass_lb"
+            ] * (1 - biomass_co2_fraction[has_fraction])
 
     # CH4, N2O, NOx, SO2: no biomass adjustment is applied, so adjusted values equal
     # unadjusted values. This is consistent with eGRID2023, which removed the landfill
