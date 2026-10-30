@@ -142,13 +142,14 @@ def test_adjust_emissions_for_biomass_cems():
 @pytest.fixture
 def df_chp():
     """Subplant-month data modeled on the University of Washington Power Plant (54809)
-    in 2023 (plant 1, subplant 1), plus a non-CHP subplant at the same plant (plant 1,
-    subplant 2), a non-CHP plant (plant 2), and a plant with missing generation and
-    reported thermal output (plant 3)."""
+    in 2023 (plant 1, subplant 1), including a startup fuel with no generation in a
+    month when the subplant generated, plus a non-CHP subplant at the same plant
+    (plant 1, subplant 2), a non-CHP plant (plant 2), and a plant with missing
+    generation and reported thermal output (plant 3)."""
     df = pd.DataFrame(
         {
-            "plant_id_eia": [1, 1, 1, 1, 2, 3, 1, 2, 1],
-            "subplant_id": [1, 1, 1, 1, 1, 1, 1, 1, 2],
+            "plant_id_eia": [1, 1, 1, 1, 2, 3, 1, 2, 1, 1],
+            "subplant_id": [1, 1, 1, 1, 1, 1, 1, 1, 2, 1],
             "report_date": pd.to_datetime(
                 [
                     "2023-01-01",
@@ -160,9 +161,10 @@ def df_chp():
                     "2023-03-01",
                     "2023-02-01",
                     "2023-01-01",
+                    "2023-11-01",
                 ]
             ),
-            "energy_source_code": ["NG"] * 9,
+            "energy_source_code": ["NG"] * 9 + ["DFO"],
             "fuel_consumed_mmbtu": [
                 163542.0,
                 150040.0,
@@ -173,6 +175,7 @@ def df_chp():
                 57819.0,
                 100.0,
                 100.0,
+                50.0,
             ],
             "fuel_consumed_for_electricity_mmbtu": [
                 163542.0,
@@ -184,8 +187,20 @@ def df_chp():
                 57819.0,
                 100.0,
                 100.0,
+                50.0,
             ],
-            "net_generation_mwh": [0.0, -5.0, 2.0, 478.0, 0.0, None, None, None, 0.0],
+            "net_generation_mwh": [
+                0.0,
+                -5.0,
+                2.0,
+                478.0,
+                0.0,
+                None,
+                None,
+                None,
+                0.0,
+                0.0,
+            ],
         }
     )
     return emissions.calculate_electric_allocation_factor(df)
@@ -203,6 +218,12 @@ def test_eaf_chp_positive_generation(df_chp):
     assert df_chp.loc[3, "electric_allocation_factor"] == pytest.approx(
         478 * 3.412 / (478 * 3.412 + 0.6 * (56214 - 788)), rel=1e-4
     )
+
+
+def test_eaf_chp_zero_generation_on_one_fuel(df_chp):
+    """At a CHP subplant, a fuel with zero generation in a month when another fuel
+    generated electricity keeps all of its emissions for electricity."""
+    assert df_chp.loc[9, "electric_allocation_factor"] == 1
 
 
 def test_eaf_non_chp_zero_generation(df_chp):
