@@ -355,8 +355,8 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
           for electricity to total fuel consumed.
         - At CHP subplants (subplants that report useful thermal output in any month),
           the EAF is set to zero when generation is zero or negative (both for the row
-          and across all fuels in the subplant-month) and no useful thermal output is
-          reported, since no electricity was produced.
+          and across all fuels in the subplant-month), even if useful thermal output or
+          fuel for electricity is reported, since no electricity was produced.
         - Any remaining missing factors are set to one.
 
     Args:
@@ -425,8 +425,7 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     ).clip(0, 1)
 
     # at CHP subplants, set the factor to zero when no electricity was generated (zero
-    # or negative generation, for this fuel and across the subplant-month) and no
-    # useful thermal output was reported
+    # or negative generation, for this fuel and across the subplant-month)
     chp_subplant = (
         df_subplant.groupby(["plant_id_eia", "subplant_id"])[
             "useful_thermal_output_mmbtu"
@@ -439,8 +438,7 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     df_subplant.loc[
         chp_subplant
         & (df_subplant["net_generation_mwh"] <= 0)
-        & (subplant_month_generation <= 0)
-        & (df_subplant["useful_thermal_output_mmbtu"] <= 0),
+        & (subplant_month_generation <= 0),
         "electric_allocation_factor",
     ] = 0
 

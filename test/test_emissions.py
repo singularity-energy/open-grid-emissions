@@ -143,13 +143,14 @@ def test_adjust_emissions_for_biomass_cems():
 def df_chp():
     """Subplant-month data modeled on the University of Washington Power Plant (54809)
     in 2023 (plant 1, subplant 1), including a startup fuel with no generation in a
-    month when the subplant generated, plus a non-CHP subplant at the same plant
+    month when the subplant generated and a month with negative generation and some
+    thermal output, plus a non-CHP subplant at the same plant
     (plant 1, subplant 2), a non-CHP plant (plant 2), and a plant with missing
     generation and reported thermal output (plant 3)."""
     df = pd.DataFrame(
         {
-            "plant_id_eia": [1, 1, 1, 1, 2, 3, 1, 2, 1, 1],
-            "subplant_id": [1, 1, 1, 1, 1, 1, 1, 1, 2, 1],
+            "plant_id_eia": [1, 1, 1, 1, 2, 3, 1, 2, 1, 1, 1],
+            "subplant_id": [1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1],
             "report_date": pd.to_datetime(
                 [
                     "2023-01-01",
@@ -162,9 +163,10 @@ def df_chp():
                     "2023-02-01",
                     "2023-01-01",
                     "2023-11-01",
+                    "2023-12-01",
                 ]
             ),
-            "energy_source_code": ["NG"] * 9 + ["DFO"],
+            "energy_source_code": ["NG"] * 9 + ["DFO", "NG"],
             "fuel_consumed_mmbtu": [
                 163542.0,
                 150040.0,
@@ -176,6 +178,7 @@ def df_chp():
                 100.0,
                 100.0,
                 50.0,
+                100.0,
             ],
             "fuel_consumed_for_electricity_mmbtu": [
                 163542.0,
@@ -188,6 +191,7 @@ def df_chp():
                 100.0,
                 100.0,
                 50.0,
+                90.0,
             ],
             "net_generation_mwh": [
                 0.0,
@@ -200,6 +204,7 @@ def df_chp():
                 None,
                 0.0,
                 0.0,
+                -5.0,
             ],
         }
     )
@@ -210,6 +215,12 @@ def test_eaf_chp_zero_generation(df_chp):
     """At a CHP subplant, zero or negative generation with no reported thermal output
     allocates nothing to electricity."""
     assert (df_chp.loc[[0, 1], "electric_allocation_factor"] == 0).all()
+
+
+def test_eaf_chp_negative_generation_with_thermal_output(df_chp):
+    """At a CHP subplant, negative generation allocates nothing to electricity even when
+    some thermal output is reported, where the formula would otherwise give one."""
+    assert df_chp.loc[10, "electric_allocation_factor"] == 0
 
 
 def test_eaf_chp_positive_generation(df_chp):

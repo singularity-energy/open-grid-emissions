@@ -36,7 +36,7 @@ An electric allocation factor is calculated and applied to all generators, regar
 The formula is undefined in three cases, which are handled as follows:
 - **Missing both generation and fuel:** If both generation and fuel are missing, this indicates that the subplant was not operating (either pre-COD or after retirement). In this case, the electric allocation factor is set to 100% (although with no data to allocate, the specific backstop EAF becomes irrelevant). 
 - **Missing generation:** if net generation is missing, the electric allocation factor is the ratio of `fuel_consumed_for_electricity_mmbtu` to `fuel_consumed_mmbtu` reported in EIA-923.
-- **Zero or negative generation:** For CHP subplants (any subplant where at least one month reports non-electricity fuel input), if net generation is reported as zero or negative, the electric allocation factor is set to 0%, even if the generator reports non-zero `fuel_consumed_for_electricity_mmbtu`, since no electricity was produced.
+- **Zero or negative generation:** For CHP subplants (any subplant where at least one month reports non-electricity fuel input), if net generation is reported as zero or negative, and the subplant as a whole generated no electricity that month, the electric allocation factor is set to 0%, even if the generator reports non-zero `fuel_consumed_for_electricity_mmbtu` or useful thermal output, since no electricity was produced.
 
 ## Adjusting CEMS data for CHP
 Because the calculation of the electric allocation factor requires `net_generation_mwh` and `fuel_consumed_for_electricity_mmbtu`, neither of which are reported in CEMS, several additional steps are required to adjust CEMS data for CHP.
