@@ -39,6 +39,11 @@ stoplight-id: input_data
 * **How we use it**: To assign an hourly profile to the monthly generation and fuel data reported in EIA-923 and to calculate hourly consumed emission factors
 * **More information**: [https://www.eia.gov/electricity/gridmonitor/about](https://www.eia.gov/electricity/gridmonitor/about) and [https://www.eia.gov/survey/#eia-930](https://www.eia.gov/survey/#eia-930)
 
+**EIA Form 930A**
+* **What is it**: Annual inventory of the generators included in the net generation that each Balancing Area reports to EIA-930, and of the generators with which it has a pseudo-tie or dynamic scheduling arrangement
+* **How we use it**: To validate the assignment of plants to balancing authorities. See [Aggregating Data to Balancing Authority](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md#eia-930a-generator-inventories)
+* **More information**: [https://www.eia.gov/electricity/gridmonitor/about](https://www.eia.gov/electricity/gridmonitor/about) and [https://www.eia.gov/survey/#eia-930](https://www.eia.gov/survey/#eia-930)
+
 **EPA eGRID database**
 * **What is it**: Reports annual-level generation and emissions statistics at the plant and BA level
 * **How we use it**: to validate our outputs, and as a source for certain static tables (emission factors, conversion factors, etc)
