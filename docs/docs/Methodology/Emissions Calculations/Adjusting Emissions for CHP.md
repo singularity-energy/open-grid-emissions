@@ -33,6 +33,11 @@ The electric allocation factor is the ratio of the electricity output to the sum
 
 An electric allocation factor is calculated and applied to all generators, regardless of reported CHP status. In the case that total fuel consumed equals total fuel consumed for electricity, the useful thermal output will be zero, and thus the electric allocation factor will be 100%.
 
+The formula is undefined in three cases, which are handled as follows:
+- **Missing both generation and fuel:** If both generation and fuel are missing, this indicates that the subplant was not operating (either pre-COD or after retirement). In this case, the electric allocation factor is set to 100% (although with no data to allocate, the specific backstop EAF becomes irrelevant). 
+- **Missing generation:** if net generation is missing, the electric allocation factor is the ratio of `fuel_consumed_for_electricity_mmbtu` to `fuel_consumed_mmbtu` reported in EIA-923.
+- **Zero or negative generation:** For CHP subplants (any subplant where at least one month reports non-electricity fuel input), if net generation is reported as zero or negative, and the subplant as a whole generated no electricity that month, the electric allocation factor is set to 0%, even if the generator reports non-zero `fuel_consumed_for_electricity_mmbtu` or useful thermal output, since no electricity was produced.
+
 ## Adjusting CEMS data for CHP
 Because the calculation of the electric allocation factor requires `net_generation_mwh` and `fuel_consumed_for_electricity_mmbtu`, neither of which are reported in CEMS, several additional steps are required to adjust CEMS data for CHP.
 
@@ -45,6 +50,8 @@ For each CEMS subplant, a unique electric allocation factor is calculated for fo
 Once the electric allocation factor is available, a new value for `fuel_consumed_for_electricity_mmbtu` is calculated by multiplying the factor by the original `fuel_consumed_mmbtu` value.
 
 ## Future Work, Known Issues, and Open Questions
+- At CHP subplants, months with very little generation but all fuel reported as fuel for electricity will still have an electric allocation factor of 100%. For example, the University of Washington Power Plant reported 2 MWh of generation and 30,768 MMBtu of fuel for electricity at one subplant in September 2023.
+- When EIA-923 data is allocated to generators, fuel can be allocated to generators before their operating date or after their retirement date. These generators have fuel but no generation, so their electric allocation factor is the reported ratio of fuel for electricity to total fuel, even though they produced no electricity. For example, at the University of Washington Power Plant in 2023, about 21 kt of CO2 is allocated to electricity this way: fuel was allocated to TG3 before it began operating in November 2023, and to TG2, which retired in September 2022.
 - Update assumed efficiency factors for calculating the electric allocation factor ([details](https://github.com/singularity-energy/open-grid-emissions/issues/23))
 - Update electric allocation factor calculation to consider topping vs bottoming cycles ([details](https://github.com/singularity-energy/open-grid-emissions/issues/23))
 - Confirm how CEMS data reports fuel consumed for electricity ([details](https://github.com/singularity-energy/open-grid-emissions/issues/23)) and how to interpret reported steam load ([details](https://github.com/singularity-energy/open-grid-emissions/issues/103))

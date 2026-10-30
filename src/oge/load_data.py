@@ -19,10 +19,13 @@ from oge.constants import (
 from oge.filepaths import (
     downloads_folder,
     find_downloaded_file,
+    get_pudl_build_version,
+    get_pudl_data_store,
     outputs_folder,
     pudl_folder,
     reference_table_folder,
 )
+from oge.download_data import get_pudl_release
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -56,6 +59,9 @@ def load_cems_data(year: int) -> pd.DataFrame:
     ]
 
     # load the CEMS data
+    if PUDL_ENGINE is None:
+        pudl_release = get_pudl_release(get_pudl_build_version(), get_pudl_data_store())
+        logger.info(f"Loading core_epacems__hourly_emissions from PUDL {pudl_release}")
     cems = pd.read_parquet(
         pudl_folder("core_epacems__hourly_emissions.parquet"),
         filters=[["year", "==", year]],
@@ -120,25 +126,38 @@ def load_cems_data(year: int) -> pd.DataFrame:
     return cems
 
 
-def load_cems_ids() -> pd.DataFrame:
+def load_cems_ids(year: int | None = None) -> pd.DataFrame:
     """Loads a dataframe of all unique plant_id_eia, emissions_unit_id_epa combinations
     that exist from `constants.earliest_data_year` to `constants.latest_validated_year`.
     This is used in the process of creating subplant_ids to ensure complete coverage.
 
+    If optionally run with a single year, only the cems ids for that year are loaded.
+
+    Args:
+        year (int, optional): the year to load the cems ids for. If None, the cems ids
+            for all years from `constants.earliest_data_year` to
+            `constants.latest_validated_year` are loaded.
+
     Returns:
         pd.DataFrame: a two column table relating plant_id_eia to emissions_unit_id_epa.
     """
+    if year is None:
+        min_year = earliest_data_year
+        max_year = max(latest_validated_year, current_early_release_year)
+    else:
+        min_year = year
+        max_year = year
     # although we could directly load all years at once from the cems parquet file,
     # this would lead to a memoryerror, so we load one year at a time and drop
     # duplicates before concatenating the next year to the dataframe
     cems_ids = []
-    # The `constants.earliest_data_year` is 2005
-    for year in range(
-        earliest_data_year, max(latest_validated_year, current_early_release_year) + 1
-    ):
+    if PUDL_ENGINE is None:
+        pudl_release = get_pudl_release(get_pudl_build_version(), get_pudl_data_store())
+        logger.info(f"Loading core_epacems__hourly_emissions from PUDL {pudl_release}")
+    for year_for_id in range(min_year, max_year + 1):
         cems_id_year = pd.read_parquet(
             pudl_folder("core_epacems__hourly_emissions.parquet"),
-            filters=[["year", "==", year]],
+            filters=[["year", "==", year_for_id]],
             columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
         ).drop_duplicates()
         cems_id_year = apply_dtypes(cems_id_year)
@@ -147,7 +166,7 @@ def load_cems_ids() -> pd.DataFrame:
             "emissions_unit_id_epa"
         ].str.lstrip("0")
         # update the plant_id_eia column using manual matches
-        cems_id_year = update_epa_to_eia_map(cems_id_year, year)
+        cems_id_year = update_epa_to_eia_map(cems_id_year, year_for_id)
         cems_ids.append(cems_id_year)
         # only keep new ids for the given year
         cems_ids = [pd.concat(cems_ids, axis=0).drop_duplicates()]
@@ -709,6 +728,10 @@ def load_pudl_table_from_s3(
 ) -> pd.DataFrame:
     """Load a table from a Parquet file.
 
+    Logs the PUDL release being used for transparency, since OGE only specifies whether
+    to use "stable" or "nightly" builds, and the specific release version can change
+    over time.
+
     Args:
         table_name (str): the name of the table to load.
         datetime_column (str, optional): the name of the datetime column to filter on.
@@ -729,6 +752,8 @@ def load_pudl_table_from_s3(
             "datetime_column must be specified if and only if start_datetime and "
             "end_datetime are provided"
         )
+    pudl_release = get_pudl_release(get_pudl_build_version(), get_pudl_data_store())
+    logger.info(f"Loading {table_name} from PUDL {pudl_release}")
     if datetime_column is None:
         # No filtering on datetime
         table = pd.read_parquet(
@@ -1367,6 +1392,9 @@ def load_emissions_controls_eia923(year: int) -> pd.DataFrame:
                     f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
                 ),
                 2024: downloads_folder(
+                    f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
+                ),
+                2025: downloads_folder(
                     f"eia923/f923_{year}/EIA923_Schedule_8_Annual_Envir_Infor_{year}_Final.xlsx"
                 ),
             }[year]

@@ -22,6 +22,11 @@
     },
     {
       "type": "item",
+      "title": "Comparison to eGRID",
+      "uri": "/docs/docs/Overview/Comparison to eGRID.md"
+    },
+    {
+      "type": "item",
       "title": "Contributing To The Code Repository",
       "uri": "/docs/docs/Overview/Contributing to the Code Repository.md"
     },
@@ -57,6 +62,11 @@
           "type": "item",
           "title": "EIA-930 Data",
           "uri": "/docs/docs/Methodology/Data Cleaning/EIA-930 Data.md"
+        },
+        {
+          "type": "item",
+          "title": "Physics-based Reconciliation",
+          "uri": "/docs/docs/Methodology/Data Cleaning/Physics-based Reconciliation.md"
         }
       ]
     },
@@ -103,6 +113,11 @@
           "type": "item",
           "title": "Consumption-based Emissions",
           "uri": "/docs/docs/Methodology/Emissions Calculations/Consumption-based Emissions.md"
+        },
+        {
+          "type": "item",
+          "title": "Fossil-only Residual Mix",
+          "uri": "/docs/docs/Methodology/Emissions Calculations/Fossil-only Residual Mix.md"
         }
       ]
     },
@@ -171,11 +186,6 @@
       "type": "item",
       "title": "Known Issues",
       "uri": "/docs/docs/Data Validation/Known Issues.md"
-    },
-    {
-      "type": "item",
-      "title": "Comparing Data to eGRID",
-      "uri": "/docs/docs/Data Validation/Comparing Data to eGRID.md"
     }
   ]
 }

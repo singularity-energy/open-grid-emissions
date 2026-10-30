@@ -1,5 +1,6 @@
 from typing import Optional
-import datetime
+import fsspec
+import functools
 import gzip
 import os
 import requests
@@ -7,7 +8,11 @@ import shutil
 import tarfile
 import zipfile
 
-from oge.filepaths import downloads_folder, data_folder, get_pudl_build_version
+from oge.filepaths import (
+    downloads_folder,
+    data_folder,
+    get_pudl_build_version,
+)
 from oge.logging_util import get_logger
 from oge.constants import current_early_release_year, latest_validated_year
 
@@ -43,6 +48,7 @@ def download_helper(
         chunk_size (int, optional): he chunk size for downloading. Defaults to 1024.
 
     Raises:
+        requests.HTTPError: if the request for `input_url` fails.
         ValueError: if `requires_unzip` is True and `output_path` is None.
         ValueError: if `requires_untar` is True and `output_path` is None.
         ValueError: if `requires_gzip` is True and `output_path` is None.
@@ -59,6 +65,9 @@ def download_helper(
     # Otherwise, download to the file in chunks.
     logger.info(f"Downloading {final_destination.split('/')[-1]}")
     r = requests.get(input_url, stream=True)
+    # raise an error if the request failed, so that an error page is not saved in
+    # place of the requested file
+    r.raise_for_status()
     with open(download_path, "wb") as fd:
         for chunk in r.iter_content(chunk_size=chunk_size):
             fd.write(chunk)
@@ -121,6 +130,12 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
     if source == "aws":
         # download the pudl sqlite database
         if not os.path.exists(downloads_folder(f"pudl/{build}/pudl.sqlite")):
+            # download the marker file that identifies the PUDL build (see
+            # `get_pudl_release()`)
+            fsspec.filesystem("s3", anon=True).get(
+                f"pudl.catalyst.coop/{build}/{build}-*",
+                downloads_folder(f"pudl/{build}/"),
+            )
             output_filepath = downloads_folder(f"pudl/{build}/pudl.sqlite")
             pudl_db_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/pudl.sqlite.zip"
             download_helper(
@@ -141,20 +156,9 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
                 downloads_folder(f"pudl/{build}/tmp/pudl.sqlite"), output_filepath
             )
             os.rmdir(downloads_folder(f"pudl/{build}/tmp"))
-
-            # add a version file
-            with open(
-                downloads_folder(f"pudl/{build}/pudl_sqlite_version.txt"), "w+"
-            ) as v:
-                v.write(f"{datetime.date.today()}")
-        else:
-            with open(
-                downloads_folder(f"pudl/{build}/pudl_sqlite_version.txt"), "r"
-            ) as f:
-                existing_version = f.readlines()[0].replace("\n", "")
-            logger.info(
-                f"Using stable build version of PUDL sqlite database downloaded {existing_version}"
-            )
+        logger.info(
+            f"Using PUDL {get_pudl_release(build, downloads_folder(f'pudl/{build}'))}"
+        )
 
         # download the epacems parquet file
         epacems_parquet_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/core_epacems__hourly_emissions.parquet"
@@ -170,20 +174,6 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
                 download_path=output_filepath,
             )
 
-            # add a version file
-            with open(
-                downloads_folder(f"pudl/{build}/epacems_parquet_version.txt"), "w+"
-            ) as v:
-                v.write(f"{datetime.date.today()}")
-
-        else:
-            with open(
-                downloads_folder(f"pudl/{build}/epacems_parquet_version.txt"), "r"
-            ) as f:
-                existing_version = f.readlines()[0].replace("\n", "")
-            logger.info(
-                f"Using stable build version of PUDL epacems parquet file downloaded {existing_version}"
-            )
         # download the EIA-930 parquet files
         eia930_tables = [
             "core_eia930__hourly_interchange",
@@ -197,21 +187,6 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
                 download_helper(
                     eia930_parquet_url,
                     download_path=output_filepath,
-                )
-
-                # add a version file
-                with open(
-                    downloads_folder(f"pudl/{build}/{table}_parquet_version.txt"), "w+"
-                ) as v:
-                    v.write(f"{datetime.date.today()}")
-
-            else:
-                with open(
-                    downloads_folder(f"pudl/{build}/{table}_parquet_version.txt"), "r"
-                ) as f:
-                    existing_version = f.readlines()[0].replace("\n", "")
-                logger.info(
-                    f"Using stable build version of PUDL {table} parquet file downloaded {existing_version}"
                 )
     elif source == "zenodo":
         # NOTE: This is the most recent available version as of 12/2/2023
@@ -237,6 +212,35 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
         raise ValueError(
             f"{source} is an invalid option for `source`. Must be 'aws' or 'zenodo'."
         )
+
+
+@functools.cache
+def get_pudl_release(build: str, data_store: str) -> str:
+    """Describes the release of a PUDL build.
+
+    Each PUDL build writes a marker file to its S3 directory whose name identifies the
+    build, e.g. "stable-2026-10-14-1552-90561c620-v2026-10-0" (build date and time, git
+    commit, and release tag). This file is also downloaded alongside local copies of
+    the PUDL data, so the same lookup works for local and S3 data.
+
+    The result is cached for each build and data store, so each is only checked once
+    per Python process.
+
+    Args:
+        build (str): the PUDL build, "stable" or "nightly".
+        data_store (str): the folder or S3 path that contains the build's data, e.g.
+            `get_pudl_data_store()`.
+
+    Returns:
+        str: e.g. "stable build v2026.10.0 (built 2026-10-14)"
+    """
+    fs, path = fsspec.core.url_to_fs(data_store, anon=True)
+    markers = fs.glob(f"{path}/{build}-*")
+    if not markers:
+        return f"{build} build (unknown release)"
+    # marker names start with the build timestamp, so the max is the most recent
+    _, year, month, day, _, _, ref = os.path.basename(max(markers)).split("-", 6)
+    return f"{build} build {ref.replace('-', '.')} (built {year}-{month}-{day})"
 
 
 def download_pudl_from_zenodo(zenodo_url: str, pudl_version: str):
@@ -276,30 +280,6 @@ def download_pudl_from_zenodo(zenodo_url: str, pudl_version: str):
 
     # delete the downloaded tgz file
     os.remove(downloads_folder("pudl.tgz"))
-
-
-def download_chalendar_files():
-    """Downloads raw and cleaned files. Eventually we'll do our own processing to get
-    our own version of chalendar, but still will be useful to use this raw file and
-    compare to this cleaned file.
-    """
-    os.makedirs(downloads_folder("eia930/chalendar"), exist_ok=True)
-
-    # download the cleaned and raw files
-    urls = [
-        "https://gridemissions.s3.us-east-2.amazonaws.com/EBA_elec.csv.gz",
-        "https://gridemissions.s3.us-east-2.amazonaws.com/EBA_raw.csv.gz",
-    ]
-    for url in urls:
-        output_filename = url.split("/")[-1].replace(".gz", "")
-        output_filepath = downloads_folder(f"eia930/chalendar/{output_filename}")
-        download_helper(
-            url,
-            output_filepath + ".gz",
-            output_filepath,
-            requires_gzip=True,
-            should_clean=True,
-        )
 
 
 def download_egrid_files():
@@ -379,10 +359,12 @@ def download_raw_eia923(year: int):
             url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}er.zip"
         else:
             url = f"https://www.eia.gov/electricity/data/eia923/xls/f923_{year}.zip"
-        archive_url = (
-            f"https://www.eia.gov/electricity/data/eia923/archive/xls/f923_{year}.zip"
-        )
         filename = url.split("/")[-1].split(".")[0]
+        # use the same filename for the archive, so that early release data can be
+        # downloaded once it has been moved to the archive
+        archive_url = (
+            f"https://www.eia.gov/electricity/data/eia923/archive/xls/{filename}.zip"
+        )
         download_filepath = downloads_folder(f"eia923/{filename}.zip")
         output_filepath = downloads_folder(f"eia923/{filename}")
         try:
@@ -443,10 +425,12 @@ def download_raw_eia860(year: int):
         url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}ER.zip"
     else:
         url = f"https://www.eia.gov/electricity/data/eia860/xls/eia860{year}.zip"
-    archive_url = (
-        f"https://www.eia.gov/electricity/data/eia860/archive/xls/eia860{year}.zip"
-    )
     filename = url.split("/")[-1].split(".")[0]
+    # use the same filename for the archive, so that early release data can be
+    # downloaded once it has been moved to the archive
+    archive_url = (
+        f"https://www.eia.gov/electricity/data/eia860/archive/xls/{filename}.zip"
+    )
     zip_filepath = downloads_folder(f"eia860/{filename}.zip")
     output_filepath = downloads_folder(f"eia860/{filename}")
     try:

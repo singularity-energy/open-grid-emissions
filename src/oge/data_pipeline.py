@@ -1,10 +1,10 @@
 """
 Entry point for creating final dataset and intermediate cleaned data products.
 
-Run from `src` as `python data_pipeline.py` after installing conda environment
+Run from `src` as `python data_pipeline.py` after installing the uv environment
 
-Optional arguments are --year (default 2024)
-Optional arguments for development are --flat and --skip_outputs
+Optional arguments are --year (default 2025)
+Optional arguments for development are --skip_outputs
 """
 
 import argparse
@@ -19,11 +19,13 @@ import oge.consumed as consumed
 import oge.download_data as download_data
 import oge.eia930 as eia930
 import oge.emissions as emissions
+import oge.energy_storage as energy_storage
 import oge.gross_to_net_generation as gross_to_net_generation
 import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.load_data as load_data
 import oge.output_data as output_data
+import oge.physics_reconciliation as physics_reconciliation
 import oge.subplant_identification as subplant_identification
 import oge.validation as validation
 
@@ -45,13 +47,7 @@ def get_args() -> argparse.Namespace:
     Returns dictionary of {arg_name: arg_value}
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--year", help="Year for analysis", default=2024, type=int)
-    parser.add_argument(
-        "--flat",
-        help="Use flat hourly profiles?",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-    )
+    parser.add_argument("--year", help="Year for analysis", default=2025, type=int)
     parser.add_argument(
         "--skip_outputs",
         help="Skip outputting data to csv files for quicker testing.",
@@ -82,8 +78,7 @@ def main(args):
             "Invalid OGE_DATA_STORE environment variable. Should be 'local' or '1'"
         )
     # 0. Set up directory structure
-    path_prefix = "flat/" if args.flat else ""
-    path_prefix += f"{year}/"
+    path_prefix = f"{year}/"
     os.makedirs(downloads_folder(), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}"), exist_ok=True)
     os.makedirs(outputs_folder(f"{path_prefix}/eia930"), exist_ok=True)
@@ -125,16 +120,11 @@ def main(args):
     # 1. Download data
     ####################################################################################
     logger.info("1. Downloading data")
-    logger.info(f"Using {os.getenv('PUDL_BUILD', default='stable')} PUDL build")
     # PUDL
     if PUDL_ENGINE:
         download_data.download_pudl_data(source="aws")
     # eGRID
     download_data.download_egrid_files()
-    # EIA-930
-    # for `flat` run, we need chalander file for making profiles
-    if args.flat:
-        download_data.download_chalendar_files()
     # Power Sector Data Crosswalk
     # NOTE: Check for new releases at https://github.com/USEPA/camd-eia-crosswalk
     download_data.download_epa_psdc(
@@ -189,6 +179,10 @@ def main(args):
         skip_outputs=args.skip_outputs,
     )
     del subplant_eia923
+    # create monthly energy storage charging and discharging data for each subplant
+    monthly_storage_data = energy_storage.create_monthly_energy_storage_data(
+        primary_fuel_table, year
+    )
     # Add primary fuel data to each generator
     eia923_allocated = eia923_allocated.merge(
         primary_fuel_table[
@@ -210,7 +204,6 @@ def main(args):
     ####################################################################################
     logger.info("4. Cleaning CEMS data")
     cems = data_cleaning.clean_cems(year, primary_fuel_table, subplant_emission_factors)
-    del subplant_emission_factors
     # output data quality metrics about measured vs imputed CEMS data
     output_data.output_data_quality_metrics(
         validation.summarize_cems_measurement_quality(cems),
@@ -241,7 +234,8 @@ def main(args):
     )
 
     # calculate biomass-adjusted emissions while cems data is at the unit level
-    cems = emissions.adjust_emissions_for_biomass(cems)
+    cems = emissions.adjust_emissions_for_biomass(cems, subplant_emission_factors)
+    del subplant_emission_factors
 
     # 5. Assign static characteristics to CEMS and EIA data to aid in aggregation
     ####################################################################################
@@ -250,7 +244,11 @@ def main(args):
         cems, eia923_allocated, year, primary_fuel_table
     )
     validation.test_for_missing_values(
-        plant_attributes, skip_cols=["plant_retirement_date"]
+        plant_attributes,
+        skip_cols=[
+            "plant_retirement_date",
+            "plant_storage_category",
+        ],
     )
 
     # 6. Crosswalk CEMS and EIA data
@@ -269,7 +267,9 @@ def main(args):
     )
     # output data quality metrics about annually-reported EIA-923 data
     output_data.output_data_quality_metrics(
-        output_data.summarize_annually_reported_eia_data(eia923_allocated, year),
+        output_data.summarize_annually_reported_eia_data(
+            eia923_allocated, year, monthly_storage_data
+        ),
         "annually_reported_eia_data",
         path_prefix,
         args.skip_outputs,
@@ -426,7 +426,7 @@ def main(args):
         monthly_eia_data_to_shape.groupby(
             ["plant_id_eia", "subplant_id", "report_date"], dropna=False
         )[DATA_COLUMNS]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
     # combine and export plant data at monthly and annual level
@@ -439,6 +439,12 @@ def main(args):
         partial_cems_plant,
         monthly_eia_data_to_shape,
         resolution="monthly",
+    )
+    # add energy storage charging and discharging data from EIA-923. This is added
+    # after combining the data so that it is kept for storage at plants that report to
+    # CEMS, and so that it is not shaped using the hourly profiles of other resources
+    monthly_subplant_data = energy_storage.add_monthly_energy_storage_data(
+        monthly_subplant_data, monthly_storage_data
     )
 
     # export subplant attributes table
@@ -503,39 +509,65 @@ def main(args):
 
     # calculate hourly outputs for years after 2019
     if year >= earliest_hourly_data_year:
+        # storage is shaped using its monthly charging and discharging
+        monthly_eia_data_to_shape = (
+            impute_hourly_profiles.add_storage_data_to_monthly_eia_data(
+                monthly_eia_data_to_shape, monthly_storage_data
+            )
+        )
         # 13. Clean and Reconcile EIA-930 data
         ################################################################################
         logger.info("13. Cleaning EIA-930 data")
-        # Scrapes and cleans data in data/downloads, outputs cleaned file at
-        # EBA_elec.csv
-        if args.flat:
-            logger.info(
-                "Not running 930 cleaning because we'll be using a flat profile."
-            )
-        elif not (
-            os.path.exists(outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv"))
-        ):
+        # Loads, adjusts and reconciles EIA-930 data, and writes each step to
+        # outputs/{path_prefix}/eia930/
+        eia930_folder = outputs_folder(f"{path_prefix}/eia930/")
+        # only reuse the reconciled data if all of its tables were written, in case
+        # a previous run was interrupted
+        if not physics_reconciliation.eia930_tables_exist(eia930_folder, "reconciled"):
             eia930.clean_930(year, path_prefix=path_prefix)
         else:
             logger.info(
                 "Not re-running 930 cleaning. If you'd like to re-run, "
                 f"please delete data/outputs/{path_prefix}/eia930/"
             )
-
-        # If running flat, we need to use the Chalender file to build residual profiles.
-        clean_930_file = (
-            downloads_folder("eia930/chalendar/EBA_elec.csv")
-            if args.flat
-            else outputs_folder(f"{path_prefix}/eia930/eia930_elec.csv")
+        eia930_tables = physics_reconciliation.read_eia930_tables(
+            eia930_folder, "reconciled"
         )
-        eia930_data = eia930.load_chalendar_for_pipeline(clean_930_file, year=year)
-        # until we can fix the physics reconciliation, we need to apply some
-        # post-processing steps
-        eia930_data = eia930.remove_imputed_ones(eia930_data)
+        # identify when each BA started to report the energy sources that EIA-930
+        # introduced in 2024, and compare them with the generators in each BA
+        energy_source_cutover_dates = eia930.calculate_energy_source_cutover_dates(
+            year, plant_attributes, primary_fuel_table
+        )
+        if not args.skip_outputs:
+            energy_source_cutover_dates.to_csv(
+                eia930_folder + "eia930_energy_source_cutover.csv", index=False
+            )
+        # the new energy sources keep their own category after each BA's cutover
+        eia930_data = eia930.prepare_eia930_for_shaping(
+            eia930_tables.net_generation_by_energy_source,
+            year=year,
+            cutover_dates=energy_source_cutover_dates,
+        )
+        # months with no EIA-930 generation get an imputed profile instead
+        eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
         # 14. Calculate hourly profiles for monthly EIA data
         ################################################################################
         logger.info("14. Estimating hourly profiles for EIA data")
+        # discharging and charging profiles for storage
+        storage_profiles, other_storage_months = (
+            impute_hourly_profiles.calculate_storage_profiles(
+                eia930_tables.net_generation_by_energy_source,
+                eia930_tables.operations,
+                monthly_eia_data_to_shape,
+                monthly_storage_data,
+                plant_attributes,
+                primary_fuel_table,
+                year,
+                cutover_dates=energy_source_cutover_dates,
+            )
+        )
+        del monthly_storage_data
         hourly_profiles = impute_hourly_profiles.calculate_hourly_profiles(
             cems,
             partial_cems_subplant,
@@ -547,9 +579,11 @@ def main(args):
             year,
             transmission_only=False,
             ba_column_name="ba_code",
-            use_flat=args.flat,
+            cutover_dates=energy_source_cutover_dates,
+            storage_profiles=storage_profiles,
+            other_storage_months=other_storage_months,
         )
-        del eia930_data
+        del eia930_data, eia930_tables, storage_profiles
         gc.collect()
         # validate how well the wind and solar imputation methods work
         output_data.output_data_quality_metrics(
@@ -599,7 +633,8 @@ def main(args):
         hourly_profiles = impute_hourly_profiles.convert_profile_to_percent(
             hourly_profiles,
             group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
-            columns_to_convert=["profile", "flat_profile"],
+            columns_to_convert=["profile", "flat_profile"]
+            + impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
         )
 
         # 15. Export hourly plant-level data
@@ -812,7 +847,7 @@ def main(args):
                 combined_fleet_data, year
             )
 
-            # Output final data: per-ba hourly generation and rate
+            # Output final data: per-ba and national hourly generation and rate
             output_data.write_power_sector_results(
                 combined_fleet_data,
                 year,
@@ -822,16 +857,12 @@ def main(args):
                 include_monthly=False,
                 include_annual=False,
             )
-            # Write US-average fleet data
-            output_data.write_national_fleet_averages(
-                combined_fleet_data, year, path_prefix, skip_outputs=False
-            )
 
             # 19. Calculate consumption-based emissions and write carbon accounting results
             ################################################################################
             logger.info("19. Calculating and exporting consumption-based results")
             hourly_consumed_calc = consumed.HourlyConsumed(
-                clean_930_file,
+                outputs_folder(f"{path_prefix}/eia930/"),
                 path_prefix,
                 year,
                 skip_outputs=args.skip_outputs,

@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 
 # import open-grid-emissions modules
-from oge.column_checks import apply_dtypes, DATA_COLUMNS
+from oge.column_checks import apply_dtypes, DATA_COLUMNS, STORAGE_DATA_COLUMNS
+from oge.constants import EIA930_INTEGRATED_STORAGE_CATEGORIES
 import oge.load_data as load_data
 from oge.filepaths import reference_table_folder
 import oge.validation as validation
@@ -15,8 +16,34 @@ from oge.helpers import (
     create_local_year_timestamps,
 )
 from oge.data_cleaning import complete_hourly_timeseries
+from oge.eia930 import (
+    assign_expanded_category_after_cutover,
+    assign_local_time_and_category_to_eia930_data,
+)
 
 logger = get_logger(__name__)
+
+# the hourly discharging and charging profiles of energy storage, which are blank for
+# other fuels
+STORAGE_PROFILE_COLUMNS = ["storage_discharge_profile", "storage_charge_profile"]
+
+# the categories whose profiles are used to shape energy storage (see
+# assign_storage_shaping_category)
+STORAGE_SHAPING_CATEGORIES = [
+    "battery_storage",
+    "pumped_storage",
+    "solar_w_integrated_battery_storage",
+    "wind_w_integrated_battery_storage",
+]
+
+# the keys of the hourly storage series
+STORAGE_SERIES_KEYS = [
+    "ba_code",
+    "fuel_category",
+    "datetime_utc",
+    "datetime_local",
+    "report_date",
+]
 
 
 def calculate_hourly_profiles(
@@ -30,7 +57,9 @@ def calculate_hourly_profiles(
     year: int,
     transmission_only: bool = False,
     ba_column_name: str = "ba_code",
-    use_flat: bool = False,
+    cutover_dates: pd.DataFrame | None = None,
+    storage_profiles: pd.DataFrame | None = None,
+    other_storage_months: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Coordinating function for calculating the hourly residual profiles that will be
     used to shape monthly EIA data.
@@ -69,8 +98,20 @@ def calculate_hourly_profiles(
             profiles. Defaults to False.
         ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
             to define fleet composition. Defaults to "ba_code".
-        use_flat (bool, optional): Whether or not to use a flat profile for all fleets.
-            Defaults to False.
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source, as returned by
+            `eia930.calculate_energy_source_cutover_dates`. CEMS subplants in those
+            categories are subtracted from the new energy source in the months after
+            the cutover. Defaults to None, for no cutovers.
+        storage_profiles (pd.DataFrame | None, optional): hourly discharging and
+            charging profiles of storage, from `calculate_storage_profiles`,
+            added to the profiles of the other fleets. The EIA-930 storage categories
+            are not used as residual profiles. Defaults to None, for no storage
+            profiles.
+        other_storage_months (pd.DataFrame | None, optional): the BA-months whose
+            EIA-930 "other" category is used for battery storage, from
+            `calculate_storage_profiles`. The fleets shaped with "other" get an
+            imputed profile in these months instead. Defaults to None.
 
     Returns:
         pd.DataFrame: dataframe of hourly profiles (in MW) for each fleet. The table
@@ -78,6 +119,7 @@ def calculate_hourly_profiles(
             Profiles must still be converted to a percent of the monthly total using
             convert_profile_to_percent()
     """
+    eia930_data = remove_storage_from_eia930_data(eia930_data, other_storage_months)
     residual_profiles = calculate_residual(
         cems,
         partial_cems_subplant,
@@ -88,6 +130,7 @@ def calculate_hourly_profiles(
         year,
         transmission_only=transmission_only,
         ba_column_name=ba_column_name,
+        cutover_dates=cutover_dates,
     )
 
     # add backstop profiles where residuals were not available
@@ -118,17 +161,16 @@ def calculate_hourly_profiles(
     hourly_profiles.drop(columns="source", inplace=True)
 
     hourly_profiles = select_best_available_profile(hourly_profiles)
+    if storage_profiles is not None:
+        hourly_profiles = pd.concat(
+            [hourly_profiles, storage_profiles], axis=0, ignore_index=True, copy=False
+        )
 
     # round the data to the nearest tenth
     hourly_profiles["profile"] = hourly_profiles["profile"].round(1)
 
     # add a flat profile for negative generation
     hourly_profiles["flat_profile"] = 1.0
-
-    # use flat profile?
-    if use_flat:
-        hourly_profiles["profile"] = hourly_profiles["flat_profile"]
-        hourly_profiles["profile_method"] = "flat_profile"
 
     logger.info(
         "Summary of methods used to estimate missing hourly profiles (count of ba-months):"
@@ -165,6 +207,47 @@ def calculate_hourly_profiles(
     logger.info("\n" + summary_table.to_string())
 
     return hourly_profiles
+
+
+def remove_storage_from_eia930_data(
+    eia930_data: pd.DataFrame, other_storage_months: pd.DataFrame | None = None
+) -> pd.DataFrame:
+    """Removes the EIA-930 data used for storage from the data used for residual
+    profiles.
+
+    Storage is shaped with its own discharging and charging profiles (see
+    `calculate_storage_profiles`), so the EIA-930 storage categories aren't residual
+    profiles. In BA-months whose "other" category is used for battery storage, "other"
+    is removed too, so that the fleets that would be shaped with it get an imputed
+    profile instead, and the same series doesn't shape both.
+
+    Args:
+        eia930_data (pd.DataFrame): EIA-930 generation from
+            `eia930.prepare_eia930_for_shaping`.
+        other_storage_months (pd.DataFrame | None, optional): "ba_code" and
+            "report_date" of the BA-months whose "other" is used for battery storage.
+            Defaults to None.
+
+    Returns:
+        pd.DataFrame: `eia930_data` without those categories and months.
+    """
+    eia930_data = eia930_data[
+        ~eia930_data["fuel_category_eia930"].isin(
+            STORAGE_SHAPING_CATEGORIES + ["other_energy_storage"]
+        )
+    ]
+    if other_storage_months is None or len(other_storage_months) == 0:
+        return eia930_data
+    eia930_data = eia930_data.merge(
+        other_storage_months.assign(fuel_category_eia930="other"),
+        how="left",
+        on=["ba_code", "fuel_category_eia930", "report_date"],
+        validate="m:1",
+        indicator="is_storage_month",
+    )
+    return eia930_data[eia930_data["is_storage_month"] == "left_only"].drop(
+        columns="is_storage_month"
+    )
 
 
 def select_best_available_profile(hourly_profiles: pd.DataFrame) -> pd.DataFrame:
@@ -294,6 +377,7 @@ def aggregate_cems_to_fleet_for_residual_calc(
     datetime_col: str = "datetime_utc",
     ba_column_name: str = "ba_code",
     transmission_only: bool = False,
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Utility function for trying different BA aggregations in 930 and 923 data
 
@@ -311,6 +395,12 @@ def aggregate_cems_to_fleet_for_residual_calc(
         transmission_only (bool, optional): Whether or not to only consider subplants
             that are connected to the transmission grid when calculating residual
             profiles. Defaults to False.
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source, as returned by
+            `eia930.calculate_energy_source_cutover_dates`. In the months after a
+            cutover, subplants in that category are aggregated with the new energy
+            source instead of the original category. Defaults to None, for no
+            cutovers.
 
     Raises:
         UserWarning: If a fuel category cannot be assigned to a CEMS subplant
@@ -341,9 +431,51 @@ def aggregate_cems_to_fleet_for_residual_calc(
         other_attribute_cols=["distribution_flag"],
     )
 
+    # the expanded category of each subplant, used in the months after the BA switched
+    # to reporting it in a new EIA-930 energy source (e.g. battery storage)
+    cems_agg = cems_agg.merge(
+        assign_fleet_to_subplant_data(
+            subplant_data=cems_agg[["plant_id_eia", "subplant_id"]].drop_duplicates(),
+            plant_attributes_table=plant_attributes,
+            primary_fuel_table=primary_fuel_table,
+            year=year,
+            ba_col=ba_column_name,
+            primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+            fuel_category_col="fuel_category_eia930_expanded",
+        )[["plant_id_eia", "subplant_id", "fuel_category_eia930_expanded"]],
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
+
     if transmission_only:
         cems_agg = cems_agg[cems_agg["distribution_flag"] is False]
 
+    cems_agg = (
+        cems_agg.groupby(
+            [
+                ba_column_name,
+                "fuel_category_eia930",
+                "fuel_category_eia930_expanded",
+                datetime_col,
+            ],
+            dropna=False,
+        )["net_generation_mwh"]
+        .sum()
+        .reset_index()
+    )
+    # in the months after the BA switched to reporting a category in a new energy
+    # source, the category's generation is subtracted from that energy source instead
+    # of the original category. The months are the BA's local months, as in
+    # `eia930.prepare_eia930_for_shaping`, which differ from a plant's local months in
+    # the first and last hours of a month if the plant is in another timezone.
+    if cutover_dates is not None and len(cutover_dates) > 0:
+        cems_agg["report_date"] = calculate_ba_local_month(
+            cems_agg, ba_column_name, datetime_col
+        )
+    cems_agg = assign_expanded_category_after_cutover(
+        cems_agg.rename(columns={ba_column_name: "ba_code"}), cutover_dates
+    ).rename(columns={"ba_code": ba_column_name})
     cems_agg = (
         cems_agg.groupby(
             [ba_column_name, "fuel_category_eia930", datetime_col], dropna=False
@@ -362,6 +494,32 @@ def aggregate_cems_to_fleet_for_residual_calc(
     cems_agg = cems_agg.rename(columns={"net_generation_mwh": "cems_profile"})
 
     return cems_agg
+
+
+def calculate_ba_local_month(
+    data: pd.DataFrame, ba_column_name: str, datetime_col: str
+) -> pd.Series:
+    """Calculates the first day of the month of each hour in its BA's local time.
+
+    Args:
+        data (pd.DataFrame): data with a BA column and a UTC datetime column.
+        ba_column_name (str): name of the BA column.
+        datetime_col (str): name of the UTC datetime column.
+
+    Returns:
+        pd.Series: the first day of the BA-local month of each row (without a
+            timezone), or NaT for rows without a BA.
+    """
+    report_date = pd.Series(pd.NaT, index=data.index, dtype="datetime64[ns]")
+    for ba, rows in data.groupby(ba_column_name).groups.items():
+        report_date[rows] = (
+            data.loc[rows, datetime_col]
+            .dt.tz_convert(load_data.ba_timezone(ba=ba, type="local"))
+            .dt.tz_localize(None)
+            .dt.to_period("M")
+            .dt.to_timestamp()
+        )
+    return report_date
 
 
 def aggregate_non_930_fuel_categories(cems, plant_attributes):
@@ -396,6 +554,7 @@ def calculate_residual(
     year: int,
     transmission_only: bool = False,
     ba_column_name: str = "ba_code",
+    cutover_dates: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Creates a dataframe of residual hourly profiles for each fleet.
 
@@ -416,6 +575,10 @@ def calculate_residual(
             profiles. Defaults to False.
         ba_column_name (str, optional): Whether to use "ba_code" or "ba_code_physical"
             to define fleet composition. Defaults to "ba_code".
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source (see
+            `aggregate_cems_to_fleet_for_residual_calc`). Defaults to None, for no
+            cutovers.
 
     Returns:
         pd.DataFrame: Dataframe of hourly profiles, containing columns
@@ -431,6 +594,7 @@ def calculate_residual(
         "datetime_utc",
         ba_column_name,
         transmission_only,
+        cutover_dates=cutover_dates,
     )
 
     # clean up the eia930 data before merging
@@ -808,8 +972,10 @@ def identify_missing_profiles(
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
     )
-    ba_fuel_to_distribute = monthly_eia_data_to_shape[
-        MONTHLY_GROUP_COLUMNS
+    # storage gets its own discharging and charging profiles (see
+    # calculate_storage_profiles)
+    ba_fuel_to_distribute = monthly_eia_data_to_shape.loc[
+        monthly_eia_data_to_shape["fuel_category"] != "storage", MONTHLY_GROUP_COLUMNS
     ].drop_duplicates()
     missing_profiles = ba_fuel_to_distribute.merge(
         available_profiles,
@@ -1475,8 +1641,15 @@ def expand_hourly_profiles_to_plant_timezones(
     # includes at least one hour with a real (non-missing) value to fill from.
     edge_window_hours = 4
 
-    profile_columns = ["profile", "flat_profile"]
-    fill_columns = profile_columns + ["profile_method"]
+    profile_columns = ["profile", "flat_profile", "profile_method"]
+    # the storage profiles are blank for other fuels, so they're filled with the other
+    # profiles, but not checked for missing values
+    storage_columns = [
+        column
+        for column in STORAGE_PROFILE_COLUMNS + ["storage_charge_profile_method"]
+        if column in hourly_profiles.columns
+    ]
+    fill_columns = profile_columns + storage_columns
 
     # each ba's own native offset, straight from hourly_profiles's own tagging
     ba_native_timezone = (
@@ -1512,8 +1685,10 @@ def expand_hourly_profiles_to_plant_timezones(
 
     expanded_profiles = []
     for ba_code, group in non_native_combos.groupby("ba_code", dropna=False):
-        ba_profile = hourly_profiles.loc[hourly_profiles["ba_code"] == ba_code].drop(
-            columns=["ba_code", "report_date"]
+        ba_profile = (
+            hourly_profiles.loc[hourly_profiles["ba_code"] == ba_code]
+            .drop(columns="ba_code")
+            .rename(columns={"report_date": "ba_report_date"})
         )
         if ba_profile.empty:
             continue
@@ -1537,7 +1712,7 @@ def expand_hourly_profiles_to_plant_timezones(
                 "in the reassembled profile, since only true year-edge hours are "
                 "filled"
             )
-        missing_values = ba_profile[fill_columns].isna().any(axis=1)
+        missing_values = ba_profile[profile_columns].isna().any(axis=1)
         if missing_values.any():
             logger.warning(
                 f"hourly_profiles for ba_code {ba_code} has {missing_values.sum()} "
@@ -1570,6 +1745,33 @@ def expand_hourly_profiles_to_plant_timezones(
                 .sort_values(["fuel_category", "datetime_utc"])
                 .reset_index(drop=True)
             )
+            # if the adjacent ba-local month uses another method (e.g. a flat profile
+            # of 1s next to a profile in MW), its values aren't on the same scale, so
+            # those hours take the nearest value of the plant's own month instead
+            month_method = (
+                ba_profile.groupby(["fuel_category", "ba_report_date"])[
+                    "profile_method"
+                ]
+                .first()
+                .reindex(
+                    pd.MultiIndex.from_frame(
+                        reassembled[["fuel_category", "report_date"]]
+                    )
+                )
+                .to_numpy()
+            )
+            other_method = (
+                reassembled["ba_report_date"].notna()
+                & (reassembled["ba_report_date"] != reassembled["report_date"])
+                & (reassembled["profile_method"] != month_method)
+            )
+            reassembled.loc[other_method, fill_columns] = (
+                reassembled[fill_columns]
+                .mask(other_method)
+                .groupby([reassembled["fuel_category"], reassembled["report_date"]])
+                .transform(lambda column: column.ffill().bfill())
+                .loc[other_method]
+            )
 
             # fill only missing hours within EDGE_WINDOW_HOURS of the true start/end
             # of the year, where no adjacent-year ba data exists to join against,
@@ -1578,7 +1780,7 @@ def expand_hourly_profiles_to_plant_timezones(
             # value in the group) means an unrelated gap in the ba's own profile --
             # or a leading/trailing gap wider than expected -- stays missing here
             # instead of being silently smoothed over.
-            is_missing = reassembled[fill_columns].isna().any(axis=1)
+            is_missing = reassembled[profile_columns].isna().any(axis=1)
             hours_from_start = reassembled.groupby(
                 "fuel_category", dropna=False
             ).cumcount()
@@ -1600,6 +1802,7 @@ def expand_hourly_profiles_to_plant_timezones(
                 edge_mask, fill_columns
             ]
 
+            reassembled = reassembled.drop(columns="ba_report_date")
             reassembled["ba_code"] = ba_code
             reassembled["local_timezone_offset"] = local_timezone_offset
             expanded_profiles.append(reassembled)
@@ -1749,6 +1952,10 @@ def combine_and_export_hourly_plant_data(
         primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
         fuel_category_col="fuel_category",
     )
+    # storage is shaped with the profiles of its storage shaping category
+    monthly_eia_data_to_shape = assign_storage_shaping_category(
+        monthly_eia_data_to_shape, primary_fuel_table
+    )
 
     # add each plant's own local_timezone_offset, so shaping can use a profile
     # aligned to the plant's own local calendar rather than its ba's. This is the
@@ -1888,6 +2095,10 @@ def get_shaped_plant_id_from_ba_fuel(df: pd.DataFrame) -> pd.DataFrame:
         "petroleum": "08",
         "solar": "09",
         "storage": "10",
+        "battery_storage": "10",
+        "pumped_storage": "10",
+        "solar_w_integrated_battery_storage": "10",
+        "wind_w_integrated_battery_storage": "10",
         "waste": "11",
         "wind": "12",
     }
@@ -1955,6 +2166,10 @@ def aggregate_eia_data_to_fleet(
         fuel_category_col="fuel_category",
     )
     eia_agg = eia_agg.rename(columns={"fuel_category": "fuel_category_for_shaping"})
+    # storage is shaped with the profiles of its storage shaping category
+    eia_agg = assign_storage_shaping_category(
+        eia_agg, primary_fuel_table, fuel_category_col="fuel_category_for_shaping"
+    )
 
     # now, add fuel-based fuel category for fleet aggregation
     eia_agg = assign_fleet_to_subplant_data(
@@ -1970,25 +2185,64 @@ def aggregate_eia_data_to_fleet(
     # create a column with shaped plant ids
     eia_agg = get_shaped_plant_id_from_ba_fuel(eia_agg)
 
+    # storage is shaped with the volumes of each subplant, as in the plant-level data,
+    # so that subplants whose net generation differs from discharge minus charge in
+    # opposite directions don't cancel out in the fleet
+    if set(STORAGE_DATA_COLUMNS).issubset(eia_agg.columns):
+        has_storage = eia_agg[STORAGE_DATA_COLUMNS].notna().any(axis=1)
+        (
+            eia_agg.loc[has_storage, "storage_discharge_mwh"],
+            eia_agg.loc[has_storage, "storage_charge_mwh"],
+        ) = calculate_storage_volumes_for_shaping(eia_agg.loc[has_storage])
+
     # Group
-    eia_agg = (
-        eia_agg.groupby(
-            [
-                "shaped_plant_id",
-                "ba_code",
-                "report_date",
-                "fuel_category",
-                "fuel_category_for_shaping",
-            ],
-            dropna=False,
-        )
-        .sum(numeric_only=True)
-        .reset_index()
-        .drop(columns=["plant_id_eia", "subplant_id"])
-        .rename(columns={"shaped_plant_id": "plant_id_eia"})
+    fleet_groups = eia_agg.groupby(
+        [
+            "shaped_plant_id",
+            "ba_code",
+            "report_date",
+            "fuel_category",
+            "fuel_category_for_shaping",
+        ],
+        dropna=False,
+    )
+    storage_columns = [
+        column for column in STORAGE_DATA_COLUMNS if column in eia_agg.columns
+    ]
+    eia_agg = fleet_groups.sum(numeric_only=True).reset_index()
+    # storage data stays blank for fleets without any
+    eia_agg[storage_columns] = (
+        fleet_groups[storage_columns].sum(min_count=1).reset_index(drop=True)
+    )
+    eia_agg = eia_agg.drop(columns=["plant_id_eia", "subplant_id"]).rename(
+        columns={"shaped_plant_id": "plant_id_eia"}
     )
 
     return eia_agg
+
+
+def calculate_storage_volumes_for_shaping(
+    data: pd.DataFrame,
+) -> tuple[pd.Series, pd.Series]:
+    """Calculates the monthly discharge and charge that storage is shaped with.
+
+    Where the monthly net generation isn't equal to the discharge minus the charge (see
+    `energy_storage.identify_inconsistent_net_generation`), the difference is added to
+    the charge if the net generation is lower, or to the discharge if it is higher, as
+    under-reported energy in that direction, so that shaping keeps the monthly net
+    generation. A blank charge or discharge counts as zero.
+
+    Args:
+        data (pd.DataFrame): monthly data with "net_generation_mwh" and
+            `STORAGE_DATA_COLUMNS`.
+
+    Returns:
+        tuple[pd.Series, pd.Series]: the discharge and the charge to shape.
+    """
+    discharge = data["storage_discharge_mwh"].fillna(0)
+    charge = data["storage_charge_mwh"].fillna(0)
+    difference = data["net_generation_mwh"] - (discharge - charge)
+    return discharge + difference.clip(lower=0), charge + (-difference).clip(lower=0)
 
 
 def shape_monthly_eia_data_as_hourly(
@@ -2006,6 +2260,14 @@ def shape_monthly_eia_data_as_hourly(
     is used to identify the correct profile. This column can be based on any fuel
     assignment method before passing the dataframe to this function.
 
+    Storage with monthly charging or discharging data (`STORAGE_DATA_COLUMNS`) is
+    shaped with its discharging and charging profiles (`STORAGE_PROFILE_COLUMNS`):
+    hourly net generation is the shaped discharge minus the shaped charge. In months
+    when the monthly net generation isn't equal to the discharge minus the charge, the
+    difference is added to the charge (if the net generation is lower) or to the
+    discharge (if it is higher) before shaping, so that the monthly net generation is
+    kept. The other data columns of storage are shaped with the discharging profile.
+
     Args:
         monthly_eia_data_to_shape (pd.DataFrame): The monthly data to shape
         hourly_profiles (pd.DataFrame): The profiles used to shape the other df
@@ -2018,6 +2280,11 @@ def shape_monthly_eia_data_as_hourly(
         pd.DataFrame: plant- or fleet-level hourly activity data
     """
 
+    storage_profile_columns = [
+        column
+        for column in STORAGE_PROFILE_COLUMNS
+        if column in hourly_profiles.columns
+    ]
     # merge the hourly profiles into each plant-month
     # this will create a row for each hour in a month
     shaped_monthly_data = monthly_eia_data_to_shape.merge(
@@ -2032,6 +2299,7 @@ def shape_monthly_eia_data_as_hourly(
                 "profile_method",
                 "local_timezone_offset",
             ]
+            + storage_profile_columns
         ].rename(columns={"fuel_category": fuel_category_col_for_shaping}),
         how="left",
         on=[
@@ -2043,16 +2311,44 @@ def shape_monthly_eia_data_as_hourly(
         validate="m:m",
     )
 
+    # storage with charging or discharging data is shaped with its own profiles
+    has_storage_data = all(
+        column in shaped_monthly_data.columns
+        for column in STORAGE_DATA_COLUMNS + STORAGE_PROFILE_COLUMNS
+    )
+    if has_storage_data:
+        is_shaped_storage = shaped_monthly_data[
+            "storage_discharge_profile"
+        ].notna() & shaped_monthly_data[STORAGE_DATA_COLUMNS].notna().any(axis=1)
+    else:
+        is_shaped_storage = pd.Series(False, index=shaped_monthly_data.index)
+
     # plant-months where there is negative net generation, assign a flat profile
-    shaped_monthly_data.loc[
-        shaped_monthly_data["net_generation_mwh"] < 0, "profile"
-    ] = shaped_monthly_data.loc[
-        shaped_monthly_data["net_generation_mwh"] < 0, "flat_profile"
+    is_negative = (shaped_monthly_data["net_generation_mwh"] < 0) & ~is_shaped_storage
+    shaped_monthly_data.loc[is_negative, "profile"] = shaped_monthly_data.loc[
+        is_negative, "flat_profile"
     ]
     # update the method column
-    shaped_monthly_data.loc[
-        shaped_monthly_data["net_generation_mwh"] < 0, "profile_method"
-    ] = "flat_negative_generation"
+    shaped_monthly_data.loc[is_negative, "profile_method"] = "flat_negative_generation"
+
+    # a profile that has no positive values in a month gives blank shares of the
+    # monthly total, which would drop the monthly data. Assign a flat profile instead.
+    has_no_shares = ~np.isfinite(shaped_monthly_data["profile"]) & np.isfinite(
+        shaped_monthly_data["flat_profile"]
+    )
+    shaped_monthly_data.loc[has_no_shares, "profile"] = shaped_monthly_data.loc[
+        has_no_shares, "flat_profile"
+    ]
+    shaped_monthly_data.loc[has_no_shares, "profile_method"] = "flat_zero_profile"
+
+    # hourly net generation of storage: the shaped discharge minus the shaped charge
+    if is_shaped_storage.any():
+        storage = shaped_monthly_data.loc[is_shaped_storage]
+        discharge, charge = calculate_storage_volumes_for_shaping(storage)
+        storage_net_generation = (
+            discharge * storage["storage_discharge_profile"]
+            - charge * storage["storage_charge_profile"]
+        )
 
     # shape the data by multiplying the monthly activity data by the fraction of total
     # monthly activity occuring in that hour ("profile")
@@ -2063,6 +2359,10 @@ def shape_monthly_eia_data_as_hourly(
             )
         else:
             pass
+    if is_shaped_storage.any():
+        shaped_monthly_data.loc[is_shaped_storage, "net_generation_mwh"] = (
+            storage_net_generation
+        )
 
     # re order the columns
     column_order = [
@@ -2107,7 +2407,7 @@ def shape_partial_cems_plants(cems, eia923_allocated, year):
         # group the eia data by subplant
         eia_data_to_shape = (
             eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)[DATA_COLUMNS]
-            .sum()
+            .sum(min_count=1)
             .reset_index()
         )
 
@@ -2254,6 +2554,8 @@ def shape_partial_cems_subplants(cems, eia923_allocated, year):
     ].copy()
     # if there is no data in the partial cems dataframe, skip.
     if len(eia_data_to_shape) > 0:
+        # NOTE: missing values are intentionally treated as zero here, since the logic
+        # used to scale or shift the CEMS data below requires a value for each column
         eia_data_to_shape = (
             eia_data_to_shape.groupby(SUBPLANT_KEYS, dropna=False)[DATA_COLUMNS]
             .sum()
@@ -2518,3 +2820,951 @@ def shift_data(
     )
 
     return partial_cems_shaped
+
+
+# STORAGE PROFILES
+################################################################################
+
+
+def calculate_storage_profiles(
+    net_generation_by_energy_source: pd.DataFrame,
+    operations: pd.DataFrame,
+    monthly_eia_data_to_shape: pd.DataFrame,
+    monthly_storage_data: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+    cutover_dates: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Coordinating function for calculating hourly discharging and charging profiles
+    for energy storage.
+
+    Storage doesn't report to CEMS, so its hourly data is shaped from its monthly
+    EIA-923 data, including battery storage at plants where other units report to CEMS
+    (see `data_cleaning.identify_partial_cems_plants`).
+
+    Storage subplants are shaped with the profiles of their storage shaping category
+    (see `assign_storage_shaping_category`). Each BA's own profiles come from EIA-930:
+    its battery and pumped storage series (`calculate_eia930_storage_series`), its
+    "other" category for BAs that still report batteries there
+    (`calculate_storage_series_from_other`), and the batteries backed out of solar or
+    wind with integrated battery storage (`calculate_integrated_storage_series`). A
+    series is only used in months when it looks like storage
+    (`identify_usable_storage_series`); otherwise the profile is imputed
+    (`select_storage_profiles`).
+
+    Args:
+        net_generation_by_energy_source (pd.DataFrame): reconciled EIA-930 generation
+            by energy source.
+        operations (pd.DataFrame): reconciled EIA-930 operations, with "demand_mwh".
+        monthly_eia_data_to_shape (pd.DataFrame): monthly, subplant-level EIA data for
+            subplants that only report to EIA-923, with `STORAGE_DATA_COLUMNS`.
+        monthly_storage_data (pd.DataFrame): monthly charging and discharging of every
+            storage subplant, from
+            `energy_storage.create_monthly_energy_storage_data`.
+        plant_attributes (pd.DataFrame): table of plant-level static attributes.
+        primary_fuel_table (pd.DataFrame): table of primary fuels by generator.
+        year (int): the data year.
+        cutover_dates (pd.DataFrame | None, optional): when each BA started to report
+            each new EIA-930 energy source, from
+            `eia930.calculate_energy_source_cutover_dates`. Defaults to None.
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame]: the hourly profiles (in MW) for each BA,
+            storage shaping category and month, with "ba_code", "fuel_category",
+            "datetime_utc", "datetime_local", "report_date", `STORAGE_PROFILE_COLUMNS`,
+            "profile" (the discharging profile, used for the other data columns),
+            "profile_method" (of the discharging profile) and
+            "storage_charge_profile_method"; and the BA-months whose EIA-930 "other"
+            category is used for battery storage ("ba_code" and "report_date").
+    """
+    eia930_generation = assign_local_time_and_category_to_eia930_data(
+        net_generation_by_energy_source, year, cutover_dates
+    )
+    # only keep the hours in each BA's local year
+    eia930_generation = eia930_generation[
+        eia930_generation["datetime_local"].str[:4].astype(int) == year
+    ]
+    # all storage, for the EIA-923 ratios and losses, and the storage whose monthly data
+    # is shaped, for the volume checks
+    monthly_storage_by_ba = aggregate_storage_data_to_ba(
+        monthly_storage_data, plant_attributes, primary_fuel_table, year
+    )
+    monthly_storage_to_shape = aggregate_storage_data_to_ba(
+        monthly_eia_data_to_shape, plant_attributes, primary_fuel_table, year
+    )
+
+    eia930_storage_series = calculate_eia930_storage_series(eia930_generation)
+    # without any series, the empty EIA-930 series keeps the columns and their types
+    storage_series = [
+        series
+        for series in [
+            eia930_storage_series,
+            calculate_storage_series_from_other(
+                eia930_generation, eia930_storage_series, monthly_storage_by_ba
+            ),
+            calculate_integrated_storage_series(
+                eia930_generation, monthly_storage_by_ba
+            ),
+        ]
+        if len(series) > 0
+    ] or [eia930_storage_series]
+    storage_series = identify_usable_storage_series(
+        pd.concat(storage_series, ignore_index=True), monthly_storage_to_shape
+    )
+    other_storage_months = (
+        storage_series.loc[
+            (storage_series["method"] == "other_residual_profile")
+            & storage_series[STORAGE_PROFILE_COLUMNS].notna().any(axis=1),
+            ["ba_code", "report_date"],
+        ]
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+
+    # profiles for every month of the year, so that plants in a different timezone
+    # than their BA can borrow hours from the adjacent month
+    storage_fleet_months = (
+        monthly_storage_to_shape[["ba_code", "fuel_category"]]
+        .drop_duplicates()
+        .merge(
+            pd.DataFrame(
+                {
+                    "report_date": pd.date_range(
+                        f"{year}-01-01", periods=12, freq="MS"
+                    ).astype("datetime64[s]")
+                }
+            ),
+            how="cross",
+        )
+    )
+    storage_profiles = select_storage_profiles(
+        storage_fleet_months,
+        storage_series,
+        calculate_net_load_storage_proxy(operations, eia930_generation),
+        year,
+    )
+    logger.info(
+        "Methods used for storage discharging and charging profiles (count of "
+        "ba-months):\n"
+        + storage_profiles.groupby(
+            ["fuel_category", "profile_method", "storage_charge_profile_method"],
+            dropna=False,
+        )[["ba_code", "report_date"]]
+        .apply(lambda months: len(months.drop_duplicates()))
+        .to_string()
+    )
+    return storage_profiles, other_storage_months
+
+
+def assign_storage_shaping_category(
+    subplant_data: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    fuel_category_col: str = "fuel_category",
+) -> pd.DataFrame:
+    """Replaces the "storage" fuel category of storage subplants with the storage
+    shaping category whose profiles shape them.
+
+    Pumped storage (prime mover PS) is "pumped_storage". Other storage at plants with
+    integrated storage (`EIA930_INTEGRATED_STORAGE_CATEGORIES`, as for solar and wind
+    in `helpers.assign_fuel_category_to_esc`) is "solar_w_integrated_battery_storage"
+    if the plant has solar, or "wind_w_integrated_battery_storage" if it has wind. All
+    other storage is "battery_storage".
+
+    Args:
+        subplant_data (pd.DataFrame): data with "plant_id_eia", "subplant_id" and
+            `fuel_category_col` columns.
+        primary_fuel_table (pd.DataFrame): table of primary fuels by generator, with
+            "subplant_primary_prime_mover_code", "plant_storage_category" and
+            "energy_source_code" columns.
+        fuel_category_col (str, optional): the fuel category column to update.
+            Defaults to "fuel_category".
+
+    Returns:
+        pd.DataFrame: `subplant_data` with the storage shaping category instead of
+            "storage" in `fuel_category_col`.
+    """
+    categories = primary_fuel_table.copy()[
+        [
+            "plant_id_eia",
+            "subplant_id",
+            "subplant_primary_prime_mover_code",
+            "plant_storage_category",
+        ]
+    ].drop_duplicates(subset=["plant_id_eia", "subplant_id"])
+    categories = categories.merge(
+        primary_fuel_table.assign(
+            has_solar=primary_fuel_table["energy_source_code"] == "SUN",
+            has_wind=primary_fuel_table["energy_source_code"] == "WND",
+        )
+        .groupby("plant_id_eia", dropna=False)[["has_solar", "has_wind"]]
+        .any()
+        .reset_index(),
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    is_integrated = categories["plant_storage_category"].isin(
+        EIA930_INTEGRATED_STORAGE_CATEGORIES
+    )
+    categories["storage_shaping_category"] = np.select(
+        [
+            # some subplants are missing a prime mover code
+            categories["subplant_primary_prime_mover_code"].eq("PS").fillna(False),
+            is_integrated & categories["has_solar"].eq(True),
+            is_integrated & categories["has_wind"].eq(True),
+        ],
+        [
+            "pumped_storage",
+            "solar_w_integrated_battery_storage",
+            "wind_w_integrated_battery_storage",
+        ],
+        "battery_storage",
+    )
+    subplant_data = subplant_data.merge(
+        categories[["plant_id_eia", "subplant_id", "storage_shaping_category"]],
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
+    is_storage = subplant_data[fuel_category_col] == "storage"
+    subplant_data.loc[is_storage, fuel_category_col] = subplant_data.loc[
+        is_storage, "storage_shaping_category"
+    ]
+    return subplant_data.drop(columns="storage_shaping_category")
+
+
+def aggregate_storage_data_to_ba(
+    subplant_data: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    year: int,
+) -> pd.DataFrame:
+    """Adds up the monthly charging and discharging of storage subplants by BA and
+    storage shaping category.
+
+    Args:
+        subplant_data (pd.DataFrame): monthly subplant data with
+            `STORAGE_DATA_COLUMNS`.
+        plant_attributes (pd.DataFrame): table of plant-level static attributes.
+        primary_fuel_table (pd.DataFrame): table of primary fuels by generator.
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: monthly `STORAGE_DATA_COLUMNS` by "ba_code", "fuel_category"
+            (the storage shaping category) and "report_date".
+    """
+    storage = assign_storage_shaping_category(
+        assign_fleet_to_subplant_data(
+            subplant_data,
+            plant_attributes,
+            primary_fuel_table,
+            year,
+            ba_col="ba_code",
+            primary_fuel_col="subplant_primary_fuel_from_capacity_mw",
+            fuel_category_col="fuel_category",
+        ),
+        primary_fuel_table,
+    )
+    storage = (
+        storage[storage["fuel_category"].isin(STORAGE_SHAPING_CATEGORIES)]
+        .groupby(["ba_code", "fuel_category", "report_date"], dropna=False)[
+            STORAGE_DATA_COLUMNS
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    storage["report_date"] = storage["report_date"].astype("datetime64[s]")
+    return storage
+
+
+def calculate_eia930_storage_series(eia930_generation: pd.DataFrame) -> pd.DataFrame:
+    """Calculates each BA's hourly battery and pumped storage discharging and charging
+    from its EIA-930 storage energy sources, in the months after it switched to
+    reporting them.
+
+    Battery storage includes the battery, unknown (which some BAs use for charging)
+    and other energy storage energy sources.
+
+    Args:
+        eia930_generation (pd.DataFrame): EIA-930 generation by energy source, from
+            `eia930.assign_local_time_and_category_to_eia930_data`.
+
+    Returns:
+        pd.DataFrame: hourly `STORAGE_PROFILE_COLUMNS` (in MW) by
+            `STORAGE_SERIES_KEYS`, with a "method" column.
+    """
+    storage = eia930_generation[
+        eia930_generation["fuel_category_eia930"].isin(
+            ["battery_storage", "other_energy_storage", "pumped_storage"]
+        )
+    ]
+    storage = calculate_discharge_and_charge(
+        storage.assign(
+            fuel_category=storage["fuel_category_eia930"].replace(
+                {"other_energy_storage": "battery_storage"}
+            )
+        )
+    )
+    return storage.assign(method="eia930_profile")
+
+
+def calculate_discharge_and_charge(data: pd.DataFrame) -> pd.DataFrame:
+    """Splits hourly net generation of storage into discharging (the positive part)
+    and charging (the negative part, made positive).
+
+    The split is done for each energy source before adding them up, so that a BA that
+    reports discharging and charging as separate energy sources keeps both.
+
+    Args:
+        data (pd.DataFrame): hourly "net_generation_mwh_930" with
+            `STORAGE_SERIES_KEYS`, and optionally one row per energy source.
+
+    Returns:
+        pd.DataFrame: hourly `STORAGE_PROFILE_COLUMNS` by `STORAGE_SERIES_KEYS`.
+    """
+    return (
+        data.assign(
+            storage_discharge_profile=data["net_generation_mwh_930"].clip(lower=0),
+            storage_charge_profile=(-data["net_generation_mwh_930"]).clip(lower=0),
+        )
+        .groupby(STORAGE_SERIES_KEYS, dropna=False)[STORAGE_PROFILE_COLUMNS]
+        .sum(min_count=1)
+        .reset_index()
+    )
+
+
+def calculate_storage_series_from_other(
+    eia930_generation: pd.DataFrame,
+    eia930_storage_series: pd.DataFrame,
+    monthly_storage_by_ba: pd.DataFrame,
+) -> pd.DataFrame:
+    """Calculates hourly battery discharging and charging from the EIA-930 "other"
+    category of BAs that still report their batteries there.
+
+    For BAs whose "other" is mostly battery storage, "other" is used for battery storage
+    until the BA switched to reporting it separately. In 2025, CISO is the only BA
+    whose "other" clearly shows both battery charging and discharging. The rest of "other" (e.g. geothermal and biomass) is
+    assumed to be flat within the month. Its size is uncertain, so it is set so that
+    the remainder discharges and charges in the same ratio as the BA's batteries in
+    EIA-923 (see `calculate_offset_for_discharge_charge_ratio`).
+
+    Args:
+        eia930_generation (pd.DataFrame): EIA-930 generation by energy source, from
+            `eia930.assign_local_time_and_category_to_eia930_data`.
+        eia930_storage_series (pd.DataFrame): the BAs' own storage series, from
+            `calculate_eia930_storage_series`, which show when a BA switched.
+        monthly_storage_by_ba (pd.DataFrame): monthly storage data by BA and storage
+            shaping category, from `aggregate_storage_data_to_ba`.
+
+    Returns:
+        pd.DataFrame: hourly battery `STORAGE_PROFILE_COLUMNS` (in MW) by
+            `STORAGE_SERIES_KEYS`, with a "method" column.
+    """
+    # BAs whose "other" category is mostly battery storage until they report battery
+    # storage separately
+    other_battery_storage_bas = ["CISO"]
+    month_keys = ["ba_code", "report_date"]
+    other = (
+        eia930_generation[
+            (eia930_generation["fuel_category_eia930"] == "other")
+            & eia930_generation["ba_code"].isin(other_battery_storage_bas)
+        ]
+        .groupby(
+            ["ba_code", "datetime_utc", "datetime_local", "report_date"], dropna=False
+        )["net_generation_mwh_930"]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    # only the months before the BA switched to reporting battery storage
+    other = other.merge(
+        eia930_storage_series.loc[
+            eia930_storage_series["fuel_category"] == "battery_storage", month_keys
+        ].drop_duplicates(),
+        how="left",
+        on=month_keys,
+        validate="m:1",
+        indicator="switched",
+    )
+    other = other[other["switched"] == "left_only"]
+
+    # the ratio of discharging to charging of the BA's batteries in EIA-923
+    battery_ratio = (
+        monthly_storage_by_ba[
+            monthly_storage_by_ba["fuel_category"] != "pumped_storage"
+        ]
+        .groupby(month_keys, dropna=False)[STORAGE_DATA_COLUMNS]
+        .sum(min_count=1)
+    )
+    battery_ratio = (
+        battery_ratio["storage_discharge_mwh"] / battery_ratio["storage_charge_mwh"]
+    ).rename("discharge_charge_ratio")
+    other = other.join(battery_ratio, on=month_keys, how="inner")
+    other = other[
+        np.isfinite(other["discharge_charge_ratio"])
+        & (other["discharge_charge_ratio"] > 0)
+    ]
+    if len(other) == 0:
+        return pd.DataFrame()
+
+    offsets = (
+        other.groupby(month_keys, dropna=False)
+        .apply(
+            lambda month: calculate_offset_for_discharge_charge_ratio(
+                month["net_generation_mwh_930"].to_numpy(),
+                month["discharge_charge_ratio"].iloc[0],
+            ),
+            include_groups=False,
+        )
+        .rename("offset")
+    )
+    other = other.join(offsets, on=month_keys)
+    other["net_generation_mwh_930"] = other["net_generation_mwh_930"] - other["offset"]
+    return calculate_discharge_and_charge(
+        other.assign(fuel_category="battery_storage")
+    ).assign(method="other_residual_profile")
+
+
+def calculate_offset_for_discharge_charge_ratio(
+    values: np.ndarray, target_ratio: float
+) -> float:
+    """Finds by bisection the constant that, subtracted from hourly values, gives a
+    target ratio of positive to negative energy.
+
+    Args:
+        values (np.ndarray): hourly values, e.g. net generation in MWh.
+        target_ratio (float): the target ratio of the sum of the positive parts to the
+            sum of the negative parts (made positive).
+
+    Returns:
+        float: the offset.
+    """
+    values = values[np.isfinite(values)]
+    low, high = values.min(), values.max()
+    for _ in range(100):
+        offset = (low + high) / 2
+        shifted = values - offset
+        if shifted.clip(min=0).sum() > target_ratio * (-shifted).clip(min=0).sum():
+            low = offset
+        else:
+            high = offset
+    return (low + high) / 2
+
+
+def calculate_integrated_storage_series(
+    eia930_generation: pd.DataFrame, monthly_storage_by_ba: pd.DataFrame
+) -> pd.DataFrame:
+    """Backs out the hourly discharging and charging of batteries integrated with
+    solar or wind from each BA's EIA-930 solar or wind with integrated battery storage.
+
+    The combined series is the output of the generators and their batteries. In the
+    months after the BA switched to reporting it, the generators' part is estimated
+    with the BA's plain solar (or wind) profile, scaled so that its monthly energy
+    equals the combined series plus the batteries' monthly losses from EIA-923
+    (charging minus discharging):
+
+        battery net = combined - k * plain,  k = (sum(combined) + losses) / sum(plain)
+
+    Months in which the combined or plain series add up to zero or less are left out.
+
+    Args:
+        eia930_generation (pd.DataFrame): EIA-930 generation by energy source, from
+            `eia930.assign_local_time_and_category_to_eia930_data`.
+        monthly_storage_by_ba (pd.DataFrame): monthly storage data by BA and storage
+            shaping category, from `aggregate_storage_data_to_ba`.
+
+    Returns:
+        pd.DataFrame: hourly `STORAGE_PROFILE_COLUMNS` (in MW) by
+            `STORAGE_SERIES_KEYS`, with a "method" column.
+    """
+    month_keys = ["ba_code", "report_date"]
+    hourly_keys = ["ba_code", "datetime_utc", "datetime_local", "report_date"]
+    # the EIA-930 energy source with the plain solar or wind profile, which is
+    # subtracted from solar or wind with integrated battery storage
+    plain_energy_sources = {
+        "solar_w_integrated_battery_storage": "solar",
+        "wind_w_integrated_battery_storage": "wind",
+    }
+    integrated_series = []
+    for category, plain_energy_source in plain_energy_sources.items():
+        data = (
+            eia930_generation[eia930_generation["fuel_category_eia930"] == category]
+            .groupby(hourly_keys, dropna=False)["net_generation_mwh_930"]
+            .sum(min_count=1)
+            .rename("combined_mwh")
+            .reset_index()
+            .merge(
+                eia930_generation[
+                    eia930_generation["generation_energy_source"] == plain_energy_source
+                ]
+                .groupby(["ba_code", "datetime_utc"], dropna=False)[
+                    "net_generation_mwh_930"
+                ]
+                .sum(min_count=1)
+                .clip(lower=0)
+                .rename("plain_mwh")
+                .reset_index(),
+                how="left",
+                on=["ba_code", "datetime_utc"],
+                validate="1:1",
+            )
+        )
+        monthly = data.groupby(month_keys, dropna=False)[
+            ["combined_mwh", "plain_mwh"]
+        ].sum(min_count=1)
+        losses = monthly_storage_by_ba[
+            monthly_storage_by_ba["fuel_category"] == category
+        ].set_index(month_keys)
+        # blank losses mean that there is no EIA-923 data for the batteries, so
+        # assume that they had no losses
+        monthly["scaling_factor"] = (
+            monthly["combined_mwh"]
+            + (losses["storage_charge_mwh"] - losses["storage_discharge_mwh"])
+            .reindex(monthly.index)
+            .fillna(0)
+        ) / monthly["plain_mwh"]
+        monthly = monthly[
+            (monthly["combined_mwh"] > 0)
+            & (monthly["plain_mwh"] > 0)
+            & (monthly["scaling_factor"] > 0)
+        ]
+        data = data.join(monthly["scaling_factor"], on=month_keys, how="inner")
+        # a blank plain solar or wind value means that there is none to back out
+        data["net_generation_mwh_930"] = data["combined_mwh"] - data[
+            "scaling_factor"
+        ] * data["plain_mwh"].fillna(0)
+        if len(data) > 0:
+            integrated_series.append(
+                calculate_discharge_and_charge(data.assign(fuel_category=category))
+            )
+    if len(integrated_series) == 0:
+        return pd.DataFrame()
+    return pd.concat(integrated_series, ignore_index=True).assign(
+        method="integrated_residual_profile"
+    )
+
+
+def identify_usable_storage_series(
+    storage_series: pd.DataFrame, monthly_storage_to_shape: pd.DataFrame
+) -> pd.DataFrame:
+    """Blanks the months of each storage series that don't look like storage or that
+    represent too little of the storage they would shape.
+
+    Some EIA-930 storage series only cover a few batteries, report only one
+    direction, or (when backed out of another category) aren't storage. A series is
+    used in a month if:
+        - for a BA's own EIA-930 series, it discharges at most 1.1 times what it
+          charges. Round-trip losses, and batteries that charge while others discharge
+          in the same hour, only lower this ratio, so higher ratios mean that charging
+          is missing. Series backed out of other categories are sized from EIA-923's
+          ratio.
+        - both directions happen on at least half of the days (the smaller direction
+          is at least a tenth of the larger)
+        - its energy is at least 20% of the EIA-923 energy of the storage it shapes
+    Some BAs (e.g. ISNE) report no charging in EIA-930. For a month without any
+    charging, the discharging is used if it passes the volume check against EIA-923
+    discharging. Battery series are compared with all battery-type storage in the BA,
+    other series with the storage of their category.
+
+    Args:
+        storage_series (pd.DataFrame): hourly `STORAGE_PROFILE_COLUMNS` by
+            `STORAGE_SERIES_KEYS`, with a "method" column.
+        monthly_storage_to_shape (pd.DataFrame): monthly `STORAGE_DATA_COLUMNS` of the
+            storage to shape, by "ba_code", "fuel_category" and
+            "report_date".
+
+    Returns:
+        pd.DataFrame: `storage_series`, blank in the months and directions that aren't
+            used.
+    """
+    # the maximum ratio of discharging to charging of a BA's own EIA-930 series.
+    # Round-trip losses make discharging less than charging, so a higher ratio means that
+    # charging is missing or reported elsewhere.
+    max_discharge_charge_ratio = 1.1
+    # the minimum ratio of the smaller to the larger of a day's discharging and charging
+    # for the day to count as one on which the series both charges and discharges
+    min_daily_balance = 0.1
+    # the minimum share of the month's days on which the series both charges and
+    # discharges
+    min_share_of_balanced_days = 0.5
+    # the minimum energy of the series (discharging plus charging) as a share of the
+    # EIA-923 discharging plus charging of the storage it shapes
+    min_volume_ratio = 0.2
+
+    month_keys = ["ba_code", "fuel_category", "method", "report_date"]
+    if len(storage_series) == 0:
+        return storage_series
+    eia923_volumes = pd.concat(
+        [
+            monthly_storage_to_shape[
+                monthly_storage_to_shape["fuel_category"] != "pumped_storage"
+            ]
+            .groupby(["ba_code", "report_date"], dropna=False)[STORAGE_DATA_COLUMNS]
+            .sum(min_count=1)
+            .reset_index()
+            .assign(fuel_category="battery_storage"),
+            monthly_storage_to_shape[
+                monthly_storage_to_shape["fuel_category"] != "battery_storage"
+            ],
+        ],
+        ignore_index=True,
+    )
+
+    daily = (
+        storage_series.assign(day=storage_series["datetime_local"].str[:10])
+        .groupby(month_keys + ["day"], dropna=False)[STORAGE_PROFILE_COLUMNS]
+        .sum()
+    )
+    daily["is_balanced"] = (daily.max(axis=1) > 0) & (
+        daily.min(axis=1) >= min_daily_balance * daily.max(axis=1)
+    )
+    monthly = (
+        daily.groupby(month_keys, dropna=False)
+        .agg(
+            discharge=("storage_discharge_profile", "sum"),
+            charge=("storage_charge_profile", "sum"),
+            share_of_balanced_days=("is_balanced", "mean"),
+        )
+        .reset_index()
+        .merge(
+            eia923_volumes,
+            how="left",
+            on=["ba_code", "fuel_category", "report_date"],
+            validate="m:1",
+        )
+    )
+    # blank EIA-923 data fails the volume checks, since there is nothing to compare to
+    has_both_directions = (
+        (
+            (monthly["method"] != "eia930_profile")
+            | (monthly["discharge"] <= max_discharge_charge_ratio * monthly["charge"])
+        )
+        & (monthly["share_of_balanced_days"] >= min_share_of_balanced_days)
+        & (
+            monthly["discharge"] + monthly["charge"]
+            >= min_volume_ratio
+            * (monthly["storage_discharge_mwh"] + monthly["storage_charge_mwh"])
+        )
+    )
+    has_discharge_only = (
+        (monthly["charge"] == 0)
+        & (monthly["discharge"] > 0)
+        & (monthly["discharge"] >= min_volume_ratio * monthly["storage_discharge_mwh"])
+    )
+    monthly["use_discharge"] = has_both_directions | has_discharge_only
+    monthly["use_charge"] = has_both_directions
+    logger.info(
+        "Storage series used as profiles (count of ba-months):\n"
+        + monthly.assign(
+            result=np.select(
+                [has_both_directions, has_discharge_only],
+                ["used", "discharge only"],
+                "not used",
+            )
+        )
+        .groupby(["fuel_category", "method", "result"], dropna=False)
+        .size()
+        .unstack(fill_value=0)
+        .to_string()
+    )
+
+    storage_series = storage_series.merge(
+        monthly[month_keys + ["use_discharge", "use_charge"]],
+        how="left",
+        on=month_keys,
+        validate="m:1",
+    )
+    storage_series.loc[
+        ~storage_series["use_discharge"], "storage_discharge_profile"
+    ] = np.nan
+    storage_series.loc[~storage_series["use_charge"], "storage_charge_profile"] = np.nan
+    return storage_series.drop(columns=["use_discharge", "use_charge"])
+
+
+def calculate_net_load_storage_proxy(
+    operations: pd.DataFrame, eia930_generation: pd.DataFrame
+) -> pd.DataFrame:
+    """Calculates hourly discharging and charging profiles for storage from each BA's
+    net load.
+
+    Storage tends to charge when net load (EIA-930 demand minus solar and wind,
+    including with integrated battery storage) is low, and to discharge when it is
+    high. For each BA and local day, hours above the day's average net load get a
+    discharging profile proportional to how far above it they are, and hours below it a
+    charging profile proportional to how far below.
+
+    Args:
+        operations (pd.DataFrame): reconciled EIA-930 operations, with
+            "balancing_authority_code_eia", "datetime_utc" and "demand_mwh" columns.
+        eia930_generation (pd.DataFrame): EIA-930 generation by energy source in each
+            BA's local year, from
+            `eia930.assign_local_time_and_category_to_eia930_data`.
+
+    Returns:
+        pd.DataFrame: hourly `STORAGE_PROFILE_COLUMNS` (in MW) by "ba_code" and
+            "datetime_utc", for BAs with demand data.
+    """
+    hourly_keys = ["ba_code", "datetime_utc", "datetime_local"]
+    demand = operations.rename(columns={"balancing_authority_code_eia": "ba_code"})[
+        ["ba_code", "datetime_utc", "demand_mwh"]
+    ]
+    demand["datetime_utc"] = demand["datetime_utc"].astype("datetime64[ns, UTC]")
+    # summing blank solar or wind gives zero: a BA that doesn't report them has none
+    solar_and_wind = (
+        eia930_generation[
+            eia930_generation["generation_energy_source"].isin(
+                [
+                    "solar",
+                    "wind",
+                    "solar_w_integrated_battery_storage",
+                    "wind_w_integrated_battery_storage",
+                ]
+            )
+        ]
+        .groupby(hourly_keys, dropna=False)["net_generation_mwh_930"]
+        .sum()
+        .rename("solar_and_wind_mwh")
+    )
+    net_load = (
+        eia930_generation[hourly_keys]
+        .drop_duplicates()
+        .merge(demand, how="inner", on=["ba_code", "datetime_utc"], validate="1:1")
+        .join(solar_and_wind, on=hourly_keys)
+    )
+    # a BA without solar or wind in EIA-930 has none to subtract
+    net_load["net_load_mwh"] = net_load["demand_mwh"] - net_load[
+        "solar_and_wind_mwh"
+    ].fillna(0)
+    difference = net_load["net_load_mwh"] - net_load.groupby(
+        [net_load["ba_code"], net_load["datetime_local"].str[:10]], dropna=False
+    )["net_load_mwh"].transform("mean")
+    return net_load[["ba_code", "datetime_utc"]].assign(
+        storage_discharge_profile=difference.clip(lower=0),
+        storage_charge_profile=(-difference).clip(lower=0),
+    )
+
+
+def select_storage_profiles(
+    storage_fleet_months: pd.DataFrame,
+    storage_series: pd.DataFrame,
+    net_load_proxy: pd.DataFrame,
+    year: int,
+) -> pd.DataFrame:
+    """Selects the discharging and charging profile of each BA, storage shaping
+    category and month, separately for each direction.
+
+    The order of preference is:
+        1. The BA's own usable series for the category
+        2. For storage integrated with solar or wind: the BA's own battery series
+        3. The BA's net-load profile ("net_load_proxy", see
+           `calculate_net_load_storage_proxy`)
+        4. For BAs without EIA-930 demand data: the average of the BAs' own series,
+           by local standard time ("national_average"; battery series for integrated
+           storage)
+        5. A flat profile ("assumed_flat")
+    A profile is used in a month if it has a non-zero total and values in at least
+    half of the month's hours.
+
+    Args:
+        storage_fleet_months (pd.DataFrame): the "ba_code", "fuel_category" (storage
+            shaping category) and "report_date" to calculate profiles for.
+        storage_series (pd.DataFrame): hourly `STORAGE_PROFILE_COLUMNS` by
+            `STORAGE_SERIES_KEYS`, with a "method" column, blank where not usable.
+        net_load_proxy (pd.DataFrame): hourly `STORAGE_PROFILE_COLUMNS` by "ba_code"
+            and "datetime_utc", from `calculate_net_load_storage_proxy`.
+        year (int): the data year.
+
+    Returns:
+        pd.DataFrame: hourly profiles, as described in `calculate_storage_profiles`.
+    """
+    hourly_keys = ["ba_code", "fuel_category", "datetime_utc"]
+    month_keys = ["ba_code", "fuel_category", "report_date"]
+    base_categories = pd.DataFrame(
+        {
+            "fuel_category": STORAGE_SHAPING_CATEGORIES,
+            "base_category": [
+                "pumped_storage" if category == "pumped_storage" else "battery_storage"
+                for category in STORAGE_SHAPING_CATEGORIES
+            ],
+        }
+    )
+    # each BA's offset from UTC in local standard time, to average across BAs
+    standard_offsets = add_local_timezone_offset(
+        load_data.load_ba_reference()[["ba_code", "timezone_local"]],
+        year,
+        timezone_col="timezone_local",
+    )[["ba_code", "local_timezone_offset"]]
+
+    # every local hour of the months to calculate profiles for
+    storage_hours = []
+    for ba in storage_fleet_months["ba_code"].unique():
+        local_tz = load_data.ba_timezone(ba=ba, type="local")
+        ba_hours = create_local_year_timestamps(year, local_tz).assign(ba_code=ba)
+        ba_hours["datetime_local"] = (
+            ba_hours["datetime_utc"].dt.tz_convert(local_tz).astype(str)
+        )
+        storage_hours.append(ba_hours)
+    storage_hours = (
+        pd.concat(storage_hours, ignore_index=True)
+        .astype({"report_date": "datetime64[s]"})
+        .merge(
+            storage_fleet_months,
+            how="inner",
+            on=["ba_code", "report_date"],
+            validate="m:m",
+        )
+        .merge(base_categories, how="left", on="fuel_category", validate="m:1")
+        .merge(standard_offsets, how="left", on="ba_code", validate="m:1")
+    )
+    storage_hours["datetime_local_standard"] = (
+        storage_hours["datetime_utc"].dt.tz_localize(None)
+        + storage_hours["local_timezone_offset"]
+    )
+    base_series = storage_series[
+        storage_series["fuel_category"].isin(["battery_storage", "pumped_storage"])
+    ].rename(columns={"fuel_category": "base_category"})
+    base_series = base_series.merge(
+        standard_offsets, how="left", on="ba_code", validate="m:1"
+    )
+    base_series["datetime_local_standard"] = (
+        base_series["datetime_utc"].dt.tz_localize(None)
+        + base_series["local_timezone_offset"]
+    )
+
+    candidate_profiles = pd.concat(
+        [
+            # 1. the BA's own series
+            storage_series[hourly_keys + STORAGE_PROFILE_COLUMNS + ["method"]].assign(
+                level=1
+            ),
+            # 2. for integrated storage, the BA's own battery series
+            base_series[base_series["base_category"] == "battery_storage"]
+            .merge(
+                base_categories[base_categories["fuel_category"] != "battery_storage"],
+                how="inner",
+                on="base_category",
+                validate="m:m",
+            )[hourly_keys + STORAGE_PROFILE_COLUMNS + ["method"]]
+            .assign(level=2),
+            # 3. the BA's net-load profile, for every category
+            storage_hours[hourly_keys]
+            .merge(
+                net_load_proxy,
+                how="inner",
+                on=["ba_code", "datetime_utc"],
+                validate="m:1",
+            )
+            .assign(method="net_load_proxy", level=3),
+            # 4. the average of the BAs' own series, by local standard time
+            storage_hours[hourly_keys + ["base_category", "datetime_local_standard"]]
+            .merge(
+                base_series.groupby(
+                    ["base_category", "datetime_local_standard"], dropna=False
+                )[STORAGE_PROFILE_COLUMNS]
+                .mean()
+                .reset_index(),
+                how="inner",
+                on=["base_category", "datetime_local_standard"],
+                validate="m:1",
+            )[hourly_keys + STORAGE_PROFILE_COLUMNS]
+            .assign(method="national_average", level=4),
+            # 5. a flat profile
+            storage_hours[hourly_keys].assign(
+                storage_discharge_profile=1.0,
+                storage_charge_profile=1.0,
+                method="assumed_flat",
+                level=5,
+            ),
+        ],
+        ignore_index=True,
+    )
+
+    # pick the best profile with data in each month, for each direction
+    hours_in_month = storage_hours.groupby(month_keys, dropna=False).size()
+    storage_profiles = storage_hours[hourly_keys + ["datetime_local", "report_date"]]
+    for column, method_column in zip(
+        STORAGE_PROFILE_COLUMNS, ["profile_method", "storage_charge_profile_method"]
+    ):
+        candidates = storage_hours[hourly_keys + ["report_date"]].merge(
+            candidate_profiles[hourly_keys + [column, "method", "level"]],
+            how="inner",
+            on=hourly_keys,
+            validate="1:m",
+        )
+        summary = (
+            candidates.groupby(month_keys + ["level"], dropna=False)[column]
+            .agg(["sum", "count"])
+            .reset_index()
+            .join(hours_in_month.rename("hours"), on=month_keys)
+        )
+        best_level = (
+            summary[(summary["sum"] > 0) & (summary["count"] >= 0.5 * summary["hours"])]
+            .groupby(month_keys, dropna=False)["level"]
+            .min()
+            .reset_index()
+        )
+        storage_profiles = storage_profiles.merge(
+            candidates.merge(
+                best_level, how="inner", on=month_keys + ["level"], validate="m:1"
+            )[hourly_keys + [column, "method"]].rename(
+                columns={"method": method_column}
+            ),
+            how="left",
+            on=hourly_keys,
+            validate="1:1",
+        )
+        # an hour missing from the selected profile gets no share of the month
+        storage_profiles[column] = storage_profiles[column].fillna(0)
+
+    storage_profiles["profile"] = storage_profiles["storage_discharge_profile"]
+    storage_profiles["datetime_utc"] = (
+        storage_profiles["datetime_utc"]
+        .dt.tz_localize(None)
+        .astype("datetime64[s]")
+        .dt.tz_localize("UTC")
+    )
+    return storage_profiles[
+        ["ba_code", "fuel_category", "datetime_utc", "datetime_local", "report_date"]
+        + STORAGE_PROFILE_COLUMNS
+        + ["profile", "profile_method", "storage_charge_profile_method"]
+    ]
+
+
+def add_storage_data_to_monthly_eia_data(
+    monthly_eia_data_to_shape: pd.DataFrame, monthly_storage_data: pd.DataFrame
+) -> pd.DataFrame:
+    """Adds monthly charging and discharging to the monthly EIA data to shape.
+
+    The discharge of pumped storage with natural inflow is blank (see
+    `energy_storage.create_monthly_energy_storage_data`). For shaping only, it is
+    filled with the net generation plus the charge, but not less than zero, so that it
+    is shaped with the discharging profile.
+
+    Args:
+        monthly_eia_data_to_shape (pd.DataFrame): monthly, subplant-level EIA data for
+            subplants that only report to EIA-923.
+        monthly_storage_data (pd.DataFrame): monthly charging and discharging of every
+            storage subplant, from
+            `energy_storage.create_monthly_energy_storage_data`.
+
+    Returns:
+        pd.DataFrame: `monthly_eia_data_to_shape` with `STORAGE_DATA_COLUMNS`, blank
+            for subplants that aren't storage.
+    """
+    subplant_month_keys = ["plant_id_eia", "subplant_id", "report_date"]
+    data = monthly_eia_data_to_shape.merge(
+        monthly_storage_data[subplant_month_keys + STORAGE_DATA_COLUMNS],
+        how="left",
+        on=subplant_month_keys,
+        validate="1:1",
+    )
+    has_implied_discharge = (
+        data["storage_discharge_mwh"].isna()
+        & data["storage_charge_mwh"].notna()
+        & data["net_generation_mwh"].notna()
+    )
+    data.loc[has_implied_discharge, "storage_discharge_mwh"] = (
+        data.loc[has_implied_discharge, "net_generation_mwh"]
+        + data.loc[has_implied_discharge, "storage_charge_mwh"]
+    ).clip(lower=0)
+    return data

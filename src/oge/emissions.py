@@ -14,7 +14,6 @@ from oge.constants import (
     ConversionFactors,
     chp_gross_thermal_output_efficiency,
     chp_useful_thermal_output_efficiency,
-    nox_lb_per_mmbtu_flared_landfill_gas,
     current_early_release_year,
 )
 
@@ -64,6 +63,11 @@ def calculate_ghg_emissions_from_fuel_consumption(
         df = add_geothermal_emission_factors(
             df, year, include_co2=True, include_nox=False, include_so2=False
         )
+        # geothermal plants are assumed to have no CH4 or N2O emissions
+        df.loc[
+            df["energy_source_code"] == "GEO",
+            [ef for ef in ["ch4_lb_per_mmbtu", "n2o_lb_per_mmbtu"] if ef in efs_to_use],
+        ] = 0
 
     # create a new column with the emissions mass
     for e in emissions_to_calc:
@@ -336,7 +340,7 @@ def adjust_fuel_and_emissions_for_chp(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates an electric allocation factor for CHP subplants.
+    """Calculates an electric allocation factor for each subplant.
 
     The methodology is based on the formula in the eGRID2020 technical guide.
 
@@ -344,12 +348,20 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     generator_id or emissions_unit_id_epa since fuel consumption and generation data are
     not always assigned to the same generator within a subplant.
 
-    Calculates a unique EAF for each subplant-month-fuel.
+    Calculates a unique EAF for each subplant-month (and fuel, for EIA-923).
 
+    The formula is undefined or misleading in some cases, which are handled as follows:
+        - When generation is missing, the EAF is the reported ratio of fuel consumed
+          for electricity to total fuel consumed.
+        - At CHP subplants (subplants that report useful thermal output in any month),
+          the EAF is set to zero when generation is zero or negative (both for the row
+          and across all fuels in the subplant-month), even if useful thermal output or
+          fuel for electricity is reported, since no electricity was produced.
+        - Any remaining missing factors are set to one.
 
     Args:
         df (pd.DataFrame): dataframe with 'fuel_consumed_mmbtu', 'net_generation_mwh',
-            and fuel_consumed_mmbtu_for_electricity columns, mapped to 'subplant_id'
+            and 'fuel_consumed_for_electricity_mmbtu' columns, mapped to 'subplant_id'
 
     Returns:
         pd.DataFrame: the input dataframe with an 'electric_allocation_factor' column
@@ -369,7 +381,7 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
                 "net_generation_mwh",
             ]
         ]
-        .sum()
+        .sum(min_count=1)
         .reset_index()
     )
 
@@ -405,6 +417,31 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
         "electric_allocation_factor"
     ].clip(0, 1)
 
+    # where generation is missing, use the reported fraction of fuel for electricity
+    missing_generation = df_subplant["net_generation_mwh"].isna()
+    df_subplant.loc[missing_generation, "electric_allocation_factor"] = (
+        df_subplant.loc[missing_generation, "fuel_consumed_for_electricity_mmbtu"]
+        / df_subplant.loc[missing_generation, "fuel_consumed_mmbtu"]
+    ).clip(0, 1)
+
+    # at CHP subplants, set the factor to zero when no electricity was generated (zero
+    # or negative generation, for this fuel and across the subplant-month)
+    chp_subplant = (
+        df_subplant.groupby(["plant_id_eia", "subplant_id"])[
+            "useful_thermal_output_mmbtu"
+        ].transform("max")
+        > 0
+    )
+    subplant_month_generation = df_subplant.groupby(
+        ["plant_id_eia", "subplant_id", "report_date"], dropna=False
+    )["net_generation_mwh"].transform("sum", min_count=1)
+    df_subplant.loc[
+        chp_subplant
+        & (df_subplant["net_generation_mwh"] <= 0)
+        & (subplant_month_generation <= 0),
+        "electric_allocation_factor",
+    ] = 0
+
     # fill any missing factors with 1
     df_subplant["electric_allocation_factor"] = (
         df_subplant["electric_allocation_factor"].fillna(1).astype("float32")
@@ -421,15 +458,26 @@ def calculate_electric_allocation_factor(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def adjust_emissions_for_biomass(df: pd.DataFrame) -> pd.DataFrame:
+def adjust_emissions_for_biomass(
+    df: pd.DataFrame, subplant_emission_factors: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """Adds emission in data frame where biomass emissions have been removed.
+
+    By default, CO2 is removed from any row whose `energy_source_code` is a biomass
+    fuel. Because CEMS units are each assigned a single fuel, CEMS data should instead
+    pass `subplant_emission_factors`, so that CO2 is reduced by the fraction of each
+    subplant-month's EIA-923 CO2 that comes from biomass. Subplant-months without a
+    fraction fall back to the default.
 
     Args:
         df (pd.DataFrame): original data frame.
+        subplant_emission_factors (pd.DataFrame, optional): subplant-month table with
+            a `biomass_co2_fraction` column, from `data_cleaning.calculate_subplant_efs`.
+            Defaults to None.
 
     Returns:
-        pd.DataFrame: original data frame with new adjusted emissions column that
-            sets any biomass emissions to zero.
+        pd.DataFrame: original data frame with new adjusted emissions columns that
+            remove biomass CO2 emissions.
     """
 
     # create a column for adjusted biomass emissions, setting these emissions to zero
@@ -437,37 +485,35 @@ def adjust_emissions_for_biomass(df: pd.DataFrame) -> pd.DataFrame:
     if "co2_mass_lb" in df.columns:
         df["co2_mass_lb_adjusted"] = df["co2_mass_lb"]
         df.loc[df["energy_source_code"].isin(BIOMASS_FUELS), "co2_mass_lb_adjusted"] = 0
+        if subplant_emission_factors is not None:
+            biomass_co2_fraction = (
+                df[["plant_id_eia", "subplant_id", "report_date"]]
+                .merge(
+                    subplant_emission_factors[
+                        [
+                            "plant_id_eia",
+                            "subplant_id",
+                            "report_date",
+                            "biomass_co2_fraction",
+                        ]
+                    ],
+                    how="left",
+                    on=["plant_id_eia", "subplant_id", "report_date"],
+                    validate="m:1",
+                )["biomass_co2_fraction"]
+                .to_numpy()
+            )
+            has_fraction = ~np.isnan(biomass_co2_fraction)
+            df.loc[has_fraction, "co2_mass_lb_adjusted"] = df.loc[
+                has_fraction, "co2_mass_lb"
+            ] * (1 - biomass_co2_fraction[has_fraction])
 
-    # CH4: for landfill gas (LFG), all other emissions are set to zero
-    # this assumes that the gas would have been flared anyway if not used for
-    # electricity generation
-    if "ch4_mass_lb" in df.columns:
-        df["ch4_mass_lb_adjusted"] = df["ch4_mass_lb"]
-        df.loc[df["energy_source_code"] == "LFG", "ch4_mass_lb_adjusted"] = 0
-
-    # N2O: LFG plants set to zero
-    if "n2o_mass_lb" in df.columns:
-        df["n2o_mass_lb_adjusted"] = df["n2o_mass_lb"]
-        df.loc[df["energy_source_code"] == "LFG", "n2o_mass_lb_adjusted"] = 0
-
-    # NOx: assigned an adjusted value
-    # this value is based on using NOx emissions from flaring as a baseline, and
-    # subtracting this from the actual emissions to prevent negative emissions, we set
-    # the value = 0 if negative
-    if "nox_mass_lb" in df.columns:
-        df["nox_mass_lb_adjusted"] = df["nox_mass_lb"]
-        df.loc[df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"] = df.loc[
-            df["energy_source_code"] == "LFG", "nox_mass_lb_adjusted"
-        ] - (
-            df.loc[df["energy_source_code"] == "LFG", "fuel_consumed_mmbtu"]
-            * nox_lb_per_mmbtu_flared_landfill_gas
-        )
-        df.loc[df["nox_mass_lb_adjusted"] < 0, "nox_mass_lb_adjusted"] = 0
-
-    # SO2: LFG plants set to zero
-    if "so2_mass_lb" in df.columns:
-        df["so2_mass_lb_adjusted"] = df["so2_mass_lb"]
-        df.loc[df["energy_source_code"] == "LFG", "so2_mass_lb_adjusted"] = 0
+    # CH4, N2O, NOx, SO2: no biomass adjustment is applied, so adjusted values equal
+    # unadjusted values. This is consistent with eGRID2023, which removed the landfill
+    # gas adjustments for these pollutants.
+    for pollutant in ["ch4", "n2o", "nox", "so2"]:
+        if f"{pollutant}_mass_lb" in df.columns:
+            df[f"{pollutant}_mass_lb_adjusted"] = df[f"{pollutant}_mass_lb"]
 
     return df
 
@@ -497,7 +543,7 @@ def calculate_co2e_mass(
         df (pd.DataFrame): data frame with CO2, CH4 and N2O emissions.
         version (int | str): version of the IPCC to consider.
         gwp_horizon (int, optional): the GWP horizon to consider. Defaults to 100.
-        ar5_climate_carbon_feedback (bool, optional): When vversion is is a year, this
+        ar5_climate_carbon_feedback (bool, optional): When version is a year, this
             parameter allows to select the climate carbon feedback of the fifth version
             of the assessment report. Defaults to True.
 
@@ -525,7 +571,7 @@ def calculate_co2e_mass(
             if "AR5" in ipcc_version and ar5_climate_carbon_feedback:
                 ipcc_version = "AR5_cc"
             elif "AR5" in ipcc_version and not ar5_climate_carbon_feedback:
-                ipcc_version = "AR5_cc"
+                ipcc_version = "AR5"
         else:
             ipcc_version = ipcc_version[0]
     elif version in df_gwp["ipcc_version"].unique():

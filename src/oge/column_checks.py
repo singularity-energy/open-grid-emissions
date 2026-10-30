@@ -199,6 +199,7 @@ COLUMNS = {
         "plant_primary_fuel",
         "fuel_category",
         "fuel_category_eia930",
+        "plant_storage_category",
         "ba_code",
         "ba_code_physical",
         "distribution_flag",
@@ -237,6 +238,9 @@ COLUMNS = {
         "profile",
         "flat_profile",
         "profile_method",
+        "storage_discharge_profile",
+        "storage_charge_profile",
+        "storage_charge_profile_method",
     },
     "shaped_eia923_data": {
         "plant_id_eia",
@@ -332,11 +336,17 @@ COLUMNS = {
         "plant_primary_fuel_from_capacity_mw",
         "plant_primary_fuel_from_mode",
         "plant_primary_fuel",
+        "plant_primary_prime_mover_code",
+        "plant_storage_category",
         "subplant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu",
         "subplant_primary_fuel_from_net_generation_mwh",
         "subplant_primary_fuel_from_capacity_mw",
         "subplant_primary_fuel_from_mode",
         "subplant_primary_fuel",
+        "subplant_primary_prime_mover_code",
+        "subplant_storage_category",
+        "subplant_storage_category_method",
+        "co_located_plant_ids",
     },
 }
 
@@ -368,6 +378,15 @@ DATA_COLUMNS = [
     "co2e_mass_lb_for_electricity_adjusted",
     "nox_mass_lb_for_electricity_adjusted",
     "so2_mass_lb_for_electricity_adjusted",
+]
+
+# energy storage charging and discharging data. These are kept separate from
+# DATA_COLUMNS because they are only reported for energy storage resources (so are left
+# blank rather than zero for other resources), and because they are not currently
+# shaped to an hourly resolution
+STORAGE_DATA_COLUMNS = [
+    "storage_charge_mwh",
+    "storage_discharge_mwh",
 ]
 
 
@@ -435,6 +454,7 @@ def get_dtypes() -> dict:
         "co2e_mass_lb_adjusted": "float64",
         "co2e_mass_lb_for_electricity": "float64",
         "co2e_mass_lb_for_electricity_adjusted": "float64",
+        "co_located_plant_ids": "string",
         "data_availability": "category",
         "distribution_flag": "boolean",
         "eia930_profile": "float64",
@@ -445,6 +465,7 @@ def get_dtypes() -> dict:
         "flat_profile": "float32",
         "fuel_category": "string",
         "fuel_category_eia930": "string",
+        "fuel_category_eia930_expanded": "string",
         "gross_generation_mwh": "float64",
         "gtn_method": "category",
         "hourly_data_source": "category",
@@ -473,6 +494,8 @@ def get_dtypes() -> dict:
         "plant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu": "string",
         "plant_primary_fuel_from_mode": "string",
         "plant_primary_fuel_from_net_generation_mwh": "string",
+        "plant_primary_prime_mover_code": "string",
+        "plant_storage_category": "string",
         "profile": "float64",
         "profile_method": "string",
         "residual_profile": "float64",
@@ -487,12 +510,20 @@ def get_dtypes() -> dict:
         "so2_removal_efficiency_at_full_load": "float64",
         "start_year": "Int32",
         "steam_load_lbs": "float64",
+        "storage_charge_mwh": "float64",
+        "storage_charge_profile": "float64",
+        "storage_charge_profile_method": "string",
+        "storage_discharge_mwh": "float64",
+        "storage_discharge_profile": "float64",
         "subplant_id": "Int32",
         "subplant_primary_fuel": "string",
         "subplant_primary_fuel_from_capacity_mw": "string",
         "subplant_primary_fuel_from_fuel_consumed_for_electricity_mmbtu": "string",
         "subplant_primary_fuel_from_mode": "string",
         "subplant_primary_fuel_from_net_generation_mwh": "string",
+        "subplant_primary_prime_mover_code": "string",
+        "subplant_storage_category": "string",
+        "subplant_storage_category_method": "string",
         "wet_dry_bottom": "string",
     }
 
@@ -603,6 +634,7 @@ def get_dtypes() -> dict:
         "fuel_type_code_agg": "string",
         "fuel_type_code_pudl": "string",
         "fuel_type_count": "Int32",
+        "fuel_units": "string",
         "generation_energy_source": "category",
         "generator_id": "string",
         "generator_id_epa": "string",
@@ -616,6 +648,9 @@ def get_dtypes() -> dict:
         "has_factors_that_limit_switching": "boolean",
         "has_air_permit_limits": "boolean",
         "hrsg": "boolean",
+        "is_dc_coupled_tightly": "boolean",
+        "is_direct_support": "boolean",
+        "is_independent": "boolean",
         "iso_rto_code": "string",
         "label": "string",
         "latitude": "float64",
@@ -690,6 +725,9 @@ def get_dtypes() -> dict:
         "planned_new_capacity_mw": "float32",
         "planned_new_prime_mover_code": "string",
         "plant_id_eia": "Int32",
+        "plant_id_eia_direct_support_1": "Int32",
+        "plant_id_eia_direct_support_2": "Int32",
+        "plant_id_eia_direct_support_3": "Int32",
         "plant_id_epa": "Int32",
         "plant_id_pudl": "Int32",
         "plant_name_eia": "string",
@@ -709,6 +747,7 @@ def get_dtypes() -> dict:
         "rto_iso_location_wholesale_reporting_id": "string",
         "sector_id_eia": "Int32",
         "sector_name_eia": "string",
+        "served_co_located_renewable_firming": "boolean",
         "service_area": "string",
         "so2_control_existing_caaa_compliance_strategy_1": "string",
         "so2_control_existing_caaa_compliance_strategy_2": "string",

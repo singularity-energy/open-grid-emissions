@@ -13,6 +13,37 @@ For the EIA-930 output tables published in PUDL, in addition to the original rep
 
 EIA has been collecting fuel-specific generation since July 2018, making this the newest of the data sources and the limiting factor in why our provided dataset begins in 2019. The data is provided to EIA from balancing authorities daily. There have been several reporting improvements since the beginning of collection, and some issues remain with the data reported to EIA from BAs. These issues include systematic issues with reported data and transient inconsistencies between data types and regions. We fix systematic issues using a correlation-based manual inspection process, then fix transient inconsistencies using the physics-based reconciliation process developed by [Chalendar and Benson (2021)](https://doi.org/10.1016/j.apenergy.2021.117761)
 
+### Energy sources
+EIA-930 originally reported generation for eight energy sources: coal, natural gas, nuclear, petroleum, hydro, solar, wind, and other, plus unknown. Starting in mid-2024, it split some of these into more specific energy sources. BAs started to report them at different times, and some only report part of them (for example, CISO reports geothermal separately but still reports its batteries in "other").
+
+| Original energy source | New energy sources |
+| --- | --- |
+| Hydro (including pumped storage) | Hydro (excluding pumped storage), pumped storage |
+| Solar | Solar (without integrated battery storage), solar with integrated battery storage |
+| Wind | Wind (without integrated battery storage), wind with integrated battery storage |
+| Other | Other, battery storage, other energy storage, geothermal |
+
+Each original energy source equals the sum of the new energy sources it was split into, so a BA's generation means the same thing before and after it starts reporting them. OGE keeps the new energy sources as their own series in the [physics-based reconciliation](Physics-based%20Reconciliation.md). Storage is reported as negative net generation when it charges more than it discharges. Some BAs (for example, ERCO) report battery charging as "unknown energy storage", which isn't in the EIA-930 instructions, and OGE keeps this as its own series too.
+
+PUDL renamed hydro, solar, and wind to "hydro excluding pumped storage", "solar without integrated battery storage", and "wind without integrated battery storage" on July 1, 2024 for every BA, so the new names don't mean that a BA has started reporting the new energy sources. OGE combines each pair into one series under the original name.
+
+For hourly profiles, the new energy sources are kept separate in the months after each BA started reporting them (see [Cutover dates](#cutover-dates) below and [Shaping Using Fleet-Specific Profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md#new-eia-930-energy-sources)), and added back to the energy source that included them before until then.
+
+#### Cutover dates
+Until a BA reports a new energy source, its generators of that type are still included in the energy source that included them before. For each BA and new energy source, OGE identifies a cutover date: the first day on which the BA reports a non-zero value, but no earlier than January 1, 2025. Zeros don't count, since some BAs (for example, TVA) report zeros for energy sources they don't have. Two shares of the hours after the cutover date describe how consistently it is reported: the share of hours with a value (including zero), which is low for BAs that leave the energy source blank in some hours (for example, FPC's batteries), and the share of hours with a non-zero value, which is low for energy sources that are rarely used or whose generation is mostly reported elsewhere (for example, CPLE's batteries before October 2025). Battery charging that a BA reports as "unknown energy storage" counts as reporting batteries. Data years before 2025 have no cutover dates.
+
+Detected dates can be replaced, or cleared for a BA that hasn't really switched, in [`eia930_energy_source_cutover_overrides.csv`](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/eia930_energy_source_cutover_overrides.csv).
+
+Each BA and new energy source is also compared with OGE's subplants in the BA with the matching `fuel_category_eia930_expanded` (see [Plant Primary Fuel](../Data%20Aggregation/Plant%20Primary%20Fuel.md#eia-930-fuel-categories)), and flagged as:
+
+Flag | Meaning
+---------|---------
+`reporting_and_resources` | The BA reports the energy source and has subplants of that type
+`resources_not_reporting` | The BA has subplants of that type but doesn't report the energy source, so they are still included in the energy source that included them before
+`reporting_without_resources` | The BA reports the energy source but OGE has no subplants of that type in the BA, which points to a difference in BA assignment or in how generators are categorized
+
+The cutover dates and flags are written to `outputs/{year}/eia930/eia930_energy_source_cutover.csv`.
+
 ### Systematic data issues
 We identified two types of issues with the data: 1) data reported with the wrong timestamp and 2) data reported with the wrong sign (this issue was specific to interchange data). To identify the specific time periods, BAs, and data types with each of these issues, we performed iterative lagged and windowed correlation between data sets that we expected to be highly correlated, fixing issues as we found them.
 
@@ -41,12 +72,5 @@ The manual adjustments performed can be found [here](https://github.com/singular
 ### Transient issues
 The procedure described above works only for major, systematic issues. However, EIA-930 data contains a multitude of smaller issues, including hours with missing data, hours with anomalously large or small data, or hours where data is physically impossible; for example, when the demand in a region is smaller than the sum of the region’s generation and import, or when the import from a region disagrees with the export from its neighbor.
 
-To fix these issues, we use the [gridemissions package](https://github.com/jdechalendar/gridemissions) developed by Jaques de Chalendar ([Chalendar and Benson, 2021](https://doi.org/10.1016/j.apenergy.2021.117761)). This package first performs a basic cleaning step where data outside of reasonable bounds is dropped, followed by a rolling cleaning step which drops anomalous values. Finally, the package performs an optimization algorithm to make the data physically consistent in each hour. Specifically, it finds the smallest set of adjustments to the data that ensure that demand in a region is the sum of generation and interchange into that region, and that interchange between each pair of neighboring regions agrees.
-
-The original gridemissions package used a mean and standard deviation rolling filter, dropping values that were outside of 4 standard deviations from the mean over a 10 day window. We found that there were some cases, including in BANC in August, 2020, where large spikes were not caught using this filter because they altered the standard deviation in the rolling window (see the figure below for an example of these spikes). We switched to a median/IQR filter based on the method developed by [Ruggles et al. (2020)](https://doi.org/10.1038/s41597-020-0483-x) and adjusted the filter parameters until we we able to filter the BANC spikes without excluding normal data, even in small BAs where fossil fuel generation can be highly variable. Our filter excluded values further than 3 times the 5th to 95th percentile range from the median over a 20 day window.
-
-![spikes in hydro time series](https://stoplight.io/api/v1/projects/cHJqOjE1MzAxNA/images/84uL15gr69I)
-
-
-We make two changes to the gridemissions package to exclude default values introduced by the cleaning process that do not reflect the underlying data. We remove the addition of geothermal and biomass fuel categories in CISO, added by the package with default generation estimates. The package also adds a small amount of generation (1.0 MWh) for fuel types in BAs without those fuel types to simplify the physics-based reconciliation. We drop these small non-zero values after cleaning, since they come from BAs which do not actually have any generation of those fuel types.
+To fix these issues, we use a physics-based reconciliation (in `oge.physics_reconciliation`) ported from the [gridemissions package](https://github.com/jdechalendar/gridemissions) developed by Jacques de Chalendar ([Chalendar and Benson, 2021](https://doi.org/10.1016/j.apenergy.2021.117761)). It drops data outside of reasonable bounds, drops anomalous values using a rolling window filter and fills gaps, and then finds the smallest set of adjustments to the data that make it physically consistent in each hour. See [Physics-based Reconciliation](Physics-based%20Reconciliation.md) for details.
 

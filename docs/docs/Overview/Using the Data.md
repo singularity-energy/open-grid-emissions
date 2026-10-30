@@ -6,15 +6,15 @@ stoplight-id: using_the_data
 
 ## Data Availability
 
-The latest release includes data for year 2005-2024 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)).
+The latest release includes data for year 2005-2025 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)).
 
 Currently, 2005 is the earliest available year. Note that only monthly and annual data are available for year 2005-2018 because 2019 is the first year for which complete EIA-930 data is available (which is used to assign an hourly profile to non-CEMS data).
 
 ## Data Release Schedule
 
-In general, annual data releases will be published in Q4 of the following year (i.e. 2025 data should be published in Q4 of 2026)
+In general, annual data releases will be published in Q4 of the following year (i.e. 2026 data should be published in Q4 of 2027)
 
-Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2024 data was published in September 2025). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
+Parts of the input data used for the Open Grid Emissions dataset is released by the U.S. Energy Information Administration in the Autumn following the end of each year (2025 data was published in September 2026). Each release will include the most recent year of available data as well as updates of all previous available years based on any updates to the OGE methodology. All previous versions of the data will be archived on Zenodo.
 
 Updated datasets will also be published whenever a new minor version of the open-grid-emissions code is released, usually representing methdological enhancements. These releases may happen mutliple times throughout a year.
 
@@ -25,9 +25,9 @@ The data is organized into three categories based on the primary use case
 * **Carbon accounting data**: BA-level, _consumption-_based emission rates and fuel mix data.
     * Intended user: This data is intended for those wishing to understand the source and emission intensity of the electricity they are consuming.
     * File structure: data for each BA will be located in its own separate file.
-* **Power sector data**: BA-level, _production_-based data on generation, emissions, and fuel consumption split out by fuel type.
+* **Power sector data**: BA-level and national, _production_-based data on generation, emissions, and fuel consumption split out by fuel type.
     * Intended user: This data is intended for analysts who seek to understand the operating characteristics of the power generation fleets in each region.
-    * File structure: data for each BA will be located in its own separate file
+    * File structure: data for each BA will be located in its own separate file. National data is located in `US.csv`, which equals the sum or weighted average of all of the BA files at each resolution. Because each hourly BA file covers that BA's local year, the hourly national file only includes a `datetime_utc` column, and the first and last few hours of the file only include data from BAs in some timezones. In addition to one row per fuel category, each file includes a `total` row summing all fuel categories, and a `residual` row with the fossil-only residual mix, which sums only the coal, natural gas, and petroleum fuel categories and can be used as a conservative approximation of residual mix emission rates for market-based accounting. The `residual` row is included for every BA, with values of zero if the BA has no fossil generation. See [Fossil-only Residual Mix](../Methodology/Emissions%20Calculations/Fossil-only%20Residual%20Mix.md) for details.
 * **Power plant data**: Plant-level data on hourly power plant operations and static attributes of each plant.
     * Intended user: This data is intended for researchers who seek to understand individual power plants, or who want to perform their own aggregations of the data.
     * File structure: include all dynamic data in a single large csv (perhaps a tar.gz file) and all static attributes (e.g. fuel type, BA, etc) in a separate table, with the plant_id_eia as the primary key
@@ -54,8 +54,10 @@ Generally all column names in the OGE dataset are self-descriptive including the
 A few notes on column names:
 - Data column names generally follow the format `{value_name}_{adjustment_type}_{unit_of_measure}`
 - Column names that include the `_for_electricity` adjustment type have been adjusted for CHP (see [methodology](../Methodology/Emissions%20Calculations/Adjusting%20Emissions%20for%20CHP.md)) and represent the portion of the total value that is related to electricity generation.
-- Column names that include the `_adjusted` adjustment type have been adjusted for biomass (see [methodology](../Methodology/Emissions%20Calculations/Adjusting%20Emissions%20for%20Biomass.md)).
+- Column names that include the `_adjusted` adjustment type have been adjusted for biomass (see [methodology](../Methodology/Emissions%20Calculations/Adjusting%20Emissions%20for%20Biomass.md)). Only CO2 (and therefore CO2e) is adjusted; adjusted CH4, N2O, NOx, and SO2 values are equal to their unadjusted values.
 - Column names that include the `_for_electricity_adjusted` adjustment type have been adjusted for both CHP and biomass.
+- The `storage_charge_mwh` and `storage_discharge_mwh` columns in the monthly and annual plant and power sector data report the electricity charged and discharged by energy storage resources. They are blank for resources that are not energy storage, and are not yet included in hourly data (see [methodology](../Methodology/Data%20Aggregation/Energy%20Storage.md#energy-storage-charging-and-discharging-data)).
+- A value of zero means that the value was reported or calculated to be zero, while a blank value means that the data is missing or does not apply. For example, emissions are zero for resources that do not have any direct emissions (such as solar, wind, and hydro) or that did not consume any fuel, but are blank for resources where no fuel consumption data was reported, and energy storage columns are blank for resources that are not energy storage.
 - The `report_date` column is in the format `MM/01/YYYY` and represents the month `MM` with which the data is associated. So data with a report date of "03/01/2020" is associated with March 2020.
 
 ### Plant Static Attributes Table
@@ -67,8 +69,9 @@ plant_id_eia | integer | The unique six-digit facility identification number, al
 plant_name_eia | string | Plant name | EIA-860
 capacity_mw | float | Total installed (nameplate) capacity, in megawatts | EIA-860
 plant_primary_fuel | string | two- or three-character energy_source_code of the primary fuel consumed by the plant in a year | [Calculated](../Methodology/Data%20Aggregation/Plant%20Primary%20Fuel.md)
-fuel_category | string | named fuel category associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/energy_source_groups.csv)
-fuel_category_eia930 | string | named fuel category used by EIA-930 associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/energy_source_groups.csv)
+fuel_category | string | named fuel category associated with the identified `plant_primary_fuel`, or `storage` if the plant's primary prime mover is an energy storage technology | [Calculated](../Methodology/Data%20Aggregation/Plant%20Primary%20Fuel.md#assigning-fuel-categories) using this [mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/energy_source_groups.csv)
+fuel_category_eia930 | string | named fuel category used by EIA-930 associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/energy_source_groups.csv)
+plant_storage_category | string | For plants with at least one energy storage generator, whether the storage is `standalone`, `co_located`, or `hybrid`. Blank for plants without energy storage | [Calculated](../Methodology/Data%20Aggregation/Energy%20Storage.md)
 state | string | Two-letter state abbreviation where the plant is physically located | EIA-860
 county | string | County name | EIA-860
 city | string | City name | EIA-860

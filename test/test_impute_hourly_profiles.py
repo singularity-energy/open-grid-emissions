@@ -1,10 +1,12 @@
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
 import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
+import oge.validation as validation
 
 
 def _offset(timezone, year=2025):
@@ -384,6 +386,94 @@ def test_expand_hourly_profiles_to_plant_timezones(
     assert (expanded["fuel_category"] == "natural_gas").all()
 
 
+def test_expand_hourly_profiles_fills_hours_from_months_with_another_method(
+    native_hourly_profiles, plant_attributes_mixed_timezones
+):
+    """An Eastern plant in SOCO (Central) starts each month an hour before SOCO. If
+    SOCO's previous month uses another method, that hour's value isn't on the same
+    scale, so it takes the nearest value of the plant's own month instead. If both
+    months use the same method, the hour keeps SOCO's value.
+
+    SOCO's January and April are flat (1), February and March are residuals in MW
+    (200 and 300).
+    """
+    year = 2025
+    profiles = native_hourly_profiles.copy()
+    month = profiles["report_date"].dt.month
+    profiles["profile"] = month.map({2: 200.0, 3: 300.0}).fillna(1.0)
+    profiles["profile_method"] = month.map(
+        {2: "residual_profile", 3: "residual_profile"}
+    ).fillna("assumed_flat")
+
+    expanded = impute_hourly_profiles.expand_hourly_profiles_to_plant_timezones(
+        profiles, plant_attributes_mixed_timezones, year
+    ).set_index("datetime_utc")
+
+    # the first hour of the plant's month, which is the last hour of SOCO's month
+    def first_hour(day):
+        return expanded.loc[pd.Timestamp(day, tz="America/New_York").tz_convert("UTC")]
+
+    # flat January to February in MW: the hour takes February's value
+    assert first_hour("2025-02-01")["profile"] == 200.0
+    assert first_hour("2025-02-01")["profile_method"] == "residual_profile"
+    # February to March, both in MW: the hour keeps SOCO's February value
+    assert first_hour("2025-03-01")["profile"] == 200.0
+    # March in MW to flat April: the hour takes April's flat value
+    assert first_hour("2025-04-01")["profile"] == 1.0
+    assert first_hour("2025-04-01")["profile_method"] == "assumed_flat"
+    assert expanded["profile"].notna().all()
+
+
+def test_expand_hourly_profiles_to_plant_timezones_carries_storage_profiles(
+    native_hourly_profiles, plant_attributes_mixed_timezones
+):
+    """Storage profiles should be reassembled onto plant timezones like the other
+    profiles, so that storage plants in a different timezone than their BA can be
+    shaped with them.
+    """
+    year = 2025
+    profiles = native_hourly_profiles.assign(
+        storage_discharge_profile=2.0,
+        storage_charge_profile=3.0,
+        storage_charge_profile_method="net_load_proxy",
+    )
+    expanded = impute_hourly_profiles.expand_hourly_profiles_to_plant_timezones(
+        profiles, plant_attributes_mixed_timezones, year
+    )
+    # every reassembled hour, including the filled year-edge hours, has the storage
+    # profiles
+    assert (expanded["storage_discharge_profile"] == 2.0).all()
+    assert (expanded["storage_charge_profile"] == 3.0).all()
+    assert (expanded["storage_charge_profile_method"] == "net_load_proxy").all()
+
+
+def test_remove_storage_from_eia930_data():
+    """The EIA-930 storage categories should never be used as residual profiles, and
+    "other" should be removed in the BA-months when it is used for battery storage.
+    """
+    report_dates = pd.to_datetime(["2025-01-01", "2025-02-01"])
+    eia930_data = pd.DataFrame(
+        {
+            "ba_code": "CISO",
+            "fuel_category_eia930": ["other", "other", "battery_storage", "solar"],
+            "report_date": report_dates[[0, 1, 1, 1]],
+        }
+    )
+    other_storage_months = pd.DataFrame(
+        {"ba_code": ["CISO"], "report_date": report_dates[:1]}
+    )
+
+    result = impute_hourly_profiles.remove_storage_from_eia930_data(
+        eia930_data, other_storage_months
+    )
+
+    # January's "other" and the battery category are removed
+    assert result[["fuel_category_eia930", "report_date"]].values.tolist() == [
+        ["other", report_dates[1]],
+        ["solar", report_dates[1]],
+    ]
+
+
 def test_expand_hourly_profiles_to_plant_timezones_no_off_native_plants(
     native_hourly_profiles,
 ):
@@ -583,3 +673,970 @@ def test_expand_hourly_profiles_to_plant_timezones_caps_fill_at_edge_window(
     # the remaining 3 hours of the gap should still be missing, not filled
     assert eastern["profile"].iloc[4:7].isna().sum() == 3
     assert eastern["profile"].iloc[7:].isna().sum() == 0
+
+
+@pytest.fixture
+def zero_january_profiles():
+    """Hourly profiles for one 2025 fleet, with a profile of zero in every hour of
+    January, already converted to a percent of the monthly total.
+    """
+    year = 2025
+    grid = helpers.create_local_year_timestamps(year, "US/Central")
+    grid["ba_code"] = "AECI"
+    grid["fuel_category"] = "natural_gas"
+    grid["profile"] = (grid["report_date"].dt.month != 1).astype(float)
+    grid["flat_profile"] = 1.0
+    grid["profile_method"] = "residual_profile"
+    grid["local_timezone_offset"] = _offset("US/Central", year)
+    return impute_hourly_profiles.convert_profile_to_percent(
+        grid[
+            [
+                "ba_code",
+                "fuel_category",
+                "datetime_utc",
+                "report_date",
+                "profile",
+                "flat_profile",
+                "profile_method",
+                "local_timezone_offset",
+            ]
+        ],
+        group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
+        columns_to_convert=["profile", "flat_profile"],
+    )
+
+
+@pytest.fixture
+def monthly_fleet_data():
+    """Monthly EIA-923 data for the fleet in `zero_january_profiles`."""
+    return pd.DataFrame(
+        {
+            "ba_code": "AECI",
+            "fuel_category": "natural_gas",
+            "report_date": pd.date_range("2025-01-01", periods=12, freq="MS"),
+            "net_generation_mwh": 100.0,
+            "fuel_consumed_mmbtu": 50.0,
+            "local_timezone_offset": _offset("US/Central"),
+        }
+    )
+
+
+def test_shape_monthly_eia_data_as_hourly_flat_profile_for_zero_month(
+    zero_january_profiles, monthly_fleet_data
+):
+    """A month whose profile is zero in every hour should be shaped with a flat
+    profile, rather than dropped.
+
+    A profile of zeros gives blank shares of the monthly total (0 / 0), which used to
+    make the month's generation disappear from the hourly data.
+    """
+    shaped = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_fleet_data, zero_january_profiles, 2025
+    )
+
+    # no generation is lost
+    assert shaped["net_generation_mwh"].sum() == pytest.approx(1200.0)
+    january = shaped[shaped["report_date"].dt.month == 1]
+    # January is spread evenly over its hours, and flagged as such
+    assert january["net_generation_mwh"].sum() == pytest.approx(100.0)
+    assert january["net_generation_mwh"].nunique() == 1
+    assert (january["profile_method"] == "flat_zero_profile").all()
+    # the other months keep their own profile
+    assert (
+        shaped.loc[shaped["report_date"].dt.month != 1, "profile_method"]
+        == "residual_profile"
+    ).all()
+
+
+def test_validate_shaped_totals_raises_on_lost_months(
+    zero_january_profiles, monthly_fleet_data
+):
+    """Shaped data that lose part of the monthly totals should fail validation.
+
+    The check used to raise only if shaping added to the totals, so months lost in
+    shaping passed.
+    """
+    shaped = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_fleet_data, zero_january_profiles, 2025
+    )
+    group_keys = ["ba_code", "fuel_category"]
+    # complete data pass
+    validation.validate_shaped_totals(shaped, monthly_fleet_data, 2025, group_keys)
+    # a month with no shaped data fails
+    with pytest.raises(UserWarning):
+        validation.validate_shaped_totals(
+            shaped[shaped["report_date"].dt.month != 1],
+            monthly_fleet_data,
+            2025,
+            group_keys,
+        )
+    # so does a month whose shaped generation is too low
+    lower = shaped.copy()
+    lower.loc[lower["report_date"].dt.month == 2, "net_generation_mwh"] *= 0.5
+    with pytest.raises(UserWarning):
+        validation.validate_shaped_totals(lower, monthly_fleet_data, 2025, group_keys)
+
+
+def _hourly_series(ba, timezone, months, values, columns, extra=None):
+    """Hourly rows for `ba` in the given months of 2025, in its local time.
+
+    `values` maps each column in `columns` to a function of the local hour of the day
+    that returns the value for that hour.
+    """
+    data = helpers.create_local_year_timestamps(2025, timezone)
+    data = data[data["report_date"].dt.month.isin(months)].copy()
+    local_time = data["datetime_utc"].dt.tz_convert(timezone)
+    data["ba_code"] = ba
+    data["datetime_local"] = local_time.astype(str)
+    data["report_date"] = data["report_date"].astype("datetime64[s]")
+    for column in columns:
+        data[column] = local_time.dt.hour.map(values[column]).astype(float)
+    for column, value in (extra or {}).items():
+        data[column] = value
+    return data.reset_index(drop=True)
+
+
+def test_assign_storage_shaping_category():
+    """Storage subplants should get the storage shaping category of their prime mover
+    and plant, and other subplants should keep their fuel category.
+
+    - pumped storage gets "pumped_storage"
+    - a battery at a co-located solar plant gets "solar_w_integrated_battery_storage"
+    - a battery at a hybrid wind plant gets "wind_w_integrated_battery_storage"
+    - a standalone battery gets "battery_storage"
+    """
+    primary_fuel_table = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2, 2, 3, 3, 4],
+            "subplant_id": [1, 1, 2, 1, 2, 1],
+            "energy_source_code": ["WAT", "MWH", "SUN", "MWH", "WND", "MWH"],
+            "subplant_primary_prime_mover_code": ["PS", "BA", "PV", "BA", "WT", "BA"],
+            "plant_storage_category": [
+                pd.NA,
+                "co_located",
+                "co_located",
+                "hybrid",
+                "hybrid",
+                "standalone",
+            ],
+        }
+    )
+    subplant_data = primary_fuel_table[["plant_id_eia", "subplant_id"]].assign(
+        fuel_category=["storage", "storage", "solar", "storage", "wind", "storage"]
+    )
+
+    result = impute_hourly_profiles.assign_storage_shaping_category(
+        subplant_data, primary_fuel_table
+    )
+
+    assert result["fuel_category"].to_list() == [
+        "pumped_storage",
+        "solar_w_integrated_battery_storage",
+        "solar",
+        "wind_w_integrated_battery_storage",
+        "wind",
+        "battery_storage",
+    ]
+
+
+def test_calculate_eia930_storage_series_splits_each_energy_source():
+    """Discharging and charging should be split for each energy source before they're
+    added up, so that a BA that reports charging separately keeps both directions.
+
+    ERCO reports battery discharging as battery storage and charging as unknown energy
+    storage. In the first hour, adding the two first would give a net discharge of 20
+    MWh instead of 105 MWh of discharge (including other energy storage) and 80 MWh of
+    charge. Batteries still reported in "other" (before the BA's cutover) are left out.
+    """
+    hours = pd.to_datetime(["2025-07-01 00:00", "2025-07-01 01:00"], utc=True)
+    eia930_generation = pd.DataFrame(
+        {
+            "ba_code": "ERCO",
+            "generation_energy_source": [
+                "battery_storage",
+                "unknown_energy_storage",
+                "other_energy_storage",
+                "battery_storage",
+                "unknown_energy_storage",
+                "pumped_storage",
+                "battery_storage",
+            ],
+            "fuel_category_eia930": [
+                "battery_storage",
+                "battery_storage",
+                "other_energy_storage",
+                "battery_storage",
+                "battery_storage",
+                "pumped_storage",
+                "other",
+            ],
+            "datetime_utc": hours[[0, 0, 0, 1, 1, 1, 1]],
+            "datetime_local": "",
+            "report_date": pd.Timestamp("2025-06-01"),
+            "net_generation_mwh_930": [100.0, -80.0, 5.0, -10.0, -50.0, 30.0, 999.0],
+        }
+    )
+
+    result = impute_hourly_profiles.calculate_eia930_storage_series(
+        eia930_generation
+    ).set_index(["fuel_category", "datetime_utc"])
+
+    battery = result.loc["battery_storage"]
+    assert battery["storage_discharge_profile"].to_list() == [105.0, 0.0]
+    assert battery["storage_charge_profile"].to_list() == [80.0, 60.0]
+    pumped = result.loc["pumped_storage"]
+    assert pumped["storage_discharge_profile"].to_list() == [30.0]
+    assert pumped["storage_charge_profile"].to_list() == [0.0]
+    assert (result["method"] == "eia930_profile").all()
+
+
+def test_calculate_integrated_storage_series_backs_out_battery():
+    """The battery's discharging and charging should be recovered from solar with
+    integrated battery storage, by subtracting the plain solar profile scaled to the
+    solar part's monthly energy.
+
+    In January, the combined series is half of the plain solar profile plus a battery
+    that charges 30 MW at 10-11h and discharges 25 MW at 19-20h. The battery loses 10
+    MWh a day, which EIA-923 reports, so the scaling factor works out to exactly 0.5
+    and the battery is recovered exactly. In February, the combined series adds up to
+    less than zero, so no battery series is backed out.
+    """
+    timezone = "US/Pacific"
+
+    def solar(hour):
+        return 100.0 if 8 <= hour <= 16 else 0.0
+
+    def battery(hour):
+        return {10: -30.0, 11: -30.0, 19: 25.0, 20: 25.0}.get(hour, 0.0)
+
+    plain = _hourly_series(
+        "LDWP",
+        timezone,
+        [1, 2],
+        {"net_generation_mwh_930": solar},
+        ["net_generation_mwh_930"],
+        extra={"generation_energy_source": "solar", "fuel_category_eia930": "solar"},
+    )
+    combined = _hourly_series(
+        "LDWP",
+        timezone,
+        [1, 2],
+        {"net_generation_mwh_930": lambda hour: 0.5 * solar(hour) + battery(hour)},
+        ["net_generation_mwh_930"],
+        extra={
+            "generation_energy_source": "solar_w_integrated_battery_storage",
+            "fuel_category_eia930": "solar_w_integrated_battery_storage",
+        },
+    )
+    # February's combined series is negative
+    combined.loc[combined["report_date"].dt.month == 2, "net_generation_mwh_930"] = -1.0
+    monthly_storage_by_ba = pd.DataFrame(
+        {
+            "ba_code": "LDWP",
+            "fuel_category": "solar_w_integrated_battery_storage",
+            "report_date": pd.to_datetime(["2025-01-01"]).astype("datetime64[s]"),
+            "storage_charge_mwh": [60.0 * 31],
+            "storage_discharge_mwh": [50.0 * 31],
+        }
+    )
+
+    result = impute_hourly_profiles.calculate_integrated_storage_series(
+        pd.concat([plain, combined], ignore_index=True), monthly_storage_by_ba
+    )
+
+    # only January is backed out
+    assert set(result["report_date"].dt.month) == {1}
+    local_hour = result["datetime_utc"].dt.tz_convert(timezone).dt.hour
+    expected = local_hour.map(battery)
+    assert result["storage_discharge_profile"].to_numpy() == pytest.approx(
+        expected.clip(lower=0).to_numpy()
+    )
+    assert result["storage_charge_profile"].to_numpy() == pytest.approx(
+        (-expected).clip(lower=0).to_numpy()
+    )
+    assert (result["fuel_category"] == "solar_w_integrated_battery_storage").all()
+    assert (result["method"] == "integrated_residual_profile").all()
+
+
+def test_calculate_storage_series_from_other_sizes_with_eia923_ratio():
+    """For a BA whose "other" is mostly battery storage, the batteries should be backed
+    out of "other" by removing a flat offset sized so that the ratio of discharging to
+    charging matches EIA-923.
+
+    CISO's "other" is a flat 700 MW of other resources plus batteries that charge 400 MW
+    at 10-11h and discharge 340 MW at 18-19h, a ratio of 0.85, which EIA-923 also reports. So the batteries are
+    recovered exactly in January. In February, CISO reports battery storage
+    separately, so "other" isn't used. SCEG's "other" isn't used at all, since only
+    CISO's "other" is used for battery storage.
+    """
+    timezone = "US/Pacific"
+
+    def battery(hour):
+        return {10: -400.0, 11: -400.0, 18: 340.0, 19: 340.0}.get(hour, 0.0)
+
+    other = pd.concat(
+        [
+            _hourly_series(
+                ba,
+                timezone,
+                [1, 2],
+                {"net_generation_mwh_930": lambda hour: 700.0 + battery(hour)},
+                ["net_generation_mwh_930"],
+                extra={
+                    "generation_energy_source": "other",
+                    "fuel_category_eia930": "other",
+                },
+            )
+            for ba in ["CISO", "SCEG"]
+        ],
+        ignore_index=True,
+    )
+    february = other[
+        (other["ba_code"] == "CISO") & (other["report_date"].dt.month == 2)
+    ]
+    eia930_storage_series = february[
+        ["ba_code", "datetime_utc", "datetime_local", "report_date"]
+    ].assign(
+        fuel_category="battery_storage",
+        storage_discharge_profile=1.0,
+        storage_charge_profile=1.0,
+        method="eia930_profile",
+    )
+    report_dates = pd.to_datetime(["2025-01-01", "2025-02-01"]).astype("datetime64[s]")
+    monthly_storage_by_ba = pd.DataFrame(
+        {
+            "ba_code": ["CISO", "CISO", "SCEG", "SCEG"],
+            "fuel_category": "battery_storage",
+            "report_date": report_dates[[0, 1, 0, 1]],
+            "storage_charge_mwh": 1000.0,
+            "storage_discharge_mwh": 850.0,
+        }
+    )
+    result = impute_hourly_profiles.calculate_storage_series_from_other(
+        other, eia930_storage_series, monthly_storage_by_ba
+    )
+
+    # only CISO in January
+    assert set(result["ba_code"]) == {"CISO"}
+    assert set(result["report_date"].dt.month) == {1}
+    local_hour = result["datetime_utc"].dt.tz_convert(timezone).dt.hour
+    expected = local_hour.map(battery)
+    assert result["storage_discharge_profile"].to_numpy() == pytest.approx(
+        expected.clip(lower=0).to_numpy(), abs=1e-6
+    )
+    assert result["storage_charge_profile"].to_numpy() == pytest.approx(
+        (-expected).clip(lower=0).to_numpy(), abs=1e-6
+    )
+    assert (result["method"] == "other_residual_profile").all()
+
+
+def test_identify_usable_storage_series():
+    """Only months of storage series that look like storage and represent enough of
+    the storage they shape should be used.
+
+    In January 2025:
+    - ERCO's batteries charge 100 MW at noon and discharge 85 MW at 19h every day,
+      like its EIA-923 batteries: used in both directions
+    - ISNE's pumped storage only reports discharging, like its EIA-923 discharge: its
+      discharging is used, and its charging is blank
+    - CPLE's batteries cycle like ERCO's, but at a tenth of their EIA-923 volume:
+      not used
+    - PSCO's batteries discharge much more than they charge: not used
+    - FPC's batteries charge on only two days: not used
+    - PNM's batteries discharge only half of what they charge (e.g. because some
+      batteries charge while others discharge): used
+    """
+    timezone = "US/Eastern"
+    shapes = {
+        "ERCO": (
+            lambda hour: 85.0 if hour == 19 else 0.0,
+            lambda hour: 100.0 if hour == 12 else 0.0,
+        ),
+        "ISNE": (lambda hour: 85.0 if hour == 19 else 0.0, lambda hour: 0.0),
+        "CPLE": (
+            lambda hour: 8.5 if hour == 19 else 0.0,
+            lambda hour: 10.0 if hour == 12 else 0.0,
+        ),
+        "PSCO": (
+            lambda hour: 85.0 if hour == 19 else 0.0,
+            lambda hour: 10.0 if hour == 12 else 0.0,
+        ),
+        "FPC": (lambda hour: 85.0 if hour == 19 else 0.0, lambda hour: 0.0),
+        "PNM": (
+            lambda hour: 50.0 if hour == 19 else 0.0,
+            lambda hour: 100.0 if hour == 12 else 0.0,
+        ),
+    }
+    storage_series = []
+    for ba, (discharge, charge) in shapes.items():
+        series = _hourly_series(
+            ba,
+            timezone,
+            [1],
+            {"storage_discharge_profile": discharge, "storage_charge_profile": charge},
+            impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+            extra={
+                "fuel_category": "pumped_storage"
+                if ba == "ISNE"
+                else "battery_storage",
+                "method": "eia930_profile",
+            },
+        )
+        storage_series.append(series)
+    storage_series = pd.concat(storage_series, ignore_index=True)
+    # FPC charges 1,240 MWh in total, but only on two days
+    fpc_charge = (
+        (storage_series["ba_code"] == "FPC")
+        & storage_series["datetime_local"].str[:10].isin(["2025-01-05", "2025-01-06"])
+        & storage_series["datetime_local"]
+        .str[11:13]
+        .isin(["10", "11", "12", "13", "14"])
+    )
+    storage_series.loc[fpc_charge, "storage_charge_profile"] = 124.0
+    monthly_storage_to_shape = pd.DataFrame(
+        {
+            "ba_code": ["ERCO", "ISNE", "CPLE", "PSCO", "FPC", "PNM"],
+            "fuel_category": [
+                "battery_storage",
+                "pumped_storage",
+                "battery_storage",
+                "battery_storage",
+                "battery_storage",
+                "battery_storage",
+            ],
+            "report_date": pd.Timestamp("2025-01-01"),
+            "storage_charge_mwh": [3100.0, 3100.0, 3100.0, 3100.0, 1240.0, 3100.0],
+            "storage_discharge_mwh": [2635.0, 2635.0, 2635.0, 2635.0, 2635.0, 2635.0],
+        }
+    )
+    monthly_storage_to_shape["report_date"] = monthly_storage_to_shape[
+        "report_date"
+    ].astype("datetime64[s]")
+
+    result = impute_hourly_profiles.identify_usable_storage_series(
+        storage_series, monthly_storage_to_shape
+    )
+
+    used = result.groupby("ba_code")[
+        impute_hourly_profiles.STORAGE_PROFILE_COLUMNS
+    ].apply(lambda month: month.notna().all())
+    assert used.to_dict(orient="index") == {
+        "CPLE": {"storage_discharge_profile": False, "storage_charge_profile": False},
+        "ERCO": {"storage_discharge_profile": True, "storage_charge_profile": True},
+        "FPC": {"storage_discharge_profile": False, "storage_charge_profile": False},
+        "ISNE": {"storage_discharge_profile": True, "storage_charge_profile": False},
+        "PNM": {"storage_discharge_profile": True, "storage_charge_profile": True},
+        "PSCO": {"storage_discharge_profile": False, "storage_charge_profile": False},
+    }
+
+
+def test_select_storage_profiles_hierarchy():
+    """Each direction should use the best series with data in that month: the BA's
+    own, then (for integrated storage) the BA's battery series, then the net-load
+    proxy, then the national average, then flat.
+
+    In January 2025, AZPS's batteries discharge at 19h but report no charging, and
+    SRP's pumped storage reports both directions. SRP and WALC have net-load proxies
+    (discharging at 20h and charging at 12h), and TEPC has none (e.g. no demand
+    data). So:
+    - SRP pumped storage uses its own series for both directions
+    - AZPS integrated storage uses AZPS's battery discharging, and charging from its
+      net-load proxy (none here), the national average (no BA reports battery
+      charging) and then flat
+    - SRP and WALC batteries use their net-load proxies in both directions
+    - TEPC batteries use the national average discharging, which is AZPS's, and flat
+      charging
+    """
+    timezone = "US/Arizona"
+    keys = ["ba_code", "fuel_category"]
+    azps_battery = _hourly_series(
+        "AZPS",
+        timezone,
+        [1],
+        {
+            "storage_discharge_profile": lambda hour: 10.0 if hour == 19 else 0.0,
+            "storage_charge_profile": lambda hour: 0.0,
+        },
+        impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+        extra={"fuel_category": "battery_storage", "method": "eia930_profile"},
+    )
+    srp_pumped = _hourly_series(
+        "SRP",
+        timezone,
+        [1],
+        {
+            "storage_discharge_profile": lambda hour: 5.0 if hour == 18 else 0.0,
+            "storage_charge_profile": lambda hour: 7.0 if hour == 3 else 0.0,
+        },
+        impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+        extra={"fuel_category": "pumped_storage", "method": "eia930_profile"},
+    )
+    storage_series = pd.concat([azps_battery, srp_pumped], ignore_index=True)
+    net_load_proxy = pd.concat(
+        [
+            _hourly_series(
+                ba,
+                timezone,
+                [1],
+                {
+                    "storage_discharge_profile": lambda hour: (
+                        3.0 if hour == 20 else 0.0
+                    ),
+                    "storage_charge_profile": lambda hour: 4.0 if hour == 12 else 0.0,
+                },
+                impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+            )
+            for ba in ["SRP", "WALC"]
+        ],
+        ignore_index=True,
+    )
+    storage_fleet_months = pd.DataFrame(
+        {
+            "ba_code": ["SRP", "AZPS", "SRP", "TEPC", "WALC"],
+            "fuel_category": [
+                "pumped_storage",
+                "solar_w_integrated_battery_storage",
+                "battery_storage",
+                "battery_storage",
+                "battery_storage",
+            ],
+            "report_date": pd.Timestamp("2025-01-01"),
+        }
+    )
+    storage_fleet_months["report_date"] = storage_fleet_months["report_date"].astype(
+        "datetime64[s]"
+    )
+
+    result = impute_hourly_profiles.select_storage_profiles(
+        storage_fleet_months, storage_series, net_load_proxy, 2025
+    )
+
+    methods = (
+        result.groupby(keys)[["profile_method", "storage_charge_profile_method"]]
+        .first()
+        .apply(tuple, axis=1)
+        .to_dict()
+    )
+    assert methods == {
+        ("AZPS", "solar_w_integrated_battery_storage"): (
+            "eia930_profile",
+            "assumed_flat",
+        ),
+        ("SRP", "battery_storage"): ("net_load_proxy", "net_load_proxy"),
+        ("SRP", "pumped_storage"): ("eia930_profile", "eia930_profile"),
+        ("TEPC", "battery_storage"): ("national_average", "assumed_flat"),
+        ("WALC", "battery_storage"): ("net_load_proxy", "net_load_proxy"),
+    }
+    # every fleet has every hour of January
+    assert (result.groupby(keys).size() == 744).all()
+    local_hour = result["datetime_utc"].dt.tz_convert(timezone).dt.hour
+    # AZPS and TEPC discharge at 19h (AZPS's series), SRP and WALC batteries at 20h
+    # (their proxies)
+    for bas, hour, value in [(["AZPS", "TEPC"], 19, 10.0), (["SRP", "WALC"], 20, 3.0)]:
+        x = result[
+            result["ba_code"].isin(bas) & (result["fuel_category"] != "pumped_storage")
+        ]
+        assert (
+            x["storage_discharge_profile"]
+            == local_hour[x.index].map(lambda h: value if h == hour else 0.0)
+        ).all()
+    # the discharging profile also shapes the other data columns
+    assert (result["profile"] == result["storage_discharge_profile"]).all()
+
+
+def test_calculate_net_load_storage_proxy():
+    """Storage should discharge in proportion to how far each hour's net load (demand
+    minus solar and wind) is above the local day's average, and charge in proportion
+    to how far below.
+
+    CISO's demand is 100 MW in every hour, with 60 MW of solar from 10h to 15h (local
+    time), and LDWP has demand but no solar or wind. On each day, CISO's net load
+    averages 85 MW, so it discharges 15 MW in the 18 hours without solar and charges
+    45 MW in the 6 hours with solar. LDWP's net load is flat, so it neither charges
+    nor discharges. BANC has no demand data, so it has no proxy.
+    """
+    timezone = "US/Pacific"
+    generation = pd.concat(
+        [
+            _hourly_series(
+                ba,
+                timezone,
+                [1],
+                {"net_generation_mwh_930": solar},
+                ["net_generation_mwh_930"],
+                extra={"generation_energy_source": source},
+            )
+            for ba, source, solar in [
+                ("CISO", "solar", lambda hour: 60.0 if 10 <= hour <= 15 else 0.0),
+                ("LDWP", "natural_gas", lambda hour: 100.0),
+                ("BANC", "solar", lambda hour: 10.0),
+            ]
+        ],
+        ignore_index=True,
+    )
+    operations = (
+        generation[generation["ba_code"] != "BANC"][["ba_code", "datetime_utc"]]
+        .rename(columns={"ba_code": "balancing_authority_code_eia"})
+        .assign(demand_mwh=100.0)
+    )
+
+    result = impute_hourly_profiles.calculate_net_load_storage_proxy(
+        operations, generation
+    )
+
+    assert set(result["ba_code"]) == {"CISO", "LDWP"}
+    ciso = result[result["ba_code"] == "CISO"]
+    local_hour = ciso["datetime_utc"].dt.tz_convert(timezone).dt.hour
+    is_solar_hour = local_hour.between(10, 15)
+    assert ciso.loc[~is_solar_hour, "storage_discharge_profile"].to_numpy() == (
+        pytest.approx(15.0)
+    )
+    assert ciso.loc[is_solar_hour, "storage_charge_profile"].to_numpy() == (
+        pytest.approx(45.0)
+    )
+    assert (ciso.loc[is_solar_hour, "storage_discharge_profile"] == 0).all()
+    ldwp = result[result["ba_code"] == "LDWP"]
+    assert (ldwp[impute_hourly_profiles.STORAGE_PROFILE_COLUMNS] == 0).all(axis=None)
+
+
+@pytest.fixture
+def storage_profiles_for_shaping():
+    """Hourly profiles (as shares of the month) for an AECI battery fleet in January and
+    February 2025, which discharges at 19h and charges at 3h."""
+    profiles = _hourly_series(
+        "AECI",
+        "US/Central",
+        [1, 2],
+        {
+            "storage_discharge_profile": lambda hour: 1.0 if hour == 19 else 0.0,
+            "storage_charge_profile": lambda hour: 1.0 if hour == 3 else 0.0,
+        },
+        impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+        extra={
+            "fuel_category": "battery_storage",
+            "flat_profile": 1.0,
+            "profile_method": "eia930_profile",
+            "local_timezone_offset": _offset("US/Central"),
+        },
+    )
+    profiles["profile"] = profiles["storage_discharge_profile"]
+    return impute_hourly_profiles.convert_profile_to_percent(
+        profiles,
+        group_keys=["ba_code", "fuel_category", "local_timezone_offset"],
+        columns_to_convert=["profile", "flat_profile"]
+        + impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+    )
+
+
+def test_shape_monthly_eia_data_as_hourly_storage_keeps_monthly_net(
+    storage_profiles_for_shaping,
+):
+    """Storage should be shaped as the shaped discharge minus the shaped charge, which
+    keeps the monthly net generation.
+
+    In January, the net generation (-100 MWh) is lower than the discharge (310 MWh)
+    minus the charge (372 MWh), so the 38 MWh difference is added to the charge, and
+    shaped with the charging profile (at 3h). In February, there is no charging or
+    discharging data, so the net generation is shaped as before (flat, since it's
+    negative).
+    """
+    monthly_data = pd.DataFrame(
+        {
+            "ba_code": "AECI",
+            "fuel_category": "battery_storage",
+            "report_date": pd.to_datetime(["2025-01-01", "2025-02-01"]).astype(
+                "datetime64[s]"
+            ),
+            "net_generation_mwh": [-100.0, -56.0],
+            "fuel_consumed_mmbtu": 0.0,
+            "storage_charge_mwh": [372.0, np.nan],
+            "storage_discharge_mwh": [310.0, np.nan],
+            "local_timezone_offset": _offset("US/Central"),
+        }
+    )
+
+    shaped = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_data, storage_profiles_for_shaping, 2025
+    )
+
+    monthly_totals = shaped.groupby("report_date")["net_generation_mwh"].sum()
+    assert monthly_totals.to_list() == pytest.approx([-100.0, -56.0])
+    january = shaped[shaped["report_date"].dt.month == 1]
+    local_hour = january["datetime_utc"].dt.tz_convert("US/Central").dt.hour
+    expected = local_hour.map({19: 310.0 / 31, 3: -(372.0 + 38.0) / 31}).fillna(0)
+    assert january["net_generation_mwh"].to_numpy() == pytest.approx(
+        expected.to_numpy()
+    )
+    assert (january["profile_method"] == "eia930_profile").all()
+    february = shaped[shaped["report_date"].dt.month == 2]
+    assert february["net_generation_mwh"].nunique() == 1
+    assert (february["profile_method"] == "flat_negative_generation").all()
+
+
+def test_residual_cems_switches_category_in_ba_local_month(monkeypatch):
+    """CEMS generation should switch to a new EIA-930 energy source in the BA's local
+    month, as EIA-930 does, not the plant's.
+
+    A battery in Georgia (US/Eastern) is in SOCO (US/Central), which started to report
+    battery storage on 2025-05-15, so from SOCO's June onwards. At 2025-06-01 04:00 UTC
+    the plant is in June but SOCO is still in May, so that hour stays in "other".
+    """
+    hours = pd.date_range("2025-06-01 03:00", periods=3, freq="h", tz="UTC")
+    cems = pd.DataFrame(
+        {
+            "plant_id_eia": 1,
+            "subplant_id": 1,
+            "datetime_utc": hours,
+            # the plant's local month
+            "report_date": pd.to_datetime(["2025-05-01", "2025-06-01", "2025-06-01"]),
+            "net_generation_mwh": [1.0, 2.0, 4.0],
+        }
+    )
+
+    def assign_fleet(subplant_data, fuel_category_col, **_):
+        return subplant_data.assign(
+            ba_code="SOCO",
+            distribution_flag=False,
+            **{
+                fuel_category_col: "battery_storage"
+                if fuel_category_col == "fuel_category_eia930_expanded"
+                else "other"
+            },
+        )
+
+    monkeypatch.setattr(
+        impute_hourly_profiles, "assign_fleet_to_subplant_data", assign_fleet
+    )
+    cutover_dates = pd.DataFrame(
+        {
+            "ba_code": ["SOCO"],
+            "generation_energy_source": ["battery_storage"],
+            "cutover_date": [pd.Timestamp("2025-05-15")],
+        }
+    )
+
+    cems_agg = impute_hourly_profiles.aggregate_cems_to_fleet_for_residual_calc(
+        cems,
+        cems.iloc[0:0],
+        cems.iloc[0:0],
+        plant_attributes=None,
+        primary_fuel_table=None,
+        year=2025,
+        cutover_dates=cutover_dates,
+    )
+
+    assert cems_agg.set_index("datetime_utc")["fuel_category"].to_dict() == {
+        # 2025-05-31 22:00 in SOCO
+        hours[0]: "other",
+        # 2025-05-31 23:00 in SOCO, but already June at the plant
+        hours[1]: "other",
+        # 2025-06-01 00:00 in SOCO
+        hours[2]: "battery_storage",
+    }
+    assert cems_agg.set_index("datetime_utc")["cems_profile"].to_dict() == {
+        hours[0]: 1.0,
+        hours[1]: 2.0,
+        hours[2]: 4.0,
+    }
+
+
+def test_add_storage_data_to_monthly_eia_data_fills_pumped_storage_discharge():
+    """The blank discharge of pumped storage with inflow should be filled with the
+    discharge implied by the net generation and charge (but not less than zero), and
+    subplants without storage data should stay blank.
+    """
+    report_date = pd.Timestamp("2025-01-01")
+    monthly_eia_data_to_shape = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2, 3, 4],
+            "subplant_id": 1,
+            "report_date": report_date,
+            "net_generation_mwh": [-20.0, -150.0, 50.0, 10.0],
+        }
+    )
+    monthly_storage_data = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2, 3],
+            "subplant_id": 1,
+            "report_date": report_date,
+            "storage_charge_mwh": [100.0, 100.0, 40.0],
+            "storage_discharge_mwh": [np.nan, np.nan, 90.0],
+        }
+    )
+
+    result = impute_hourly_profiles.add_storage_data_to_monthly_eia_data(
+        monthly_eia_data_to_shape, monthly_storage_data
+    )
+
+    # filled for pumped storage, clipped at zero, kept where reported, blank otherwise
+    assert result["storage_discharge_mwh"].to_list()[:3] == [80.0, 0.0, 90.0]
+    assert result[["storage_charge_mwh", "storage_discharge_mwh"]].iloc[3].isna().all()
+
+
+def test_select_storage_profiles_ignores_national_average_at_year_edges():
+    """A month in which no BA has its own series should get a flat profile, rather
+    than the few year-edge hours that the national average fills from the next month.
+
+    Only AZPS's February data is available, so the national average only has values
+    in the first hours of January (filled from February at the edge of the year).
+    Using them would put all of TEPC's January charging and discharging into those
+    hours.
+    """
+    timezone = "US/Arizona"
+    azps_battery = _hourly_series(
+        "AZPS",
+        timezone,
+        [2],
+        {
+            "storage_discharge_profile": lambda hour: 10.0 if hour == 19 else 0.0,
+            "storage_charge_profile": lambda hour: 10.0 if hour == 12 else 0.0,
+        },
+        impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+        extra={"fuel_category": "battery_storage", "method": "eia930_profile"},
+    )
+    storage_fleet_months = pd.DataFrame(
+        {
+            "ba_code": ["TEPC"],
+            "fuel_category": ["battery_storage"],
+            "report_date": pd.to_datetime(["2025-01-01"]).astype("datetime64[s]"),
+        }
+    )
+    result = impute_hourly_profiles.select_storage_profiles(
+        storage_fleet_months,
+        azps_battery,
+        pd.DataFrame(
+            columns=["ba_code", "datetime_utc"]
+            + impute_hourly_profiles.STORAGE_PROFILE_COLUMNS
+        ),
+        2025,
+    )
+
+    assert (result["profile_method"] == "assumed_flat").all()
+    assert (result["storage_charge_profile_method"] == "assumed_flat").all()
+    assert (result[impute_hourly_profiles.STORAGE_PROFILE_COLUMNS] == 1.0).all(
+        axis=None
+    )
+
+
+def test_storage_fleet_shaping_matches_sum_of_subplants(
+    storage_profiles_for_shaping, monkeypatch
+):
+    """Storage fleets should be shaped with the sum of their subplants' shaping
+    volumes, so that the hourly fleet data is the sum of the hourly subplant data.
+
+    Two batteries each discharge 100 MWh and charge 120 MWh. The first's net
+    generation (-30 MWh) is 10 MWh lower than discharge minus charge, and the second's
+    (-10 MWh) is 10 MWh higher. Each is shaped with 100/130 and 110/120 MWh, so the
+    fleet should be shaped with 210/250 MWh, not with 200/240 MWh, where the
+    differences cancel.
+    """
+    monthly_data = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2],
+            "subplant_id": 1,
+            "ba_code": "AECI",
+            "fuel_category": "battery_storage",
+            "report_date": pd.to_datetime(["2025-01-01"] * 2).astype("datetime64[s]"),
+            "net_generation_mwh": [-30.0, -10.0],
+            "fuel_consumed_mmbtu": 0.0,
+            "storage_charge_mwh": 120.0,
+            "storage_discharge_mwh": 100.0,
+            "local_timezone_offset": _offset("US/Central"),
+        }
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "assign_fleet_to_subplant_data",
+        lambda data, *_, fuel_category_col, **__: data.assign(
+            **{fuel_category_col: "battery_storage"}
+        ),
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "assign_storage_shaping_category",
+        lambda data, *_, **__: data,
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "get_shaped_plant_id_from_ba_fuel",
+        lambda data: data.assign(shaped_plant_id=9001),
+    )
+
+    subplants = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        monthly_data, storage_profiles_for_shaping, 2025
+    )
+    fleet = impute_hourly_profiles.aggregate_eia_data_to_fleet(
+        monthly_data.drop(columns="local_timezone_offset"), None, None, 2025
+    ).assign(local_timezone_offset=_offset("US/Central"))
+    fleet = impute_hourly_profiles.shape_monthly_eia_data_as_hourly(
+        fleet,
+        storage_profiles_for_shaping,
+        2025,
+        fuel_category_col_for_shaping="fuel_category_for_shaping",
+    )
+
+    subplant_total = subplants.groupby("datetime_utc")["net_generation_mwh"].sum()
+    fleet_total = fleet.set_index("datetime_utc")["net_generation_mwh"]
+    assert fleet_total.to_numpy() == pytest.approx(
+        subplant_total.loc[fleet_total.index].to_numpy()
+    )
+    local_hour = fleet_total.index.tz_convert("US/Central").hour
+    assert fleet_total[local_hour == 19].sum() == pytest.approx(210.0)
+    assert fleet_total[local_hour == 3].sum() == pytest.approx(-250.0)
+
+
+def test_calculate_storage_profiles_without_storage_series(monkeypatch):
+    """Without any EIA-930 storage series (e.g. before any BA reports storage), the
+    profiles should come from the net-load proxy instead of failing."""
+    timezone = "US/Arizona"
+    generation = _hourly_series(
+        "SRP",
+        timezone,
+        [1],
+        {"net_generation_mwh_930": lambda hour: 5.0},
+        ["net_generation_mwh_930"],
+        extra={"fuel_category_eia930": "solar", "generation_energy_source": "solar"},
+    )
+    monthly_storage = pd.DataFrame(
+        {
+            "ba_code": ["SRP"],
+            "fuel_category": ["battery_storage"],
+            "report_date": pd.to_datetime(["2025-01-01"]).astype("datetime64[s]"),
+            "storage_charge_mwh": [100.0],
+            "storage_discharge_mwh": [90.0],
+        }
+    )
+    net_load_proxy = _hourly_series(
+        "SRP",
+        timezone,
+        range(1, 13),
+        {
+            "storage_discharge_profile": lambda hour: 3.0 if hour == 20 else 0.0,
+            "storage_charge_profile": lambda hour: 4.0 if hour == 12 else 0.0,
+        },
+        impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "assign_local_time_and_category_to_eia930_data",
+        lambda *_: generation,
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "aggregate_storage_data_to_ba",
+        lambda *_: monthly_storage,
+    )
+    monkeypatch.setattr(
+        impute_hourly_profiles,
+        "calculate_net_load_storage_proxy",
+        lambda *_: net_load_proxy,
+    )
+
+    profiles, other_storage_months = impute_hourly_profiles.calculate_storage_profiles(
+        None, None, None, None, None, None, 2025
+    )
+
+    assert len(other_storage_months) == 0
+    january = profiles[profiles["report_date"].dt.month == 1]
+    assert (january["profile_method"] == "net_load_proxy").all()
+    assert (january["storage_charge_profile_method"] == "net_load_proxy").all()

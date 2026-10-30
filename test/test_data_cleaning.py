@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -135,3 +136,283 @@ def test_filter_to_ba_local_year_drops_union_of_timezones():
     # the eastern-only edge hour is dropped, but every hour on soco's own local
     # year keeps its real (summed) value, including the eastern plant's overlap
     assert (result["net_generation_mwh"] > 0).all()
+
+
+def test_add_generators_for_missing_cems_subplants_adds_all_subplant_generators():
+    # subplant 1 reports to CEMS through unit GT1, which is linked to generators CT1
+    # and CT2, but steam turbine ST1 in the same subplant is not linked to a CEMS unit
+    subplant_crosswalk = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1],
+            "emissions_unit_id_epa": ["GT1", "GT1", np.nan],
+            "generator_id": ["CT1", "CT2", "ST1"],
+            "subplant_id": [1, 1, 1],
+        }
+    )
+    primary_fuel_manual = pd.DataFrame(
+        columns=["plant_id_eia", "subplant_id", "year", "notes"]
+    )
+    cems_ids = pd.DataFrame({"plant_id_eia": [1], "emissions_unit_id_epa": ["GT1"]})
+    generators = pd.DataFrame(
+        {
+            "report_date": pd.to_datetime(["2024-01-01"] * 3),
+            "plant_id_eia": [1, 1, 1],
+            "generator_id": ["CT1", "CT2", "ST1"],
+            "energy_source_code_1": ["NG", "NG", "NG"],
+        }
+    )
+    # the subplant does not have any generators in the EIA-923 data
+    gen_fuel_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [2],
+            "subplant_id": [1],
+            "generator_id": ["A"],
+            "energy_source_code": ["SUN"],
+        }
+    )
+
+    def read_csv(path, *args, **kwargs):
+        if "subplant_crosswalk" in str(path):
+            return subplant_crosswalk
+        return primary_fuel_manual
+
+    with (
+        patch.object(data_cleaning.pd, "read_csv", side_effect=read_csv),
+        patch.object(
+            data_cleaning, "remove_plants", side_effect=lambda df, *a, **k: df
+        ),
+        patch.object(data_cleaning.load_data, "load_cems_ids", return_value=cems_ids),
+        patch.object(
+            data_cleaning.load_data, "load_pudl_table", return_value=generators
+        ),
+    ):
+        result = data_cleaning.add_generators_for_missing_cems_subplants(
+            gen_fuel_allocated, 2024
+        )
+
+    added = result[result["plant_id_eia"] == 1]
+    assert sorted(added["generator_id"]) == ["CT1", "CT2", "ST1"]
+    assert (added["subplant_id"] == 1).all()
+
+
+def test_fill_emissions_for_non_emitting_resources():
+    df = pd.DataFrame(
+        {
+            "energy_source_code": ["SUN", "NG", "NG", "NG", "SUN"],
+            "fuel_consumed_mmbtu": [100.0, 0.0, np.nan, 50.0, np.nan],
+            "net_generation_mwh": [10.0, -1.0, np.nan, 5.0, np.nan],
+            "nox_mass_lb": [np.nan, np.nan, np.nan, 2.0, np.nan],
+            "so2_mass_lb": [np.nan, np.nan, np.nan, np.nan, np.nan],
+        }
+    )
+
+    result = data_cleaning.fill_emissions_for_non_emitting_resources(df)
+
+    # clean fuels and resources that did not consume fuel have zero emissions
+    assert (result.loc[0, ["nox_mass_lb", "so2_mass_lb"]] == 0).all()
+    assert (result.loc[1, ["nox_mass_lb", "so2_mass_lb"]] == 0).all()
+    # emissions stay missing when fuel consumption data is missing, even for clean fuels
+    assert result.loc[2, ["nox_mass_lb", "so2_mass_lb"]].isna().all()
+    assert result.loc[4, ["nox_mass_lb", "so2_mass_lb"]].isna().all()
+    # reported values are not changed, and other missing values are not filled
+    assert result.loc[3, "nox_mass_lb"] == 2
+    assert np.isnan(result.loc[3, "so2_mass_lb"])
+    # data columns that are not emissions are not filled
+    assert np.isnan(result.loc[2, "net_generation_mwh"])
+
+
+def test_remove_generators_without_data():
+    df = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2, 2],
+            "generator_id": ["A", "A", "B", "B"],
+            "report_date": pd.to_datetime(["2024-01-01", "2024-02-01"] * 2),
+            "net_generation_mwh": [10.0, np.nan, np.nan, np.nan],
+            "fuel_consumed_mmbtu": [np.nan, np.nan, np.nan, np.nan],
+            "fuel_consumed_for_electricity_mmbtu": [np.nan, np.nan, np.nan, np.nan],
+        }
+    )
+
+    result = data_cleaning.remove_generators_without_data(df)
+
+    # generator B does not report any data, so it is removed. Generator A reports data
+    # in one month, so both of its months are kept
+    assert result["generator_id"].unique().tolist() == ["A"]
+    assert len(result) == 2
+
+
+def test_identify_generator_primary_fuel_breaks_ties_with_esc_1():
+    """A generator's primary fuel should be the fuel it consumes the most of for
+    electricity, with ties broken by its EIA-860 `energy_source_code_1`.
+
+    Combined cycle steam turbines don't consume fuel themselves (their fuel is reported
+    for the combustion turbines), so every energy source code they list has zero fuel.
+    Without a tiebreaker, these generators were assigned an arbitrary fuel, e.g. Martin
+    (plant 6043) generator 8 was labeled SUN instead of NG. The test data covers:
+    - plant 1, ST: a steam turbine with zero fuel for NG, SUN, and DFO, which should be
+      assigned its `energy_source_code_1` (NG),
+    - plant 1, CT: a generator that consumes fuel, which should be assigned the fuel it
+      consumes the most of (NG), even though its `energy_source_code_1` is SUN,
+    - plant 2, X: a tie where no fuel matches `energy_source_code_1`, which should be
+      broken alphabetically (OG before WO), and
+    - plant 2, Y: a tie where `energy_source_code_1` is missing, which should also be
+      broken alphabetically.
+    """
+    gen_fuel_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [1] * 6 + [2] * 4,
+            "subplant_id": [1] * 10,
+            "generator_id": ["ST"] * 3 + ["CT"] * 3 + ["X"] * 2 + ["Y"] * 2,
+            "energy_source_code": ["NG", "SUN", "DFO"] * 2 + ["WO", "OG", "NG", "SUN"],
+            "fuel_consumed_for_electricity_mmbtu": [
+                0.0,
+                0.0,
+                0.0,
+                100.0,
+                0.0,
+                5.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+        }
+    )
+    gen_esc_1 = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2],
+            "generator_id": ["ST", "CT", "X"],
+            "energy_source_code_1": ["NG", "SUN", "NG"],
+        }
+    )
+
+    with patch.object(
+        data_cleaning.load_data, "load_pudl_table", return_value=gen_esc_1
+    ):
+        result = data_cleaning.identify_generator_primary_fuel(
+            gen_fuel_allocated, 2023
+        ).set_index(["plant_id_eia", "generator_id"])["energy_source_code"]
+
+    assert result[(1, "ST")] == "NG"
+    assert result[(1, "CT")] == "NG"
+    assert result[(2, "X")] == "OG"
+    assert result[(2, "Y")] == "NG"
+    # one row per generator
+    assert len(result) == 4
+
+
+def test_assign_fuel_category_to_esc_expanded_eia930_categories():
+    """Resources should get the expanded EIA-930 category of the energy source that
+    EIA-930 now reports them in, using their prime mover and plant storage category
+    where the energy source code isn't enough.
+
+    The expanded category decides which EIA-930 series shapes a resource once its BA
+    reports the new energy sources:
+        - pumped storage and conventional hydro both report WAT, and are told apart by
+          prime mover
+        - batteries and other storage both report MWH, and are told apart by prime
+          mover; compressed air storage that burns gas keeps its fuel's category
+        - solar and wind at plants with hybrid or co-located storage are reported with
+          integrated battery storage
+    """
+    resources = pd.DataFrame(
+        [
+            ("WAT", "PS", None, "pumped_storage"),
+            ("WAT", "HY", None, "hydro"),
+            ("MWH", "BA", "standalone", "battery_storage"),
+            ("MWH", "FW", "standalone", "other_energy_storage"),
+            ("MWH", "CE", "standalone", "other_energy_storage"),
+            ("NG", "CE", "hybrid", "natural_gas"),
+            ("GEO", "ST", None, "geothermal"),
+            ("SUN", "PV", "hybrid", "solar_w_integrated_battery_storage"),
+            ("SUN", "PV", "co_located", "solar_w_integrated_battery_storage"),
+            ("SUN", "PV", "standalone", "solar"),
+            ("SUN", "PV", None, "solar"),
+            ("WND", "WT", "hybrid", "wind_w_integrated_battery_storage"),
+            ("NG", "CT", "co_located", "natural_gas"),
+        ],
+        columns=[
+            "energy_source_code",
+            "prime_mover_code",
+            "plant_storage_category",
+            "expected",
+        ],
+    )
+
+    result = helpers.assign_fuel_category_to_esc(
+        resources, fuel_category_names=["fuel_category_eia930_expanded"]
+    )
+
+    assert result["fuel_category_eia930_expanded"].to_list() == (
+        result["expected"].to_list()
+    )
+
+
+def test_identify_partial_cems_plants_keeps_battery_storage_as_eia():
+    """At a plant where some subplants report to CEMS, other fossil subplants should
+    be shaped with the plant's CEMS data, but battery storage should keep the EIA
+    source, since it isn't operated like the plant's combustion units.
+
+    Plant 1 has a gas turbine that reports to CEMS, another gas turbine that doesn't,
+    and a battery (e.g. Moss Landing or DeCordova).
+    """
+    all_data = pd.DataFrame(
+        {
+            "plant_id_eia": 1,
+            "subplant_id": [1, 2, 3],
+            "generator_id": ["GT1", "GT2", "BAT"],
+            "report_date": pd.Timestamp("2025-01-01"),
+            "hourly_data_source": ["cems", "eia", "eia"],
+            "plant_primary_fuel": "NG",
+            "subplant_primary_fuel": ["NG", "NG", "MWH"],
+        }
+    )
+
+    result = data_cleaning.identify_partial_cems_plants(all_data)
+
+    assert result.set_index("generator_id")["hourly_data_source"].to_dict() == {
+        "GT1": "cems",
+        "GT2": "partial_cems_plant",
+        "BAT": "eia",
+    }
+
+
+def test_calculate_subplant_efs_biomass_co2_fraction():
+    """The biomass fraction is the share of each subplant-month's CO2 (not fuel) that
+    comes from biomass, and is undefined when the subplant-month has no CO2."""
+    gen_fuel_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1, 2, 3],
+            "subplant_id": [1, 1, 1, 2, 1, 1],
+            "report_date": pd.to_datetime(
+                [
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-02-01",
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-01-01",
+                ]
+            ),
+            "fuel_consumed_mmbtu": [100.0, 100.0, 100.0, 100.0, 0.0, 100.0],
+            # natural gas and wood co-fired in January, gas only in February, wood only
+            # at subplant 2, no fuel at plant 2, and fuel without CO2 at plant 3
+            "co2_mass_lb": [11700.0, 20900.0, 11700.0, 20900.0, 0.0, 0.0],
+            "co2_mass_lb_adjusted": [11700.0, 0.0, 11700.0, 0.0, 0.0, 0.0],
+        }
+    )
+    for pollutant in ["ch4", "n2o", "co2e", "nox", "so2"]:
+        gen_fuel_allocated[f"{pollutant}_mass_lb"] = 1.0
+
+    result = data_cleaning.calculate_subplant_efs(gen_fuel_allocated).set_index(
+        ["plant_id_eia", "subplant_id", "report_date"]
+    )["biomass_co2_fraction"]
+
+    assert result[(1, 1, pd.Timestamp("2024-01-01"))] == pytest.approx(
+        20900 / (11700 + 20900)
+    )
+    assert result[(1, 1, pd.Timestamp("2024-02-01"))] == 0
+    assert result[(1, 2, pd.Timestamp("2024-01-01"))] == 1
+    # subplant-months without fuel are dropped
+    assert 2 not in result.index.get_level_values("plant_id_eia")
+    assert np.isnan(result[(3, 1, pd.Timestamp("2024-01-01"))])
