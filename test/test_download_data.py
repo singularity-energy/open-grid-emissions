@@ -180,3 +180,40 @@ def test_get_pudl_release_uses_requested_build_and_data_store(tmp_path):
         download_data.get_pudl_release("nightly", str(tmp_path / "stable"))
         == "nightly build (unknown release)"
     )
+
+
+def test_get_eia930a_year(monkeypatch):
+    """Years outside the published EIA-930A years should use the nearest published
+    year."""
+    monkeypatch.setattr(download_data, "earliest_eia930a_year", 2023)
+    monkeypatch.setattr(download_data, "latest_eia930a_year", 2024)
+    assert download_data.get_eia930a_year(2020) == 2023
+    assert download_data.get_eia930a_year(2024) == 2024
+    assert download_data.get_eia930a_year(2025) == 2024
+
+
+def test_download_raw_eia930a_raises_if_not_published(monkeypatch, tmp_path):
+    """If `latest_eia930a_year` is ahead of EIA, the page that EIA redirects to should
+    not be saved in place of the file."""
+    monkeypatch.setattr(download_data, "latest_eia930a_year", 2025)
+    url = "https://www.eia.gov/electricity/930-content/EIA_930A_{}_with%20layout.xlsx"
+    published_urls = [url.format(2024)]
+    requested = patch_requests(monkeypatch, tmp_path, available_urls=published_urls)
+
+    class FakeHeadResponse:
+        def __init__(self, url):
+            # EIA returns "301 Moved Permanently" for files that don't exist
+            self.status_code = 200 if url in published_urls else 301
+
+    monkeypatch.setattr(
+        download_data.requests, "head", lambda url, **_: FakeHeadResponse(url)
+    )
+
+    with pytest.raises(FileNotFoundError, match="latest_eia930a_year"):
+        download_data.download_raw_eia930a(2025)
+    assert requested == []
+    assert not (tmp_path / "eia930a/EIA_930A_2025.xlsx").exists()
+
+    download_data.download_raw_eia930a(2024)
+    assert requested == [url.format(2024)]
+    assert (tmp_path / "eia930a/EIA_930A_2024.xlsx").exists()

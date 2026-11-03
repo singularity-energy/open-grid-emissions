@@ -76,7 +76,7 @@ state | string | Two-letter state abbreviation where the plant is physically loc
 county | string | County name | EIA-860
 city | string | City name | EIA-860
 ba_code | string | Three- or four-character code representing the commercial balancing authority with which the plant is associated | EIA-860
-ba_code_physical | string | three- or four-character code representing the commercial balancing authority with which the plant is associated | [Inferred from EIA-860](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md)
+ba_code_physical | string | Three- or four-character code representing the physical balancing authority with which the plant is associated. Not yet used in the data pipeline | [Inferred from EIA-860](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md)
 latitude | float | latitude of the plant (in deg.) with Equator as zero point | EIA-860
 longitude | float | longitude of the plant (in deg.) measured eastward from Greenwich, UK | EIA-860
 plant_operating_date | date | Date the plant began commercial operation | EIA-860

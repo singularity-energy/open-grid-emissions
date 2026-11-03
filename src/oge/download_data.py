@@ -14,7 +14,12 @@ from oge.filepaths import (
     get_pudl_build_version,
 )
 from oge.logging_util import get_logger
-from oge.constants import current_early_release_year, latest_validated_year
+from oge.constants import (
+    current_early_release_year,
+    earliest_eia930a_year,
+    latest_eia930a_year,
+    latest_validated_year,
+)
 
 logger = get_logger(__name__)
 
@@ -322,6 +327,53 @@ def download_raw_eia930(years_to_download: list[int]):
                     )
         else:
             pass
+
+
+def get_eia930a_year(year: int) -> int:
+    """Gets the year of the EIA-930A data to use for a given year.
+
+    If the year is before the earliest year for which EIA-930A data is published,
+    the earliest year is returned. If the year is after the latest year for which
+    EIA-930A data is published, the latest year is returned.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        int: the year of the EIA-930A data to use for `year`.
+    """
+    return min(max(year, earliest_eia930a_year), latest_eia930a_year)
+
+
+def download_raw_eia930a(year: int):
+    """Downloads the EIA-930A annual generator inventory file to use for a year (see
+    `get_eia930a_year`).
+
+    Each file lists the generators that each BA includes in its EIA-930 data at the end
+    of the year.
+
+    Args:
+        year (int): a four-digit year.
+
+    Raises:
+        FileNotFoundError: if EIA hasn't published the file, which means that
+            `latest_eia930a_year` in constants.py is wrong.
+    """
+    os.makedirs(downloads_folder("eia930a"), exist_ok=True)
+
+    report_year = get_eia930a_year(year)
+    download_filepath = downloads_folder(f"eia930a/EIA_930A_{report_year}.xlsx")
+    download_url = f"https://www.eia.gov/electricity/930-content/EIA_930A_{report_year}_with%20layout.xlsx"
+    # EIA redirects requests for files that don't exist to a web page rather than
+    # returning an error, so check that the file exists before downloading it
+    if not os.path.exists(download_filepath) and (
+        requests.head(download_url, allow_redirects=False).status_code != 200
+    ):
+        raise FileNotFoundError(
+            f"EIA-930A data for {report_year} is not published at {download_url}. "
+            "Check `latest_eia930a_year` in constants.py."
+        )
+    download_helper(download_url, download_filepath)
 
 
 def download_epa_psdc(psdc_url: str):
