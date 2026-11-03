@@ -1150,10 +1150,12 @@ def calculate_subplant_efs(gen_fuel_allocated):
             subplant_efs[f"{pollutant}_mass_lb"] / subplant_efs["fuel_consumed_mmbtu"]
         )
 
-    # calculate the fraction of CO2 from biomass fuels
-    subplant_efs["biomass_co2_fraction"] = 1 - (
-        subplant_efs["co2_mass_lb_adjusted"] / subplant_efs["co2_mass_lb"]
-    )
+    # calculate the fraction of CO2 from biomass fuels. Round to remove floating point
+    # error, which can make the fraction slightly negative when there is no biomass and
+    # would make adjusted CO2 slightly greater than unadjusted CO2
+    subplant_efs["biomass_co2_fraction"] = (
+        1 - (subplant_efs["co2_mass_lb_adjusted"] / subplant_efs["co2_mass_lb"])
+    ).round(4)
 
     # only keep relevant columns
     subplant_efs = subplant_efs.reset_index()[
