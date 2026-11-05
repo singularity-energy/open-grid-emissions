@@ -17,10 +17,7 @@ from oge.constants import (
     ConversionFactors,
     CLEAN_FUELS,
     RESIDUAL_MIX_FUEL_CATEGORIES,
-    earliest_validated_year,
-    earliest_hourly_data_year,
     latest_validated_year,
-    current_early_release_year,
 )
 
 logger = get_logger(__name__)

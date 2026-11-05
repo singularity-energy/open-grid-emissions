@@ -22,6 +22,9 @@ content to a gitignored file at the top of the repo:
 By default the script leaves the new version as an unpublished draft so you can
 review it on zenodo.org before it becomes permanent (publishing a deposition cannot
 be undone). Pass --publish to publish immediately instead.
+
+The zip files are read from the local data folder, so this does not work when
+OGE_DATA_STORE is set to s3.
 """
 
 import argparse
@@ -90,7 +93,9 @@ def request_with_retry(
             )
 
 
-def get_latest_deposition_id(base_url: str, record_id: str, session: requests.Session) -> str:
+def get_latest_deposition_id(
+    base_url: str, record_id: str, session: requests.Session
+) -> str:
     """Resolves a record id (any version) to the deposition id of its latest version."""
     response = request_with_retry(
         session, "GET", f"{base_url}/records/{record_id}/versions/latest"
@@ -98,16 +103,22 @@ def get_latest_deposition_id(base_url: str, record_id: str, session: requests.Se
     return str(response.json()["id"])
 
 
-def create_new_version(base_url: str, deposition_id: str, session: requests.Session) -> dict:
+def create_new_version(
+    base_url: str, deposition_id: str, session: requests.Session
+) -> dict:
     """Creates a new draft version of the deposition and returns its representation."""
     response = request_with_retry(
-        session, "POST", f"{base_url}/deposit/depositions/{deposition_id}/actions/newversion"
+        session,
+        "POST",
+        f"{base_url}/deposit/depositions/{deposition_id}/actions/newversion",
     )
     draft_url = response.json()["links"]["latest_draft"]
     return request_with_retry(session, "GET", draft_url).json()
 
 
-def clear_inherited_files(base_url: str, draft: dict, session: requests.Session) -> None:
+def clear_inherited_files(
+    base_url: str, draft: dict, session: requests.Session
+) -> None:
     """Deletes every file inherited from the previous version of the draft."""
     for file in draft["files"]:
         logger.info(f"removing inherited file {file['filename']}")
@@ -153,7 +164,11 @@ def upload_files(bucket_url: str, session: requests.Session) -> None:
 def update_metadata(base_url: str, draft: dict, session: requests.Session) -> None:
     """Bumps the draft's version and publication date to match this release."""
     metadata = draft["metadata"]
-    metadata["version"] = version("oge")
+    # data versions are only published as X.X.0 versions, per
+    # filepaths.get_oge_data_store
+    metadata["version"] = (
+        f"{version('oge').split('.')[0]}.{version('oge').split('.')[1]}.0"
+    )
     metadata["publication_date"] = datetime.date.today().isoformat()
     request_with_retry(
         session,
@@ -166,7 +181,9 @@ def update_metadata(base_url: str, draft: dict, session: requests.Session) -> No
 def publish(base_url: str, deposition_id: str, session: requests.Session) -> dict:
     """Publishes the draft. This cannot be undone."""
     response = request_with_retry(
-        session, "POST", f"{base_url}/deposit/depositions/{deposition_id}/actions/publish"
+        session,
+        "POST",
+        f"{base_url}/deposit/depositions/{deposition_id}/actions/publish",
     )
     return response.json()
 

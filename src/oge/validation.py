@@ -1825,9 +1825,13 @@ def compare_plant_level_results_to_egrid(
         egrid_to_compare.index.isin(list(calculated_to_compare.index.unique()))
     ]
     egrid_to_compare[rate_col] = (
-        egrid_to_compare["co2_mass_lb_for_electricity_adjusted"]
-        / egrid_to_compare["net_generation_mwh"]
-    ).replace([np.inf, -np.inf], np.nan).round(1)
+        (
+            egrid_to_compare["co2_mass_lb_for_electricity_adjusted"]
+            / egrid_to_compare["net_generation_mwh"]
+        )
+        .replace([np.inf, -np.inf], np.nan)
+        .round(1)
+    )
     columns_to_compare = columns_to_compare + [rate_col]
 
     # divide calculated value by egrid value
