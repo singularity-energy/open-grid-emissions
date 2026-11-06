@@ -267,6 +267,7 @@ def test_load_generator_boiler_firing_type_fills_gaps_with_campd(monkeypatch):
         {
             "plant_id_epa": [1, 1, 1, 1, 1, 1, 1, 1],
             "emissions_unit_id_epa": ["1", "2", "3", "4", "5", "6", "7", "8"],
+            "plant_id_eia": [1, 1, 1, 1, 1, 1, 1, 1],
             "boiler_firing_type": [
                 "tangential_firing",
                 "wall_fired",

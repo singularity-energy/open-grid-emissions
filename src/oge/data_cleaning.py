@@ -1260,7 +1260,7 @@ def remove_non_grid_connected_plants(df: pd.DataFrame, year: int) -> pd.DataFram
     # electricity grid (e.g., industrial boilers), are added to the crosswalk with an
     # indicator that they were manually excluded."
     if "emissions_unit_id_epa" in df.columns:
-        epa_crosswalk = load_data.load_epa_eia_crosswalk_from_raw(year)[
+        epa_crosswalk = load_data.load_epa_eia_crosswalk_from_raw()[
             ["plant_id_eia", "emissions_unit_id_epa", "epa_match_type"]
         ]
         epa_ngc = epa_crosswalk[
@@ -1720,15 +1720,15 @@ def assign_fuel_type_to_cems(cems, year, primary_fuel_table):
             filler_column="energy_source_code_1",
         )
 
-    # if we are still missing fuel codes, merge in from the epa-assigned fuel code
+    # if we are still missing fuel codes, merge in the primary fuel reported to CAMPD
     if (len(cems[cems["energy_source_code"].isna()]) > 0) and (
         "emissions_unit_id_epa" in cems.columns
     ):
-        crosswalk = load_data.load_epa_eia_crosswalk_from_raw(year)[
+        campd_fuels = load_data.load_campd_facility(year)[
             ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
         ].drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
         cems = cems.merge(
-            crosswalk,
+            campd_fuels,
             how="left",
             on=["plant_id_eia", "emissions_unit_id_epa"],
             validate="m:1",

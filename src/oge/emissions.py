@@ -1003,9 +1003,12 @@ def load_generator_boiler_firing_type(year: int) -> pd.DataFrame:
     campd_firing_type = (
         load_data.load_campd_facility(year)
         .dropna(subset="boiler_firing_type")
+        .drop(columns="plant_id_eia")
         .merge(
             load_data.load_epa_eia_crosswalk(year),
+            how="inner",
             on=["plant_id_epa", "emissions_unit_id_epa"],
+            validate="1:m",
         )[
             [
                 "plant_id_eia",
