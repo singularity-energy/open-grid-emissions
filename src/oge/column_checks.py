@@ -441,6 +441,7 @@ def get_dtypes() -> dict:
         "associated_generators_and_capacity_epa": "string",
         "ba_code": "string",
         "ba_code_physical": "string",
+        "boiler_firing_type": "string",
         "cems_profile": "float64",
         "ch4_mass_lb": "float64",
         "ch4_mass_lb_adjusted": "float64",

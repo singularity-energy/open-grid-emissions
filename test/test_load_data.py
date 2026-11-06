@@ -1,3 +1,5 @@
+import pandas as pd
+
 import oge.load_data as load_data
 
 
@@ -34,8 +36,9 @@ def test_load_diba_data():
 
 
 def test_load_campd_facility_cleans_unit_ids_and_types(monkeypatch, tmp_path):
-    """Leading zeros should be removed from unit IDs, and each unit should keep the
-    unit type in use at the end of the year."""
+    """Leading zeros should be removed from unit IDs, each unit should keep the unit
+    type in use at the end of the year, and boilers should get their firing type and
+    wet/dry bottom type."""
     (tmp_path / "epa").mkdir()
     (tmp_path / "epa/facility-2025.csv").write_text(
         '"State","Facility Name","Facility ID","Unit ID","Source Category",'
@@ -49,6 +52,8 @@ def test_load_campd_facility_cleans_unit_ids_and_types(monkeypatch, tmp_path):
         '"FL","Plant B",2,"4","Electric Utility",'
         '"Integrated gasification combined cycle (Ended Jun 07, 2025), '
         'Combustion turbine (Started Jun 07, 2025)","Natural Gas",,\n'
+        '"FL","Plant B",2,"5","Electric Utility","Dry bottom wall-fired boiler",'
+        '"Coal",,"5 (300)"\n'
     )
     monkeypatch.setattr(
         load_data, "downloads_folder", lambda path: str(tmp_path / path)
@@ -56,12 +61,20 @@ def test_load_campd_facility_cleans_unit_ids_and_types(monkeypatch, tmp_path):
 
     facility = load_data.load_campd_facility(2025)
 
-    assert facility["emissions_unit_id_epa"].tolist() == ["1", "CT1", "4"]
+    assert facility["emissions_unit_id_epa"].tolist() == ["1", "CT1", "4", "5"]
     assert facility["unit_type_epa"].tolist() == [
         "Tangentially-fired",
         "Combustion turbine",
         "Combustion turbine",
+        "Dry bottom wall-fired boiler",
     ]
+    assert facility["boiler_firing_type"].tolist() == [
+        "tangential_firing",
+        pd.NA,
+        pd.NA,
+        "wall_fired",
+    ]
+    assert facility["wet_dry_bottom"].tolist() == [pd.NA, pd.NA, pd.NA, "dry"]
     assert facility["associated_generators_and_capacity_epa"].tolist()[:2] == [
         "1 (100)",
         "CT1 (50), ST1 (25)",
