@@ -1,4 +1,5 @@
 import functools
+from typing import Callable
 import numpy as np
 import pandas as pd
 import sqlalchemy as sa
@@ -639,12 +640,10 @@ def load_raw_eia923_puerto_rico_generation_fuel(year: int) -> pd.DataFrame:
         pd.DataFrame: one row per plant, prime mover, energy source code, and month,
             using the column names of PUDL's generation and fuel table.
     """
-    if (year == current_early_release_year) and (
+    is_early_release = (year == current_early_release_year) and (
         current_early_release_year != latest_validated_year
-    ):
-        directory = f"eia923/f923_{year}er"
-    else:
-        directory = f"eia923/f923_{year}"
+    )
+    directory = f"eia923/f923_{year}er" if is_early_release else f"eia923/f923_{year}"
     filepath = find_downloaded_file(
         directory, f"EIA923_Schedules_2_3_4_5_M_12_{year}*.xlsx"
     )
@@ -728,6 +727,15 @@ def load_raw_eia923_puerto_rico_generation_fuel(year: int) -> pd.DataFrame:
     generation_fuel = generation_fuel.dropna(
         subset=list(monthly_values.values()), how="all"
     )
+
+    # add the columns that PUDL derives from the EIA-923 data
+    fuel_types = load_pudl_table(
+        "core_eia__codes_energy_sources", columns=["code", "fuel_type_code_pudl"]
+    )
+    generation_fuel["fuel_type_code_pudl"] = generation_fuel["energy_source_code"].map(
+        fuel_types.set_index("code")["fuel_type_code_pudl"]
+    )
+    generation_fuel["data_maturity"] = "provisional" if is_early_release else "final"
 
     return apply_dtypes(generation_fuel)
 
@@ -1103,18 +1111,29 @@ def load_pudl_table(
         )
     )
 
-    # Puerto Rico generators
+    # Puerto Rico
     # Puerto Rico generators are only reported in EIA-860M, and PUDL only includes the most
     # recent EIA-860M snapshot of them, with a report_date in the latest year. Until PUDL
     # keeps a yearly history of these generators, we replace PUDL's snapshot with the
-    # generators in the December EIA-860M of each year, as eGRID does.
-    PUERTO_RICO_GENERATOR_TABLES = [
-        "core_eia860__scd_generators",
-        "out_eia__yearly_generators",
-    ]
-    # TODO: remove once PUDL keeps a yearly history of Puerto Rico generators
-    if table_name in PUERTO_RICO_GENERATOR_TABLES:
-        table = replace_puerto_rico_generators(table, year, end_year, columns)
+    # generators in the December EIA-860M of each year, as eGRID does. PUDL also does not
+    # yet include the Puerto Rico generation and fuel data, which EIA-923 reports on a
+    # separate sheet, so we load it from the raw EIA-923.
+    # TODO: remove once PUDL keeps a yearly history of Puerto Rico generators and
+    # includes the EIA-923 Puerto Rico data
+    puerto_rico_loaders = {
+        "core_eia860__scd_generators": load_puerto_rico_generators,
+        "out_eia__yearly_generators": load_puerto_rico_generators,
+        "out_eia923__monthly_generation_fuel_combined": (
+            load_raw_eia923_puerto_rico_generation_fuel
+        ),
+        "out_eia923__generation_fuel_combined": (
+            load_raw_eia923_puerto_rico_generation_fuel
+        ),
+    }
+    if table_name in puerto_rico_loaders:
+        table = replace_puerto_rico_data(
+            table, puerto_rico_loaders[table_name], year, end_year, columns
+        )
 
     table = apply_dtypes(table)
 
@@ -1124,26 +1143,28 @@ def load_pudl_table(
     return table
 
 
-def replace_puerto_rico_generators(
+def replace_puerto_rico_data(
     table: pd.DataFrame,
+    load_puerto_rico_year: Callable[[int], pd.DataFrame],
     year: int | None,
     end_year: int | None,
     columns: list[str] | None,
 ) -> pd.DataFrame:
-    """Replaces the Puerto Rico generators in a PUDL generator table with those from the
-    December EIA-860M of each year that was loaded. Any rows that PUDL has for these
-    plants are dropped.
+    """Replaces the Puerto Rico data in a PUDL table with data loaded for each year
+    that was loaded. Any rows that PUDL has for these plants are dropped.
 
     Args:
-        table (pd.DataFrame): a PUDL generator table, which must include plant_id_eia.
+        table (pd.DataFrame): a PUDL table, which must include plant_id_eia.
+        load_puerto_rico_year (Callable[[int], pd.DataFrame]): loads the Puerto Rico
+            data for one year, in the format of the PUDL table.
         year (int | None): the first year loaded, or None if all years were loaded.
         end_year (int | None): the last year loaded, or None if only `year` was
             loaded.
         columns (list[str] | None): the columns loaded, or None if all were loaded.
 
     Returns:
-        pd.DataFrame: the table, with Puerto Rico generators for each year loaded from
-            2018 onward.
+        pd.DataFrame: the table, with Puerto Rico data for each year loaded from 2018
+            onward.
     """
     latest_year = max(latest_validated_year, current_early_release_year)
     first_year = max(year or earliest_data_year, earliest_puerto_rico_data_year)
@@ -1151,18 +1172,19 @@ def replace_puerto_rico_generators(
 
     if first_year > last_year:
         return table
-    puerto_rico_generators = pd.concat(
+    puerto_rico_data = pd.concat(
         [
-            load_puerto_rico_generators(puerto_rico_year)
+            load_puerto_rico_year(puerto_rico_year)
             for puerto_rico_year in range(first_year, last_year + 1)
         ],
         ignore_index=True,
     )
-    # drop PUDL's snapshot of these plants, which is only loaded with the latest year
-    table = table[~table["plant_id_eia"].isin(puerto_rico_generators["plant_id_eia"])]
+    # drop any PUDL data for these plants, such as PUDL's EIA-860M snapshot of Puerto
+    # Rico generators, which is only loaded with the latest year
+    table = table[~table["plant_id_eia"].isin(puerto_rico_data["plant_id_eia"])]
     if columns is not None:
-        puerto_rico_generators = puerto_rico_generators.reindex(columns=columns)
-    return pd.concat([table, puerto_rico_generators], ignore_index=True)
+        puerto_rico_data = puerto_rico_data.reindex(columns=columns)
+    return pd.concat([table, puerto_rico_data], ignore_index=True)
 
 
 @functools.cache

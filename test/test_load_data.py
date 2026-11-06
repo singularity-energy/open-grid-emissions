@@ -242,6 +242,13 @@ def test_load_raw_eia923_puerto_rico_generation_fuel(monkeypatch, tmp_path):
     monkeypatch.setattr(
         load_data, "find_downloaded_file", lambda directory, pattern: str(filepath)
     )
+    monkeypatch.setattr(
+        load_data,
+        "load_pudl_table",
+        lambda table_name, columns=None: pd.DataFrame(
+            {"code": ["DFO", "NG"], "fuel_type_code_pudl": ["oil", "gas"]}
+        ),
+    )
 
     generation_fuel = load_data.load_raw_eia923_puerto_rico_generation_fuel(2024)
 
@@ -259,23 +266,24 @@ def test_load_raw_eia923_puerto_rico_generation_fuel(monkeypatch, tmp_path):
     assert january.loc[62410, "fuel_consumed_mmbtu"] == 460
     assert january.loc[62410, "fuel_mmbtu_per_unit"] == 1.15
     assert january.loc[62410, "net_generation_mwh"] == 40
+    assert january["fuel_type_code_pudl"].tolist() == ["oil", "gas"]
+    assert (generation_fuel["data_maturity"] == "final").all()
 
 
-def test_replace_puerto_rico_generators(monkeypatch):
-    """PUDL's Puerto Rico rows should be replaced by the generators of each year loaded
-    from 2018 onward, limited to the columns loaded."""
-    monkeypatch.setattr(
-        load_data,
-        "load_puerto_rico_generators",
-        lambda year: pd.DataFrame(
+def test_replace_puerto_rico_data():
+    """PUDL's Puerto Rico rows should be replaced by the data of each year loaded from
+    2018 onward, limited to the columns loaded."""
+
+    def load_puerto_rico_year(year):
+        return pd.DataFrame(
             {
                 "plant_id_eia": [61034],
                 "generator_id": ["CT1"],
                 "report_date": [pd.Timestamp(year=year, month=1, day=1)],
                 "unit_id_eia": ["CC1"],
             }
-        ),
-    )
+        )
+
     pudl_table = pd.DataFrame(
         {
             "plant_id_eia": [3, 61034],
@@ -284,15 +292,16 @@ def test_replace_puerto_rico_generators(monkeypatch):
         }
     )
 
-    all_years = load_data.replace_puerto_rico_generators(
-        pudl_table, year=None, end_year=None, columns=None
+    all_years = load_data.replace_puerto_rico_data(
+        pudl_table, load_puerto_rico_year, year=None, end_year=None, columns=None
     )
     assert all_years["report_date"].dt.year.tolist() == [2017] + list(
         range(2018, load_data.latest_validated_year + 1)
     )
 
-    some_years = load_data.replace_puerto_rico_generators(
+    some_years = load_data.replace_puerto_rico_data(
         pudl_table[["plant_id_eia", "generator_id"]],
+        load_puerto_rico_year,
         year=2016,
         end_year=2019,
         columns=["plant_id_eia", "generator_id", "unit_id_pudl"],
@@ -304,8 +313,12 @@ def test_replace_puerto_rico_generators(monkeypatch):
     ]
     assert some_years["plant_id_eia"].tolist() == [3, 61034, 61034]
 
-    before_2018 = load_data.replace_puerto_rico_generators(
-        pudl_table.iloc[[0]], year=2010, end_year=2015, columns=None
+    before_2018 = load_data.replace_puerto_rico_data(
+        pudl_table.iloc[[0]],
+        load_puerto_rico_year,
+        year=2010,
+        end_year=2015,
+        columns=None,
     )
     assert before_2018["plant_id_eia"].tolist() == [3]
 
