@@ -338,6 +338,23 @@ def download_epa_psdc(psdc_url: str):
     download_helper(psdc_url, download_path)
 
 
+def download_campd_facility(year: int):
+    """Downloads the EPA's Clean Air Markets Program Data (CAMPD) facility attributes.
+
+    The file lists every unit that reports to CAMPD in a year, with attributes such as
+    unit type, fuel types and emissions controls. See
+    https://campd.epa.gov/data/bulk-data-files.
+
+    Args:
+        year (int): a four-digit year.
+    """
+    os.makedirs(downloads_folder("epa"), exist_ok=True)
+    download_helper(
+        f"https://api.epa.gov/easey/bulk-files/facility/facility-{year}.csv",
+        downloads_folder(f"epa/facility-{year}.csv"),
+    )
+
+
 def download_raw_eia923(year: int):
     """Downloads raw EIA-923 data (zip files), and unzips them to the downloads folder.
 
