@@ -177,11 +177,17 @@ def generate_subplant_ids() -> pd.DataFrame:
 def manually_update_subplant_id(subplant_crosswalk: pd.DataFrame) -> pd.DataFrame:
     """This function corrects subplant mappings not caught by update_subplant_id. This
     is temporary until the pudl subplant crosswalk includes boiler-generator id matches.
+
+    This updates `new_subplant`, which `generate_subplant_ids` uses to set the final
+    `subplant_id`.
     """
 
-    # set all generators in plant 1391 to the same subplant
+    # set all generators in each of these plants to the same subplant:
+    # - 1391
+    # - EcoElectrica (61034), a combined cycle plant whose parts each have their own
+    #   unit code in EIA-860M
     subplant_crosswalk.loc[
-        subplant_crosswalk["plant_id_eia"] == 1391, "subplant_id"
+        subplant_crosswalk["plant_id_eia"].isin([1391, 61034]), "new_subplant"
     ] = 0
 
     return subplant_crosswalk
