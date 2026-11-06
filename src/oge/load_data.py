@@ -1057,6 +1057,68 @@ def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
     return crosswalk
 
 
+def load_campd_facility(year: int) -> pd.DataFrame:
+    """Loads the unit attributes from the EPA's Clean Air Markets Program Data (CAMPD)
+    facility file. These are used to fill unit attributes that are missing from the EIA
+    data.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table with one row per CAMPD unit, giving its unit type, fuel
+            types, source category, and associated generators.
+    """
+    facility = pd.read_csv(
+        downloads_folder(f"epa/facility-{year}.csv"),
+        usecols=[
+            "Facility ID",
+            "Unit ID",
+            "Facility Name",
+            "State",
+            "Source Category",
+            "Unit Type",
+            "Primary Fuel Type",
+            "Secondary Fuel Type",
+            "Associated Generators & Nameplate Capacity (MWe)",
+        ],
+        dtype={"Unit ID": "str"},
+    ).rename(
+        columns={
+            "Facility ID": "plant_id_epa",
+            "Unit ID": "emissions_unit_id_epa",
+            "Facility Name": "plant_name_epa",
+            "State": "state",
+            "Source Category": "source_category_epa",
+            "Unit Type": "unit_type_epa",
+            "Primary Fuel Type": "primary_fuel_type_epa",
+            "Secondary Fuel Type": "secondary_fuel_type_epa",
+            "Associated Generators & Nameplate Capacity (MWe)": (
+                "associated_generators_and_capacity_epa"
+            ),
+        }
+    )
+
+    # remove leading zeros from the emissions_unit_id_epa to match the CEMS data
+    facility["emissions_unit_id_epa"] = facility["emissions_unit_id_epa"].str.lstrip(
+        "0"
+    )
+
+    # units that start or stop operating during the year have the date in parentheses,
+    # and units that change type list each type, e.g. "Integrated gasification combined
+    # cycle (Ended Jun 07, 2025), Combustion turbine (Started Jun 07, 2025)". Keep the
+    # type in use at the end of the year.
+    facility["unit_type_epa"] = (
+        facility["unit_type_epa"]
+        .str.replace(r"\s*\([^)]*\)", "", regex=True)
+        .str.split(",")
+        .str[-1]
+        .str.strip()
+    )
+
+    return apply_dtypes(facility)
+
+
 def load_gross_to_net_data(
     level: str,
     conversion_type: str,
