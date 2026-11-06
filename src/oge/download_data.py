@@ -464,6 +464,28 @@ def download_raw_eia860(year: int):
         )
 
 
+def download_raw_eia860m_december(year: int):
+    """Downloads the December EIA-860M (Monthly Update to the Annual Electric Generator
+    Report) workbook for a year.
+
+    This is used for Puerto Rico generators, which are only reported in EIA-860M.
+    PUDL only includes the most recent EIA-860M snapshot of these generators, so we
+    use the December file of each year, as eGRID does, until PUDL keeps a history of
+    them.
+
+    Args:
+        year (int): a four-digit year.
+    """
+    os.makedirs(downloads_folder("eia860m"), exist_ok=True)
+    filename = f"december_generator{year}.xlsx"
+    # EIA serves past monthly files from the archive. The non-archive URL redirects to a
+    # web page instead of returning an error, so it can't be used as a first attempt.
+    download_helper(
+        f"https://www.eia.gov/electricity/data/eia860m/archive/xls/{filename}",
+        downloads_folder(f"eia860m/{filename}"),
+    )
+
+
 def download_eia_electric_power_annual():
     """Downloads EIA Electric Power Annual uncontrolled emission factors.
 
