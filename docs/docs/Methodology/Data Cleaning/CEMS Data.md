@@ -29,7 +29,10 @@ In addition to actual missing values, CO2 data is considered to be missing if re
 
 Before imputing the missing data, we must assign an `energy_source_code` to each observation so that the appropriate emission factor can be used. See "[Assigning energy source codes](../Emissions%20Calculations/Assigning%20Energy%20Source%20Codes.md)" for a description of this methodology.
 
-When imputing missing CO2 data, if a unit has a unit-specific fuel type identified by the EPA-EIA crosswalk, we calculate co2 using a fuel-specific emission factor. If not (often in the cases when a unit burns multiple fuels), we fill missing data by using a plant-month weighted average emission factor of all fuels burned in that plant-month.
+Missing CO2 data is filled using the first of the following that is available:
+1. If the unit reports CO2 for other hours in the same month, a unit-month emission factor calculated from the CEMS fuel consumption and CO2 of those hours
+2. The subplant-month weighted average emission factor of all fuels burned by the subplant, calculated from the EIA-923 data
+3. The emission factor of the fuel assigned to the unit
 
 Hourly CH4 and N2O emissions are then calculated based on hourly fuel consumption and fuel type (see [here](../Emissions%20Calculations/GHG%20Emissions.md) for more details)
 
