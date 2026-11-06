@@ -360,16 +360,12 @@ def assign_fleet_to_subplant_data(
     )
 
     # if there are any missing ESCs in the dataframe, these might be from unmapped CEMS
-    # units. Attempt to add a fuel from the EPA-EIA crosswalk
+    # units. Attempt to add the primary fuel reported to CAMPD
     if len(subplant_data[subplant_data[fuel_category_col].isna()]) > 0:
-        # load the crosswalk, and assign subplant_id
-        campd_fuels = (
-            load_data.load_epa_eia_crosswalk_from_raw(year)[
-                ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
-            ]
-            .dropna(subset=["emissions_unit_id_epa"])
-            .drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
-        )
+        # load the CAMPD fuels, and assign subplant_id
+        campd_fuels = load_data.load_campd_facility(year)[
+            ["plant_id_eia", "emissions_unit_id_epa", "energy_source_code_epa"]
+        ].drop_duplicates(subset=["plant_id_eia", "emissions_unit_id_epa"])
         campd_fuels = add_subplant_ids_to_df(
             campd_fuels, year, "emissions_unit_id_epa", "left", "1:m"
         )

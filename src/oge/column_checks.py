@@ -461,6 +461,7 @@ def get_dtypes() -> dict:
         "distribution_flag": "boolean",
         "eia930_profile": "float64",
         "end_year": "Int32",
+        "energy_source_code_epa": "string",
         "equipment_tech_description": "string",
         "fgd_electricity_consumption_mwh": "float32",
         "fgd_sorbent_consumption_1000_tons": "float64",

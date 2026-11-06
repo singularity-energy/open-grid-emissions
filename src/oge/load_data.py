@@ -863,16 +863,11 @@ def load_pudl_table(
     return table
 
 
-def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
+def load_epa_eia_crosswalk_from_raw() -> pd.DataFrame:
     """Read in the EPA-EIA Crosswalk table downloaded from the EPA website.
 
-    This is only used data_cleaning.assign_fuel_type_to_cems() to access the
-    CAMD_FUEL_TYPE column, which is dropped from the PUDL version of the table.
-    This is also used in data_cleaning.remove_non_grid_connected_plants() to identify
-    the units that CAMD identified as NGC.
-
-    Args:
-        year (int): a four-digit year.
+    This is only used in data_cleaning.remove_non_grid_connected_plants() to access the
+    MATCH_TYPE_GEN column, which identifies the units that CAMD identified as NGC.
 
     Returns:
         pd.DataFrame: EPA-EIA crosswalk table.
@@ -880,20 +875,10 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
 
     crosswalk = pd.read_csv(
         downloads_folder("epa/epa_eia_crosswalk.csv"),
-        usecols=[
-            "CAMD_PLANT_ID",
-            "EIA_PLANT_ID",
-            "CAMD_UNIT_ID",
-            "EIA_GENERATOR_ID",
-            "EIA_BOILER_ID",
-            "EIA_FUEL_TYPE",
-            "CAMD_FUEL_TYPE",
-            "MATCH_TYPE_GEN",
-        ],
+        usecols=["CAMD_PLANT_ID", "EIA_PLANT_ID", "CAMD_UNIT_ID", "MATCH_TYPE_GEN"],
     )
 
-    # remove leading zeros from the generator id and emissions_unit_id_epa
-    crosswalk["EIA_GENERATOR_ID"] = crosswalk["EIA_GENERATOR_ID"].str.lstrip("0")
+    # remove leading zeros from the emissions_unit_id_epa
     crosswalk["CAMD_UNIT_ID"] = crosswalk["CAMD_UNIT_ID"].str.lstrip("0")
 
     # some eia plant ids are missing. Let us assume that the EIA and EPA plant ids
@@ -910,77 +895,9 @@ def load_epa_eia_crosswalk_from_raw(year: int) -> pd.DataFrame:
             "CAMD_PLANT_ID": "plant_id_epa",
             "EIA_PLANT_ID": "plant_id_eia",
             "CAMD_UNIT_ID": "emissions_unit_id_epa",
-            "EIA_GENERATOR_ID": "generator_id",
-            "EIA_BOILER_ID": "boiler_id",
-            "EIA_FUEL_TYPE": "energy_source_code_eia",
-            "CAMD_FUEL_TYPE": "energy_source_code_epa",
             "MATCH_TYPE_GEN": "epa_match_type",
         }
     )
-
-    camd_to_eia_fuel_type = {
-        "Pipeline Natural Gas": "NG",
-        "Coal": "SUB",  # assume that generic coal is subbituminous to be conservative
-        "Coal Refuse": "WC",
-        "Residual Oil": "RFO",
-        "Other Oil": "WO",
-        "Diesel Oil": "DFO",
-        "Natural Gas": "NG",
-        "Wood": "WDS",
-        "Process Gas": "PRG",
-        "Other Gas": "OG",
-        "Petroleum Coke": "PC",
-        "Other Solid Fuel": "OBS",
-        "Tire Derived Fuel": "TDF",
-    }
-    crosswalk["energy_source_code_epa"] = crosswalk["energy_source_code_epa"].replace(
-        camd_to_eia_fuel_type
-    )
-
-    # fill missing values in the energy_source_code_eia column with values from the
-    # energy_source_code_epa column
-    crosswalk["energy_source_code_eia"] = crosswalk["energy_source_code_eia"].fillna(
-        crosswalk["energy_source_code_epa"]
-    )
-
-    # load manually inputted data
-    crosswalk_manual = pd.read_csv(
-        reference_table_folder("epa_eia_crosswalk_manual.csv"),
-        dtype=get_dtypes(),
-    ).drop(columns=["notes"])
-
-    # load EIA-860 data
-    gen_esc_860 = load_pudl_table(
-        "core_eia860__scd_generators",
-        year,
-        columns=["plant_id_eia", "generator_id", "energy_source_code_1"],
-    )
-
-    # merge the energy source code from EIA-860
-    crosswalk_manual = crosswalk_manual.merge(
-        gen_esc_860, how="left", on=["plant_id_eia", "generator_id"], validate="m:1"
-    ).rename(columns={"energy_source_code_1": "energy_source_code_eia"})
-
-    # concat this data with the main table
-    crosswalk = pd.concat(
-        [crosswalk, crosswalk_manual],
-        axis=0,
-    )
-
-    # merge in any plants that are missing from the EPA crosswalk but appear in EIA-860
-    crosswalk = crosswalk.merge(
-        gen_esc_860, how="outer", on=["plant_id_eia", "generator_id"], validate="m:1"
-    )
-    crosswalk["plant_id_epa"] = crosswalk["plant_id_epa"].fillna(
-        crosswalk["plant_id_eia"]
-    )
-    crosswalk["energy_source_code_eia"] = crosswalk["energy_source_code_eia"].fillna(
-        crosswalk["energy_source_code_1"]
-    )
-    crosswalk["energy_source_code_epa"] = crosswalk["energy_source_code_epa"].fillna(
-        crosswalk["energy_source_code_1"]
-    )
-    crosswalk = crosswalk.drop(columns=["energy_source_code_1"])
 
     return crosswalk
 
@@ -1066,9 +983,10 @@ def load_campd_facility(year: int) -> pd.DataFrame:
         year (int): a four-digit year.
 
     Returns:
-        pd.DataFrame: table with one row per CAMPD unit, giving its unit type, boiler
-            firing type and wet/dry bottom type, fuel types, source category, and
-            associated generators.
+        pd.DataFrame: table with one row per CAMPD unit, giving its EIA plant ID, unit
+            type, boiler firing type and wet/dry bottom type, fuel types and the EIA
+            energy source code of its primary fuel, source category, and associated
+            generators.
     """
     facility = pd.read_csv(
         downloads_folder(f"epa/facility-{year}.csv"),
@@ -1141,7 +1059,36 @@ def load_campd_facility(year: int) -> pd.DataFrame:
     facility["boiler_firing_type"] = unit_boiler_design.str[0]
     facility["wet_dry_bottom"] = unit_boiler_design.str[1]
 
-    return apply_dtypes(facility)
+    # EIA energy source code of the primary fuel. Some units list several primary
+    # fuels, in which case the first one is used.
+    camd_to_eia_fuel_type = {
+        "Pipeline Natural Gas": "NG",
+        "Coal": "SUB",  # assume that generic coal is subbituminous to be conservative
+        "Coal Refuse": "WC",
+        "Residual Oil": "RFO",
+        "Other Oil": "WO",
+        "Diesel Oil": "DFO",
+        "Natural Gas": "NG",
+        "Wood": "WDS",
+        "Process Gas": "PRG",
+        "Other Gas": "OG",
+        "Petroleum Coke": "PC",
+        "Other Solid Fuel": "OBS",
+        "Tire Derived Fuel": "TDF",
+    }
+    facility["energy_source_code_epa"] = (
+        facility["primary_fuel_type_epa"]
+        .str.split(",")
+        .str[0]
+        .map(camd_to_eia_fuel_type)
+    )
+
+    # add the EIA plant ID, which is the same as the EPA plant ID unless it is mapped
+    # differently in the manual crosswalk
+    facility["plant_id_eia"] = facility["plant_id_epa"]
+    facility = update_epa_to_eia_map(apply_dtypes(facility), year)
+
+    return facility
 
 
 def load_gross_to_net_data(
