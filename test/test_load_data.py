@@ -31,3 +31,38 @@ def test_load_diba_data():
     load_data.load_diba_data(2021)
     load_data.load_diba_data(2020)
     load_data.load_diba_data(2019)
+
+
+def test_load_campd_facility_cleans_unit_ids_and_types(monkeypatch, tmp_path):
+    """Leading zeros should be removed from unit IDs, and each unit should keep the
+    unit type in use at the end of the year."""
+    (tmp_path / "epa").mkdir()
+    (tmp_path / "epa/facility-2025.csv").write_text(
+        '"State","Facility Name","Facility ID","Unit ID","Source Category",'
+        '"Unit Type","Primary Fuel Type","Secondary Fuel Type",'
+        '"Associated Generators & Nameplate Capacity (MWe)"\n'
+        '"AL","Plant A",1,"01","Electric Utility","Tangentially-fired","Coal",,'
+        '"1 (100)"\n'
+        '"AL","Plant A",1,"CT1","Electric Utility",'
+        '"Combustion turbine (Started May 19, 2025)","Pipeline Natural Gas",'
+        '"Diesel Oil","CT1 (50), ST1 (25)"\n'
+        '"FL","Plant B",2,"4","Electric Utility",'
+        '"Integrated gasification combined cycle (Ended Jun 07, 2025), '
+        'Combustion turbine (Started Jun 07, 2025)","Natural Gas",,\n'
+    )
+    monkeypatch.setattr(
+        load_data, "downloads_folder", lambda path: str(tmp_path / path)
+    )
+
+    facility = load_data.load_campd_facility(2025)
+
+    assert facility["emissions_unit_id_epa"].tolist() == ["1", "CT1", "4"]
+    assert facility["unit_type_epa"].tolist() == [
+        "Tangentially-fired",
+        "Combustion turbine",
+        "Combustion turbine",
+    ]
+    assert facility["associated_generators_and_capacity_epa"].tolist()[:2] == [
+        "1 (100)",
+        "CT1 (50), ST1 (25)",
+    ]
