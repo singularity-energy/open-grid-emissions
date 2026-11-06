@@ -250,3 +250,82 @@ def test_eaf_missing_generation(df_chp):
         291 / 315, rel=1e-4
     )
     assert df_chp.loc[6, "electric_allocation_factor"] == 1
+
+
+def test_load_generator_boiler_firing_type_fills_gaps_with_campd(monkeypatch):
+    """CAMPD unit types should only fill the boiler designs that EIA-860 does not
+    report, and add a design for generators that have no boilers in EIA-860."""
+    eia_boilers = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1],
+            "boiler_id": ["A", "B", "C", "D"],
+            "wet_dry_bottom": ["none", "none", "dry", "none"],
+            "boiler_firing_type": ["none", "wall_fired", "stoker", "none"],
+        }
+    )
+    campd_units = pd.DataFrame(
+        {
+            "plant_id_epa": [1, 1, 1, 1, 1, 1, 1, 1],
+            "emissions_unit_id_epa": ["1", "2", "3", "4", "5", "6", "7", "8"],
+            "boiler_firing_type": [
+                "tangential_firing",
+                "wall_fired",
+                "wall_fired",
+                "cyclone_firing",
+                "stoker",
+                "fluidized_bed_firing",
+                "stoker",
+                pd.NA,
+            ],
+            "wet_dry_bottom": [pd.NA, "dry", "wet", pd.NA, pd.NA, pd.NA, pd.NA, pd.NA],
+        }
+    )
+    crosswalk = pd.DataFrame(
+        {
+            "plant_id_epa": [1, 1, 1, 1, 1, 1, 1, 1],
+            "emissions_unit_id_epa": ["1", "2", "3", "4", "5", "6", "7", "8"],
+            "plant_id_eia": [1, 1, 1, 1, 1, 1, 1, 1],
+            "boiler_id": ["A", "B", "C", "D", "D", pd.NA, pd.NA, pd.NA],
+            "generator_id": ["1", "2", "3", "4", "4", "5", "1", "6"],
+        }
+    )
+    boiler_generator_assn = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1],
+            "boiler_id": ["A", "B", "C", "D"],
+            "generator_id": ["1", "2", "3", "4"],
+        }
+    )
+    monkeypatch.setattr(emissions, "load_boiler_firing_type", lambda year: eia_boilers)
+    monkeypatch.setattr(
+        emissions.load_data, "load_campd_facility", lambda year: campd_units
+    )
+    monkeypatch.setattr(
+        emissions.load_data, "load_epa_eia_crosswalk", lambda year: crosswalk
+    )
+    monkeypatch.setattr(
+        emissions.load_data,
+        "load_pudl_table",
+        lambda *args, **kwargs: boiler_generator_assn,
+    )
+
+    firing_type = emissions.load_generator_boiler_firing_type(2024).set_index(
+        "generator_id"
+    )
+
+    # missing firing type filled, and bottom type left as none
+    assert firing_type.loc["1", "boiler_firing_type"] == "tangential_firing"
+    assert firing_type.loc["1", "wet_dry_bottom"] == "none"
+    # missing bottom type filled
+    assert firing_type.loc["2", "wet_dry_bottom"] == "dry"
+    # values reported in EIA-860 are kept
+    assert firing_type.loc["3", "boiler_firing_type"] == "stoker"
+    assert firing_type.loc["3", "wet_dry_bottom"] == "dry"
+    # boilers whose CAMPD units disagree are not filled
+    assert firing_type.loc["4", "boiler_firing_type"] == "none"
+    # generators without EIA-860 boilers get the CAMPD design
+    assert firing_type.loc["5", "boiler_firing_type"] == "fluidized_bed_firing"
+    assert firing_type.loc["5", "wet_dry_bottom"] == "none"
+    # units that are not boilers are not used
+    assert "6" not in firing_type.index
+    assert len(firing_type) == 5

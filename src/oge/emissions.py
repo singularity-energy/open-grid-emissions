@@ -818,22 +818,8 @@ def calculate_generator_nox_ef_per_unit_from_boiler_type(
         ]
     )
 
-    # load the boiler firing type info
-    boiler_firing_type = load_boiler_firing_type(year)
-
-    # identify the boiler firing type for each generator
-    boiler_generator_assn = load_data.load_pudl_table(
-        "core_eia860__assn_boiler_generator",
-        year,
-        columns=["plant_id_eia", "boiler_id", "generator_id"],
-    )
-    # associate each boiler record with generator_id s
-    boiler_firing_type = boiler_firing_type.merge(
-        boiler_generator_assn,
-        how="left",
-        on=["plant_id_eia", "boiler_id"],
-        validate="1:m",
-    )
+    # load the boiler firing type info for each generator
+    boiler_firing_type = load_generator_boiler_firing_type(year)
 
     # merge the gen keys with the boiler firing types
     gen_nox_factors = gen_keys_for_nox.merge(
@@ -997,6 +983,94 @@ def load_boiler_firing_type(year: int) -> pd.DataFrame:
     ].dropna(subset=["wet_dry_bottom", "boiler_firing_type"], thresh=1)
 
     return boiler_firing_type
+
+
+def load_generator_boiler_firing_type(year: int) -> pd.DataFrame:
+    """Loads the boiler firing type and wet/dry bottom type of the boilers associated
+    with each generator.
+
+    The boiler design comes from EIA-860. Where EIA-860 does not report it for a boiler,
+    or a generator has no boilers in EIA-860, it is filled using the unit type of the
+    CAMPD units associated with the boiler or generator in the EPA-EIA crosswalk.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: table with one row per generator and associated boiler, giving
+            the boiler firing type and wet/dry bottom type.
+    """
+    campd_firing_type = (
+        load_data.load_campd_facility(year)
+        .dropna(subset="boiler_firing_type")
+        .merge(
+            load_data.load_epa_eia_crosswalk(year),
+            on=["plant_id_epa", "emissions_unit_id_epa"],
+        )[
+            [
+                "plant_id_eia",
+                "boiler_id",
+                "generator_id",
+                "boiler_firing_type",
+                "wet_dry_bottom",
+            ]
+        ]
+        .drop_duplicates()
+    )
+
+    # fill missing values for EIA-860 boilers, only using boilers whose associated CAMPD
+    # units all have the same design
+    campd_boilers = (
+        campd_firing_type.drop(columns="generator_id")
+        .dropna(subset="boiler_id")
+        .drop_duplicates()
+        .drop_duplicates(subset=["plant_id_eia", "boiler_id"], keep=False)
+    )
+    boiler_firing_type = load_boiler_firing_type(year).merge(
+        campd_boilers,
+        how="left",
+        on=["plant_id_eia", "boiler_id"],
+        validate="1:1",
+        suffixes=(None, "_campd"),
+    )
+    for col in ["boiler_firing_type", "wet_dry_bottom"]:
+        campd_col = boiler_firing_type.pop(f"{col}_campd")
+        boiler_firing_type[col] = (
+            boiler_firing_type[col]
+            .mask(boiler_firing_type[col] == "none", campd_col)
+            .fillna("none")
+        )
+
+    # associate each boiler record with generator_id s
+    boiler_generator_assn = load_data.load_pudl_table(
+        "core_eia860__assn_boiler_generator",
+        year,
+        columns=["plant_id_eia", "boiler_id", "generator_id"],
+    )
+    boiler_firing_type = boiler_firing_type.merge(
+        boiler_generator_assn,
+        how="left",
+        on=["plant_id_eia", "boiler_id"],
+        validate="1:m",
+    )
+
+    # add the design of the CAMPD units associated with generators that have no boilers
+    # in EIA-860
+    generator_keys = ["plant_id_eia", "generator_id"]
+    campd_generators = (
+        campd_firing_type.drop(columns="boiler_id")
+        .dropna(subset="generator_id")
+        .drop_duplicates()
+    )
+    campd_generators = campd_generators[
+        ~campd_generators.set_index(generator_keys).index.isin(
+            boiler_firing_type.set_index(generator_keys).index
+        )
+    ]
+
+    return pd.concat([boiler_firing_type, campd_generators], ignore_index=True).fillna(
+        {"wet_dry_bottom": "none"}
+    )
 
 
 def fill_missing_factors_based_on_pm_fuel(
@@ -1693,25 +1767,11 @@ def calculate_generator_so2_ef_per_unit_from_boiler_type(
     # load emission factors
     so2_emission_factors = load_data.load_so2_emission_factors()
 
-    # load the boiler firing type info
-    boiler_firing_type = load_boiler_firing_type(year)
+    # load the boiler firing type info for each generator
+    boiler_firing_type = load_generator_boiler_firing_type(year)
     # drop the boiler bottom type data
     boiler_firing_type = boiler_firing_type.drop(columns="wet_dry_bottom")
     boiler_firing_type = boiler_firing_type.drop_duplicates()
-
-    # identify the boiler firing type for each generator
-    boiler_generator_assn = load_data.load_pudl_table(
-        "core_eia860__assn_boiler_generator",
-        year,
-        columns=["plant_id_eia", "boiler_id", "generator_id"],
-    )
-    # associate each boiler record with generator_id s
-    boiler_firing_type = boiler_firing_type.merge(
-        boiler_generator_assn,
-        how="left",
-        on=["plant_id_eia", "boiler_id"],
-        validate="1:m",
-    )
 
     # merge the gen keys with the boiler firing types
     gen_so2_factors = gen_keys_for_so2.merge(
