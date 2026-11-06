@@ -259,3 +259,115 @@ def test_load_raw_eia923_puerto_rico_generation_fuel(monkeypatch, tmp_path):
     assert january.loc[62410, "fuel_consumed_mmbtu"] == 460
     assert january.loc[62410, "fuel_mmbtu_per_unit"] == 1.15
     assert january.loc[62410, "net_generation_mwh"] == 40
+
+
+def test_replace_puerto_rico_generators(monkeypatch):
+    """PUDL's Puerto Rico rows should be replaced by the generators of each year loaded
+    from 2018 onward, limited to the columns loaded."""
+    monkeypatch.setattr(
+        load_data,
+        "load_puerto_rico_generators",
+        lambda year: pd.DataFrame(
+            {
+                "plant_id_eia": [61034],
+                "generator_id": ["CT1"],
+                "report_date": [pd.Timestamp(year=year, month=1, day=1)],
+                "unit_id_eia": ["CC1"],
+            }
+        ),
+    )
+    pudl_table = pd.DataFrame(
+        {
+            "plant_id_eia": [3, 61034],
+            "generator_id": ["1", "CT1"],
+            "report_date": pd.to_datetime(["2017-01-01", "2026-01-01"]),
+        }
+    )
+
+    all_years = load_data.replace_puerto_rico_generators(
+        pudl_table, year=None, end_year=None, columns=None
+    )
+    assert all_years["report_date"].dt.year.tolist() == [2017] + list(
+        range(2018, load_data.latest_validated_year + 1)
+    )
+
+    some_years = load_data.replace_puerto_rico_generators(
+        pudl_table[["plant_id_eia", "generator_id"]],
+        year=2016,
+        end_year=2019,
+        columns=["plant_id_eia", "generator_id", "unit_id_pudl"],
+    )
+    assert some_years.columns.tolist() == [
+        "plant_id_eia",
+        "generator_id",
+        "unit_id_pudl",
+    ]
+    assert some_years["plant_id_eia"].tolist() == [3, 61034, 61034]
+
+    before_2018 = load_data.replace_puerto_rico_generators(
+        pudl_table.iloc[[0]], year=2010, end_year=2015, columns=None
+    )
+    assert before_2018["plant_id_eia"].tolist() == [3]
+
+
+def test_load_puerto_rico_generators_fills_late_reporters(monkeypatch):
+    """Plants that report generation but are missing from the December EIA-860M should
+    get the generators from PUDL's snapshot that operated during the year."""
+    monkeypatch.setattr(
+        load_data,
+        "load_raw_eia860m_puerto_rico_generators",
+        lambda year: pd.DataFrame(
+            {
+                "plant_id_eia": [61034],
+                "generator_id": ["CT1"],
+                "energy_source_code_1": ["NG"],
+                "operational_status_code": ["OP"],
+                "operational_status": ["existing"],
+                "generator_operating_date": pd.to_datetime(["2000-01-01"]),
+                "generator_retirement_date": pd.to_datetime([pd.NaT]),
+                "unit_id_eia": ["CC1"],
+                "report_date": pd.to_datetime(["2022-01-01"]),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        load_data,
+        "load_raw_eia923_puerto_rico_generation_fuel",
+        lambda year: pd.DataFrame({"plant_id_eia": [61034, 66319]}),
+    )
+    snapshot = pd.DataFrame(
+        {
+            "plant_id_eia": [66319, 66319, 66319, 66319],
+            "generator_id": ["OLD", "RETIRED_LATER", "NEW", "RETIRED_EARLIER"],
+            "energy_source_code_1": ["DFO", "DFO", "SUN", "DFO"],
+            "operational_status_code": ["SB", "RE", "OP", "RE"],
+            "operational_status": ["existing", "retired", "existing", "retired"],
+            "generator_operating_date": pd.to_datetime(
+                ["1991-01-01", "2004-06-01", "2023-06-01", "1990-01-01"]
+            ),
+            "generator_retirement_date": pd.to_datetime(
+                [pd.NaT, "2025-04-01", pd.NaT, "2020-01-01"]
+            ),
+        }
+    )
+    fuel_codes = pd.DataFrame(
+        {"code": ["DFO", "NG", "SUN"], "fuel_type_code_pudl": ["oil", "gas", "solar"]}
+    )
+    for loader in ["load_pudl_table_from_local", "load_pudl_table_from_s3"]:
+        monkeypatch.setattr(
+            load_data, loader, lambda table_name, columns=None: snapshot
+        )
+    monkeypatch.setattr(
+        load_data, "load_pudl_table", lambda table_name, columns=None: fuel_codes
+    )
+    load_data.load_puerto_rico_generators.cache_clear()
+
+    generators = load_data.load_puerto_rico_generators(2022).set_index("generator_id")
+    load_data.load_puerto_rico_generators.cache_clear()
+
+    assert generators.index.tolist() == ["CT1", "OLD", "RETIRED_LATER"]
+    assert generators.loc["RETIRED_LATER", "operational_status_code"] == "OP"
+    assert pd.isna(generators.loc["RETIRED_LATER", "generator_retirement_date"])
+    assert (generators["report_date"] == pd.Timestamp("2022-01-01")).all()
+    assert generators["fuel_type_code_pudl"].tolist() == ["gas", "oil", "oil"]
+    assert generators["fuel_type_count"].tolist() == [1, 1, 1]
