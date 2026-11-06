@@ -1066,8 +1066,9 @@ def load_campd_facility(year: int) -> pd.DataFrame:
         year (int): a four-digit year.
 
     Returns:
-        pd.DataFrame: table with one row per CAMPD unit, giving its unit type, fuel
-            types, source category, and associated generators.
+        pd.DataFrame: table with one row per CAMPD unit, giving its unit type, boiler
+            firing type and wet/dry bottom type, fuel types, source category, and
+            associated generators.
     """
     facility = pd.read_csv(
         downloads_folder(f"epa/facility-{year}.csv"),
@@ -1115,6 +1116,30 @@ def load_campd_facility(year: int) -> pd.DataFrame:
         .str[-1]
         .str.strip()
     )
+
+    # boiler firing type and wet/dry bottom type of each unit type that is a boiler,
+    # using the categories in the emission factor tables. CAMPD does not report the
+    # bottom type of some boiler types.
+    boiler_design = {
+        "Arch-fired boiler": ("vertical_firing", pd.NA),
+        "Bubbling fluidized bed boiler": ("fluidized_bed_firing", pd.NA),
+        "Cell burner boiler": ("cell_burner", pd.NA),
+        "Circulating fluidized bed boiler": ("fluidized_bed_firing", pd.NA),
+        "Cyclone boiler": ("cyclone_firing", pd.NA),
+        "Dry bottom turbo-fired boiler": ("other", "dry"),
+        "Dry bottom vertically-fired boiler": ("vertical_firing", "dry"),
+        "Dry bottom wall-fired boiler": ("wall_fired", "dry"),
+        "Other boiler": ("other", pd.NA),
+        "Pressurized fluidized bed boiler": ("fluidized_bed_firing", pd.NA),
+        "Stoker": ("stoker", pd.NA),
+        "Tangentially-fired": ("tangential_firing", pd.NA),
+        "Wet bottom turbo-fired boiler": ("other", "wet"),
+        "Wet bottom vertically-fired boiler": ("vertical_firing", "wet"),
+        "Wet bottom wall-fired boiler": ("wall_fired", "wet"),
+    }
+    unit_boiler_design = facility["unit_type_epa"].map(boiler_design)
+    facility["boiler_firing_type"] = unit_boiler_design.str[0]
+    facility["wet_dry_bottom"] = unit_boiler_design.str[1]
 
     return apply_dtypes(facility)
 
