@@ -442,17 +442,17 @@ def test_add_missing_location_uses_municipio_as_puerto_rico_city():
 
 
 def test_remove_incomplete_hg_data():
-    """Hg is only kept for subplant-months that are completely covered by MATS data,
-    and is zero in hours without fuel consumption at subplants that report to MATS."""
+    """Hg is only kept for subplants that report to MATS and for months without fuel
+    that is not reported in CEMS, and is zero in hours without fuel consumption."""
     jan, feb = pd.Timestamp("2024-01-01"), pd.Timestamp("2024-02-01")
     cems = pd.DataFrame(
         [
-            # complete month: a missing operating hour stays missing, and an hour
-            # without fuel is set to zero
+            # a missing operating hour stays missing, and an hour without fuel is
+            # set to zero
             [1, 1, "A", jan, 100, 0.01],
             [1, 1, "A", jan, 100, np.nan],
             [1, 1, "A", jan, np.nan, np.nan],
-            # the unit operated without reporting any Hg during the month
+            # the same applies in a month when the unit didn't report any Hg
             [1, 1, "A", feb, 100, np.nan],
             [1, 1, "A", feb, np.nan, np.nan],
             # a unit that never reports Hg stays missing, even without fuel
@@ -483,7 +483,7 @@ def test_remove_incomplete_hg_data():
 
     result = data_cleaning.remove_incomplete_hg_data(cems, eia923_allocated)
 
-    expected = [0.01, np.nan, 0, np.nan, np.nan, np.nan, np.nan, np.nan, 0.03]
+    expected = [0.01, np.nan, 0, np.nan, 0, np.nan, np.nan, np.nan, 0.03]
     np.testing.assert_array_equal(result["hg_mass_lb"].to_numpy(), expected)
 
 

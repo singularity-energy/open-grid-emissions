@@ -498,12 +498,24 @@ def combine_subplant_data(
 
     ALL_COLUMNS = KEY_COLUMNS + data_columns
 
+    # Hg is only summed where every row that consumed fuel has Hg data. Both groupbys
+    # use the same keys and order, so their rows are aligned.
+    hg_columns = [col for col in HG_DATA_COLUMNS if col in data_columns]
+    if hg_columns:
+        missing_hg = (
+            flag_missing_hg(cems)
+            .groupby([cems[col] for col in KEY_COLUMNS], dropna=False, sort=False)
+            .any()
+            .to_numpy()
+        )
     # group data by subplant-month or subplant-hour and filter columns
     cems = (
         cems.groupby(KEY_COLUMNS, dropna=False, sort=False)
         .sum(numeric_only=True, min_count=1)
         .reset_index()[[col for col in cems.columns if col in ALL_COLUMNS]]
     )
+    if hg_columns:
+        cems.loc[missing_hg, hg_columns] = np.nan
     # don't group if there is no data in the dataframe
     if len(partial_cems_subplant) > 0:
         partial_cems_subplant = (
