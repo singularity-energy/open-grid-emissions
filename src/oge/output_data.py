@@ -319,10 +319,14 @@ def write_plant_data_to_results(
         if resolution == "monthly":
             groupby_cols += ["report_date"]
 
-        # group data to specified groups
+        # group data to specified groups. Only sum the data columns so that numeric
+        # identifiers (e.g. subplant_id in plant-level data) are not summed
+        data_columns = DATA_COLUMNS + [
+            col for col in STORAGE_DATA_COLUMNS if col in monthly_subplant_data.columns
+        ]
         df = (
-            monthly_subplant_data.groupby(groupby_cols, dropna=False)
-            .sum(numeric_only=True, min_count=1)
+            monthly_subplant_data.groupby(groupby_cols, dropna=False)[data_columns]
+            .sum(min_count=1)
             .reset_index()
         )
 

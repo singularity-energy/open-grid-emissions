@@ -340,3 +340,64 @@ def test_fuel_category_sort_order(resolution, keys):
         )
         .reset_index(drop=True),
     )
+
+
+@pytest.mark.parametrize("resolution", ["monthly", "annual"])
+@pytest.mark.parametrize("plant_part", ["plant", "subplant"])
+def test_plant_data_does_not_sum_subplant_id(plant_part, resolution):
+    """Plant-level results should not have a subplant_id column (which would otherwise
+    be the sum of the plant's subplant IDs), while subplant-level results keep it."""
+    records = []
+    for subplant_id in [1, 2]:
+        for month in ["2024-01-01", "2024-02-01"]:
+            record = {
+                "plant_id_eia": 1,
+                "subplant_id": subplant_id,
+                "report_date": pd.Timestamp(month),
+            }
+            record.update({col: 1.0 for col in DATA_COLUMNS})
+            record.update({col: np.nan for col in STORAGE_DATA_COLUMNS})
+            records.append(record)
+    monthly_subplant_data = pd.DataFrame(records).astype({"subplant_id": "Int32"})
+    plant_attributes = pd.DataFrame(
+        {
+            "plant_id_eia": [1],
+            "plant_name_eia": ["Plant 1"],
+            "fuel_category": ["natural_gas"],
+            "capacity_mw": [100.0],
+            "ba_code": ["BA1"],
+            "city": ["City"],
+            "county": ["County"],
+            "state": ["ST"],
+        }
+    )
+
+    outputs = {}
+
+    def fake_output_to_results(df, year, file_name, subfolder, **_):
+        outputs[(subfolder, file_name)] = df.copy()
+
+    with (
+        patch.object(output_data, "output_to_results", fake_output_to_results),
+        patch.object(output_data.validation, "check_for_anomalous_co2_factors"),
+    ):
+        output_data.write_plant_data_to_results(
+            monthly_subplant_data,
+            2024,
+            path_prefix="2024/",
+            plant_part=plant_part,
+            resolution=resolution,
+            skip_outputs=False,
+            plant_attributes=plant_attributes,
+        )
+
+    table = outputs[(f"plant_data/{resolution}/", f"{plant_part}_data")]
+    months_per_row = 2 if resolution == "annual" else 1
+    if plant_part == "plant":
+        assert "subplant_id" not in table.columns
+        expected_value = 2.0 * months_per_row
+    else:
+        assert sorted(table["subplant_id"].unique()) == [1, 2]
+        expected_value = 1.0 * months_per_row
+    assert (table[DATA_COLUMNS] == expected_value).all().all()
+    assert table[STORAGE_DATA_COLUMNS].isna().all().all()
