@@ -15,6 +15,9 @@ Summarize the percent of input EIA data that was reported annually, the percent 
 ### CEMS Gross-to-Net Methods
 Indicates what percentage of `gross_generation_mwh` in CEMS was converted to `net_generation_mwh` using each method. Methods are listed in order of preference in the hierarchy.
 
+### CEMS Pollutant Measurement Quality
+Indicates what percentage of the CO2, NOx, SO2, and Hg mass in the cleaned CEMS data was measured, and what percentage was imputed by the reporting units using substitute data or other calculation methods. For Hg, values reported during startup or shutdown are counted as measured, and manually calculated values are counted as imputed. Values that are missing in CEMS and filled by OGE (see [CEMS Data](../Methodology/Data%20Cleaning/CEMS%20Data.md)) don't have a measurement code, so they are not included in either category.
+
 ### Hourly Profile Method
 Indicates the percentage of hourly data from each shaping method, including reported cems, partial cems, and each of the fleet-specific shaping methods. This percentage is reported for both `net_generation_mwh` and `co2_mass_lb`.
 

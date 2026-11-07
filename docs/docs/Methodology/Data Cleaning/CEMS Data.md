@@ -12,6 +12,7 @@ A comprehensive list of transformations made by by pudl can be found [here](http
 
 After loading the transformed cems data into the pipeline, we perform several other data cleaning steps:
 - Convert `co2_mass_tons` to `co2_mass_lb` so that all emissions mass units are standardized.
+- Add hourly mercury (Hg) emissions reported under the EPA's Mercury and Air Toxics Standards (MATS) to each unit-hour, from PUDL's `core_epamats__hourly_emissions` table. Negative Hg values are treated as missing (see [Hg Emissions](../Emissions%20Calculations/Hg%20Emissions.md)).
 - Add a "report date" to each data point to enable crosswalking with monthly EIA-923 data. This report date reflects the month of the local prevailing time for each plant's reported hourly data.
 
 ## Data removed from the CEMS data
