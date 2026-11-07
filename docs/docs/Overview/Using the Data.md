@@ -6,7 +6,7 @@ stoplight-id: using_the_data
 
 ## Data Availability
 
-The latest release includes data for year 2005-2025 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)).
+The latest release includes data for year 2005-2025 covering the contiguous United States, Alaska, and Hawaii, as well as Puerto Rico from 2018 onward. 2018 is the first year that the EIA reports generator data for Puerto Rico in its monthly EIA-860M files.
 
 Currently, 2005 is the earliest available year. Note that only monthly and annual data are available for year 2005-2018 because 2019 is the first year for which complete EIA-930 data is available (which is used to assign an hourly profile to non-CEMS data).
 

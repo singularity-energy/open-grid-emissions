@@ -42,7 +42,7 @@ Plants were matched on the eGRID plant ID (12,540 matched plants). Values are un
 | CO2, biomass + CHP adjusted | 1,593 Mt | 1,601 Mt | +0.5% | 92.2% |
 | NOx, biomass + CHP adjusted | 0.913 Mt | 1.038 Mt | +13.6% | 89.8% |
 
-eGRID also includes 62 plants in Puerto Rico (17.5 TWh, 13.5 Mt CO2), which OGE does not yet cover (see section 3).
+eGRID also includes 62 plants in Puerto Rico (17.5 TWh, 13.5 Mt CO2), which OGE did not yet cover when this comparison was made. OGE now includes Puerto Rico from 2018 onward, using the same EIA-923 and December EIA-860M data as eGRID.
 
 In most cases, the OGE and eGRID data are identical. However, where the outputs differ, they are often driven by bug fixes and methodological enhancements introduced in the OGE dataset. Specific differences are described in the tables below, which fall into four groups:
 
@@ -171,7 +171,6 @@ A column-by-column mapping of eGRID2023's 1,114 data fields to OGE outputs finds
 - **Regional aggregations.**
   - **State (ST, 169 fields):** OGE doesn't publish state totals, but 127 of the 169 fields can be derived by summing OGE plant data by state. The other 42 are nonbaseload metrics (31), mercury (8), the "other fossil" fuel category (2), and the state FIPS code.
   - **eGRID subregion and NERC region (SRL/NRL, 338 fields):** these need a subregion and NERC assignment for each plant. NERC region is reported in EIA-860 (it matches eGRID for 98% of plants). eGRID subregions are assigned by EPA and would need to be adopted or replicated.
-- **Puerto Rico:** 62 plants, 17.5 TWh (6.8 TWh oil), and 13.5 Mt CO2 in eGRID2023, e.g. AES Puerto Rico (61082, 2.65 TWh, 3.0 Mt). OGE removes Puerto Rico from its EIA and CEMS inputs; adding it means removing that filter and handling the lack of EIA-930 data for hourly shaping and consumption-based rates ([#79](https://github.com/singularity-energy/open-grid-emissions/issues/79)).
 - **Nonbaseload metrics:** 31 fields in each aggregated file (nonbaseload generation, emission rates, and generation and resource mix by fuel), plus plant nonbaseload generation. These are computable from existing plant data using eGRID's capacity-factor method, but OGE doesn't calculate them.
 - **Other derived metrics OGE doesn't publish:**
   - ozone-season (May–Sep) values
