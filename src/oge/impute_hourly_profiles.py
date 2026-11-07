@@ -3,7 +3,12 @@ import pandas as pd
 import numpy as np
 
 # import open-grid-emissions modules
-from oge.column_checks import apply_dtypes, DATA_COLUMNS, STORAGE_DATA_COLUMNS
+from oge.column_checks import (
+    apply_dtypes,
+    DATA_COLUMNS,
+    HG_DATA_COLUMNS,
+    STORAGE_DATA_COLUMNS,
+)
 from oge.constants import EIA930_INTEGRATED_STORAGE_CATEGORIES
 import oge.load_data as load_data
 from oge.filepaths import reference_table_folder
@@ -14,6 +19,8 @@ from oge.helpers import (
     add_local_timezone_offset,
     assign_fleet_to_subplant_data,
     create_local_year_timestamps,
+    flag_missing_hg,
+    remove_incomplete_hg,
 )
 from oge.data_cleaning import complete_hourly_timeseries
 from oge.eia930 import (
@@ -1904,7 +1911,7 @@ def combine_and_export_hourly_plant_data(
         "nox_mass_lb_for_electricity",
         "so2_mass_lb_for_electricity",
         "co2_mass_lb_for_electricity_adjusted",
-    ]
+    ] + HG_DATA_COLUMNS
     all_columns = key_columns + data_columns_for_plant_export
 
     # ensure that we will not be duplicating data when we combine
@@ -1918,7 +1925,23 @@ def combine_and_export_hourly_plant_data(
         axis=0,
         ignore_index=True,
         copy=False,
-    )[[col for col in cems.columns if col in all_columns]]
+    )
+    # flag data that is missing Hg, so that Hg is only summed where it is complete
+    combined_cems_data["missing_hg"] = pd.concat(
+        [
+            flag_missing_hg(cems),
+            flag_missing_hg_in_shaped_data(partial_cems_subplant),
+            flag_missing_hg_in_shaped_data(partial_cems_plant),
+        ],
+        ignore_index=True,
+    )
+    combined_cems_data = combined_cems_data[
+        [
+            col
+            for col in combined_cems_data.columns
+            if col in all_columns + ["missing_hg"]
+        ]
+    ]
 
     # Free memory after combining
     gc.collect()
@@ -1929,7 +1952,7 @@ def combine_and_export_hourly_plant_data(
             key_columns,
             dropna=False,
         )
-        .sum(numeric_only=True)
+        .sum(numeric_only=True, min_count=1)
         .reset_index()
     )
 
@@ -1994,6 +2017,9 @@ def combine_and_export_hourly_plant_data(
         )
 
         # group the subplant data to plant
+        shaped_eia_region_data["missing_hg"] = flag_missing_hg_in_shaped_data(
+            shaped_eia_region_data
+        )
         shaped_eia_region_data = (
             shaped_eia_region_data.groupby(
                 key_columns,
@@ -2002,7 +2028,7 @@ def combine_and_export_hourly_plant_data(
                 [
                     col
                     for col in shaped_eia_region_data.columns
-                    if col in data_columns_for_plant_export
+                    if col in data_columns_for_plant_export + ["missing_hg"]
                 ]
             ]
             .sum(numeric_only=True)
@@ -2032,7 +2058,7 @@ def combine_and_export_hourly_plant_data(
         # groupby plant in case some plant data was split between multiple dfs
         combined_plant_data = (
             combined_plant_data.groupby(key_columns, dropna=False)
-            .sum(numeric_only=True)
+            .sum(numeric_only=True, min_count=1)
             .reset_index()
         )
 
@@ -2040,13 +2066,24 @@ def combine_and_export_hourly_plant_data(
             df=combined_plant_data,
             year=year,
             group_cols=["plant_id_eia"],
-            columns_to_fill_with_zero=data_columns_for_plant_export,
+            columns_to_fill_with_zero=[
+                col
+                for col in data_columns_for_plant_export
+                if col not in HG_DATA_COLUMNS
+            ],
         )
 
-        # round the data columns to two decimal places
-        combined_plant_data[data_columns_for_plant_export] = combined_plant_data[
-            data_columns_for_plant_export
-        ].round(2)
+        combined_plant_data = remove_incomplete_hg(combined_plant_data)
+
+        # round the data columns to two decimal places. Hg values are too small to
+        # round this way, so they are rounded in `output_to_results()`
+        combined_plant_data = combined_plant_data.round(
+            {
+                col: 2
+                for col in data_columns_for_plant_export
+                if col not in HG_DATA_COLUMNS
+            }
+        )
 
         # re-order columns
         combined_plant_data = combined_plant_data[all_columns]
@@ -2069,6 +2106,29 @@ def combine_and_export_hourly_plant_data(
             skip_outputs,
             include_metric=False,
         )
+
+
+def flag_missing_hg_in_shaped_data(df: pd.DataFrame) -> pd.Series:
+    """Flags every hour of shaped subplant-months that consumed fuel as missing Hg.
+
+    The hourly values of shaped data are estimated from a profile of monthly data, so
+    Hg data is not complete in any hour of a month in which the subplant consumed fuel.
+
+    Args:
+        df (pd.DataFrame): shaped hourly subplant data with `fuel_consumed_mmbtu` and
+            `report_date` columns
+
+    Returns:
+        pd.Series: True for each hour of subplant-months that consumed fuel
+    """
+    if df.empty:
+        return pd.Series(dtype=bool)
+    return (
+        df.groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)[
+            "fuel_consumed_mmbtu"
+        ].transform("sum")
+        > 0
+    )
 
 
 def get_shaped_plant_id_from_ba_fuel(df: pd.DataFrame) -> pd.DataFrame:
@@ -2575,7 +2635,9 @@ def shape_partial_cems_subplants(cems, eia923_allocated, year):
                 " At least one subplant-month identified as partial_cems does not exist in the cems data."
             )
         partial_cems_data = cems[cems["data_source"] == "both"].copy()
-        partial_cems_data.drop(columns=["data_source"], inplace=True)
+        # Hg is never kept for partial CEMS subplants (see
+        # `data_cleaning.remove_incomplete_hg_data()`)
+        partial_cems_data.drop(columns=["data_source", "hg_mass_lb"], inplace=True)
         cems = cems[cems["data_source"] == "left_only"]
         cems.drop(columns=["data_source"], inplace=True)
 

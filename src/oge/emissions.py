@@ -331,6 +331,12 @@ def adjust_fuel_and_emissions_for_chp(df: pd.DataFrame) -> pd.DataFrame:
             df["so2_mass_lb_adjusted"] * df["electric_allocation_factor"]
         )
 
+    # no biomass adjustment is applied to Hg, so there is no adjusted column
+    if "hg_mass_lb" in df.columns:
+        df["hg_mass_lb_for_electricity"] = (
+            df["hg_mass_lb"] * df["electric_allocation_factor"]
+        )
+
     # Drop in-place to avoid creating a copy of the large dataframe
     df.drop(columns=["electric_allocation_factor"], inplace=True)
 

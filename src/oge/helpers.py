@@ -7,7 +7,7 @@ from geopy.exc import GeocoderUnavailable
 from timezonefinder import TimezoneFinder
 from urllib3.exceptions import ReadTimeoutError
 
-from oge.column_checks import get_dtypes, apply_dtypes, DATA_COLUMNS
+from oge.column_checks import get_dtypes, apply_dtypes, DATA_COLUMNS, HG_DATA_COLUMNS
 from oge.constants import (
     earliest_data_year,
     latest_validated_year,
@@ -456,6 +456,7 @@ def combine_subplant_data(
     partial_cems_plant: pd.DataFrame,
     eia_data: pd.DataFrame,
     resolution: str,
+    data_columns: list[str] = DATA_COLUMNS,
 ) -> pd.DataFrame:
     """Combines subplant-level data from multiple sources into a single dataframe.
     Data can be returned at either the monthly or hourly resolution.
@@ -471,6 +472,8 @@ def combine_subplant_data(
         resolution (str): Whether to combine "hourly" data or "monthly" data. All input
             dataframes should have "datetime_utc" columns for the former, and
             "report_date" columns for the latter
+        data_columns (list[str], optional): the data columns to keep. Defaults to
+            DATA_COLUMNS.
 
     Raises:
         UserWarning: If acceptable option for resolution arg not passed
@@ -493,7 +496,7 @@ def combine_subplant_data(
             f"`resolution` must be 'monthly' or 'hourly'. '{resolution}' specified"
         )
 
-    ALL_COLUMNS = KEY_COLUMNS + DATA_COLUMNS
+    ALL_COLUMNS = KEY_COLUMNS + data_columns
 
     # group data by subplant-month or subplant-hour and filter columns
     cems = (
@@ -546,6 +549,37 @@ def combine_subplant_data(
     combined_subplant_data = combined_subplant_data[ALL_COLUMNS]
 
     return combined_subplant_data
+
+
+def flag_missing_hg(df: pd.DataFrame) -> pd.Series:
+    """Flags data that consumed fuel but has no Hg data.
+
+    Summing this flag as a `missing_hg` column along with the other data columns counts
+    the data in each group that is missing Hg, so that `remove_incomplete_hg()` can
+    remove Hg from any group that is not complete.
+
+    Args:
+        df (pd.DataFrame): data with `fuel_consumed_mmbtu` and `hg_mass_lb` columns
+
+    Returns:
+        pd.Series: True where data consumed fuel but has no Hg data
+    """
+    return df["hg_mass_lb"].isna() & (df["fuel_consumed_mmbtu"] > 0)
+
+
+def remove_incomplete_hg(df: pd.DataFrame) -> pd.DataFrame:
+    """Removes summed Hg data where any of the summed data was missing Hg, using the
+    summed `missing_hg` column (see `flag_missing_hg()`), and drops that column.
+
+    Args:
+        df (pd.DataFrame): summed data with Hg and `missing_hg` columns
+
+    Returns:
+        pd.DataFrame: `df` with Hg removed where it is not complete
+    """
+    hg_columns = [col for col in HG_DATA_COLUMNS if col in df.columns]
+    df.loc[df["missing_hg"] > 0, hg_columns] = np.nan
+    return df.drop(columns="missing_hg")
 
 
 def create_plant_ba_table(year: int) -> pd.DataFrame:

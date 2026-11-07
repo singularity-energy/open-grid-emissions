@@ -17,6 +17,8 @@ from oge.column_checks import (
 )
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.helpers import (
+    flag_missing_hg,
+    remove_incomplete_hg,
     create_plant_ba_table,
     add_subplant_ids_to_df,
     assign_fleet_to_subplant_data,
@@ -2853,12 +2855,94 @@ def aggregate_cems_to_subplant(cems):
         "so2_mass_lb_adjusted",
     ]
 
-    cems = (
-        cems.groupby(GROUPBY_COLUMNS, dropna=False)[cems_columns_to_aggregate]
+    cems["missing_hg"] = flag_missing_hg(cems)
+    subplant_cems = (
+        cems.groupby(GROUPBY_COLUMNS, dropna=False)[
+            cems_columns_to_aggregate + ["missing_hg"]
+        ]
         .sum()
         .reset_index()
     )
 
-    cems = apply_dtypes(cems)
+    # Hg is summed separately so that it remains missing in subplant-hours where no
+    # unit reported Hg, and is only kept where every operating unit reported Hg. Both
+    # groupbys use the same keys, so their rows are aligned.
+    subplant_cems["hg_mass_lb"] = (
+        cems.groupby(GROUPBY_COLUMNS, dropna=False)["hg_mass_lb"]
+        .sum(min_count=1)
+        .to_numpy()
+    )
+    subplant_cems = remove_incomplete_hg(subplant_cems)
+
+    subplant_cems = apply_dtypes(subplant_cems)
+
+    return subplant_cems
+
+
+def remove_incomplete_hg_data(
+    cems: pd.DataFrame, eia923_allocated: pd.DataFrame
+) -> pd.DataFrame:
+    """Removes unit-level Hg data from subplant-months in the `cems` dataframe that
+    are not completely covered by MATS data.
+
+    MATS Hg data is only reported for some units, so Hg is only kept for subplants
+    that report to MATS (report Hg in at least one hour of the year), so that subplants
+    without Hg monitoring remain blank rather than zero in months without fuel
+    consumption. For these subplants, Hg is only kept in months where:
+        1. every CEMS unit that consumed fuel during the month reported Hg in at least
+            one hour of the month, and
+        2. all of the subplant's fuel consumption is reported in CEMS (the hourly data
+            source is "cems" if the subplant consumed fuel in EIA-923).
+
+    For subplant-months with complete Hg data, missing Hg values in hours with no fuel
+    consumption (zero or missing in CEMS) are set to zero, so that Hg is only missing
+    for operating hours with missing data. Missing Hg values in operating hours are
+    not filled.
+
+    Args:
+        cems (pd.DataFrame): hourly unit-level CEMS data with `hg_mass_lb` and
+            `subplant_id` columns
+        eia923_allocated (pd.DataFrame): EIA-923 data with a `hourly_data_source` column
+
+    Returns:
+        pd.DataFrame: CEMS data where `hg_mass_lb` is missing for all subplant-months
+            that are not completely covered by MATS data
+    """
+    subplant_keys = ["plant_id_eia", "subplant_id"]
+    month_keys = subplant_keys + ["report_date"]
+
+    # subplant-months with a unit that consumed fuel but did not report any Hg
+    unit_month_hg = (
+        cems.loc[cems["fuel_consumed_mmbtu"] > 0]
+        .groupby(month_keys + ["emissions_unit_id_epa"])["hg_mass_lb"]
+        .count()
+    )
+    incomplete = unit_month_hg[unit_month_hg == 0].reset_index()[month_keys]
+    # subplant-months with fuel consumption that is not reported in CEMS
+    non_cems = eia923_allocated.loc[
+        (eia923_allocated["hourly_data_source"] != "cems")
+        & (eia923_allocated["fuel_consumed_mmbtu"] > 0),
+        month_keys,
+    ]
+    incomplete = pd.MultiIndex.from_frame(pd.concat([incomplete, non_cems]))
+    # subplants that report to MATS
+    mats_subplants = pd.MultiIndex.from_frame(
+        cems.loc[cems["hg_mass_lb"].notna(), subplant_keys].drop_duplicates()
+    )
+
+    is_complete = pd.MultiIndex.from_frame(cems[subplant_keys]).isin(
+        mats_subplants
+    ) & ~pd.MultiIndex.from_frame(cems[month_keys]).isin(incomplete)
+    removed_hg = cems.loc[~is_complete & cems["hg_mass_lb"].notna()]
+    logger.info(
+        f"Removing {removed_hg['hg_mass_lb'].sum():.1f} lb of Hg data from "
+        f"{len(removed_hg[month_keys].drop_duplicates())} subplant-months that are not "
+        "completely covered by MATS data."
+    )
+    cems.loc[~is_complete, "hg_mass_lb"] = np.nan
+    cems.loc[
+        is_complete & cems["hg_mass_lb"].isna() & ~(cems["fuel_consumed_mmbtu"] > 0),
+        "hg_mass_lb",
+    ] = 0
 
     return cems
