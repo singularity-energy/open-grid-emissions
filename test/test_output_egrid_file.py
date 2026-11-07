@@ -205,14 +205,21 @@ def test_gj_columns_have_the_category_of_their_column():
 
 @pytest.fixture
 def results(tmp_path, monkeypatch):
-    """Writes small 2024 annual results for two plants in two BAs to a temporary
-    results folder.
+    """Writes small 2024 annual results and intermediate outputs for two plants in two
+    BAs to temporary results and outputs folders.
 
     Plant 1 (BA1) burns gas and plant 2 (BA2) is solar. BA2 has no coal or other
-    generation.
+    generation. Plant 1 has two CEMS units: unit 1 reports Hg in one of its two hours
+    and unit 2 does not report Hg. Plant 1 has one generator (GT1) and plant 2 has one
+    (PV1), which retired in 2024.
     """
     monkeypatch.setattr(
         output_egrid_file, "results_folder", lambda rel="": str(tmp_path / rel)
+    )
+    monkeypatch.setattr(
+        output_egrid_file,
+        "outputs_folder",
+        lambda rel="": str(tmp_path / "outputs" / rel),
     )
     plant_folder = tmp_path / "2024/plant_data"
     (plant_folder / "annual/us_units").mkdir(parents=True)
@@ -240,9 +247,42 @@ def results(tmp_path, monkeypatch):
         ]:
             plant_data[column] = 0.0
     plant_data.to_csv(plant_folder / "annual/us_units/plant_data.csv", index=False)
-    pd.DataFrame(
-        {"plant_id_eia": [1, 2], "latitude": [30.0, 32.0], "longitude": [-97.0, -111.0]}
+    plant_data[["plant_id_eia", "plant_name_eia", "state"]].assign(
+        latitude=[30.0, 32.0], longitude=[-97.0, -111.0]
     ).to_csv(plant_folder / "plant_static_attributes.csv", index=False)
+    outputs_folder = tmp_path / "outputs/2024"
+    outputs_folder.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1],
+            "emissions_unit_id_epa": ["1", "1", "2", "2"],
+            "energy_source_code": ["NG"] * 4,
+            "operating_time_hours": [1.0, 0.5, 1.0, 0.0],
+            "fuel_consumed_mmbtu": [100.0, 50.0, 80.0, None],
+            "nox_mass_lb": [10.0, 10.0, 4.0, None],
+            "so2_mass_lb": [None, None, 2.0, None],
+            "co2_mass_lb": [4000.0, 2000.0, 1000.0, None],
+            "hg_mass_lb": [0.25, None, None, None],
+        }
+    ).to_csv(outputs_folder / "cems_cleaned_2024.csv.zip", index=False)
+    pd.DataFrame(
+        {
+            "report_date": ["2024-01-01", "2024-02-01", "2024-01-01"],
+            "plant_id_eia": [1, 1, 2],
+            "generator_id": ["GT1", "GT1", "PV1"],
+            "prime_mover_code": ["GT", "GT", "PV"],
+            "net_generation_mwh": [600.0, 400.0, 500.0],
+        }
+    ).to_csv(outputs_folder / "eia923_allocated_2024.csv.zip", index=False)
+    pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2],
+            "emissions_unit_id_epa": ["1", "2", None],
+            "generator_id": ["GT1", "GT1", "PV1"],
+            "generator_operating_date": ["2001-06-01", "2001-06-01", "2015-03-01"],
+            "generator_retirement_date": [None, None, "2024-09-30"],
+        }
+    ).to_csv(outputs_folder / "subplant_crosswalk_2024.csv.zip", index=False)
     fleet_folder = tmp_path / "2024/power_sector_data/annual/us_units"
     fleet_folder.mkdir(parents=True)
     columns = {column for _, column in output_egrid_file.REGION_DATA_SOURCES.values()}
@@ -278,6 +318,45 @@ def test_plant_table(results):
     assert gas["LAT"] == 30.0
 
 
+def test_unit_table(results):
+    units = output_egrid_file.build_unit_table(2024, "2024/").set_index("UNITID")
+    assert list(units.index) == ["1", "2"]
+    assert list(units["SEQUNT24"]) == [1, 2]
+    assert list(units["CAPDFLAG"]) == ["Yes", "Yes"]
+    assert list(units["PNAME"]) == ["Gas Plant", "Gas Plant"]
+    assert units.loc["1", "ORISPL"] == 1
+    assert units.loc["1", "FUELU1"] == "NG"
+    # operating hours count the hours with any operation
+    assert units.loc["1", "HRSOP"] == 2
+    assert units.loc["2", "HRSOP"] == 1
+    assert units.loc["1", "HTIAN"] == 150.0
+    # masses are converted from lb to tons
+    assert units.loc["1", "CO2AN"] == 3.0
+    assert units.loc["1", "NOXAN"] == 0.01
+    # Hg is the sum of the hours with Hg, and is blank for units without Hg
+    assert units.loc["1", "HGAN"] == 0.25
+    assert pd.isna(units.loc["2", "HGAN"])
+    # pollutants that a unit does not report are blank
+    assert pd.isna(units.loc["1", "SO2AN"])
+    assert units.loc["2", "SO2AN"] == 0.001
+
+
+def test_generator_table(results):
+    generators = output_egrid_file.build_generator_table(2024, "2024/")
+    # generators are sorted by state, so plant 2 (AZ) comes first
+    assert list(generators["GENID"]) == ["PV1", "GT1"]
+    assert list(generators["SEQGEN24"]) == [1, 2]
+    generators = generators.set_index("GENID")
+    assert generators.loc["GT1", "ORISPL"] == 1
+    assert generators.loc["GT1", "PNAME"] == "Gas Plant"
+    assert generators.loc["GT1", "PSTATABB"] == "TX"
+    assert generators.loc["GT1", "PRMVR"] == "GT"
+    assert generators.loc["GT1", "GENNTAN"] == 1000.0
+    assert generators.loc["GT1", "GENYRONL"] == 2001
+    assert pd.isna(generators.loc["GT1", "GENYRRET"])
+    assert generators.loc["PV1", "GENYRRET"] == 2024
+
+
 def test_region_tables(results):
     ba = output_egrid_file.build_region_table(2024, "2024/", "BA", ["BA1", "BA2"])
     ba = ba.set_index("BACODE")
@@ -303,6 +382,8 @@ def test_egrid_tables_have_every_column(results):
             code for code, _, _ in get_egrid_columns(sheet, 2024)
         ]
     assert list(tables["BA"]["BACODE"]) == ["BA1", "BA2"]
+    assert len(tables["UNT"]) == 2
+    assert len(tables["GEN"]) == 2
     assert tables["ST"].empty
     # columns that OGE does not calculate are blank
     assert tables["PLNT"]["PLGENACL"].isna().all()
