@@ -22,24 +22,23 @@ We load hourly MATS data from PUDL's `core_epamats__hourly_emissions` table, whi
 ### Identifying complete Hg data
 Because Hg is only reported for some units, summing Hg data to subplants and plants could produce totals that silently leave out the emissions of units that don't report Hg. For example, at a plant with both a coal unit that reports Hg and a natural gas unit that doesn't, the sum of the plant's reported Hg would only represent the coal unit. So Hg data is only reported where it is complete.
 
-Hg data is most complete for individual unit-hours, which are the least aggregated, and least complete for plant-years, which require complete data for every unit at the plant in every month of the year. Each level of aggregation adds its own requirement:
+Hg data is most complete for individual unit-hours, which are the least aggregated, and least complete for plant-years, which require complete data for every unit at the plant in every hour of the year. A value is only reported if every part of it that consumed fuel has Hg data:
 
 | Data | Hg data is reported when... |
 |---|---|
 | Unit-hour | the unit reported Hg in that hour |
-| Subplant-month | the subplant reports Hg to MATS, every unit in the subplant that consumed fuel during the month reported Hg in at least one hour of that month, and all of the subplant's fuel consumption that month is reported in CEMS |
-| Subplant-hour | the subplant-month is complete, and every unit in the subplant that consumed fuel in that hour reported Hg |
-| Plant-hour | every subplant at the plant that consumed fuel in that hour has Hg data, and no subplant at the plant consumed fuel that month that is only reported in EIA-923 |
-| Plant-month | every subplant at the plant that consumed fuel during the month has complete Hg data for that month |
+| Subplant-hour | the subplant reports Hg to MATS, every unit in the subplant that consumed fuel in that hour reported Hg, and none of the subplant's fuel consumption that month is only reported in EIA-923 |
+| Plant-hour | every subplant at the plant that consumed fuel in that hour has Hg data for that hour, and no subplant at the plant consumed fuel that month that is only reported in EIA-923 |
+| Subplant-month or plant-month | the Hg data is complete in every hour of the month in which fuel was consumed |
 | Subplant-year or plant-year | the Hg data is complete in every month of the year |
 
+Because each level only requires complete data from the levels below it, the hourly data of a complete month or year always adds up to its monthly or annual value.
+
 A few notes on these requirements:
-- **Missing hours within a month**: Monthly and annual Hg values sum the hours in which Hg was reported. If a unit reports Hg in some, but not all, of the hours that it operated during a month, the month is still considered complete. This is consistent with how eGRID calculates annual Hg emissions for each unit. If every hour were required, almost no months would be complete.
+- **Missing hours**: MATS does not require units to substitute data for hours when a monitor isn't working, so many units have short gaps in their Hg data. Any gap in an hour when a unit consumed fuel makes that month incomplete, so far fewer months and years have complete Hg data than hours. In 2024, 69% of the months in which a MATS unit operated had at least one operating hour without Hg data, although most gaps only lasted a few hours. eGRID's annual unit totals instead sum the hours in which Hg was reported. Filling these gaps is planned for the future (see below).
 - **Zero vs. blank values**: At subplants that report Hg, Hg is zero in hours when the subplant didn't consume any fuel. Hg is blank when a subplant or plant consumed fuel and doesn't have complete Hg data, and for subplants and plants that don't report Hg at all, such as natural gas, solar, or wind plants.
 - **Non-CEMS data**: The hourly values of data that comes from EIA-923 are shaped using an hourly profile, so if a subplant consumed fuel that is only reported in EIA-923 in a month, the Hg data for its plant is blank in every hour of that month.
 - **Plants with units that don't report Hg**: Because the requirements apply to each hour and month, a plant with units that don't report Hg can still have Hg data in the hours and months when those units weren't operating. For example, a coal plant with a natural gas peaking unit that doesn't report Hg has hourly Hg data in hours when the peaking unit is off, and monthly Hg data in months when it didn't run at all. However, it won't have annual Hg data if the peaking unit operated at any point during the year.
-
-Because a plant-hour requires complete data from every subplant at the same time, but a plant-month only requires each unit to report Hg at some point during the month, the hourly plant data for a year may add up to less than the annual plant data. In 2024, the hourly data of the plants with annual Hg data added up to 3,704 lb, 2% less than their annual data (3,782 lb).
 
 In 2024, Hg data was complete for 311 subplants (4,332 lb) and 103 plants (3,782 lb) for the entire year, for 1,358 plant-months at 130 plants, and for at least some hours at 147 plants.
 
@@ -51,5 +50,5 @@ In 2024, Hg data was complete for 311 subplants (4,332 lb) and 103 plants (3,782
 
 ## Future Work, Known Issues, and Open Questions
 - Hg is not yet estimated for units that don't report hourly Hg data. In the future, these values could be estimated from each unit's monthly fuel consumption using Hg emission factors from the EPA's AP-42 or other sources and the Hg control data reported in EIA-860 and EIA-923, similar to how NOx and SO2 are estimated for units that don't report to CEMS. This would allow Hg to be reported for every plant and included in the power sector data.
-- Missing Hg values in hours when a unit operated are not filled.
+- Missing Hg values in hours when a unit operated are not filled, so any gap makes the month and year incomplete. Filling short gaps, for example from each unit's own Hg emission rate during the same month, would make many more months and years complete.
 - Several large coal units, such as those at Intermountain (6481), Hunter (6165), and Bonanza (7790), report hourly CEMS data but no MATS Hg data, likely because they qualify as low emitting EGUs. eGRID's unit file has the same gap.
