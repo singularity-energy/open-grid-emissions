@@ -384,3 +384,18 @@ def test_load_puerto_rico_generators_fills_late_reporters(monkeypatch):
     assert (generators["report_date"] == pd.Timestamp("2022-01-01")).all()
     assert generators["fuel_type_code_pudl"].tolist() == ["gas", "oil", "oil"]
     assert generators["fuel_type_count"].tolist() == [1, 1, 1]
+
+
+def test_load_mats_data_before_mats():
+    """There is no MATS data before 2015, so an empty table is returned."""
+    mats = load_data.load_mats_data(2014)
+
+    assert mats.empty
+    assert mats.columns.tolist() == [
+        "plant_id_epa",
+        "emissions_unit_id_epa",
+        "datetime_utc",
+        "hg_mass_lb",
+        "hg_mass_measurement_code",
+    ]
+    assert mats["hg_mass_lb"].dtype == "float64"
