@@ -567,6 +567,31 @@ def flag_missing_hg(df: pd.DataFrame) -> pd.Series:
     return df["hg_mass_lb"].isna() & (df["fuel_consumed_mmbtu"] > 0)
 
 
+def fill_hg_without_fuel(df: pd.DataFrame, groupby_cols: list[str]) -> pd.DataFrame:
+    """Sets missing Hg to zero where no fuel was consumed, for groups that report Hg.
+
+    Data without fuel consumption has no Hg emissions. This fills Hg for data that
+    is missing from CEMS, such as months in which a subplant did not operate, and hours
+    that are added to complete a timeseries. Groups that don't report any Hg remain
+    blank.
+
+    Args:
+        df (pd.DataFrame): data with `fuel_consumed_mmbtu` and Hg columns
+        groupby_cols (list[str]): columns identifying each group, such as a plant or
+            subplant
+
+    Returns:
+        pd.DataFrame: `df` with missing Hg set to zero where no fuel was consumed
+    """
+    reports_hg = (
+        df.groupby(groupby_cols, dropna=False)["hg_mass_lb"].transform("count") > 0
+    )
+    no_fuel = reports_hg & ~(df["fuel_consumed_mmbtu"] > 0)
+    hg_columns = [col for col in HG_DATA_COLUMNS if col in df.columns]
+    df.loc[no_fuel, hg_columns] = df.loc[no_fuel, hg_columns].fillna(0)
+    return df
+
+
 def remove_incomplete_hg(df: pd.DataFrame) -> pd.DataFrame:
     """Removes summed Hg data where any of the summed data was missing Hg, using the
     summed `missing_hg` column (see `flag_missing_hg()`), and drops that column.
