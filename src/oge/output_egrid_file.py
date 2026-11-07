@@ -215,6 +215,13 @@ OGE_REPOSITORY_URL = "https://github.com/singularity-energy/open-grid-emissions"
 OGE_DOCUMENTATION_URL = "https://docs.singularity.energy/docs/open-grid-emissions"
 OGE_ISSUES_URL = "https://github.com/singularity-energy/open-grid-emissions/issues"
 
+# months of the ozone season, May to September
+OZONE_SEASON_MONTHS = [5, 6, 7, 8, 9]
+# OGE fuel categories that burn fuel. eGRID's combustion heat input and generation
+# exclude nuclear, hydro, wind, solar, geothermal, storage, and other unknown or
+# purchased energy
+COMBUSTION_FUEL_CATEGORIES = ["coal", "natural_gas", "petroleum", "biomass", "waste"]
+
 # OGE column for each column of the plant sheet that holds the same quantity. Plant
 # attributes come from OGE's plant attributes, or from EIA-860 when OGE does not have
 # them. OGE masses are in lb, and are converted to the units of each eGRID column
@@ -237,8 +244,14 @@ PLANT_DATA_SOURCES = {
     "LON": "longitude",
     "PLPRMFL": "plant_primary_fuel",
     "NAMEPCAP": "capacity_mw",
+    "PLHTIAN": "combustion_fuel_consumed_for_electricity_mmbtu",
+    "PLHTIOZ": "combustion_fuel_consumed_for_electricity_mmbtu_ozone_season",
     "PLHTIANT": "fuel_consumed_for_electricity_mmbtu",
+    "PLHTIOZT": "fuel_consumed_for_electricity_mmbtu_ozone_season",
     "PLNGENAN": "net_generation_mwh",
+    "PLNGENOZ": "net_generation_mwh_ozone_season",
+    "PLNOXOZ": "nox_mass_lb_for_electricity_adjusted_ozone_season",
+    "PLCO2EQA": "co2e_mass_lb_for_electricity_adjusted",
     "PLNOXAN": "nox_mass_lb_for_electricity_adjusted",
     "PLSO2AN": "so2_mass_lb_for_electricity_adjusted",
     "PLCO2AN": "co2_mass_lb_for_electricity_adjusted",
@@ -251,12 +264,17 @@ PLANT_DATA_SOURCES = {
     "PLCH4RTA": "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
     "PLN2ORTA": "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
     "UNNOX": "nox_mass_lb",
+    "UNNOXOZ": "nox_mass_lb_ozone_season",
     "UNSO2": "so2_mass_lb",
     "UNCO2": "co2_mass_lb",
     "UNCH4": "ch4_mass_lb",
     "UNN2O": "n2o_mass_lb",
     "UNHG": "hg_mass_lb",
+    "UNCO2E": "co2e_mass_lb",
+    "UNHTI": "combustion_fuel_consumed_mmbtu",
+    "UNHTIOZ": "combustion_fuel_consumed_mmbtu_ozone_season",
     "UNHTIT": "fuel_consumed_mmbtu",
+    "UNHTIOZT": "fuel_consumed_mmbtu_ozone_season",
 }
 # OGE column for each column of the unit sheet that holds the same quantity, from the
 # annual totals of OGE's cleaned hourly CEMS data
@@ -268,7 +286,9 @@ UNIT_DATA_SOURCES = {
     "FUELU1": "energy_source_code",
     "HRSOP": "operating_hours",
     "HTIAN": "fuel_consumed_mmbtu",
+    "HTIOZ": "fuel_consumed_mmbtu_ozone_season",
     "NOXAN": "nox_mass_lb",
+    "NOXOZ": "nox_mass_lb_ozone_season",
     "SO2AN": "so2_mass_lb",
     "CO2AN": "co2_mass_lb",
     "HGAN": "hg_mass_lb",
@@ -291,6 +311,7 @@ GENERATOR_DATA_SOURCES = {
     "GENID": "generator_id",
     "PRMVR": "prime_mover_code",
     "GENNTAN": "net_generation_mwh",
+    "GENNTOZ": "net_generation_mwh_ozone_season",
     "GENYRONL": "generator_operating_year",
     "GENYRRET": "generator_retirement_year",
     # generator attributes from EIA-860
@@ -399,32 +420,60 @@ EIA_SECTORS = {
     6: "Industrial Non-CHP",
     7: "Industrial CHP",
 }
-# OGE fuel category and column for each data column of the BA and U.S. sheets that
-# holds the same quantity, keyed by the code without the sheet's prefix
+# OGE fuel categories, column and season of each data column of the BA and U.S. sheets
+# that holds the same quantity, keyed by the code without the sheet's prefix.
+# "combustion" sums the fuel categories in COMBUSTION_FUEL_CATEGORIES, and the ozone
+# season sums May to September from the monthly results
 REGION_DATA_SOURCES = {
-    "HTIANT": ("total", "fuel_consumed_for_electricity_mmbtu"),
-    "NGENAN": ("total", "net_generation_mwh"),
-    "NOXAN": ("total", "nox_mass_lb_for_electricity_adjusted"),
-    "SO2AN": ("total", "so2_mass_lb_for_electricity_adjusted"),
-    "CO2AN": ("total", "co2_mass_lb_for_electricity_adjusted"),
-    "CH4AN": ("total", "ch4_mass_lb_for_electricity_adjusted"),
-    "N2OAN": ("total", "n2o_mass_lb_for_electricity_adjusted"),
-    "NOXRTA": ("total", "generated_nox_rate_lb_per_mwh_for_electricity_adjusted"),
-    "SO2RTA": ("total", "generated_so2_rate_lb_per_mwh_for_electricity_adjusted"),
-    "CO2RTA": ("total", "generated_co2_rate_lb_per_mwh_for_electricity_adjusted"),
-    "CH4RTA": ("total", "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted"),
-    "N2ORTA": ("total", "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted"),
-    "GENACL": ("coal", "net_generation_mwh"),
-    "GENANC": ("nuclear", "net_generation_mwh"),
-    "GENAHY": ("hydro", "net_generation_mwh"),
-    "GENAWI": ("wind", "net_generation_mwh"),
-    "GENASO": ("solar", "net_generation_mwh"),
-    "GENAGT": ("geothermal", "net_generation_mwh"),
+    "HTIAN": ("combustion", "fuel_consumed_for_electricity_mmbtu", "annual"),
+    "HTIOZ": ("combustion", "fuel_consumed_for_electricity_mmbtu", "ozone"),
+    "HTIANT": ("total", "fuel_consumed_for_electricity_mmbtu", "annual"),
+    "HTIOZT": ("total", "fuel_consumed_for_electricity_mmbtu", "ozone"),
+    "NGENAN": ("total", "net_generation_mwh", "annual"),
+    "NGENOZ": ("total", "net_generation_mwh", "ozone"),
+    "NOXAN": ("total", "nox_mass_lb_for_electricity_adjusted", "annual"),
+    "NOXOZ": ("total", "nox_mass_lb_for_electricity_adjusted", "ozone"),
+    "SO2AN": ("total", "so2_mass_lb_for_electricity_adjusted", "annual"),
+    "CO2AN": ("total", "co2_mass_lb_for_electricity_adjusted", "annual"),
+    "CH4AN": ("total", "ch4_mass_lb_for_electricity_adjusted", "annual"),
+    "N2OAN": ("total", "n2o_mass_lb_for_electricity_adjusted", "annual"),
+    "CO2EQA": ("total", "co2e_mass_lb_for_electricity_adjusted", "annual"),
+    "NOXRTA": (
+        "total",
+        "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
+        "annual",
+    ),
+    "SO2RTA": (
+        "total",
+        "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
+        "annual",
+    ),
+    "CO2RTA": (
+        "total",
+        "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
+        "annual",
+    ),
+    "CH4RTA": (
+        "total",
+        "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
+        "annual",
+    ),
+    "N2ORTA": (
+        "total",
+        "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
+        "annual",
+    ),
+    "GENACL": ("coal", "net_generation_mwh", "annual"),
+    "GENANC": ("nuclear", "net_generation_mwh", "annual"),
+    "GENAHY": ("hydro", "net_generation_mwh", "annual"),
+    "GENAWI": ("wind", "net_generation_mwh", "annual"),
+    "GENASO": ("solar", "net_generation_mwh", "annual"),
+    "GENAGT": ("geothermal", "net_generation_mwh", "annual"),
     # eGRID's other unknown/purchased fuel generation is counted as nonrenewable and
     # noncombustion, so it is in these three columns
-    "GENAOP": ("other", "net_generation_mwh"),
-    "GENATO": ("other", "net_generation_mwh"),
-    "GENACO": ("other", "net_generation_mwh"),
+    "GENAOP": ("other", "net_generation_mwh", "annual"),
+    "GENATO": ("other", "net_generation_mwh", "annual"),
+    "GENACO": ("other", "net_generation_mwh", "annual"),
 }
 
 
@@ -520,9 +569,16 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
     ]
     cems = pd.read_csv(
         outputs_folder(f"{path_prefix}cems_cleaned_{year}.csv.zip"),
-        usecols=keys + data_columns + ["energy_source_code", "operating_time_hours"],
+        usecols=keys
+        + data_columns
+        + ["energy_source_code", "operating_time_hours", "report_date"],
         dtype={"emissions_unit_id_epa": "str", "energy_source_code": "str"},
+        parse_dates=["report_date"],
     )
+    ozone_season = cems["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
+    for column in ["fuel_consumed_mmbtu", "nox_mass_lb"]:
+        cems[f"{column}_ozone_season"] = cems[column].where(ozone_season, 0)
+        data_columns.append(f"{column}_ozone_season")
     units = (
         cems.groupby(keys)
         .agg(
@@ -563,17 +619,21 @@ def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
     keys = ["plant_id_eia", "generator_id"]
     allocated = pd.read_csv(
         outputs_folder(f"{path_prefix}eia923_allocated_{year}.csv.zip"),
-        usecols=keys + ["prime_mover_code", "net_generation_mwh"],
+        usecols=keys + ["prime_mover_code", "net_generation_mwh", "report_date"],
         dtype={"generator_id": "str"},
+        parse_dates=["report_date"],
     )
+    allocated["net_generation_mwh_ozone_season"] = allocated[
+        "net_generation_mwh"
+    ].where(allocated["report_date"].dt.month.isin(OZONE_SEASON_MONTHS), 0)
     generators = (
         allocated.groupby(keys)
         .agg(
             prime_mover_code=("prime_mover_code", "first"),
-            net_generation_mwh=(
-                "net_generation_mwh",
-                lambda values: values.sum(min_count=1),
-            ),
+            **{
+                column: (column, lambda values: values.sum(min_count=1))
+                for column in ["net_generation_mwh", "net_generation_mwh_ozone_season"]
+            },
         )
         .reset_index()
     )
@@ -784,7 +844,8 @@ def build_sheet_rows(
 
 
 def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
-    """Builds the plant sheet of the eGRID data file from OGE's annual plant data.
+    """Builds the plant sheet of the eGRID data file from OGE's annual plant data, and
+    the ozone season and combustion totals of OGE's monthly subplant data.
 
     Args:
         year (int): data year.
@@ -805,6 +866,11 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
         plant_data.merge(plant_attributes, on="plant_id_eia", how="left")
         .merge(load_ba_reference()[["ba_code", "ba_name"]], on="ba_code", how="left")
         .merge(
+            load_ozone_season_and_combustion_totals(path_prefix),
+            on="plant_id_eia",
+            how="left",
+        )
+        .merge(
             load_eia860_plant_attributes(year),
             on="plant_id_eia",
             how="left",
@@ -824,20 +890,75 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     return convert_mass_to_tons(table, "PLNT", year)
 
 
+def load_ozone_season_and_combustion_totals(path_prefix: str) -> pd.DataFrame:
+    """Sums OGE's monthly subplant data to each plant's ozone season totals and
+    combustion heat input.
+
+    Combustion heat input is the heat input of the subplants whose fuel category is in
+    `COMBUSTION_FUEL_CATEGORIES`, and is zero for plants without any.
+
+    Args:
+        path_prefix (str): prefix of the results folder of the year, e.g. "2024/".
+
+    Returns:
+        pd.DataFrame: plant_id_eia, the ozone season totals of heat input, net
+            generation and NOx (with "_ozone_season" added to their column names), and
+            the annual and ozone season combustion heat input (with "combustion_"
+            added to the start of their column names).
+    """
+    heat_input_columns = ["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]
+    ozone_season_columns = heat_input_columns + [
+        "net_generation_mwh",
+        "nox_mass_lb",
+        "nox_mass_lb_for_electricity_adjusted",
+    ]
+    subplants = pd.read_csv(
+        results_folder(f"{path_prefix}plant_data/monthly/us_units/subplant_data.csv"),
+        usecols=["plant_id_eia", "subplant_id", "report_date"] + ozone_season_columns,
+        parse_dates=["report_date"],
+    ).merge(
+        pd.read_csv(
+            results_folder(f"{path_prefix}plant_data/subplant_attributes.csv"),
+            usecols=["plant_id_eia", "subplant_id", "fuel_category"],
+        ),
+        on=["plant_id_eia", "subplant_id"],
+        how="left",
+        validate="m:1",
+    )
+    combustion = subplants["fuel_category"].isin(COMBUSTION_FUEL_CATEGORIES)
+    for column in heat_input_columns:
+        subplants[f"combustion_{column}"] = subplants[column].where(combustion, 0)
+    ozone_season = subplants["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
+    seasonal_columns = ozone_season_columns + [
+        f"combustion_{column}" for column in heat_input_columns
+    ]
+    for column in seasonal_columns:
+        subplants[f"{column}_ozone_season"] = subplants[column].where(ozone_season, 0)
+    return (
+        subplants.groupby("plant_id_eia")[
+            [f"combustion_{column}" for column in heat_input_columns]
+            + [f"{column}_ozone_season" for column in seasonal_columns]
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
+
+
 def build_region_table(
     year: int, path_prefix: str, sheet: str, ba_codes: list[str]
 ) -> pd.DataFrame:
-    """Builds the BA or U.S. sheet of the eGRID data file from OGE's annual power sector
-    results.
+    """Builds the BA or U.S. sheet of the eGRID data file from OGE's annual and monthly
+    power sector results.
 
-    Generation from fuel categories that a BA does not have is zero.
+    Generation and combustion heat input from fuel categories that a BA does not have
+    are zero.
 
     Args:
         year (int): data year.
         path_prefix (str): prefix of the results folder of the year, e.g. "2024/".
         sheet (str): "BA" or "US".
-        ba_codes (list[str]): name of each annual power sector results file to read,
-            i.e. each BA code, or "US".
+        ba_codes (list[str]): name of each power sector results file to read, i.e.
+            each BA code, or "US".
 
     Returns:
         pd.DataFrame: one row for each file, in U.S. units, with the year, the BA name
@@ -846,16 +967,32 @@ def build_region_table(
     prefix = REGION_SHEETS[sheet][0]
     rows = []
     for ba_code in ba_codes:
-        ba_data = pd.read_csv(
-            results_folder(
-                f"{path_prefix}power_sector_data/annual/us_units/{ba_code}.csv"
-            )
-        ).set_index("fuel_category")
+        folder = f"{path_prefix}power_sector_data/{{resolution}}/us_units/{ba_code}.csv"
+        monthly = pd.read_csv(
+            results_folder(folder.format(resolution="monthly")),
+            parse_dates=["report_date"],
+        )
+        ba_data = {
+            "annual": pd.read_csv(
+                results_folder(folder.format(resolution="annual"))
+            ).set_index("fuel_category"),
+            "ozone": monthly[monthly["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)]
+            .groupby("fuel_category")
+            .sum(numeric_only=True, min_count=1),
+        }
         row = {"YEAR": year}
-        for code, (fuel_category, column) in REGION_DATA_SOURCES.items():
-            if fuel_category in ba_data.index:
-                row[prefix + code] = ba_data.loc[fuel_category, column]
-            elif column == "net_generation_mwh":
+        for code, (fuel_category, column, season) in REGION_DATA_SOURCES.items():
+            fuel_categories = (
+                COMBUSTION_FUEL_CATEGORIES
+                if fuel_category == "combustion"
+                else [fuel_category]
+            )
+            data = ba_data[season]
+            if data.index.isin(fuel_categories).any():
+                row[prefix + code] = data.loc[
+                    data.index.isin(fuel_categories), column
+                ].sum(min_count=1)
+            elif column == "net_generation_mwh" or fuel_category == "combustion":
                 row[prefix + code] = 0
         if sheet == "BA":
             row["BACODE"] = ba_code
