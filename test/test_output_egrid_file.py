@@ -1,5 +1,9 @@
+import openpyxl
+from openpyxl.utils import get_column_letter
+import pandas as pd
 import pytest
 
+import oge.output_egrid_file as output_egrid_file
 from oge.output_egrid_file import (
     EGRID_CATEGORIES,
     EGRID_SHEETS,
@@ -197,3 +201,222 @@ def test_gj_columns_have_the_category_of_their_column():
     categories = {code: category for code, _, category in metric}
     assert categories["PLNGENAN"] == categories["PLNGENAN2"] == 1
     assert categories["PLGENACL"] == categories["PLGENACL2"] == 7
+
+
+@pytest.fixture
+def results(tmp_path, monkeypatch):
+    """Writes small 2024 annual results for two plants in two BAs to a temporary
+    results folder.
+
+    Plant 1 (BA1) burns gas and plant 2 (BA2) is solar. BA2 has no coal or other
+    generation.
+    """
+    monkeypatch.setattr(
+        output_egrid_file, "results_folder", lambda rel="": str(tmp_path / rel)
+    )
+    plant_folder = tmp_path / "2024/plant_data"
+    (plant_folder / "annual/us_units").mkdir(parents=True)
+    plant_data = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2],
+            "plant_name_eia": ["Gas Plant", "Solar Plant"],
+            "ba_code": ["BA1", "BA2"],
+            "state": ["TX", "AZ"],
+            "county": ["Travis", "Pima"],
+            "capacity_mw": [100.0, 50.0],
+            "net_generation_mwh": [1000.0, 500.0],
+            "fuel_consumed_mmbtu": [12000.0, 0.0],
+            "fuel_consumed_for_electricity_mmbtu": [10000.0, 0.0],
+            "co2_mass_lb": [2_000_000.0, 0.0],
+            "co2_mass_lb_for_electricity_adjusted": [1_000_000.0, 0.0],
+            "generated_co2_rate_lb_per_mwh_for_electricity_adjusted": [1000.0, 0.0],
+        }
+    )
+    for column in output_egrid_file.PLANT_DATA_SOURCES.values():
+        if column not in plant_data and column not in [
+            "latitude",
+            "longitude",
+            "ba_name",
+        ]:
+            plant_data[column] = 0.0
+    plant_data.to_csv(plant_folder / "annual/us_units/plant_data.csv", index=False)
+    pd.DataFrame(
+        {"plant_id_eia": [1, 2], "latitude": [30.0, 32.0], "longitude": [-97.0, -111.0]}
+    ).to_csv(plant_folder / "plant_static_attributes.csv", index=False)
+    fleet_folder = tmp_path / "2024/power_sector_data/annual/us_units"
+    fleet_folder.mkdir(parents=True)
+    columns = {column for _, column in output_egrid_file.REGION_DATA_SOURCES.values()}
+    for ba, rows in {
+        "BA1": {"total": 1000.0, "natural_gas": 900.0, "coal": 50.0, "other": 50.0},
+        "BA2": {"total": 500.0, "solar": 500.0},
+        "US": {"total": 1500.0, "natural_gas": 900.0, "coal": 50.0, "solar": 500.0},
+    }.items():
+        fleet = pd.DataFrame({"fuel_category": list(rows)})
+        for column in columns:
+            fleet[column] = 0.0
+        fleet["net_generation_mwh"] = list(rows.values())
+        fleet["co2_mass_lb_for_electricity_adjusted"] = [
+            1_000_000.0 if fuel in ["total", "natural_gas"] else 0.0 for fuel in rows
+        ]
+        fleet.to_csv(fleet_folder / f"{ba}.csv", index=False)
+    return tmp_path
+
+
+def test_plant_table(results):
+    plants = output_egrid_file.build_plant_table(2024, "2024/")
+    # plants are sorted by state and numbered in that order
+    assert list(plants["PNAME"]) == ["Solar Plant", "Gas Plant"]
+    assert list(plants["SEQPLT24"]) == [1, 2]
+    assert list(plants["YEAR"]) == [2024, 2024]
+    gas = plants.set_index("ORISPL").loc[1]
+    # masses in tons are converted from lb, and masses in lbs are not
+    assert gas["PLCO2AN"] == 500.0
+    assert gas["UNCO2"] == 1000.0
+    assert gas["PLCO2RTA"] == 1000.0
+    assert gas["PLHTIANT"] == 10000.0
+    assert gas["UNHTIT"] == 12000.0
+    assert gas["LAT"] == 30.0
+
+
+def test_region_tables(results):
+    ba = output_egrid_file.build_region_table(2024, "2024/", "BA", ["BA1", "BA2"])
+    ba = ba.set_index("BACODE")
+    assert ba.loc["BA1", "BANGENAN"] == 1000.0
+    assert ba.loc["BA1", "BACO2AN"] == 500.0
+    assert ba.loc["BA1", "BAGENACL"] == 50.0
+    # other generation is reported as other, nonrenewable and noncombustion
+    assert ba.loc["BA1", ["BAGENAOP", "BAGENATO", "BAGENACO"]].tolist() == [50.0] * 3
+    # BA2 has no coal or other generation
+    assert ba.loc["BA2", "BAGENACL"] == 0
+    assert ba.loc["BA2", "BAGENAOP"] == 0
+    assert ba.loc["BA2", "BAGENASO"] == 500.0
+    us = output_egrid_file.build_region_table(2024, "2024/", "US", ["US"])
+    assert us.loc[0, "USNGENAN"] == 1500.0
+    assert "BACODE" not in us
+
+
+def test_egrid_tables_have_every_column(results):
+    tables = output_egrid_file.build_egrid_tables(2024, "2024/")
+    assert list(tables) == EGRID_SHEETS
+    for sheet, table in tables.items():
+        assert list(table.columns) == [
+            code for code, _, _ in get_egrid_columns(sheet, 2024)
+        ]
+    assert list(tables["BA"]["BACODE"]) == ["BA1", "BA2"]
+    assert tables["ST"].empty
+    # columns that OGE does not calculate are blank
+    assert tables["PLNT"]["PLGENACL"].isna().all()
+
+
+def test_convert_to_metric():
+    table = pd.DataFrame(
+        {code: [1.0] for code, _, _ in get_egrid_columns("US", 2024)}
+    ).assign(YEAR=2024)
+    metric = output_egrid_file.convert_to_metric(table, "US", 2024)
+    assert list(metric.columns) == [
+        code for code, _, _ in get_egrid_columns("US", 2024, metric=True)
+    ]
+    assert metric.loc[0, "YEAR"] == 2024
+    assert metric.loc[0, "USNGENAN"] == 1.0
+    assert metric.loc[0, "USNGENAN2"] == pytest.approx(3.6)
+    assert metric.loc[0, "USCO2AN"] == pytest.approx(0.907184)
+    assert metric.loc[0, "USCH4AN"] == pytest.approx(0.453592)
+    assert metric.loc[0, "USHTIANT"] == pytest.approx(1.055056)
+    assert metric.loc[0, "USCO2RTA"] == pytest.approx(0.453592)
+    assert metric.loc[0, "USCO2RTA2"] == pytest.approx(0.453592 / 3.6)
+    assert metric.loc[0, "USCO2RA"] == pytest.approx(0.453592 / 1.055056)
+    assert metric.loc[0, "USCLPR"] == 1.0
+
+
+def test_write_egrid_files(results):
+    output_egrid_file.write_egrid_files(2024, "2024/")
+    for file, metric in [
+        ("oge_egrid2024_data.xlsx", False),
+        ("oge_egrid2024_data_metric.xlsx", True),
+    ]:
+        path = results / "2024/eGRID" / file
+        workbook = openpyxl.load_workbook(path)
+        assert workbook.sheetnames == ["Contents"] + [
+            f"{sheet}24" for sheet in EGRID_SHEETS
+        ]
+        worksheet = workbook["PLNT24"]
+        columns = get_egrid_columns("PLNT", 2024, metric)
+        assert [cell.value for cell in worksheet[1]] == [h for _, h, _ in columns]
+        assert [cell.value for cell in worksheet[2]] == [c for c, _, _ in columns]
+        assert worksheet.max_row == 4
+        codes = [code for code, _, _ in columns]
+        # filled columns are colored by category and blank columns are grayed out
+        filled = worksheet.cell(1, codes.index("PLNGENAN") + 1)
+        blank = worksheet.cell(1, codes.index("PLGENACL") + 1)
+        assert filled.fill.fgColor.rgb == "FFF2DCDB"
+        assert blank.font.color.rgb == "FFA6A6A6"
+
+
+def test_skip_outputs_writes_nothing(results):
+    output_egrid_file.write_egrid_files(2024, "2024/", skip_outputs=True)
+    assert not (results / "2024/eGRID").exists()
+
+
+def test_number_formats_follow_egrid():
+    plant = output_egrid_file.get_number_formats("PLNT", 2024)
+    assert plant["PNAME"] == "General"
+    assert plant["NAMEPCAP"] == "#,##0.0"
+    assert plant["PLNGENAN"] == output_egrid_file.QUANTITY_FORMAT
+    assert plant["PLCO2RTA"] == output_egrid_file.RATE_FORMAT
+    assert plant["PLHGAN"] == output_egrid_file.HG_MASS_FORMAT
+    assert plant["UNCO2"] == "#,##0"
+    assert plant["PLCLPR"] == output_egrid_file.PERCENT_FORMAT
+    state = output_egrid_file.get_number_formats("ST", 2024)
+    assert state["STNAMEPCAP"] == output_egrid_file.QUANTITY_FORMAT
+    assert state["STCCH4RT"] == output_egrid_file.SMALL_RATE_FORMAT
+    assert state["STCCO2RT"] == output_egrid_file.RATE_FORMAT
+    unit = output_egrid_file.get_number_formats("UNT", 2024)
+    assert unit["NOXAN"] == output_egrid_file.UNIT_MASS_FORMAT
+    assert unit["HTIAN"] == "#,##0"
+    # GJ columns have the format of the column they follow
+    metric = output_egrid_file.get_number_formats("US", 2024, metric=True)
+    assert metric["USNGENAN2"] == metric["USNGENAN"]
+    assert metric["USCO2RTA2"] == output_egrid_file.RATE_FORMAT
+    assert set(metric) == {code for code, _, _ in get_egrid_columns("US", 2024, True)}
+
+
+def test_contents_sheet_links(results):
+    output_egrid_file.write_egrid_files(2024, "2024/")
+    worksheet = openpyxl.load_workbook(results / "2024/eGRID/oge_egrid2024_data.xlsx")[
+        "Contents"
+    ]
+    values = [cell.value for row in worksheet.iter_rows() for cell in row]
+    assert "eGRID2024_Data.xlsx" in values
+    assert "Balancing authority area year 2024 data" in values
+    assert "Color Coding Legend" in values
+    links = {
+        cell.coordinate: cell.hyperlink.location
+        for row in worksheet.iter_rows()
+        for cell in row
+        if cell.hyperlink is not None and cell.hyperlink.location
+    }
+    assert "'PLNT24'!A1" in links.values()
+    # the legend links to the first column of each category on each sheet, e.g. the
+    # plant annual heat input
+    plant_heat_input = [code for code, _, _ in get_egrid_columns("PLNT", 2024)].index(
+        "PLHTIAN"
+    )
+    assert f"'PLNT24'!{get_column_letter(plant_heat_input + 1)}1" in links.values()
+
+
+def test_describe_sheets():
+    assert output_egrid_file.describe_sheets() == (
+        "Unit, Generator, Plant, State, Balancing Authority Area, eGRID Subregion, "
+        "NERC Region, U.S., and Grid Gross Loss (%)"
+    )
+
+
+def test_sheets_filter_on_column_codes(results):
+    output_egrid_file.write_egrid_files(2024, "2024/")
+    workbook = openpyxl.load_workbook(results / "2024/eGRID/oge_egrid2024_data.xlsx")
+    columns = get_egrid_columns("PLNT", 2024)
+    assert workbook["PLNT24"].auto_filter.ref == (
+        f"A2:{get_column_letter(len(columns))}4"
+    )
+    # sheets with no rows filter on the codes alone
+    assert workbook["ST24"].auto_filter.ref == "A2:FM2"
