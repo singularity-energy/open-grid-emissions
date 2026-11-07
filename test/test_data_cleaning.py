@@ -416,3 +416,26 @@ def test_calculate_subplant_efs_biomass_co2_fraction():
     # subplant-months without fuel are dropped
     assert 2 not in result.index.get_level_values("plant_id_eia")
     assert np.isnan(result[(3, 1, pd.Timestamp("2024-01-01"))])
+
+
+def test_add_missing_location_uses_municipio_as_puerto_rico_city():
+    """Puerto Rico plants should use their municipio (reported as the county) as the
+    city, without looking up their coordinates."""
+    plants = pd.DataFrame(
+        {
+            "plant_id_eia": [61082, 1],
+            "latitude": [17.95, 33.46],
+            "longitude": [-66.15, -87.36],
+            "state": ["PR", "AL"],
+            "county": ["Guayama", "Tuscaloosa"],
+            "city": pd.array([pd.NA, "Tuscaloosa"], dtype="string"),
+        }
+    )
+    with patch.object(
+        helpers,
+        "search_location_from_coordinates",
+        side_effect=AssertionError("no lookup expected"),
+    ):
+        plants = helpers.add_missing_location(plants)
+
+    assert plants["city"].tolist() == ["Guayama", "Tuscaloosa"]
