@@ -1640,3 +1640,22 @@ def test_calculate_storage_profiles_without_storage_series(monkeypatch):
     january = profiles[profiles["report_date"].dt.month == 1]
     assert (january["profile_method"] == "net_load_proxy").all()
     assert (january["storage_charge_profile_method"] == "net_load_proxy").all()
+
+
+def test_flag_missing_hg_in_shaped_data():
+    """Every hour of a shaped subplant-month that consumed fuel is missing Hg, even
+    hours where the shaped fuel consumption is zero."""
+    jan, feb = pd.Timestamp("2024-01-01"), pd.Timestamp("2024-02-01")
+    shaped = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1],
+            "subplant_id": [1, 1, 1, 1],
+            "report_date": [jan, jan, feb, feb],
+            "fuel_consumed_mmbtu": [0, 5, 0, 0],
+        }
+    )
+
+    result = impute_hourly_profiles.flag_missing_hg_in_shaped_data(shaped)
+
+    assert result.tolist() == [True, True, False, False]
+    assert impute_hourly_profiles.flag_missing_hg_in_shaped_data(pd.DataFrame()).empty
