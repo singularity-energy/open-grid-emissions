@@ -59,12 +59,12 @@ def test_sequence_number_code_uses_data_year():
 def test_regional_sheets_share_data_columns():
     us = get_egrid_columns("US", 2023)
     assert us[:3] == [
-        ("YEAR", "Data Year", None),
+        ("YEAR", "Data year", None),
         ("USNAMEPCAP", "U.S. nameplate capacity (MW)", None),
         ("USHTIAN", "U.S. annual heat input from combustion (MMBtu)", 1),
     ]
     ba = headers(get_egrid_columns("BA", 2023))
-    assert ba["BACODE"] == "Balancing Authority Code"
+    assert ba["BACODE"] == "Balancing authority code"
     assert ba["BANGENAN"] == "BA annual net generation (MWh)"
     srl = headers(get_egrid_columns("SRL", 2023))
     assert srl["SRCO2RTA"] == (
@@ -98,6 +98,26 @@ def test_metric_columns_convert_units_and_add_gj_columns():
     # units without a metric equivalent are unchanged
     assert headers_by_code["BANAMEPCAP"] == "BA nameplate capacity (MW)"
     assert headers_by_code["BACLPR"] == "BA coal generation percent (resource mix)"
+
+
+def test_headers_fix_egrid_inconsistencies():
+    plant = headers(get_egrid_columns("PLNT", 2023))
+    state = headers(get_egrid_columns("ST", 2023))
+    # the other unknown/purchased total is labeled renewable in eGRID's plant sheet
+    # and nonrenewable in its regional sheets
+    assert plant["PLGENATO"] == (
+        "Plant annual total nonrenewables other unknown/purchased net generation (MWh)"
+    )
+    assert state["STGENATO"] == (
+        "State annual total nonrenewables other unknown/purchased net generation (MWh)"
+    )
+    assert state["STNBNOX"] == (
+        "State annual NOx nonbaseload output emission rate (lb/MWh)"
+    )
+    assert plant["CHPCO2E"] == (
+        "Plant annual CO2 equivalent emissions CHP adjustment value (tons)"
+    )
+    assert EGRID_CATEGORIES[14].endswith("per MMBtu)")
 
 
 def test_replace_units_only_replaces_listed_units():
