@@ -7,7 +7,10 @@ row holds the column codes. EPA publishes the file in U.S. units and in metric u
 
 This module defines the columns of each sheet in eGRID's order, using the headers of
 the eGRID2023 U.S. units file, and the category of each column, which eGRID uses to
-color the headers. Columns that OGE does not calculate are left blank.
+color the headers. The headers and category names fix eGRID's typos and
+inconsistencies, such as "adjustement", "non-baseload" in some headers and
+"nonbaseload" in others, and a fuel-type input emission rate category described as
+"per MWh". Columns that OGE does not calculate are left blank.
 """
 
 import re
@@ -19,10 +22,10 @@ EGRID_SHEETS = ["UNT", "GEN", "PLNT", "ST", "BA", "SRL", "NRL", "US", "GGL"]
 # categories of columns, from the contents sheet of the eGRID data file
 EGRID_CATEGORIES = {
     1: "Annual Values (generation, emissions, and heat input)",
-    2: "Unadjusted Annual Values (emissions, and heat input)",
+    2: "Unadjusted Annual Values (emissions and heat input)",
     3: "Adjustment Values (emissions, heat input, heat rate)",
     4: "Output Emission Rates (emissions per MWh)",
-    5: "Input Emission rates (emissions per MMBtu)",
+    5: "Input Emission Rates (emissions per MMBtu)",
     6: "Combustion Output Rates (emissions per MWh)",
     7: "Generation by Fuel Type (MWh)",
     8: "Renewable and Non-Renewable Generation (MWh)",
@@ -31,7 +34,7 @@ EGRID_CATEGORIES = {
     11: "Renewable and Non-Renewable Resource Mix (percentages)",
     12: "Combustion and Non-Combustion Resource Mix (percentages)",
     13: "Output Emission Rates by Fuel Type (emissions by fuel type per MWh)",
-    14: "Input Emission Rates by Fuel Type (emissions by fuel type per MWh)",
+    14: "Input Emission Rates by Fuel Type (emissions by fuel type per MMBtu)",
     15: "Nonbaseload Output Emission Rates (emissions per MWh)",
     16: "Nonbaseload Generation by Fuel Type (MWh)",
     17: "Nonbaseload Resource Mix (percentages)",
@@ -125,13 +128,13 @@ UNIT_COLUMNS = [
         None,
         [
             ("SEQUNT{yy}", "Unit file sequence number"),
-            ("YEAR", "Data Year"),
+            ("YEAR", "Data year"),
             ("PSTATABB", "Plant state abbreviation"),
             ("PNAME", "Plant name"),
             ("ORISPL", "DOE/EIA ORIS plant or facility code"),
             ("UNITID", "Unit ID"),
-            ("PRMVR", "Prime Mover"),
-            ("UNTOPST", "Unit Operational Status"),
+            ("PRMVR", "Prime mover"),
+            ("UNTOPST", "Unit operational status"),
             ("CAPDFLAG", "CAPD program flag"),
             ("PRGCODE", "Program code(s)"),
             ("BOTFIRTY", "Unit bottom and firing type"),
@@ -140,7 +143,7 @@ UNIT_COLUMNS = [
             ("HRSOP", "Unit operating hours"),
         ],
     ),
-    # 2) Unadjusted Annual Values (emissions, and heat input)
+    # 2) Unadjusted Annual Values (emissions and heat input)
     (
         2,
         [
@@ -166,7 +169,7 @@ UNIT_COLUMNS = [
         [
             ("SO2CTLDV", "Unit SO2 (scrubber) first control device"),
             ("NOXCTLDV", "Unit NOx first control device"),
-            ("HGCTLDV", "Unit Hg Activated carbon injection system flag"),
+            ("HGCTLDV", "Unit Hg activated carbon injection system flag"),
             ("UNTYRONL", "Unit year on-line"),
             ("STACKHT", "Stack height (feet)"),
         ],
@@ -179,7 +182,7 @@ GENERATOR_COLUMNS = [
         None,
         [
             ("SEQGEN{yy}", "Generator file sequence number"),
-            ("YEAR", "Data Year"),
+            ("YEAR", "Data year"),
             ("PSTATABB", "Plant state abbreviation"),
             ("PNAME", "Plant name"),
             ("ORISPL", "DOE/EIA ORIS plant or facility code"),
@@ -217,7 +220,7 @@ PLANT_COLUMNS = [
         None,
         [
             ("SEQPLT{yy}", "Plant file sequence number"),
-            ("YEAR", "Data Year"),
+            ("YEAR", "Data year"),
             ("PSTATABB", "Plant state abbreviation"),
             ("PNAME", "Plant name"),
             ("ORISPL", "DOE/EIA ORIS plant or facility code"),
@@ -226,18 +229,18 @@ PLANT_COLUMNS = [
             ("UTLSRVNM", "Utility name"),
             ("UTLSRVID", "Utility ID"),
             ("SECTOR", "Plant-level sector"),
-            ("BANAME", "Balancing Authority Name"),
-            ("BACODE", "Balancing Authority Code"),
+            ("BANAME", "Balancing authority name"),
+            ("BACODE", "Balancing authority code"),
             ("NERC", "NERC region acronym"),
             ("SUBRGN", "eGRID subregion acronym"),
             ("SRNAME", "eGRID subregion name"),
-            ("ISORTO", "Plant associated ISO/RTO Territory"),
+            ("ISORTO", "Plant associated ISO/RTO territory"),
             ("FIPSST", "Plant FIPS state code"),
             ("FIPSCNTY", "Plant FIPS county code"),
             ("CNTYNAME", "Plant county name"),
             ("LAT", "Plant latitude"),
             ("LON", "Plant longitude"),
-            ("CAPDFLAG", "CAPD Program Flag"),
+            ("CAPDFLAG", "CAPD program flag"),
             ("NUMUNT", "Number of units"),
             ("NUMGEN", "Number of generators"),
             ("PLPRMFL", "Plant primary fuel"),
@@ -248,7 +251,7 @@ PLANT_COLUMNS = [
             ),
             ("CAPFAC", "Plant capacity factor"),
             ("NAMEPCAP", "Plant nameplate capacity (MW)"),
-            ("NBFACTOR", "Nonbaseload Factor"),
+            ("NBFACTOR", "Nonbaseload factor"),
             ("RMBMFLAG", "Biogas/ biomass plant adjustment flag"),
             ("CHPFLAG", "Combined heat and power (CHP) plant adjustment flag"),
             ("USETHRMO", "CHP plant useful thermal output (MMBtu)"),
@@ -295,7 +298,7 @@ PLANT_COLUMNS = [
             ("PLHGRTA", "Plant annual Hg total output emission rate (lb/MWh)"),
         ],
     ),
-    # 5) Input Emission rates (emissions per MMBtu)
+    # 5) Input Emission Rates (emissions per MMBtu)
     (
         5,
         [
@@ -329,7 +332,7 @@ PLANT_COLUMNS = [
             ("PLHGCRT", "Plant annual Hg combustion output emission rate (lb/MWh)"),
         ],
     ),
-    # 2) Unadjusted Annual Values (emissions, and heat input)
+    # 2) Unadjusted Annual Values (emissions and heat input)
     (
         2,
         [
@@ -387,7 +390,7 @@ PLANT_COLUMNS = [
             ("CHPN2O", "Plant annual N2O emissions CHP adjustment value (lbs)"),
             (
                 "CHPCO2E",
-                "Plant annual CO2 equivalent emissions CHP adjustement value (tons)",
+                "Plant annual CO2 equivalent emissions CHP adjustment value (tons)",
             ),
         ],
     ),
@@ -414,7 +417,7 @@ PLANT_COLUMNS = [
             ("PLGENAOF", "Plant annual other fossil net generation (MWh)"),
             (
                 "PLGENAOP",
-                "Plant annual other unknown/ purchased fuel net generation (MWh)",
+                "Plant annual other unknown/purchased fuel net generation (MWh)",
             ),
         ],
     ),
@@ -426,7 +429,7 @@ PLANT_COLUMNS = [
             ("PLGENATR", "Plant annual total renewables net generation (MWh)"),
             (
                 "PLGENATO",
-                "Plant annual total renewables other unknown/purchased net generation (MWh)",
+                "Plant annual total nonrenewables other unknown/purchased net generation (MWh)",
             ),
             ("PLGENATH", "Plant annual total nonhydro renewables net generation (MWh)"),
         ],
@@ -540,7 +543,7 @@ REGION_DATA_COLUMNS = [
             ("HGRTA", "annual Hg total output emission rate (lb/MWh)"),
         ],
     ),
-    # 5) Input Emission rates (emissions per MMBtu)
+    # 5) Input Emission Rates (emissions per MMBtu)
     (
         5,
         [
@@ -610,7 +613,7 @@ REGION_DATA_COLUMNS = [
             ("FSHGRT", "annual Hg fossil fuel output emission rate (lb/MWh)"),
         ],
     ),
-    # 14) Input Emission Rates by Fuel Type (emissions by fuel type per MWh)
+    # 14) Input Emission Rates by Fuel Type (emissions by fuel type per MMBtu)
     (
         14,
         [
@@ -653,17 +656,17 @@ REGION_DATA_COLUMNS = [
     (
         15,
         [
-            ("NBNOX", "annual NOx non-baseload output emission rate (lb/MWh)"),
-            ("NBNXO", "ozone season NOx non-baseload output emission rate (lb/MWh)"),
-            ("NBSO2", "annual SO2 non-baseload output emission rate (lb/MWh)"),
-            ("NBCO2", "annual CO2 non-baseload output emission rate (lb/MWh)"),
-            ("NBCH4", "annual CH4 non-baseload output emission rate (lb/MWh)"),
-            ("NBN2O", "annual N2O non-baseload output emission rate (lb/MWh)"),
+            ("NBNOX", "annual NOx nonbaseload output emission rate (lb/MWh)"),
+            ("NBNXO", "ozone season NOx nonbaseload output emission rate (lb/MWh)"),
+            ("NBSO2", "annual SO2 nonbaseload output emission rate (lb/MWh)"),
+            ("NBCO2", "annual CO2 nonbaseload output emission rate (lb/MWh)"),
+            ("NBCH4", "annual CH4 nonbaseload output emission rate (lb/MWh)"),
+            ("NBN2O", "annual N2O nonbaseload output emission rate (lb/MWh)"),
             (
                 "NBC2E",
-                "annual CO2 equivalent non-baseload output emission rate (lb/MWh)",
+                "annual CO2 equivalent nonbaseload output emission rate (lb/MWh)",
             ),
-            ("NBHG", "annual Hg non-baseload output emission rate (lb/MWh)"),
+            ("NBHG", "annual Hg nonbaseload output emission rate (lb/MWh)"),
         ],
     ),
     # 7) Generation by Fuel Type (MWh)
@@ -680,7 +683,7 @@ REGION_DATA_COLUMNS = [
             ("GENASO", "annual solar net generation (MWh)"),
             ("GENAGT", "annual geothermal net generation (MWh)"),
             ("GENAOF", "annual other fossil net generation (MWh)"),
-            ("GENAOP", "annual other unknown/ purchased fuel net generation (MWh)"),
+            ("GENAOP", "annual other unknown/purchased fuel net generation (MWh)"),
         ],
     ),
     # 8) Renewable and Non-Renewable Generation (MWh)
@@ -691,7 +694,7 @@ REGION_DATA_COLUMNS = [
             ("GENATR", "annual total renewables net generation (MWh)"),
             (
                 "GENATO",
-                "annual total nonrenewable other unknown/purchased net generation (MWh)",
+                "annual total nonrenewables other unknown/purchased net generation (MWh)",
             ),
             ("GENATH", "annual total nonhydro renewables net generation (MWh)"),
         ],
@@ -722,7 +725,7 @@ REGION_DATA_COLUMNS = [
             ("SOPR", "solar generation percent (resource mix)"),
             ("GTPR", "geothermal generation percent (resource mix)"),
             ("OFPR", "other fossil generation percent (resource mix)"),
-            ("OPPR", "other unknown/ purchased fuel generation percent (resource mix)"),
+            ("OPPR", "other unknown/purchased fuel generation percent (resource mix)"),
         ],
     ),
     # 11) Renewable and Non-Renewable Resource Mix (percentages)
@@ -766,7 +769,7 @@ REGION_DATA_COLUMNS = [
             ("NBGNOF", "annual nonbaseload other fossil net generation (MWh)"),
             (
                 "NBGNOP",
-                "annual nonbaseload other unknown/ purchased fuel net generation (MWh)",
+                "annual nonbaseload other unknown/purchased fuel net generation (MWh)",
             ),
         ],
     ),
@@ -786,7 +789,7 @@ REGION_DATA_COLUMNS = [
             ("NBOFPR", "nonbaseload other fossil generation percent (resource mix)"),
             (
                 "NBOPPR",
-                "nonbaseload other unknown/ purchased fuel generation percent (resource mix)",
+                "nonbaseload other unknown/purchased fuel generation percent (resource mix)",
             ),
         ],
     ),
@@ -798,25 +801,25 @@ REGION_SHEETS = {
         "ST",
         "State",
         [
-            ("YEAR", "Data Year"),
+            ("YEAR", "Data year"),
             ("PSTATABB", "State abbreviation"),
-            ("FIPSST", "FIPS State code"),
+            ("FIPSST", "FIPS state code"),
         ],
     ),
     "BA": (
         "BA",
         "BA",
         [
-            ("YEAR", "Data Year"),
-            ("BANAME", "Balancing Authority Name"),
-            ("BACODE", "Balancing Authority Code"),
+            ("YEAR", "Data year"),
+            ("BANAME", "Balancing authority name"),
+            ("BACODE", "Balancing authority code"),
         ],
     ),
     "SRL": (
         "SR",
         "eGRID subregion",
         [
-            ("YEAR", "Data Year"),
+            ("YEAR", "Data year"),
             ("SUBRGN", "eGRID subregion acronym"),
             ("SRNAME", "eGRID subregion name"),
         ],
@@ -825,25 +828,25 @@ REGION_SHEETS = {
         "NR",
         "NERC region",
         [
-            ("YEAR", "Data Year"),
+            ("YEAR", "Data year"),
             ("NERC", "NERC region acronym"),
             ("NERCNAME", "NERC region name"),
         ],
     ),
-    "US": ("US", "U.S.", [("YEAR", "Data Year")]),
+    "US": ("US", "U.S.", [("YEAR", "Data year")]),
 }
 
 GRID_LOSS_COLUMNS = [
     (
         None,
         [
-            ("YEAR", "Data Year"),
+            ("YEAR", "Data year"),
             (
                 "REGION",
                 "One of the three interconnect power grids in the U.S. (plus Alaska, Hawaii, and the entire U.S.)",
             ),
             ("ESTLOSS", "Estimated losses (MWh)"),
-            ("TOTDISP", "Total disposition (MWh) without exports"),
+            ("TOTDISP", "Total disposition without exports (MWh)"),
             ("DIRCTUSE", "Direct use (MWh)"),
             (
                 "GGRSLOSS",
