@@ -24,6 +24,9 @@ current_early_release_year = 2025
 # included. Puerto Rico generators are only reported in EIA-860M, whose December files
 # list them from 2018 onward.
 earliest_puerto_rico_data_year = 2018
+# earliest_mats_data_year is the first year of hourly mercury data reported to EPA
+# under the Mercury and Air Toxics Standards (MATS)
+earliest_mats_data_year = 2015
 
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]

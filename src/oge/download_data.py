@@ -160,19 +160,16 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
             f"Using PUDL {get_pudl_release(build, downloads_folder(f'pudl/{build}'))}"
         )
 
-        # download the epacems parquet file
-        epacems_parquet_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/core_epacems__hourly_emissions.parquet"
-        if not os.path.exists(
-            downloads_folder(f"pudl/{build}/core_epacems__hourly_emissions.parquet")
-        ):
-            # download the epacems parquet
-            output_filepath = downloads_folder(
-                f"pudl/{build}/core_epacems__hourly_emissions.parquet"
-            )
-            download_helper(
-                epacems_parquet_url,
-                download_path=output_filepath,
-            )
+        # download the epacems and epamats hourly emissions parquet files
+        for table in [
+            "core_epacems__hourly_emissions",
+            "core_epamats__hourly_emissions",
+        ]:
+            if not os.path.exists(downloads_folder(f"pudl/{build}/{table}.parquet")):
+                download_helper(
+                    f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/{table}.parquet",
+                    download_path=downloads_folder(f"pudl/{build}/{table}.parquet"),
+                )
 
         # download the EIA-930 parquet files
         eia930_tables = [
