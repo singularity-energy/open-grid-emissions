@@ -40,7 +40,7 @@ A few notes on these requirements:
 - **Non-CEMS data**: The hourly values of data that comes from EIA-923 are shaped using an hourly profile, so if a subplant consumed fuel that is only reported in EIA-923 in a month, the Hg data for its plant is blank in every hour of that month.
 - **Plants with units that don't report Hg**: Because the requirements apply to each hour and month, a plant with units that don't report Hg can still have Hg data in the hours and months when those units weren't operating. For example, a coal plant with a natural gas peaking unit that doesn't report Hg has hourly Hg data in hours when the peaking unit is off, and monthly Hg data in months when it didn't run at all. However, it won't have annual Hg data if the peaking unit operated at any point during the year.
 
-In 2024, Hg data was complete for 311 subplants (4,332 lb) and 103 plants (3,782 lb) for the entire year, for 1,358 plant-months at 130 plants, and for at least some hours at 147 plants.
+In 2024, hourly Hg data was available for at least some hours at 150 plants (3,998 lb). Hg data was complete for 1,062 subplant-months (1,098 lb) and 275 plant-months (526 lb) in which fuel was consumed, but only for 5 subplants and no plants for the entire year.
 
 ### Hg in the published data
 - Hg is reported as `hg_mass_lb` (total Hg) and `hg_mass_lb_for_electricity` (Hg adjusted for CHP using the electric allocation factor, see [Adjusting Emissions for CHP](Adjusting%20Emissions%20for%20CHP.md)). There is no biomass adjustment for Hg, so there are no `_adjusted` Hg columns. eGRID does not adjust Hg for CHP.
