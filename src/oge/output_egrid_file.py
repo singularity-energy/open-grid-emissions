@@ -28,7 +28,7 @@ from xlsxwriter.utility import xl_rowcol_to_cell
 
 from oge.constants import ConversionFactors
 from oge.filepaths import outputs_folder, results_folder
-from oge.load_data import load_ba_reference
+from oge.load_data import load_ba_reference, load_campd_facility, load_pudl_table
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -215,17 +215,27 @@ OGE_REPOSITORY_URL = "https://github.com/singularity-energy/open-grid-emissions"
 OGE_DOCUMENTATION_URL = "https://docs.singularity.energy/docs/open-grid-emissions"
 OGE_ISSUES_URL = "https://github.com/singularity-energy/open-grid-emissions/issues"
 
-# OGE column for each column of the plant sheet that holds the same quantity. OGE
-# masses are in lb, and are converted to the units of each eGRID column
+# OGE column for each column of the plant sheet that holds the same quantity. Plant
+# attributes come from OGE's plant attributes, or from EIA-860 when OGE does not have
+# them. OGE masses are in lb, and are converted to the units of each eGRID column
 PLANT_DATA_SOURCES = {
     "PSTATABB": "state",
     "PNAME": "plant_name_eia",
     "ORISPL": "plant_id_eia",
+    "OPRNAME": "transmission_distribution_owner_name",
+    "OPRCODE": "transmission_distribution_owner_id",
+    "UTLSRVNM": "utility_name_eia",
+    "UTLSRVID": "utility_id_eia",
+    "SECTOR": "sector",
     "BANAME": "ba_name",
     "BACODE": "ba_code",
+    "NERC": "nerc_region",
+    "FIPSST": "state_id_fips",
+    "FIPSCNTY": "county_id_fips",
     "CNTYNAME": "county",
     "LAT": "latitude",
     "LON": "longitude",
+    "PLPRMFL": "plant_primary_fuel",
     "NAMEPCAP": "capacity_mw",
     "PLHTIANT": "fuel_consumed_for_electricity_mmbtu",
     "PLNGENAN": "net_generation_mwh",
@@ -262,6 +272,15 @@ UNIT_DATA_SOURCES = {
     "SO2AN": "so2_mass_lb",
     "CO2AN": "co2_mass_lb",
     "HGAN": "hg_mass_lb",
+    # unit attributes from the CAMPD facility file, as eGRID codes
+    "PRMVR": "prime_mover_code",
+    "UNTOPST": "operating_status",
+    "PRGCODE": "program_code_epa",
+    "BOTFIRTY": "firing_type",
+    "SO2CTLDV": "so2_controls",
+    "NOXCTLDV": "nox_controls",
+    "HGCTLDV": "hg_controls_flag",
+    "UNTYRONL": "operating_year",
 }
 # OGE column for each column of the generator sheet that holds the same quantity, from
 # the annual totals of OGE's EIA-923 data allocated to generators
@@ -274,6 +293,111 @@ GENERATOR_DATA_SOURCES = {
     "GENNTAN": "net_generation_mwh",
     "GENYRONL": "generator_operating_year",
     "GENYRRET": "generator_retirement_year",
+    # generator attributes from EIA-860
+    "GENSTAT": "operational_status_code",
+    "FUELG1": "energy_source_code_1",
+    "NAMEPCAP": "capacity_mw",
+}
+
+# eGRID codes for the unit attributes in the CAMPD facility file, from eGRID's
+# crosswalks. Operating statuses are EIA status codes
+CAMPD_OPERATING_STATUS_CODES = {
+    "Operating": "OP",
+    "Retired": "RE",
+    "Long-term Cold Storage": "OS",
+    "Future": "P",
+}
+CAMPD_UNIT_TYPE_CODES = {
+    "Arch-fired boiler": "ARCH",
+    "Bubbling fluidized bed boiler": "FLUIDIZED",
+    "Cell burner boiler": "CELL",
+    "Cement Kiln": "KILN",
+    "Circulating fluidized bed boiler": "FLUIDIZED",
+    "Combined cycle": "CC",
+    "Combustion turbine": "CT",
+    "Cyclone boiler": "CYCLONE",
+    "Dry bottom turbo-fired boiler": "TURBO",
+    "Dry bottom vertically-fired boiler": "VERTICAL",
+    "Dry bottom wall-fired boiler": "WALL",
+    "Integrated gasification combined cycle": "IGC",
+    "Internal combustion engine": "ENGINE",
+    "Other boiler": "OTHER BOILER",
+    "Other turbine": "OTHER TURBINE",
+    "Pressurized fluidized bed boiler": "FLUIDIZED",
+    "Process Heater": "PROCESS",
+    "Stoker": "STOKER",
+    "Tangentially-fired": "TANGENTIAL",
+    "Wet bottom turbo-fired boiler": "TURBO",
+    "Wet bottom vertically-fired boiler": "VERTICAL",
+    "Wet bottom wall-fired boiler": "WALL",
+}
+# EIA prime mover of each CAMPD unit type, as eGRID assigns it. One correction: eGRID's
+# code groups arch-fired boilers with combustion turbines (GT), which looks like an
+# error since they are boilers, so they are steam turbines (ST) here like other boilers
+CAMPD_UNIT_TYPE_PRIME_MOVERS = {
+    "Arch-fired boiler": "ST",
+    "Bubbling fluidized bed boiler": "ST",
+    "Cell burner boiler": "ST",
+    "Cement Kiln": "ST",
+    "Circulating fluidized bed boiler": "ST",
+    "Combined cycle": "CT",
+    "Combustion turbine": "GT",
+    "Cyclone boiler": "ST",
+    "Dry bottom turbo-fired boiler": "ST",
+    "Dry bottom vertically-fired boiler": "ST",
+    "Dry bottom wall-fired boiler": "ST",
+    "Integrated gasification combined cycle": "ST",
+    "Other boiler": "ST",
+    "Other turbine": "OT",
+    "Pressurized fluidized bed boiler": "ST",
+    "Process Heater": "ST",
+    "Stoker": "ST",
+    "Tangentially-fired": "ST",
+    "Wet bottom turbo-fired boiler": "ST",
+    "Wet bottom vertically-fired boiler": "ST",
+    "Wet bottom wall-fired boiler": "ST",
+}
+CAMPD_SO2_CONTROL_CODES = {
+    "Dry Lime FGD": "DL",
+    "Dry Sorbent Injection": "DSI",
+    "Dual Alkali": "DA",
+    "Fluidized Bed Limestone Injection": "FBL",
+    "Other": "O",
+    "Sodium Based": "SB",
+    "Wet Lime FGD": "WL",
+    "Wet Limestone": "WLS",
+}
+CAMPD_NOX_CONTROL_CODES = {
+    "Ammonia Injection": "NH3",
+    "Combustion Modification/Fuel Reburning": "CM",
+    "Dry Low NOx Burners": "LNB",
+    "Low NOx Burner Technology (Dry Bottom only)": "LNB",
+    "Low NOx Burner Technology w/ Closed-coupled OFA": "LNC1",
+    "Low NOx Burner Technology w/ Separated OFA": "LNC2",
+    "Low NOx Burner Technology w/ Closed-coupled/Separated OFA": "LNC3",
+    "Low NOx Burner Technology w/ Overfire Air": "LNBO",
+    "Low NOx Cell Burner": "LNCB",
+    "Other": "O",
+    "Overfire Air": "OFA",
+    "Selective Catalytic Reduction": "SCR",
+    "Selective Non-catalytic Reduction": "SNCR",
+    "Steam Injection": "STM",
+    "Water Injection": "H2O",
+}
+
+# CAMPD notes when a status, unit type or control started or ended in the year, e.g.
+# "Water Injection (Retired Jun 01, 2024)"
+CAMPD_DATE_NOTE = r"\s*\((Began|Ended|Retired|Started)[^)]*\)"
+
+# eGRID plant sector of each EIA sector ID
+EIA_SECTORS = {
+    1: "Electric Utility",
+    2: "IPP Non-CHP",
+    3: "IPP CHP",
+    4: "Commercial Non-CHP",
+    5: "Commercial CHP",
+    6: "Industrial Non-CHP",
+    7: "Industrial CHP",
 }
 # OGE fuel category and column for each data column of the BA and U.S. sheets that
 # holds the same quantity, keyed by the code without the sheet's prefix
@@ -371,7 +495,8 @@ def build_egrid_tables(year: int, path_prefix: str) -> dict[str, pd.DataFrame]:
 
 
 def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
-    """Builds the unit sheet of the eGRID data file from OGE's cleaned hourly CEMS data.
+    """Builds the unit sheet of the eGRID data file from OGE's cleaned hourly CEMS data
+    and the unit attributes in the CAMPD facility file.
 
     The sheet has the units that report to CEMS. Hg is the sum of the hours with Hg
     data, as in eGRID, and is blank for units that do not report Hg.
@@ -411,7 +536,9 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
         )
         .reset_index()
     )
-    units = units.merge(load_plant_names(path_prefix), on="plant_id_eia", how="left")
+    units = units.merge(
+        load_plant_names(path_prefix), on="plant_id_eia", how="left"
+    ).merge(load_campd_unit_attributes(year), on=keys, how="left")
     table = build_sheet_rows(
         units, UNIT_DATA_SOURCES, year, "SEQUNT", ["state", "plant_name_eia", *keys]
     )
@@ -422,7 +549,7 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
 
 def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
     """Builds the generator sheet of the eGRID data file from OGE's EIA-923 data
-    allocated to generators.
+    allocated to generators and the generator attributes in EIA-860.
 
     Args:
         year (int): data year.
@@ -472,6 +599,16 @@ def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
         on=keys,
         how="left",
     ).merge(load_plant_names(path_prefix), on="plant_id_eia", how="left")
+    eia860_generators = load_pudl_table(
+        "core_eia860__scd_generators",
+        year=year,
+        columns=keys
+        + ["operational_status_code", "energy_source_code_1", "capacity_mw"],
+    )
+    eia860_generators["operational_status_code"] = eia860_generators[
+        "operational_status_code"
+    ].str.upper()
+    generators = generators.merge(eia860_generators, on=keys, how="left")
     return build_sheet_rows(
         generators,
         GENERATOR_DATA_SOURCES,
@@ -479,6 +616,127 @@ def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
         "SEQGEN",
         ["state", "plant_name_eia", *keys],
     )
+
+
+def load_campd_unit_attributes(year: int) -> pd.DataFrame:
+    """Loads the attributes of each unit in the CAMPD facility file, translated to
+    eGRID's codes.
+
+    Args:
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: plant_id_eia, emissions_unit_id_epa, prime mover, operating
+            status, program codes, firing type, SO2 and NOx control codes, Hg control flag and year of
+            commercial operation of each unit.
+    """
+    facility = load_campd_facility(year).drop_duplicates(
+        subset=["plant_id_eia", "emissions_unit_id_epa"]
+    )
+    return pd.DataFrame(
+        {
+            "plant_id_eia": facility["plant_id_eia"],
+            "emissions_unit_id_epa": facility["emissions_unit_id_epa"],
+            "prime_mover_code": facility["unit_type_epa"].map(
+                CAMPD_UNIT_TYPE_PRIME_MOVERS
+            ),
+            "operating_status": translate_campd_values(
+                facility["operating_status_epa"], CAMPD_OPERATING_STATUS_CODES
+            ),
+            "program_code_epa": facility["program_code_epa"],
+            "firing_type": translate_campd_values(
+                facility["unit_type_epa"], CAMPD_UNIT_TYPE_CODES
+            ),
+            "so2_controls": translate_campd_values(
+                facility["so2_controls_epa"], CAMPD_SO2_CONTROL_CODES
+            ),
+            "nox_controls": translate_campd_values(
+                facility["nox_controls_epa"], CAMPD_NOX_CONTROL_CODES
+            ),
+            "hg_controls_flag": facility["hg_controls_epa"]
+            .notna()
+            .map({True: "Yes", False: pd.NA}),
+            "operating_year": facility["commercial_operation_date_epa"].dt.year.astype(
+                "Int64"
+            ),
+        }
+    )
+
+
+def translate_campd_values(values: pd.Series, codes: dict[str, str]) -> pd.Series:
+    """Translates CAMPD descriptions to eGRID codes.
+
+    CAMPD lists several values separated by "|" and notes when each started or ended
+    in parentheses, e.g. "Water Injection (Retired Jun 01, 2024)|Selective Catalytic
+    Reduction". Each value is translated, and the codes are joined by commas as in
+    eGRID, e.g. "H2O,SCR". Values without a code are kept as they are.
+
+    Args:
+        values (pd.Series): CAMPD descriptions.
+        codes (dict[str, str]): eGRID code of each CAMPD description.
+
+    Returns:
+        pd.Series: eGRID codes, blank where the description is blank.
+    """
+    return values.str.split("|").map(
+        lambda descriptions: ",".join(
+            codes.get(description, description)
+            for description in (
+                re.sub(CAMPD_DATE_NOTE, "", description).strip()
+                for description in descriptions
+            )
+        ),
+        na_action="ignore",
+    )
+
+
+def load_eia860_plant_attributes(year: int) -> pd.DataFrame:
+    """Loads the attributes of each plant reported in EIA-860.
+
+    Args:
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: plant_id_eia, name, state, county, location, state and county
+            FIPS codes, transmission or distribution system owner, utility, eGRID
+            sector and NERC region of each plant. The county FIPS code is the three
+            digits within the state, as in eGRID.
+    """
+    plants = load_pudl_table(
+        "core_eia__entity_plants",
+        columns=[
+            "plant_id_eia",
+            "plant_name_eia",
+            "state",
+            "county",
+            "latitude",
+            "longitude",
+            "state_id_fips",
+            "county_id_fips",
+        ],
+    ).merge(
+        load_pudl_table(
+            "core_eia860__scd_plants",
+            year=year,
+            columns=[
+                "plant_id_eia",
+                "transmission_distribution_owner_name",
+                "transmission_distribution_owner_id",
+                "utility_id_eia",
+                "sector_id_eia",
+                "nerc_region",
+            ],
+        ).merge(
+            load_pudl_table("core_eia__entity_utilities"),
+            on="utility_id_eia",
+            how="left",
+        ),
+        on="plant_id_eia",
+        how="left",
+    )
+    plants["county_id_fips"] = plants["county_id_fips"].str[-3:]
+    plants["sector"] = plants["sector_id_eia"].map(EIA_SECTORS)
+    return plants.drop(columns="sector_id_eia")
 
 
 def load_plant_names(path_prefix: str) -> pd.DataFrame:
@@ -541,11 +799,21 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     )
     plant_attributes = pd.read_csv(
         results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
-        usecols=["plant_id_eia", "latitude", "longitude"],
+        usecols=["plant_id_eia", "latitude", "longitude", "plant_primary_fuel"],
     )
-    plants = plant_data.merge(plant_attributes, on="plant_id_eia", how="left").merge(
-        load_ba_reference()[["ba_code", "ba_name"]], on="ba_code", how="left"
+    plants = (
+        plant_data.merge(plant_attributes, on="plant_id_eia", how="left")
+        .merge(load_ba_reference()[["ba_code", "ba_name"]], on="ba_code", how="left")
+        .merge(
+            load_eia860_plant_attributes(year),
+            on="plant_id_eia",
+            how="left",
+            suffixes=("", "_eia860"),
+        )
     )
+    # use the EIA-860 attributes where OGE does not have them
+    for column in ["state", "plant_name_eia", "county", "latitude", "longitude"]:
+        plants[column] = plants[column].fillna(plants[f"{column}_eia860"])
     table = build_sheet_rows(
         plants,
         PLANT_DATA_SOURCES,

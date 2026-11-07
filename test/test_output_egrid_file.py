@@ -211,7 +211,9 @@ def results(tmp_path, monkeypatch):
     Plant 1 (BA1) burns gas and plant 2 (BA2) is solar. BA2 has no coal or other
     generation. Plant 1 has two CEMS units: unit 1 reports Hg in one of its two hours
     and unit 2 does not report Hg. Plant 1 has one generator (GT1) and plant 2 has one
-    (PV1), which retired in 2024.
+    (PV1), which retired in 2024. The CAMPD facility file and EIA-860 tables are
+    replaced by small tables: plant 2 is missing its county from OGE's attributes, so it
+    comes from EIA-860.
     """
     monkeypatch.setattr(
         output_egrid_file, "results_folder", lambda rel="": str(tmp_path / rel)
@@ -221,6 +223,70 @@ def results(tmp_path, monkeypatch):
         "outputs_folder",
         lambda rel="": str(tmp_path / "outputs" / rel),
     )
+    monkeypatch.setattr(
+        output_egrid_file,
+        "load_campd_facility",
+        lambda year: pd.DataFrame(
+            {
+                "plant_id_eia": [1, 1],
+                "emissions_unit_id_epa": ["1", "2"],
+                "operating_status_epa": ["Operating", "Operating (Retired 06/30/2024)"],
+                "program_code_epa": ["ARP, CSOSG2", "ARP"],
+                "unit_type_epa": ["Combined cycle", "Combustion turbine"],
+                "so2_controls_epa": [pd.NA, pd.NA],
+                "nox_controls_epa": [
+                    "Water Injection (Retired Jun 01, 2024)|"
+                    "Selective Catalytic Reduction",
+                    "Low NOx Burner Technology (Dry Bottom only)",
+                ],
+                "hg_controls_epa": [pd.NA, "Halogenated PAC Sorbent Injection"],
+                "commercial_operation_date_epa": pd.to_datetime(
+                    ["2001-06-01", "1975-01-01"]
+                ),
+            }
+        ),
+    )
+    pudl_tables = {
+        "core_eia860__scd_generators": pd.DataFrame(
+            {
+                "plant_id_eia": [1, 2],
+                "generator_id": ["GT1", "PV1"],
+                "operational_status_code": ["op", "RE"],
+                "energy_source_code_1": ["NG", "SUN"],
+                "capacity_mw": [100.0, 50.0],
+            }
+        ),
+        "core_eia__entity_plants": pd.DataFrame(
+            {
+                "plant_id_eia": [1, 2],
+                "plant_name_eia": ["Gas Plant EIA", "Solar Plant EIA"],
+                "state": ["TX", "AZ"],
+                "county": ["Travis EIA", "Pima"],
+                "latitude": [30.5, 32.5],
+                "longitude": [-97.5, -111.5],
+                "state_id_fips": ["48", "04"],
+                "county_id_fips": ["48453", "04019"],
+            }
+        ),
+        "core_eia860__scd_plants": pd.DataFrame(
+            {
+                "plant_id_eia": [1, 2],
+                "transmission_distribution_owner_name": ["Wires Co", "Wires Co"],
+                "transmission_distribution_owner_id": [10, 10],
+                "utility_id_eia": [20, 21],
+                "sector_id_eia": [2, 1],
+                "nerc_region": ["TRE", "WECC"],
+            }
+        ),
+        "core_eia__entity_utilities": pd.DataFrame(
+            {"utility_id_eia": [20, 21], "utility_name_eia": ["Gas Co", "Solar Co"]}
+        ),
+    }
+    monkeypatch.setattr(
+        output_egrid_file,
+        "load_pudl_table",
+        lambda table, year=None, columns=None: pudl_tables[table],
+    )
     plant_folder = tmp_path / "2024/plant_data"
     (plant_folder / "annual/us_units").mkdir(parents=True)
     plant_data = pd.DataFrame(
@@ -229,7 +295,7 @@ def results(tmp_path, monkeypatch):
             "plant_name_eia": ["Gas Plant", "Solar Plant"],
             "ba_code": ["BA1", "BA2"],
             "state": ["TX", "AZ"],
-            "county": ["Travis", "Pima"],
+            "county": ["Travis", None],
             "capacity_mw": [100.0, 50.0],
             "net_generation_mwh": [1000.0, 500.0],
             "fuel_consumed_mmbtu": [12000.0, 0.0],
@@ -239,16 +305,17 @@ def results(tmp_path, monkeypatch):
             "generated_co2_rate_lb_per_mwh_for_electricity_adjusted": [1000.0, 0.0],
         }
     )
+    # the other data columns of the plant sheet are zero
     for column in output_egrid_file.PLANT_DATA_SOURCES.values():
-        if column not in plant_data and column not in [
-            "latitude",
-            "longitude",
-            "ba_name",
-        ]:
+        if column not in plant_data and any(
+            unit in column for unit in ["_lb", "_mmbtu", "_mwh"]
+        ):
             plant_data[column] = 0.0
     plant_data.to_csv(plant_folder / "annual/us_units/plant_data.csv", index=False)
     plant_data[["plant_id_eia", "plant_name_eia", "state"]].assign(
-        latitude=[30.0, 32.0], longitude=[-97.0, -111.0]
+        latitude=[30.0, 32.0],
+        longitude=[-97.0, -111.0],
+        plant_primary_fuel=["NG", "SUN"],
     ).to_csv(plant_folder / "plant_static_attributes.csv", index=False)
     outputs_folder = tmp_path / "outputs/2024"
     outputs_folder.mkdir(parents=True)
@@ -316,6 +383,23 @@ def test_plant_table(results):
     assert gas["PLHTIANT"] == 10000.0
     assert gas["UNHTIT"] == 12000.0
     assert gas["LAT"] == 30.0
+    assert gas["PLPRMFL"] == "NG"
+
+
+def test_plant_attributes_use_oge_then_eia860(results):
+    plants = output_egrid_file.build_plant_table(2024, "2024/").set_index("ORISPL")
+    # OGE's attributes are used where OGE has them, and EIA-860's otherwise
+    assert plants.loc[1, "PNAME"] == "Gas Plant"
+    assert plants.loc[1, "CNTYNAME"] == "Travis"
+    assert plants.loc[2, "CNTYNAME"] == "Pima"
+    assert plants.loc[1, "OPRNAME"] == "Wires Co"
+    assert plants.loc[1, "UTLSRVID"] == 20
+    assert plants.loc[1, "UTLSRVNM"] == "Gas Co"
+    assert plants.loc[1, "SECTOR"] == "IPP Non-CHP"
+    assert plants.loc[2, "SECTOR"] == "Electric Utility"
+    assert plants.loc[1, "NERC"] == "TRE"
+    assert plants.loc[1, "FIPSST"] == "48"
+    assert plants.loc[1, "FIPSCNTY"] == "453"
 
 
 def test_unit_table(results):
@@ -339,6 +423,33 @@ def test_unit_table(results):
     # pollutants that a unit does not report are blank
     assert pd.isna(units.loc["1", "SO2AN"])
     assert units.loc["2", "SO2AN"] == 0.001
+    # unit attributes come from the CAMPD facility file, as eGRID codes
+    assert units.loc["1", "PRGCODE"] == "ARP, CSOSG2"
+    assert units.loc["1", "UNTOPST"] == "OP"
+    assert units.loc["2", "UNTOPST"] == "OP"
+    assert units.loc["1", "BOTFIRTY"] == "CC"
+    # the prime mover follows from the CAMPD unit type, as in eGRID
+    assert units.loc["1", "PRMVR"] == "CT"
+    assert units.loc["2", "PRMVR"] == "GT"
+    assert units.loc["1", "NOXCTLDV"] == "H2O,SCR"
+    assert units.loc["2", "NOXCTLDV"] == "LNB"
+    assert pd.isna(units.loc["1", "SO2CTLDV"])
+    assert pd.isna(units.loc["1", "HGCTLDV"])
+    assert units.loc["2", "HGCTLDV"] == "Yes"
+    assert units.loc["1", "UNTYRONL"] == 2001
+
+
+def test_translate_campd_values():
+    values = pd.Series(
+        ["Wet Lime FGD|Wet Limestone (Began Jan 01, 2024)", None, "New control"]
+    )
+    translated = output_egrid_file.translate_campd_values(
+        values, output_egrid_file.CAMPD_SO2_CONTROL_CODES
+    )
+    assert translated[0] == "WL,WLS"
+    assert pd.isna(translated[1])
+    # values without a code are kept as they are
+    assert translated[2] == "New control"
 
 
 def test_generator_table(results):
@@ -355,6 +466,11 @@ def test_generator_table(results):
     assert generators.loc["GT1", "GENYRONL"] == 2001
     assert pd.isna(generators.loc["GT1", "GENYRRET"])
     assert generators.loc["PV1", "GENYRRET"] == 2024
+    # generator attributes come from EIA-860
+    assert generators.loc["GT1", "GENSTAT"] == "OP"
+    assert generators.loc["PV1", "GENSTAT"] == "RE"
+    assert generators.loc["GT1", "FUELG1"] == "NG"
+    assert generators.loc["PV1", "NAMEPCAP"] == 50.0
 
 
 def test_region_tables(results):
