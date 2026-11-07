@@ -18,7 +18,7 @@ After loading the transformed cems data into the pipeline, we perform several ot
 
 Certain data reported to CEMS are removed, including:
 - Data for plants that are not connected to the electrical grid (These include all plants with a `plant_id_eia` of `88xxxx` and the plants in [this table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/plants_not_connected_to_grid.csv))
-- Data for plants in Puerto Rico (These data will be added in a future release. Track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79))
+- Data for plants in Puerto Rico. AES Puerto Rico (61082) is the only Puerto Rico plant that reports hourly data to CEMS, and it only reports gross generation, without any fuel consumption or emissions data. The other Puerto Rico plants that report to EPA, which are operated by PREPA, do not report hourly data. Consistent with eGRID, data for all Puerto Rico plants comes from EIA-923 instead.
 - Data for any unit-months where there is less than one day of non-missing data are dropped. This is generally months that have a single hour of data reported.
 
 

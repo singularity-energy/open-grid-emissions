@@ -265,7 +265,6 @@ def clean_eia923(
         gen_fuel_allocated,
         year,
         non_grid_connected=True,
-        remove_states=["PR"],
         remove_steam_only=False,
         distribution_connected_plants=False,
     )
