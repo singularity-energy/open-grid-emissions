@@ -1,3 +1,5 @@
+import functools
+from typing import Callable
 import numpy as np
 import pandas as pd
 import sqlalchemy as sa
@@ -11,6 +13,7 @@ from oge.constants import (
     CLEAN_FUELS,
     ConversionFactors,
     earliest_data_year,
+    earliest_puerto_rico_data_year,
     earliest_validated_year,
     latest_validated_year,
     current_early_release_year,
@@ -459,9 +462,21 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
         )
     )
 
+    # EIA-860 does not include Puerto Rico, so load the operating dates and unit codes
+    # of Puerto Rico generators from the December EIA-860M
+    # TODO: remove once PUDL keeps a yearly history of Puerto Rico generators
+    puerto_rico_unit_ids = (
+        load_raw_eia860m_puerto_rico_generators(year).rename(
+            columns={"generator_operating_date": "operating_date_eia"}
+        )[["plant_id_eia", "generator_id", "operating_date_eia", "unit_id_eia"]]
+        if year >= earliest_puerto_rico_data_year
+        else None
+    )
+
     # concat the data together
     generator_data_from_eia860 = pd.concat(
-        [generator_op_dates_eia860, proposed_unit_ids_eia860], axis=0
+        [generator_op_dates_eia860, proposed_unit_ids_eia860, puerto_rico_unit_ids],
+        axis=0,
     )
 
     # create a numeric version of the ID, starting at 1
@@ -482,6 +497,247 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
     )
 
     return generator_data_from_eia860
+
+
+def load_raw_eia860m_puerto_rico_generators(year: int) -> pd.DataFrame:
+    """Loads the Puerto Rico generators reported in the December EIA-860M of a year.
+
+    Puerto Rico generators are only reported in EIA-860M, which lists them from December
+    2018 onward. PUDL only includes the most recent EIA-860M snapshot of them, so until
+    PUDL keeps a history of these generators, we use the December file of each year, as
+    eGRID does. Operating and planned generators are kept, along with generators that
+    retired during the year.
+
+    Args:
+        year (int): a four-digit year, 2018 or later.
+
+    Raises:
+        ValueError: if `year` is before 2018.
+
+    Returns:
+        pd.DataFrame: one row per generator, using PUDL's EIA-860 column names, with
+            the generator's operating status as of December and a report_date at the
+            start of the year.
+    """
+    if year < earliest_puerto_rico_data_year:
+        raise ValueError(
+            f"EIA-860M does not report Puerto Rico generators for {year}, only for "
+            f"{earliest_puerto_rico_data_year} onward."
+        )
+    filepath = downloads_folder(f"eia860m/december_generator{year}.xlsx")
+
+    column_names = {
+        "Entity ID": "utility_id_eia",
+        "Entity Name": "utility_name_eia",
+        "Plant ID": "plant_id_eia",
+        "Plant Name": "plant_name_eia",
+        "Plant State": "state",
+        "County": "county",
+        "Balancing Authority Code": "balancing_authority_code_eia",
+        "Generator ID": "generator_id",
+        "Unit Code": "unit_id_eia",
+        "Nameplate Capacity (MW)": "capacity_mw",
+        "Net Summer Capacity (MW)": "summer_capacity_mw",
+        "Net Winter Capacity (MW)": "winter_capacity_mw",
+        "Nameplate Energy Capacity (MWh)": "energy_storage_capacity_mwh",
+        "DC Net Capacity (MW)": "net_capacity_mwdc",
+        "Technology": "technology_description",
+        "Energy Source Code": "energy_source_code_1",
+        "Prime Mover Code": "prime_mover_code",
+        "Status": "operational_status_code",
+        "Latitude": "latitude",
+        "Longitude": "longitude",
+    }
+    # each date is reported as a month column and a year column
+    date_columns = {
+        "generator_operating_date": ("Operating Month", "Operating Year"),
+        "current_planned_generator_operating_date": (
+            "Planned Operation Month",
+            "Planned Operation Year",
+        ),
+        "planned_generator_retirement_date": (
+            "Planned Retirement Month",
+            "Planned Retirement Year",
+        ),
+        "generator_retirement_date": ("Retirement Month", "Retirement Year"),
+    }
+
+    tabs = []
+    for sheet_name in ["Operating_PR", "Planned_PR", "Retired_PR"]:
+        # the number of title rows above the column names changes between years
+        header_row = (
+            pd.read_excel(filepath, sheet_name=sheet_name, header=None, nrows=5)
+            .eq("Entity ID")
+            .any(axis=1)
+            .idxmax()
+        )
+        tab = pd.read_excel(
+            filepath,
+            sheet_name=sheet_name,
+            header=header_row,
+            dtype={"Generator ID": str, "Unit Code": str},
+            na_values=" ",
+        )
+        # drop the blank row and the notes below the table
+        tab = tab[pd.to_numeric(tab["Plant ID"], errors="coerce").notna()]
+        for date_column, (month_column, year_column) in date_columns.items():
+            if year_column in tab.columns:
+                tab[date_column] = pd.to_datetime(
+                    pd.DataFrame(
+                        {
+                            "year": pd.to_numeric(tab[year_column], errors="coerce"),
+                            "month": pd.to_numeric(tab[month_column], errors="coerce"),
+                            "day": 1,
+                        }
+                    ),
+                    errors="coerce",
+                )
+        tabs.append(
+            tab.rename(columns=column_names).filter(
+                items=list(column_names.values()) + list(date_columns)
+            )
+        )
+    operating, planned, retired = tabs
+
+    # the retired tab lists every generator that has retired, so only keep those that
+    # retired during the year
+    retired = retired[retired["generator_retirement_date"].dt.year == year].assign(
+        operational_status_code="RE"
+    )
+    generators = pd.concat([operating, planned, retired], ignore_index=True)
+
+    # statuses are reported like "(OP) Operating", so keep the code in parentheses
+    generators["operational_status_code"] = generators[
+        "operational_status_code"
+    ].str.replace(r"^\((\w+)\).*", r"\1", regex=True)
+    generators["operational_status"] = (
+        generators["operational_status_code"]
+        .map(
+            {
+                "RE": "retired",
+                "OP": "existing",
+                "SB": "existing",
+                "OA": "existing",
+                "OS": "existing",
+            }
+        )
+        .fillna("proposed")
+    )
+    generators["report_date"] = pd.Timestamp(year=year, month=1, day=1)
+
+    return apply_dtypes(generators)
+
+
+def load_raw_eia923_puerto_rico_generation_fuel(year: int) -> pd.DataFrame:
+    """Loads monthly generation and fuel consumption for Puerto Rico plants from the raw
+    EIA-923, which reports them on a separate sheet from the other states. PUDL does not
+    yet include this sheet.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: one row per plant, prime mover, energy source code, and month,
+            using the column names of PUDL's generation and fuel table.
+    """
+    is_early_release = (year == current_early_release_year) and (
+        current_early_release_year != latest_validated_year
+    )
+    directory = f"eia923/f923_{year}er" if is_early_release else f"eia923/f923_{year}"
+    filepath = find_downloaded_file(
+        directory, f"EIA923_Schedules_2_3_4_5_M_12_{year}*.xlsx"
+    )
+
+    # the number of title rows above the column names changes between years, and early
+    # release files add a column of notes to the left of the table
+    title_rows = pd.read_excel(
+        filepath, sheet_name="Page 1 Puerto Rico", header=None, nrows=15
+    )
+    header_row = title_rows.eq("Plant Id").any(axis=1).idxmax()
+    generation_fuel = pd.read_excel(
+        filepath,
+        sheet_name="Page 1 Puerto Rico",
+        header=header_row,
+        na_values=".",
+    )
+    generation_fuel.columns = generation_fuel.columns.str.replace("\n", " ")
+    generation_fuel = generation_fuel.loc[:, "Plant Id":]
+
+    # drop the rows that EIA uses to reconcile plant totals with state totals, which PUDL
+    # also drops from the other states
+    generation_fuel = generation_fuel[
+        ~generation_fuel["Plant Id"].isin([99999, 999999])
+    ]
+
+    monthly_values = {
+        "Quantity": "fuel_consumed_units",
+        "Elec_Quantity": "fuel_consumed_for_electricity_units",
+        "MMBtuPer_Unit": "fuel_mmbtu_per_unit",
+        "Tot_MMBtu": "fuel_consumed_mmbtu",
+        "Elec_MMBtu": "fuel_consumed_for_electricity_mmbtu",
+        "Netgen": "net_generation_mwh",
+    }
+    id_columns = {
+        "Plant Id": "plant_id_eia",
+        "Plant Name": "plant_name_eia",
+        "Operator Id": "utility_id_eia",
+        "Operator Name": "utility_name_eia",
+        "Reported Prime Mover": "prime_mover_code",
+        "Reported Fuel Type Code": "energy_source_code",
+    }
+    months = pd.date_range(f"{year}-01-01", periods=12, freq="MS").strftime("%B")
+    value_columns = [f"{value} {month}" for value in monthly_values for month in months]
+
+    # a plant can report the same prime mover and fuel on more than one row (e.g.
+    # Cervecera de Puerto Rico in 2020, once as CHP and once as non-CHP), so combine
+    # these rows and recalculate their heat content, as PUDL does for the other states
+    is_duplicated = generation_fuel.duplicated(
+        subset=["Plant Id", "Reported Prime Mover", "Reported Fuel Type Code"],
+        keep=False,
+    )
+    combined_rows = (
+        generation_fuel[is_duplicated]
+        .groupby(list(id_columns), dropna=False)[value_columns]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    for month in months:
+        combined_rows[f"MMBtuPer_Unit {month}"] = (
+            combined_rows[f"Tot_MMBtu {month}"] / combined_rows[f"Quantity {month}"]
+        ).replace([np.inf, -np.inf], np.nan)
+    generation_fuel = pd.concat(
+        [generation_fuel[~is_duplicated], combined_rows], ignore_index=True
+    )
+
+    # each value is reported in one column per month, so convert these to one row per
+    # month
+    generation_fuel = generation_fuel.set_index(list(id_columns))[value_columns]
+    generation_fuel.columns = pd.MultiIndex.from_tuples(
+        [column.rsplit(" ", 1) for column in value_columns], names=[None, "month"]
+    )
+    generation_fuel = (
+        generation_fuel.stack("month", future_stack=True)
+        .reset_index()
+        .rename(columns=id_columns | monthly_values)
+    )
+    generation_fuel["report_date"] = pd.to_datetime(
+        generation_fuel.pop("month") + f" {year}", format="%B %Y"
+    )
+    # drop months with no values reported, as PUDL does for the other states
+    generation_fuel = generation_fuel.dropna(
+        subset=list(monthly_values.values()), how="all"
+    )
+
+    # add the columns that PUDL derives from the EIA-923 data
+    fuel_types = load_pudl_table(
+        "core_eia__codes_energy_sources", columns=["code", "fuel_type_code_pudl"]
+    )
+    generation_fuel["fuel_type_code_pudl"] = generation_fuel["energy_source_code"].map(
+        fuel_types.set_index("code")["fuel_type_code_pudl"]
+    )
+    generation_fuel["data_maturity"] = "provisional" if is_early_release else "final"
+
+    return apply_dtypes(generation_fuel)
 
 
 def update_epa_to_eia_map(cems_df: pd.DataFrame, year: int) -> pd.DataFrame:
@@ -855,12 +1111,156 @@ def load_pudl_table(
         )
     )
 
+    # Puerto Rico
+    # Puerto Rico generators are only reported in EIA-860M, and PUDL only includes the most
+    # recent EIA-860M snapshot of them, with a report_date in the latest year. Until PUDL
+    # keeps a yearly history of these generators, we replace PUDL's snapshot with the
+    # generators in the December EIA-860M of each year, as eGRID does. PUDL also does not
+    # yet include the Puerto Rico generation and fuel data, which EIA-923 reports on a
+    # separate sheet, so we load it from the raw EIA-923.
+    # TODO: remove once PUDL keeps a yearly history of Puerto Rico generators and
+    # includes the EIA-923 Puerto Rico data
+    puerto_rico_loaders = {
+        "core_eia860__scd_generators": load_puerto_rico_generators,
+        "out_eia__yearly_generators": load_puerto_rico_generators,
+        "out_eia923__monthly_generation_fuel_combined": (
+            load_raw_eia923_puerto_rico_generation_fuel
+        ),
+        "out_eia923__generation_fuel_combined": (
+            load_raw_eia923_puerto_rico_generation_fuel
+        ),
+    }
+    if table_name in puerto_rico_loaders:
+        table = replace_puerto_rico_data(
+            table, puerto_rico_loaders[table_name], year, end_year, columns
+        )
+
     table = apply_dtypes(table)
 
     if table.empty:
         logger.warning(f"{table_name} is empty")
 
     return table
+
+
+def replace_puerto_rico_data(
+    table: pd.DataFrame,
+    load_puerto_rico_year: Callable[[int], pd.DataFrame],
+    year: int | None,
+    end_year: int | None,
+    columns: list[str] | None,
+) -> pd.DataFrame:
+    """Replaces the Puerto Rico data in a PUDL table with data loaded for each year
+    that was loaded. Any rows that PUDL has for these plants are dropped.
+
+    Args:
+        table (pd.DataFrame): a PUDL table, which must include plant_id_eia.
+        load_puerto_rico_year (Callable[[int], pd.DataFrame]): loads the Puerto Rico
+            data for one year, in the format of the PUDL table.
+        year (int | None): the first year loaded, or None if all years were loaded.
+        end_year (int | None): the last year loaded, or None if only `year` was
+            loaded.
+        columns (list[str] | None): the columns loaded, or None if all were loaded.
+
+    Returns:
+        pd.DataFrame: the table, with Puerto Rico data for each year loaded from 2018
+            onward.
+    """
+    latest_year = max(latest_validated_year, current_early_release_year)
+    first_year = max(year or earliest_data_year, earliest_puerto_rico_data_year)
+    last_year = min(end_year or year or latest_year, latest_year)
+
+    if first_year > last_year:
+        return table
+    puerto_rico_data = pd.concat(
+        [
+            load_puerto_rico_year(puerto_rico_year)
+            for puerto_rico_year in range(first_year, last_year + 1)
+        ],
+        ignore_index=True,
+    )
+    # drop any PUDL data for these plants, such as PUDL's EIA-860M snapshot of Puerto
+    # Rico generators, which is only loaded with the latest year
+    table = table[~table["plant_id_eia"].isin(puerto_rico_data["plant_id_eia"])]
+    if columns is not None:
+        puerto_rico_data = puerto_rico_data.reindex(columns=columns)
+    return pd.concat([table, puerto_rico_data], ignore_index=True)
+
+
+@functools.cache
+def load_puerto_rico_generators(year: int) -> pd.DataFrame:
+    """Loads the Puerto Rico generators for a year in the format of PUDL's generator
+    tables.
+
+    Generators come from the December EIA-860M of the year. Plants that report
+    generation to EIA-923 in the year but are missing from that file get their
+    generators from PUDL's EIA-860M snapshot instead, keeping those that were operating
+    during the year.
+
+    The result is cached for each year, since the generator tables are loaded many times
+    during a pipeline run. Callers should not modify the returned table in place.
+
+    Args:
+        year (int): a four-digit year, 2018 or later.
+
+    Returns:
+        pd.DataFrame: one row per Puerto Rico generator.
+    """
+    generators = load_raw_eia860m_puerto_rico_generators(year)
+
+    # Some plants report generation to EIA-923 before their generators appear in
+    # EIA-860M. For these, use the generators in PUDL's EIA-860M snapshot, which is the
+    # most recent one available.
+    plants_with_generation = load_raw_eia923_puerto_rico_generation_fuel(year)[
+        "plant_id_eia"
+    ].unique()
+    missing_plants = set(plants_with_generation) - set(generators["plant_id_eia"])
+    if missing_plants:
+        # read the table directly, since loading it with load_pudl_table would replace
+        # its Puerto Rico generators by calling this function again
+        snapshot_columns = generators.columns.drop(
+            ["unit_id_eia", "report_date"]
+        ).tolist()
+        snapshot = apply_dtypes(
+            load_pudl_table_from_local(
+                "out_eia__yearly_generators", columns=snapshot_columns
+            )
+            if PUDL_ENGINE
+            else load_pudl_table_from_s3(
+                "out_eia__yearly_generators", columns=snapshot_columns
+            )
+        )
+        snapshot = snapshot[
+            snapshot["plant_id_eia"].isin(missing_plants)
+            & (snapshot["generator_operating_date"].dt.year <= year)
+            & ~(snapshot["generator_retirement_date"].dt.year < year)
+        ].copy()
+        # generators that retired after the year were still operating during it
+        retired_later = snapshot["generator_retirement_date"].dt.year > year
+        snapshot.loc[retired_later, "generator_retirement_date"] = pd.NaT
+        snapshot.loc[retired_later, "operational_status_code"] = "OP"
+        snapshot.loc[retired_later, "operational_status"] = "existing"
+        snapshot["report_date"] = pd.Timestamp(year=year, month=1, day=1)
+        logger.info(
+            f"Using PUDL's EIA-860M snapshot for {snapshot['plant_id_eia'].nunique()} "
+            f"Puerto Rico plants that report generation in {year} but are missing from "
+            "that year's December EIA-860M"
+        )
+        generators = pd.concat([generators, snapshot], ignore_index=True)
+
+    # add the columns that PUDL derives from the EIA-860 data
+    fuel_types = load_pudl_table(
+        "core_eia__codes_energy_sources", columns=["code", "fuel_type_code_pudl"]
+    )
+    generators["fuel_type_code_pudl"] = generators["energy_source_code_1"].map(
+        fuel_types.set_index("code")["fuel_type_code_pudl"]
+    )
+    generators["fuel_type_count"] = (
+        generators["energy_source_code_1"].notna().astype(int)
+    )
+    generators["data_maturity"] = "monthly_update"
+
+    return apply_dtypes(generators)
 
 
 def load_epa_eia_crosswalk_from_raw() -> pd.DataFrame:
@@ -1654,9 +2054,6 @@ def load_egrid_plant_file(year: int) -> pd.DataFrame:
             "fuel_data_source_ozone",
         ]
     ]
-
-    # We also want to remove any plants that are located in Puerto Rico
-    egrid_plant = egrid_plant[(egrid_plant["state"] != "PR")]
 
     # create a column for eia id
     egrid_plant = add_egrid_plant_id(egrid_plant, from_id="egrid", to_id="eia")

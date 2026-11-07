@@ -11,13 +11,18 @@ stoplight-id: input_data
 
 **EIA Form 923**
 * **What is it**: Reported monthly net generation and fuel consumption data for power generators > 1 MW
-* **How we use it**: To convert gross generation data from CEMS to net generation, and to fill in generation and emissions data for generator-months that are not reported in CEMS
+* **How we use it**: To convert gross generation data from CEMS to net generation, and to fill in generation and emissions data for generator-months that are not reported in CEMS. EIA-923 reports Puerto Rico plants on a separate sheet, which PUDL does not yet include, so we load these data from the raw EIA-923 files.
 * **More information**: [https://www.eia.gov/electricity/data/eia923/](https://www.eia.gov/electricity/data/eia923/)
 
 **EIA Form 860**
 * **What is it**: Inventory of all generators and plants and their static characteristics
 * **How we use it**: to transform and aggregate the data reported in CEMS and EIA-923 based on plant and generator characteristics; calculating NOx and SO2 emissions based on plant-specific emissions control equipment and boiler types
 * **More information**: [https://www.eia.gov/electricity/data/eia860/](https://www.eia.gov/electricity/data/eia860/)
+
+**EIA Form 860M**
+* **What is it**: Monthly update to the EIA-860 inventory of generators. It is the only EIA source of generator data for Puerto Rico, which is not included in the annual EIA-860.
+* **How we use it**: For Puerto Rico generators, from 2018 onward. PUDL currently only includes the most recent EIA-860M data for Puerto Rico, so we use the December EIA-860M file of each year, as eGRID does. Plants that report generation to EIA-923 before they appear in EIA-860M use the generators in PUDL's most recent EIA-860M data instead.
+* **More information**: [https://www.eia.gov/electricity/data/eia860m/](https://www.eia.gov/electricity/data/eia860m/)
 
 **EIA Form 861**
 * **What is it**: Data about electric utility and power marketer sales and operations

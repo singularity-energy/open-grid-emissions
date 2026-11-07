@@ -35,6 +35,7 @@ from oge.constants import (
     latest_validated_year,
     current_early_release_year,
     earliest_hourly_data_year,
+    earliest_puerto_rico_data_year,
 )
 from oge.column_checks import DATA_COLUMNS
 from oge.filepaths import downloads_folder, outputs_folder, results_folder
@@ -141,6 +142,16 @@ def main(args):
         max(latest_validated_year, current_early_release_year)
     )
     download_data.download_raw_eia923(year)
+    # Puerto Rico generators are only reported in EIA-860M, and are needed for every
+    # year when identifying subplants. The raw EIA-923 is used to find plants that
+    # report generation before their generators appear in EIA-860M.
+    # TODO: remove once PUDL keeps a yearly history of Puerto Rico generators
+    for puerto_rico_year in range(
+        earliest_puerto_rico_data_year,
+        max(latest_validated_year, current_early_release_year) + 1,
+    ):
+        download_data.download_raw_eia860m_december(puerto_rico_year)
+        download_data.download_raw_eia923(puerto_rico_year)
 
     # 2. Identify subplants
     ####################################################################################

@@ -20,6 +20,10 @@ latest_validated_year = 2025
 # current_early_release_year
 # TODO: Change this to 2026 around July 2027 (check PUDL to see when integrated)
 current_early_release_year = 2025
+# earliest_puerto_rico_data_year is the first year for which Puerto Rico data is
+# included. Puerto Rico generators are only reported in EIA-860M, whose December files
+# list them from 2018 onward.
+earliest_puerto_rico_data_year = 2018
 
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
