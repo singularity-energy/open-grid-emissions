@@ -44,17 +44,23 @@ def test_load_campd_facility_cleans_unit_ids_and_types(monkeypatch, tmp_path):
     (tmp_path / "epa/facility-2025.csv").write_text(
         '"State","Facility Name","Facility ID","Unit ID","Source Category",'
         '"Unit Type","Primary Fuel Type","Secondary Fuel Type",'
-        '"Associated Generators & Nameplate Capacity (MWe)"\n'
+        '"Associated Generators & Nameplate Capacity (MWe)","Program Code",'
+        '"Operating Status","SO2 Controls","NOx Controls","Hg Controls",'
+        '"Commercial Operation Date"\n'
         '"AL","Plant A",1,"01","Electric Utility","Tangentially-fired","Coal",,'
-        '"1 (100)"\n'
+        '"1 (100)","ARP, CSOSG2","Operating","Wet Limestone",'
+        '"Overfire Air|Selective Catalytic Reduction",'
+        '"Halogenated PAC Sorbent Injection","1975-06-01"\n'
         '"CA","AES Alamitos",315,"CT1","Electric Utility",'
         '"Combustion turbine (Started May 19, 2025)","Pipeline Natural Gas",'
-        '"Diesel Oil","CT1 (50), ST1 (25)"\n'
+        '"Diesel Oil","CT1 (50), ST1 (25)","ARP","Operating (Started 05/19/2025)",'
+        ',"Selective Catalytic Reduction",,"2025-05-19"\n'
         '"FL","Plant B",2,"4","Electric Utility",'
         '"Integrated gasification combined cycle (Ended Jun 07, 2025), '
-        'Combustion turbine (Started Jun 07, 2025)","Natural Gas",,\n'
+        'Combustion turbine (Started Jun 07, 2025)","Natural Gas",,,"ARP",'
+        '"Operating",,,,"1996-09-01"\n'
         '"FL","Plant B",2,"5","Electric Utility","Dry bottom wall-fired boiler",'
-        '"Coal, Pipeline Natural Gas",,"5 (300)"\n'
+        '"Coal, Pipeline Natural Gas",,"5 (300)","ARP","Retired",,,,"1980-01-01"\n'
     )
     monkeypatch.setattr(
         load_data, "downloads_folder", lambda path: str(tmp_path / path)
@@ -81,6 +87,17 @@ def test_load_campd_facility_cleans_unit_ids_and_types(monkeypatch, tmp_path):
     assert facility["associated_generators_and_capacity_epa"].tolist()[:2] == [
         "1 (100)",
         "CT1 (50), ST1 (25)",
+    ]
+    assert facility["program_code_epa"].tolist() == ["ARP, CSOSG2", "ARP", "ARP", "ARP"]
+    assert facility["nox_controls_epa"].tolist()[:2] == [
+        "Overfire Air|Selective Catalytic Reduction",
+        "Selective Catalytic Reduction",
+    ]
+    assert facility["commercial_operation_date_epa"].dt.year.tolist() == [
+        1975,
+        2025,
+        1996,
+        1980,
     ]
 
 
