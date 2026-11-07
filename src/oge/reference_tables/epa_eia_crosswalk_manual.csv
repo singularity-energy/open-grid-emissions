@@ -728,4 +728,20 @@ plant_id_epa,emissions_unit_id_epa,plant_id_eia,generator_id,start_year,end_year
 55858,UNT2,55858,UNT2,,,CAMPD Facility database mapping
 56189,6,56189,6,,,CAMPD Facility database mapping
 57480,HGS1,57480,GTG1,,,CAMPD Facility database mapping
+880102,1,61082,UNIT1,,,Puerto Rico unit mapping from eGRID
+880102,2,61082,UNIT2,,,Puerto Rico unit mapping from eGRID
+880103,PS1,61149,1,,,Puerto Rico unit mapping from eGRID
+880103,PS2,61149,2,,,Puerto Rico unit mapping from eGRID
+880103,PS3,61149,3,,,Puerto Rico unit mapping from eGRID
+880103,PS4,61149,4,,,Puerto Rico unit mapping from eGRID
+880104,COS3,61147,3,,,Puerto Rico unit mapping from eGRID
+880104,COS4,61147,4,,,Puerto Rico unit mapping from eGRID
+880104,COS5,61147,5,,,Puerto Rico unit mapping from eGRID
+880104,COS6,61147,6,,,Puerto Rico unit mapping from eGRID
+880105,AG1,61146,1,,,Puerto Rico unit mapping from eGRID
+880105,AG2,61146,2,,,Puerto Rico unit mapping from eGRID
+880106,SJ7,61148,7,,,Puerto Rico unit mapping from eGRID
+880106,SJ8,61148,8,,,Puerto Rico unit mapping from eGRID
+880106,SJ9,61148,9,,,Puerto Rico unit mapping from eGRID
+880106,SJ10,61148,10,,,Puerto Rico unit mapping from eGRID
 
