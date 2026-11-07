@@ -19,6 +19,7 @@ from oge.helpers import (
     add_local_timezone_offset,
     assign_fleet_to_subplant_data,
     create_local_year_timestamps,
+    fill_hg_without_fuel,
     flag_missing_hg,
     remove_incomplete_hg,
 )
@@ -2073,6 +2074,9 @@ def combine_and_export_hourly_plant_data(
             ],
         )
 
+        combined_plant_data = fill_hg_without_fuel(
+            combined_plant_data, ["plant_id_eia"]
+        )
         combined_plant_data = remove_incomplete_hg(combined_plant_data)
 
         # round the data columns to two decimal places. Hg values are too small to

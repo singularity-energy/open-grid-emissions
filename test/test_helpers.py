@@ -34,3 +34,23 @@ def test_remove_incomplete_hg():
     np.testing.assert_allclose(
         result["hg_mass_lb_for_electricity"], [0.2, np.nan, np.nan]
     )
+
+
+def test_fill_hg_without_fuel():
+    """Missing Hg is zero without fuel consumption, but only for groups that report
+    Hg, and stays missing when fuel was consumed."""
+    df = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 2],
+            "fuel_consumed_mmbtu": [10, 0, 10, 0],
+            "hg_mass_lb": [0.1, np.nan, np.nan, np.nan],
+            "hg_mass_lb_for_electricity": [0.1, np.nan, np.nan, np.nan],
+        }
+    )
+
+    result = helpers.fill_hg_without_fuel(df, ["plant_id_eia"])
+
+    np.testing.assert_allclose(result["hg_mass_lb"], [0.1, 0, np.nan, np.nan])
+    np.testing.assert_allclose(
+        result["hg_mass_lb_for_electricity"], [0.1, 0, np.nan, np.nan]
+    )

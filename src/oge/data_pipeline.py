@@ -457,6 +457,10 @@ def main(args):
         resolution="monthly",
         data_columns=DATA_COLUMNS + HG_DATA_COLUMNS,
     )
+    # Hg is zero in subplant-months without fuel at subplants that report Hg
+    monthly_subplant_data = helpers.fill_hg_without_fuel(
+        monthly_subplant_data, ["plant_id_eia", "subplant_id"]
+    )
     # add energy storage charging and discharging data from EIA-923. This is added
     # after combining the data so that it is kept for storage at plants that report to
     # CEMS, and so that it is not shaped using the hourly profiles of other resources
