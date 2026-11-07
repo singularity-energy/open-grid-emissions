@@ -13,7 +13,7 @@ As explained in the [eGRID technical support documentation](https://www.epa.gov/
 
 Balancing authorities are assigned to each plant based on plant-level data reported in EIA-860. If a plant is missing a reported BA code, we attempt to infer the ba based on the reported balancing authority name, the reported utility name, and the reported transmission or distribution system owner name, in that order. This mapping is based on [this table](https://github.com/singularity-energy/open-grid-emissions/blob/main/data/manual/utility_name_ba_code_map.csv) which associates the full balancing authority name with the ba_code.
 
-For plants that do not belong to a specific BA, we assign a miscellaneous BA code based on the two-letter state code of the state where the plant is located. For example, many plants in Alaska will be assigned the code “AKMS” and many plants in Hawaii will be assigned a code of “HIMS.” For any plants that are associated with a balancing authority that is no longer active, we also replace the retired BA code with a state-based miscellaneous code.
+For plants that do not belong to a specific BA, we assign a miscellaneous BA code based on the two-letter state code of the state where the plant is located. For example, many plants in Alaska will be assigned the code “AKMS” and many plants in Hawaii will be assigned a code of “HIMS.” Since no plants in Puerto Rico report a BA, all Puerto Rico plants are assigned the code “PRMS.” For any plants that are associated with a balancing authority that is no longer active, we also replace the retired BA code with a state-based miscellaneous code.
 
 ## Commercial vs physical balancing authorities
 

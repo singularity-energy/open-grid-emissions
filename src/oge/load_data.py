@@ -2055,9 +2055,6 @@ def load_egrid_plant_file(year: int) -> pd.DataFrame:
         ]
     ]
 
-    # We also want to remove any plants that are located in Puerto Rico
-    egrid_plant = egrid_plant[(egrid_plant["state"] != "PR")]
-
     # create a column for eia id
     egrid_plant = add_egrid_plant_id(egrid_plant, from_id="egrid", to_id="eia")
 
