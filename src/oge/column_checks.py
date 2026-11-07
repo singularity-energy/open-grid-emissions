@@ -129,6 +129,8 @@ COLUMNS = {
         "co2e_mass_lb_for_electricity_adjusted",
         "nox_mass_lb_for_electricity_adjusted",
         "so2_mass_lb_for_electricity_adjusted",
+        "hg_mass_lb",
+        "hg_mass_lb_for_electricity",
     },
     "partial_cems_subplant": {
         "report_date",
@@ -389,6 +391,15 @@ DATA_COLUMNS = [
 STORAGE_DATA_COLUMNS = [
     "storage_charge_mwh",
     "storage_discharge_mwh",
+]
+
+# mercury (Hg) emissions reported under EPA MATS. These are kept separate from
+# DATA_COLUMNS because Hg is only reported for some units, so it is left blank rather
+# than zero for subplants that are not completely covered by MATS data, and is not
+# aggregated to fleets or balancing areas
+HG_DATA_COLUMNS = [
+    "hg_mass_lb",
+    "hg_mass_lb_for_electricity",
 ]
 
 
