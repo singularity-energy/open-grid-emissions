@@ -1382,6 +1382,9 @@ def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
         year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
     )
 
+    # add hourly mercury data reported under MATS
+    cems = add_mats_hg_data(cems, year)
+
     cems = remove_negative_cems_data(cems, year)
 
     # remove non-grid connected plants
@@ -1445,6 +1448,48 @@ def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
     return cems
 
 
+def add_mats_hg_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Adds hourly unit-level mercury (Hg) mass reported under EPA MATS to the CEMS
+    data.
+
+    Units that do not report to MATS keep missing `hg_mass_lb` values. Missing hours
+    for MATS units are not filled. Any MATS data that does not match a CEMS unit-hour
+    is dropped and logged.
+
+    Args:
+        cems (pd.DataFrame): hourly unit-level CEMS data
+        year (int): the data year
+
+    Returns:
+        pd.DataFrame: CEMS data with `hg_mass_lb` and `hg_mass_measurement_code`
+            columns added.
+    """
+    mats = load_data.load_mats_data(year)
+    cems = cems.merge(
+        mats,
+        how="left",
+        on=["plant_id_epa", "emissions_unit_id_epa", "datetime_utc"],
+        validate="1:1",
+    )
+
+    # log any Hg data from MATS that did not match a CEMS unit-hour
+    unmatched_hg = mats["hg_mass_lb"].sum() - cems["hg_mass_lb"].sum()
+    if unmatched_hg > 0.01:
+        unit_keys = ["plant_id_epa", "emissions_unit_id_epa"]
+        unmatched_units = (
+            mats.groupby(unit_keys)["hg_mass_lb"]
+            .sum()
+            .sub(cems.groupby(unit_keys)["hg_mass_lb"].sum(), fill_value=0)
+        )
+        logger.warning(
+            f"{unmatched_hg:.1f} lb of MATS Hg data did not match CEMS data and "
+            "will be dropped:"
+        )
+        logger.warning(unmatched_units[unmatched_units > 0.01].to_string())
+
+    return cems
+
+
 def remove_negative_cems_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
     """Removes anomalous data, defined as negative fuel or emisisons data.
 
@@ -1457,7 +1502,7 @@ def remove_negative_cems_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
     """
 
     # treat negative emissions as bad data and replace with missing values
-    for column in ["co2_mass_lb", "nox_mass_lb", "so2_mass_lb"]:
+    for column in ["co2_mass_lb", "nox_mass_lb", "so2_mass_lb", "hg_mass_lb"]:
         negative_emissions_data = cems[cems[column] < 0]
         if len(negative_emissions_data) > 0:
             logger.warning(

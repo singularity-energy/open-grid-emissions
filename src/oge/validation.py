@@ -1382,33 +1382,9 @@ def hourly_profile_source_metric(
 
 
 def summarize_cems_measurement_quality(cems):
-    """Creates a table summarizing what percent of CO2, SO2, and NOx mass in CEMS was measured or imputed from other hourly values"""
-    cems_quality = cems[
-        [
-            "co2_mass_lb",
-            "co2_mass_measurement_code",
-            "so2_mass_lb",
-            "so2_mass_measurement_code",
-            "nox_mass_lb",
-            "nox_mass_measurement_code",
-        ]
-    ].copy()
-
-    # convert categorical columns to strings
-    cems_quality[
-        [
-            "co2_mass_measurement_code",
-            "so2_mass_measurement_code",
-            "nox_mass_measurement_code",
-        ]
-    ] = cems_quality[
-        [
-            "co2_mass_measurement_code",
-            "so2_mass_measurement_code",
-            "nox_mass_measurement_code",
-        ]
-    ].astype(str)
-    # replace the CEMS mass measurement codes with two categories
+    """Creates a table summarizing what percent of CO2, SO2, NOx, and Hg mass in CEMS
+    was measured or imputed from other hourly values"""
+    # replace the CEMS and MATS mass measurement codes with two categories
     measurement_code_map = {
         "Measured": "Measured",
         "Measured and Substitute": "Measured",
@@ -1417,29 +1393,23 @@ def summarize_cems_measurement_quality(cems):
         "Imputed": "Imputed",
         "Calculated": "Imputed",
         "Other": "Imputed",
+        # MATS Hg codes
+        "Startup or Shutdown": "Measured",
+        "Manually Calculated": "Imputed",
+        "Unavailable": "Imputed",
     }
-    cems_quality[
-        [
-            "co2_mass_measurement_code",
-            "so2_mass_measurement_code",
-            "nox_mass_measurement_code",
-        ]
-    ] = cems_quality[
-        [
-            "co2_mass_measurement_code",
-            "so2_mass_measurement_code",
-            "nox_mass_measurement_code",
-        ]
-    ].replace(measurement_code_map)
 
     cems_quality_summary = []
     # calculate the percent of mass for each pollutant that is measured or imputed
-    for pollutant in ["co2", "nox", "so2"]:
+    for pollutant in ["co2", "nox", "so2", "hg"]:
+        measurement_code = (
+            cems[f"{pollutant}_mass_measurement_code"]
+            .astype(str)
+            .replace(measurement_code_map)
+        )
         percent = (
-            cems_quality.groupby([f"{pollutant}_mass_measurement_code"], dropna=False)[
-                f"{pollutant}_mass_lb"
-            ].sum()
-            / cems_quality[f"{pollutant}_mass_lb"].sum()
+            cems[f"{pollutant}_mass_lb"].groupby(measurement_code).sum()
+            / cems[f"{pollutant}_mass_lb"].sum()
         )
         cems_quality_summary.append(percent)
     cems_quality_summary = pd.concat(cems_quality_summary, axis=1).round(4)
