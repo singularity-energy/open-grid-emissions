@@ -27,7 +27,7 @@ import xlsxwriter
 from xlsxwriter.utility import xl_rowcol_to_cell
 
 from oge.constants import ConversionFactors
-from oge.filepaths import results_folder
+from oge.filepaths import outputs_folder, results_folder
 from oge.load_data import load_ba_reference
 from oge.logging_util import get_logger
 
@@ -248,6 +248,33 @@ PLANT_DATA_SOURCES = {
     "UNHG": "hg_mass_lb",
     "UNHTIT": "fuel_consumed_mmbtu",
 }
+# OGE column for each column of the unit sheet that holds the same quantity, from the
+# annual totals of OGE's cleaned hourly CEMS data
+UNIT_DATA_SOURCES = {
+    "PSTATABB": "state",
+    "PNAME": "plant_name_eia",
+    "ORISPL": "plant_id_eia",
+    "UNITID": "emissions_unit_id_epa",
+    "FUELU1": "energy_source_code",
+    "HRSOP": "operating_hours",
+    "HTIAN": "fuel_consumed_mmbtu",
+    "NOXAN": "nox_mass_lb",
+    "SO2AN": "so2_mass_lb",
+    "CO2AN": "co2_mass_lb",
+    "HGAN": "hg_mass_lb",
+}
+# OGE column for each column of the generator sheet that holds the same quantity, from
+# the annual totals of OGE's EIA-923 data allocated to generators
+GENERATOR_DATA_SOURCES = {
+    "PSTATABB": "state",
+    "PNAME": "plant_name_eia",
+    "ORISPL": "plant_id_eia",
+    "GENID": "generator_id",
+    "PRMVR": "prime_mover_code",
+    "GENNTAN": "net_generation_mwh",
+    "GENYRONL": "generator_operating_year",
+    "GENYRRET": "generator_retirement_year",
+}
 # OGE fuel category and column for each data column of the BA and U.S. sheets that
 # holds the same quantity, keyed by the code without the sheet's prefix
 REGION_DATA_SOURCES = {
@@ -309,7 +336,8 @@ def write_egrid_files(year: int, path_prefix: str, skip_outputs: bool = False):
 
 
 def build_egrid_tables(year: int, path_prefix: str) -> dict[str, pd.DataFrame]:
-    """Builds each sheet of the eGRID data file in U.S. units from OGE's annual results.
+    """Builds each sheet of the eGRID data file in U.S. units from OGE's annual results
+    and intermediate outputs.
 
     Sheets that OGE does not calculate yet have no rows.
 
@@ -328,6 +356,8 @@ def build_egrid_tables(year: int, path_prefix: str) -> dict[str, pd.DataFrame]:
         if file.endswith(".csv") and file != "US.csv"
     )
     tables = {
+        "UNT": build_unit_table(year, path_prefix),
+        "GEN": build_generator_table(year, path_prefix),
         "PLNT": build_plant_table(year, path_prefix),
         "BA": build_region_table(year, path_prefix, "BA", ba_codes),
         "US": build_region_table(year, path_prefix, "US", ["US"]),
@@ -338,6 +368,161 @@ def build_egrid_tables(year: int, path_prefix: str) -> dict[str, pd.DataFrame]:
         )
         for sheet in EGRID_SHEETS
     }
+
+
+def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
+    """Builds the unit sheet of the eGRID data file from OGE's cleaned hourly CEMS data.
+
+    The sheet has the units that report to CEMS. Hg is the sum of the hours with Hg
+    data, as in eGRID, and is blank for units that do not report Hg.
+
+    Args:
+        year (int): data year.
+        path_prefix (str): prefix of the outputs and results folders of the year, e.g.
+            "2024/".
+
+    Returns:
+        pd.DataFrame: one row for each CEMS unit, in U.S. units, with the columns of
+            `UNIT_DATA_SOURCES`, the sequence number, the year and the CAPD flag.
+    """
+    keys = ["plant_id_eia", "emissions_unit_id_epa"]
+    data_columns = [
+        "fuel_consumed_mmbtu",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb",
+        "hg_mass_lb",
+    ]
+    cems = pd.read_csv(
+        outputs_folder(f"{path_prefix}cems_cleaned_{year}.csv.zip"),
+        usecols=keys + data_columns + ["energy_source_code", "operating_time_hours"],
+        dtype={"emissions_unit_id_epa": "str", "energy_source_code": "str"},
+    )
+    units = (
+        cems.groupby(keys)
+        .agg(
+            energy_source_code=("energy_source_code", "first"),
+            # eGRID counts the hours in which the unit operated, as CAMPD does
+            operating_hours=("operating_time_hours", lambda hours: (hours > 0).sum()),
+            **{
+                column: (column, lambda values: values.sum(min_count=1))
+                for column in data_columns
+            },
+        )
+        .reset_index()
+    )
+    units = units.merge(load_plant_names(path_prefix), on="plant_id_eia", how="left")
+    table = build_sheet_rows(
+        units, UNIT_DATA_SOURCES, year, "SEQUNT", ["state", "plant_name_eia", *keys]
+    )
+    # every unit in OGE's CEMS data reports to EPA's Clean Air Markets Division
+    table["CAPDFLAG"] = "Yes"
+    return convert_mass_to_tons(table, "UNT", year)
+
+
+def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
+    """Builds the generator sheet of the eGRID data file from OGE's EIA-923 data
+    allocated to generators.
+
+    Args:
+        year (int): data year.
+        path_prefix (str): prefix of the outputs and results folders of the year, e.g.
+            "2024/".
+
+    Returns:
+        pd.DataFrame: one row for each generator in OGE's allocated EIA-923 data, with
+            the columns of `GENERATOR_DATA_SOURCES`, the sequence number and the year.
+    """
+    keys = ["plant_id_eia", "generator_id"]
+    allocated = pd.read_csv(
+        outputs_folder(f"{path_prefix}eia923_allocated_{year}.csv.zip"),
+        usecols=keys + ["prime_mover_code", "net_generation_mwh"],
+        dtype={"generator_id": "str"},
+    )
+    generators = (
+        allocated.groupby(keys)
+        .agg(
+            prime_mover_code=("prime_mover_code", "first"),
+            net_generation_mwh=(
+                "net_generation_mwh",
+                lambda values: values.sum(min_count=1),
+            ),
+        )
+        .reset_index()
+    )
+    dates = (
+        pd.read_csv(
+            outputs_folder(f"{path_prefix}subplant_crosswalk_{year}.csv.zip"),
+            usecols=keys + ["generator_operating_date", "generator_retirement_date"],
+            dtype={"generator_id": "str"},
+            parse_dates=["generator_operating_date", "generator_retirement_date"],
+        )
+        .drop_duplicates(subset=keys)
+        .assign(
+            generator_operating_year=lambda df: df[
+                "generator_operating_date"
+            ].dt.year.astype("Int64"),
+            generator_retirement_year=lambda df: df[
+                "generator_retirement_date"
+            ].dt.year.astype("Int64"),
+        )
+    )
+    generators = generators.merge(
+        dates[keys + ["generator_operating_year", "generator_retirement_year"]],
+        on=keys,
+        how="left",
+    ).merge(load_plant_names(path_prefix), on="plant_id_eia", how="left")
+    return build_sheet_rows(
+        generators,
+        GENERATOR_DATA_SOURCES,
+        year,
+        "SEQGEN",
+        ["state", "plant_name_eia", *keys],
+    )
+
+
+def load_plant_names(path_prefix: str) -> pd.DataFrame:
+    """Loads the state and name of each plant from OGE's plant static attributes.
+
+    Args:
+        path_prefix (str): prefix of the results folder of the year, e.g. "2024/".
+
+    Returns:
+        pd.DataFrame: plant_id_eia, state and plant_name_eia of each plant.
+    """
+    return pd.read_csv(
+        results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
+        usecols=["plant_id_eia", "state", "plant_name_eia"],
+    )
+
+
+def build_sheet_rows(
+    data: pd.DataFrame,
+    sources: dict[str, str],
+    year: int,
+    sequence_code: str,
+    sort_columns: list[str],
+) -> pd.DataFrame:
+    """Builds the rows of an eGRID sheet from OGE data, sorted and numbered as in eGRID.
+
+    Args:
+        data (pd.DataFrame): OGE data with one row for each row of the sheet.
+        sources (dict[str, str]): OGE column for each eGRID column.
+        year (int): data year.
+        sequence_code (str): code of the sequence number column without the year,
+            e.g. "SEQUNT".
+        sort_columns (list[str]): OGE columns to sort the rows by.
+
+    Returns:
+        pd.DataFrame: the sequence number, year and columns of `sources`.
+    """
+    data = data.sort_values(sort_columns)
+    table = pd.DataFrame(
+        {code: data[column].to_numpy() for code, column in sources.items()}
+    )
+    table.insert(0, f"{sequence_code}{year % 100:02d}", range(1, len(table) + 1))
+    table.insert(1, "YEAR", year)
+    return table
 
 
 def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
@@ -358,16 +543,16 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
         results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
         usecols=["plant_id_eia", "latitude", "longitude"],
     )
-    plants = (
-        plant_data.merge(plant_attributes, on="plant_id_eia", how="left")
-        .merge(load_ba_reference()[["ba_code", "ba_name"]], on="ba_code", how="left")
-        .sort_values(["state", "plant_name_eia", "plant_id_eia"])
+    plants = plant_data.merge(plant_attributes, on="plant_id_eia", how="left").merge(
+        load_ba_reference()[["ba_code", "ba_name"]], on="ba_code", how="left"
     )
-    table = pd.DataFrame(
-        {code: plants[column].to_numpy() for code, column in PLANT_DATA_SOURCES.items()}
+    table = build_sheet_rows(
+        plants,
+        PLANT_DATA_SOURCES,
+        year,
+        "SEQPLT",
+        ["state", "plant_name_eia", "plant_id_eia"],
     )
-    table.insert(0, f"SEQPLT{year % 100:02d}", range(1, len(table) + 1))
-    table.insert(1, "YEAR", year)
     return convert_mass_to_tons(table, "PLNT", year)
 
 
