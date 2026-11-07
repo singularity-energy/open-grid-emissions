@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import openpyxl
 from openpyxl.utils import get_column_letter
 import pandas as pd
@@ -302,13 +304,17 @@ def results(tmp_path, monkeypatch):
             "fuel_consumed_for_electricity_mmbtu": [10000.0, 0.0],
             "co2_mass_lb": [2_000_000.0, 0.0],
             "co2_mass_lb_for_electricity_adjusted": [1_000_000.0, 0.0],
+            "co2e_mass_lb_for_electricity_adjusted": [1_100_000.0, 0.0],
             "generated_co2_rate_lb_per_mwh_for_electricity_adjusted": [1000.0, 0.0],
         }
     )
-    # the other data columns of the plant sheet are zero
+    # the other annual data columns of the plant sheet are zero
     for column in output_egrid_file.PLANT_DATA_SOURCES.values():
-        if column not in plant_data and any(
-            unit in column for unit in ["_lb", "_mmbtu", "_mwh"]
+        if (
+            column not in plant_data
+            and any(unit in column for unit in ["_lb", "_mmbtu", "_mwh"])
+            and not column.startswith("combustion_")
+            and not column.endswith("_ozone_season")
         ):
             plant_data[column] = 0.0
     plant_data.to_csv(plant_folder / "annual/us_units/plant_data.csv", index=False)
@@ -317,12 +323,35 @@ def results(tmp_path, monkeypatch):
         longitude=[-97.0, -111.0],
         plant_primary_fuel=["NG", "SUN"],
     ).to_csv(plant_folder / "plant_static_attributes.csv", index=False)
+    # monthly subplant data: plant 1 has a gas subplant that runs in January and June
+    # and a solar subplant that runs in June, and plant 2 is solar
+    (plant_folder / "monthly/us_units").mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 2],
+            "subplant_id": [1, 1, 2, 1],
+            "report_date": ["2024-01-01", "2024-06-01", "2024-06-01", "2024-06-01"],
+            "fuel_consumed_mmbtu": [7000.0, 5000.0, 100.0, 1000.0],
+            "fuel_consumed_for_electricity_mmbtu": [6000.0, 4000.0, 100.0, 1000.0],
+            "net_generation_mwh": [600.0, 400.0, 30.0, 500.0],
+            "nox_mass_lb": [20.0, 10.0, 0.0, 0.0],
+            "nox_mass_lb_for_electricity_adjusted": [16.0, 8.0, 0.0, 0.0],
+        }
+    ).to_csv(plant_folder / "monthly/us_units/subplant_data.csv", index=False)
+    pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2],
+            "subplant_id": [1, 2, 1],
+            "fuel_category": ["natural_gas", "solar", "solar"],
+        }
+    ).to_csv(plant_folder / "subplant_attributes.csv", index=False)
     outputs_folder = tmp_path / "outputs/2024"
     outputs_folder.mkdir(parents=True)
     pd.DataFrame(
         {
             "plant_id_eia": [1, 1, 1, 1],
             "emissions_unit_id_epa": ["1", "1", "2", "2"],
+            "report_date": ["2024-01-01", "2024-06-01", "2024-06-01", "2024-10-01"],
             "energy_source_code": ["NG"] * 4,
             "operating_time_hours": [1.0, 0.5, 1.0, 0.0],
             "fuel_consumed_mmbtu": [100.0, 50.0, 80.0, None],
@@ -334,7 +363,7 @@ def results(tmp_path, monkeypatch):
     ).to_csv(outputs_folder / "cems_cleaned_2024.csv.zip", index=False)
     pd.DataFrame(
         {
-            "report_date": ["2024-01-01", "2024-02-01", "2024-01-01"],
+            "report_date": ["2024-01-01", "2024-06-01", "2024-01-01"],
             "plant_id_eia": [1, 1, 2],
             "generator_id": ["GT1", "GT1", "PV1"],
             "prime_mover_code": ["GT", "GT", "PV"],
@@ -350,9 +379,14 @@ def results(tmp_path, monkeypatch):
             "generator_retirement_date": [None, None, "2024-09-30"],
         }
     ).to_csv(outputs_folder / "subplant_crosswalk_2024.csv.zip", index=False)
-    fleet_folder = tmp_path / "2024/power_sector_data/annual/us_units"
-    fleet_folder.mkdir(parents=True)
-    columns = {column for _, column in output_egrid_file.REGION_DATA_SOURCES.values()}
+    # power sector results, with half of each annual value in January and half in June.
+    # Heat input is ten times net generation
+    fleet_folder = tmp_path / "2024/power_sector_data/{resolution}/us_units"
+    for resolution in ["annual", "monthly"]:
+        Path(str(fleet_folder).format(resolution=resolution)).mkdir(parents=True)
+    columns = {
+        column for _, column, _ in output_egrid_file.REGION_DATA_SOURCES.values()
+    }
     for ba, rows in {
         "BA1": {"total": 1000.0, "natural_gas": 900.0, "coal": 50.0, "other": 50.0},
         "BA2": {"total": 500.0, "solar": 500.0},
@@ -362,10 +396,22 @@ def results(tmp_path, monkeypatch):
         for column in columns:
             fleet[column] = 0.0
         fleet["net_generation_mwh"] = list(rows.values())
+        fleet["fuel_consumed_for_electricity_mmbtu"] = fleet["net_generation_mwh"] * 10
         fleet["co2_mass_lb_for_electricity_adjusted"] = [
             1_000_000.0 if fuel in ["total", "natural_gas"] else 0.0 for fuel in rows
         ]
-        fleet.to_csv(fleet_folder / f"{ba}.csv", index=False)
+        fleet.to_csv(
+            Path(str(fleet_folder).format(resolution="annual")) / f"{ba}.csv",
+            index=False,
+        )
+        monthly = pd.concat(
+            [fleet.assign(report_date=date) for date in ["2024-01-01", "2024-06-01"]]
+        )
+        monthly[list(columns)] = monthly[list(columns)] / 2
+        monthly.to_csv(
+            Path(str(fleet_folder).format(resolution="monthly")) / f"{ba}.csv",
+            index=False,
+        )
     return tmp_path
 
 
@@ -384,6 +430,25 @@ def test_plant_table(results):
     assert gas["UNHTIT"] == 12000.0
     assert gas["LAT"] == 30.0
     assert gas["PLPRMFL"] == "NG"
+    assert gas["PLCO2EQA"] == 550.0
+
+
+def test_plant_ozone_season_and_combustion_heat_input(results):
+    plants = output_egrid_file.build_plant_table(2024, "2024/").set_index("ORISPL")
+    # combustion heat input leaves out plant 1's solar subplant
+    assert plants.loc[1, "PLHTIAN"] == 10000.0
+    assert plants.loc[1, "UNHTI"] == 12000.0
+    # the ozone season is May to September
+    assert plants.loc[1, "PLHTIOZ"] == 4000.0
+    assert plants.loc[1, "PLHTIOZT"] == 4100.0
+    assert plants.loc[1, "UNHTIOZ"] == 5000.0
+    assert plants.loc[1, "UNHTIOZT"] == 5100.0
+    assert plants.loc[1, "PLNGENOZ"] == 430.0
+    assert plants.loc[1, "PLNOXOZ"] == 0.004
+    assert plants.loc[1, "UNNOXOZ"] == 0.005
+    # plants without combustion subplants have no combustion heat input
+    assert plants.loc[2, "PLHTIAN"] == 0
+    assert plants.loc[2, "PLHTIOZT"] == 1000.0
 
 
 def test_plant_attributes_use_oge_then_eia860(results):
@@ -414,6 +479,10 @@ def test_unit_table(results):
     assert units.loc["1", "HRSOP"] == 2
     assert units.loc["2", "HRSOP"] == 1
     assert units.loc["1", "HTIAN"] == 150.0
+    # the ozone season is May to September
+    assert units.loc["1", "HTIOZ"] == 50.0
+    assert units.loc["1", "NOXOZ"] == 0.005
+    assert units.loc["2", "HTIOZ"] == 80.0
     # masses are converted from lb to tons
     assert units.loc["1", "CO2AN"] == 3.0
     assert units.loc["1", "NOXAN"] == 0.01
@@ -463,6 +532,8 @@ def test_generator_table(results):
     assert generators.loc["GT1", "PSTATABB"] == "TX"
     assert generators.loc["GT1", "PRMVR"] == "GT"
     assert generators.loc["GT1", "GENNTAN"] == 1000.0
+    assert generators.loc["GT1", "GENNTOZ"] == 400.0
+    assert generators.loc["PV1", "GENNTOZ"] == 0
     assert generators.loc["GT1", "GENYRONL"] == 2001
     assert pd.isna(generators.loc["GT1", "GENYRRET"])
     assert generators.loc["PV1", "GENYRRET"] == 2024
@@ -485,6 +556,14 @@ def test_region_tables(results):
     assert ba.loc["BA2", "BAGENACL"] == 0
     assert ba.loc["BA2", "BAGENAOP"] == 0
     assert ba.loc["BA2", "BAGENASO"] == 500.0
+    # combustion heat input sums the combustion fuel categories, and BA2 has none
+    assert ba.loc["BA1", "BAHTIAN"] == 9500.0
+    assert ba.loc["BA1", "BAHTIANT"] == 10000.0
+    assert ba.loc["BA2", "BAHTIAN"] == 0
+    # the ozone season sums May to September of the monthly results
+    assert ba.loc["BA1", "BANGENOZ"] == 500.0
+    assert ba.loc["BA1", "BAHTIOZT"] == 5000.0
+    assert ba.loc["BA1", "BAHTIOZ"] == 4750.0
     us = output_egrid_file.build_region_table(2024, "2024/", "US", ["US"])
     assert us.loc[0, "USNGENAN"] == 1500.0
     assert "BACODE" not in us
