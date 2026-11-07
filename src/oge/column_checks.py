@@ -86,6 +86,8 @@ COLUMNS = {
         "co2_mass_measurement_code",
         "nox_mass_measurement_code",
         "so2_mass_measurement_code",
+        "hg_mass_lb",
+        "hg_mass_measurement_code",
         "report_date",
         "subplant_id",
         "energy_source_code",

@@ -242,6 +242,7 @@ def main(args):
             "co2_mass_measurement_code",
             "nox_mass_measurement_code",
             "so2_mass_measurement_code",
+            "hg_mass_measurement_code",
         ],
         inplace=True,
     )
