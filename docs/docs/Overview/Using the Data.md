@@ -73,8 +73,8 @@ fuel_category | string | named fuel category associated with the identified `pla
 fuel_category_eia930 | string | named fuel category used by EIA-930 associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/energy_source_groups.csv)
 plant_storage_category | string | For plants with at least one energy storage generator, whether the storage is `standalone`, `co_located`, or `hybrid`. Blank for plants without energy storage | [Calculated](../Methodology/Data%20Aggregation/Energy%20Storage.md)
 state | string | Two-letter state abbreviation where the plant is physically located | EIA-860
-county | string | County name | EIA-860
-city | string | City name | EIA-860
+county | string | County name (for Puerto Rico, the municipio) | EIA-860
+city | string | City name. Puerto Rico has no incorporated cities, so for Puerto Rico this is the municipio, the same as `county`. | EIA-860
 ba_code | string | Three- or four-character code representing the commercial balancing authority with which the plant is associated | EIA-860
 ba_code_physical | string | three- or four-character code representing the commercial balancing authority with which the plant is associated | [Inferred from EIA-860](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md)
 latitude | float | latitude of the plant (in deg.) with Equator as zero point | EIA-860
