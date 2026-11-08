@@ -1,11 +1,13 @@
 from pathlib import Path
 
+import numpy as np
 import openpyxl
 from openpyxl.utils import get_column_letter
 import pandas as pd
 import pytest
 
 import oge.output_egrid_file as output_egrid_file
+from oge.column_checks import DATA_COLUMNS, HG_DATA_COLUMNS
 from oge.output_egrid_file import (
     EGRID_CATEGORIES,
     EGRID_SHEETS,
@@ -303,20 +305,18 @@ def results(tmp_path, monkeypatch):
             "fuel_consumed_mmbtu": [12000.0, 0.0],
             "fuel_consumed_for_electricity_mmbtu": [10000.0, 0.0],
             "co2_mass_lb": [2_000_000.0, 0.0],
+            "co2_mass_lb_adjusted": [1_500_000.0, 0.0],
             "co2_mass_lb_for_electricity_adjusted": [1_000_000.0, 0.0],
             "co2e_mass_lb_for_electricity_adjusted": [1_100_000.0, 0.0],
             "generated_co2_rate_lb_per_mwh_for_electricity_adjusted": [1000.0, 0.0],
         }
     )
-    # the other annual data columns of the plant sheet are zero
-    for column in output_egrid_file.PLANT_DATA_SOURCES.values():
-        if (
-            column not in plant_data
-            and any(unit in column for unit in ["_lb", "_mmbtu", "_mwh"])
-            and not column.startswith(("combustion_", "net_generation_mwh_"))
-            and not column.endswith("_ozone_season")
-        ):
+    # OGE's other data columns are zero, and Hg is incomplete for the year
+    for column in DATA_COLUMNS:
+        if column not in plant_data:
             plant_data[column] = 0.0
+    for column in HG_DATA_COLUMNS:
+        plant_data[column] = np.nan
     plant_data.to_csv(plant_folder / "annual/us_units/plant_data.csv", index=False)
     plant_data[["plant_id_eia", "plant_name_eia", "state"]].assign(
         latitude=[30.0, 32.0],
@@ -335,9 +335,25 @@ def results(tmp_path, monkeypatch):
             "fuel_consumed_for_electricity_mmbtu": [6000.0, 4000.0, 100.0, 1000.0],
             "net_generation_mwh": [600.0, 400.0, 30.0, 500.0],
             "nox_mass_lb": [20.0, 10.0, 0.0, 0.0],
+            "nox_mass_lb_adjusted": [20.0, 10.0, 0.0, 0.0],
             "nox_mass_lb_for_electricity_adjusted": [16.0, 8.0, 0.0, 0.0],
+            "so2_mass_lb": [0.0] * 4,
+            "co2_mass_lb": [8000.0, 6000.0, 0.0, 0.0],
+            "ch4_mass_lb": [1.0, 1.0, 0.0, 0.0],
+            "n2o_mass_lb": [0.1, 0.1, 0.0, 0.0],
+            "co2e_mass_lb": [8100.0, 6100.0, 0.0, 0.0],
+            "hg_mass_lb": [0.5, None, None, None],
         }
     ).to_csv(plant_folder / "monthly/us_units/subplant_data.csv", index=False)
+    # the gas subplant's January data is from CEMS and its June data from EIA
+    pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 2],
+            "subplant_id": [1, 1, 2, 1],
+            "report_date": ["2024-01-01", "2024-06-01", "2024-06-01", "2024-06-01"],
+            "data_source": ["CEMS", "EIA", "EIA", "EIA"],
+        }
+    ).to_csv(plant_folder / "plant_metadata.csv", index=False)
     pd.DataFrame(
         {
             "plant_id_eia": [1, 1, 2],
@@ -359,6 +375,10 @@ def results(tmp_path, monkeypatch):
             "so2_mass_lb": [None, None, 2.0, None],
             "co2_mass_lb": [4000.0, 2000.0, 1000.0, None],
             "hg_mass_lb": [0.25, None, None, None],
+            "nox_mass_measurement_code": ["Measured", "Substitute", "Measured", None],
+            "so2_mass_measurement_code": ["Measured"] * 4,
+            "co2_mass_measurement_code": ["Measured", "Measured", "Imputed", None],
+            "hg_mass_measurement_code": ["Measured", "Unavailable", None, None],
         }
     ).to_csv(outputs_folder / "cems_cleaned_2024.csv.zip", index=False)
     pd.DataFrame(
@@ -541,6 +561,15 @@ def test_unit_table(results):
     assert pd.isna(units.loc["1", "HGCTLDV"])
     assert units.loc["2", "HGCTLDV"] == "Yes"
     assert units.loc["1", "UNTYRONL"] == 2001
+    # sources are the measurement codes, from the one covering the most emissions
+    assert units.loc["1", "CO2SRC"] == "Measured"
+    assert units.loc["2", "CO2SRC"] == "Imputed"
+    assert units.loc["1", "NOXANSRC"] == "Measured; Substitute"
+    assert units.loc["1", "NOXOZSRC"] == "Substitute"
+    assert units.loc["1", "HGSRC"] == "Measured"
+    assert pd.isna(units.loc["2", "HGSRC"])
+    assert units.loc["1", "HTIANSRC"] == "EPA/CAPD"
+    assert units.loc["2", "SO2SRC"] == "Measured"
 
 
 def test_translate_campd_values():
@@ -814,3 +843,29 @@ def test_fuel_type_rates_include_waste_in_fossil():
     assert pd.isna(rates["OCO2RT"])
     assert rates["OCO2R"] == 100.0
     assert pd.isna(rates["CCO2RT"])
+
+
+def test_plant_adjustment_values_and_sources(results):
+    plants = output_egrid_file.build_plant_table(2024, "2024/").set_index("ORISPL")
+    gas = plants.loc[1]
+    # adjustments are differences between OGE's unadjusted and adjusted values
+    assert gas["BIOCO2"] == 250.0
+    assert gas["CHPCO2"] == 250.0
+    assert gas["UNCO2"] - gas["BIOCO2"] - gas["CHPCO2"] == gas["PLCO2AN"]
+    assert gas["BIONOX"] == 0
+    assert gas["CHPNOXOZ"] == 0.001
+    assert gas["CHPCHTI"] == 2000.0
+    assert gas["CHPCHTIOZ"] == 1000.0
+    assert gas["RMBMFLAG"] == "Yes"
+    assert gas["CHPFLAG"] == "Yes"
+    assert pd.isna(plants.loc[2, "CHPFLAG"])
+    # sources list the data sources of the subplant-months with a positive value
+    assert gas["UNCO2SRC"] == "EPA/CAPD; EIA"
+    assert gas["UNHTISRC"] == "EPA/CAPD; EIA"
+    assert gas["UNNOZSRC"] == "EIA"
+    assert gas["UNHOZSRC"] == "EIA"
+    # sources are blank where the value is blank, like the gas plant's Hg
+    assert pd.isna(gas["UNHG"])
+    assert pd.isna(gas["UNHGSRC"])
+    assert plants.loc[2, "UNHTISRC"] == "EIA"
+    assert pd.isna(plants.loc[2, "UNCO2SRC"])
