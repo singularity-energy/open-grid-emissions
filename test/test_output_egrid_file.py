@@ -623,7 +623,7 @@ def test_egrid_tables_have_every_column(results):
     assert len(tables["GEN"]) == 2
     assert tables["ST"].empty
     # columns that OGE does not calculate are blank
-    assert tables["PLNT"]["PLCLPR"].isna().all()
+    assert tables["PLNT"]["CAPFAC"].isna().all()
 
 
 def test_convert_to_metric():
@@ -665,7 +665,7 @@ def test_write_egrid_files(results):
         codes = [code for code, _, _ in columns]
         # filled columns are colored by category and blank columns are grayed out
         filled = worksheet.cell(1, codes.index("PLNGENAN") + 1)
-        blank = worksheet.cell(1, codes.index("PLCLPR") + 1)
+        blank = worksheet.cell(1, codes.index("CAPFAC") + 1)
         assert filled.fill.fgColor.rgb == "FFF2DCDB"
         assert blank.font.color.rgb == "FFA6A6A6"
 
@@ -738,3 +738,48 @@ def test_sheets_filter_on_column_codes(results):
     )
     # sheets with no rows filter on the codes alone
     assert workbook["ST24"].auto_filter.ref == "A2:FM2"
+
+
+def test_emission_rates_and_resource_mix():
+    columns = [code for code, _, _ in get_egrid_columns("PLNT", 2024)]
+    table = pd.DataFrame({code: [0.0, 0.0] for code in columns}).assign(
+        PLNOXAN=[1.0, 1.0],
+        PLNOXOZ=[0.5, 0.5],
+        PLCH4AN=[30.0, 30.0],
+        PLCO2EQA=[600.0, 0.0],
+        PLNGENAN=[1000.0, 0.0],
+        PLNGENOZ=[400.0, 0.0],
+        PLHTIAN=[10000.0, 500.0],
+        PLHTIOZ=[4000.0, 200.0],
+        PLGENACY=[800.0, -10.0],
+        PLGENAGS=[800.0, -10.0],
+        PLGENASO=[200.0, 0.0],
+        PLGENAOP=[-50.0, 0.0],
+        PLGENATN=[800.0, -10.0],
+        PLGENATR=[200.0, 0.0],
+    )
+    table[f"PL{output_egrid_file.OZONE_COMBUSTION_GENERATION}"] = [320.0, 0.0]
+    rates = output_egrid_file.add_emission_rates_and_resource_mix(table, "PLNT", 2024)
+    gas, idle = rates.iloc[0], rates.iloc[1]
+    # tons are converted to lb, and masses in lb are used as they are
+    assert gas["PLNOXRTA"] == 2.0
+    assert gas["PLCH4RTA"] == 0.03
+    assert gas["PLC2ERTA"] == 1200.0
+    assert gas["PLNOXRA"] == 0.2
+    assert gas["PLNOXCRT"] == 2.5
+    # ozone season rates divide ozone season NOx by ozone season denominators
+    assert gas["PLNOXRTO"] == 2.5
+    assert gas["PLNOXRO"] == 0.25
+    assert gas["PLNOXCRO"] == 3.125
+    # rates are blank where the denominator is zero or negative
+    assert pd.isna(idle["PLNOXRTA"])
+    assert pd.isna(idle["PLNOXCRT"])
+    assert idle["PLNOXRA"] == 4.0
+    # shares are of positive generation, and negative generation has a 0% share
+    assert gas["PLGSPR"] == 0.8
+    assert gas["PLSOPR"] == 0.2
+    assert gas["PLOPPR"] == 0
+    assert gas["PLTNPR"] == 0.8
+    assert gas["PLCYPR"] == 0.8
+    assert pd.isna(idle["PLGSPR"])
+    assert f"PL{output_egrid_file.OZONE_COMBUSTION_GENERATION}" not in rates
