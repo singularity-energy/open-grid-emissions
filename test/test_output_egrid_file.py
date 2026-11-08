@@ -282,6 +282,13 @@ def results(tmp_path, monkeypatch):
                 "nerc_region": ["TRE", "WECC"],
             }
         ),
+        "core_pudl__codes_subdivisions": pd.DataFrame(
+            {
+                "country_code": ["USA", "USA", "CAN"],
+                "subdivision_code": ["TX", "AZ", "AB"],
+                "state_id_fips": ["48", "04", pd.NA],
+            }
+        ),
         "core_eia__entity_utilities": pd.DataFrame(
             {"utility_id_eia": [20, 21], "utility_name_eia": ["Gas Co", "Solar Co"]}
         ),
@@ -343,7 +350,13 @@ def results(tmp_path, monkeypatch):
             "n2o_mass_lb": [0.1, 0.1, 0.0, 0.0],
             "co2e_mass_lb": [8100.0, 6100.0, 0.0, 0.0],
             "hg_mass_lb": [0.5, None, None, None],
+            "co2_mass_lb_for_electricity_adjusted": [6000.0, 4000.0, 0.0, 0.0],
         }
+    ).assign(
+        so2_mass_lb_for_electricity_adjusted=0.0,
+        ch4_mass_lb_for_electricity_adjusted=0.0,
+        n2o_mass_lb_for_electricity_adjusted=0.0,
+        co2e_mass_lb_for_electricity_adjusted=0.0,
     ).to_csv(plant_folder / "monthly/us_units/subplant_data.csv", index=False)
     # the gas subplant's January data is from CEMS and its June data from EIA
     pd.DataFrame(
@@ -650,6 +663,34 @@ def test_region_tables(results):
     assert "BACODE" not in us
 
 
+def test_state_table(results):
+    states = output_egrid_file.build_state_table(2024, "2024/")
+    # states are sorted by abbreviation, with their FIPS codes
+    assert list(states["PSTATABB"]) == ["AZ", "TX"]
+    assert list(states["FIPSST"]) == ["04", "48"]
+    assert list(states["YEAR"]) == [2024, 2024]
+    states = states.set_index("PSTATABB")
+    # each state sums the subplants of its plants, by the subplants' fuel categories
+    assert states.loc["TX", "STNGENAN"] == 1030.0
+    assert states.loc["TX", "STGENAGS"] == 1000.0
+    assert states.loc["TX", "STGENASO"] == 30.0
+    assert states.loc["AZ", "STGENASO"] == 500.0
+    # Texas has no coal, and Arizona has no combustion heat input
+    assert states.loc["TX", "STGENACL"] == 0
+    assert states.loc["AZ", "STHTIAN"] == 0
+    assert states.loc["TX", "STHTIAN"] == 10000.0
+    assert states.loc["TX", "STHTIANT"] == 10100.0
+    # the ozone season sums May to September
+    assert states.loc["TX", "STNGENOZ"] == 430.0
+    assert states.loc["TX", "STNOXOZ"] == 8.0 / 2000
+    # masses are in tons, and rates use the state's totals and fuel groups
+    assert states.loc["TX", "STCO2AN"] == 5.0
+    assert states.loc["TX", "STCO2RTA"] == pytest.approx(10_000 / 1030)
+    assert states.loc["TX", "STGCO2RT"] == pytest.approx(10.0)
+    assert pd.isna(states.loc["AZ", "STGCO2RT"])
+    assert states.loc["AZ", "STCO2RTA"] == 0
+
+
 def test_egrid_tables_have_every_column(results):
     tables = output_egrid_file.build_egrid_tables(2024, "2024/")
     assert list(tables) == EGRID_SHEETS
@@ -660,7 +701,11 @@ def test_egrid_tables_have_every_column(results):
     assert list(tables["BA"]["BACODE"]) == ["BA1", "BA2"]
     assert len(tables["UNT"]) == 2
     assert len(tables["GEN"]) == 2
-    assert tables["ST"].empty
+    assert list(tables["ST"]["PSTATABB"]) == ["AZ", "TX"]
+    # regional capacity sums the capacity of the plant sheet
+    assert list(tables["ST"]["STNAMEPCAP"]) == [50.0, 100.0]
+    assert list(tables["BA"]["BANAMEPCAP"]) == [100.0, 50.0]
+    assert list(tables["US"]["USNAMEPCAP"]) == [150.0]
     # columns that OGE does not calculate are blank
     assert tables["PLNT"]["CAPFAC"].isna().all()
 
@@ -776,7 +821,7 @@ def test_sheets_filter_on_column_codes(results):
         f"A2:{get_column_letter(len(columns))}4"
     )
     # sheets with no rows filter on the codes alone
-    assert workbook["ST24"].auto_filter.ref == "A2:FM2"
+    assert workbook["SRL24"].auto_filter.ref == "A2:FM2"
 
 
 def test_emission_rates_and_resource_mix():
