@@ -265,25 +265,89 @@ EGRID_FUEL_GROUPS |= {
 # sheet's prefix. eGRID's other unknown/purchased fuel generation is counted as
 # nonrenewable and noncombustion, so it is in three columns
 GENERATION_BY_FUEL_CODES = {
-    "GENACL": "coal",
-    "GENAOL": "oil",
-    "GENAGS": "gas",
-    "GENANC": "nuclear",
-    "GENAHY": "hydro",
-    "GENABM": "biomass",
-    "GENAWI": "wind",
-    "GENASO": "solar",
-    "GENAGT": "geothermal",
-    "GENAOF": "other_fossil",
-    "GENAOP": "other",
-    "GENATN": "nonrenewable",
-    "GENATR": "renewable",
-    "GENATO": "other",
-    "GENATH": "nonhydro_renewable",
-    "GENACY": "combustion",
-    "GENACN": "noncombustion",
-    "GENACO": "other",
+    "GENACL": "coal",  # coal net generation
+    "GENAOL": "oil",  # oil net generation
+    "GENAGS": "gas",  # gas net generation
+    "GENANC": "nuclear",  # nuclear net generation
+    "GENAHY": "hydro",  # hydro net generation
+    "GENABM": "biomass",  # biomass net generation
+    "GENAWI": "wind",  # wind net generation
+    "GENASO": "solar",  # solar net generation
+    "GENAGT": "geothermal",  # geothermal net generation
+    "GENAOF": "other_fossil",  # other fossil net generation
+    "GENAOP": "other",  # other unknown/purchased fuel net generation
+    "GENATN": "nonrenewable",  # total nonrenewables net generation
+    "GENATR": "renewable",  # total renewables net generation
+    "GENATO": "other",  # other unknown/purchased, with the nonrenewables
+    "GENATH": "nonhydro_renewable",  # total nonhydro renewables net generation
+    "GENACY": "combustion",  # total combustion net generation
+    "GENACN": "noncombustion",  # total noncombustion net generation
+    "GENACO": "other",  # other unknown/purchased, with the noncombustion
 }
+
+# Emission rates are calculated from the columns of each sheet. The mass column of
+# each pollutant's rates, keyed by the pollutant's code in the rate columns, e.g. the
+# CO2 equivalent output rate "PLC2ERTA" divides "PLCO2EQA" by "PLNGENAN"
+EMISSION_RATE_MASSES = {
+    "NOX": "NOXAN",  # annual NOx emissions
+    "SO2": "SO2AN",  # annual SO2 emissions
+    "CO2": "CO2AN",  # annual CO2 emissions
+    "CH4": "CH4AN",  # annual CH4 emissions
+    "N2O": "N2OAN",  # annual N2O emissions
+    "C2E": "CO2EQA",  # annual CO2 equivalent emissions
+}
+# code of the ozone season combustion net generation, which is not an eGRID column
+OZONE_COMBUSTION_GENERATION = "GENACYOZ"
+# the denominator of each type of emission rate: output rates divide by net
+# generation, input rates by combustion heat input, and combustion output rates by
+# combustion net generation. The NOx rates also have an ozone season version, which
+# divides ozone season NOx by the ozone season denominator. Each entry is (annual
+# denominator, ozone season denominator, code of the ozone season NOx rate)
+EMISSION_RATE_DENOMINATORS = {
+    # output rate: net generation, ozone season net generation
+    "RTA": ("NGENAN", "NGENOZ", "RTO"),
+    # input rate: combustion heat input, ozone season combustion heat input
+    "RA": ("HTIAN", "HTIOZ", "RO"),
+    # combustion output rate: combustion net generation, and its ozone season value
+    "CRT": ("GENACY", OZONE_COMBUSTION_GENERATION, "CRO"),
+}
+# generation column of each resource mix column, keyed by the codes without the
+# sheet's prefix. Shares are of the sum of the positive generation of the fuel columns
+RESOURCE_MIX_GENERATION = {
+    "CLPR": "GENACL",  # coal
+    "OLPR": "GENAOL",  # oil
+    "GSPR": "GENAGS",  # gas
+    "NCPR": "GENANC",  # nuclear
+    "HYPR": "GENAHY",  # hydro
+    "BMPR": "GENABM",  # biomass
+    "WIPR": "GENAWI",  # wind
+    "SOPR": "GENASO",  # solar
+    "GTPR": "GENAGT",  # geothermal
+    "OFPR": "GENAOF",  # other fossil
+    "OPPR": "GENAOP",  # other unknown/purchased fuel
+    "TNPR": "GENATN",  # total nonrenewables
+    "TRPR": "GENATR",  # total renewables
+    "TOPR": "GENATO",  # other unknown/purchased, with the nonrenewables
+    "THPR": "GENATH",  # total nonhydro renewables
+    "CYPR": "GENACY",  # total combustion
+    "CNPR": "GENACN",  # total noncombustion
+    "COPR": "GENACO",  # other unknown/purchased, with the noncombustion
+}
+# generation columns of the individual fuels, whose positive generation sums to the
+# total of the resource mix
+RESOURCE_MIX_FUELS = [
+    "GENACL",  # coal
+    "GENAOL",  # oil
+    "GENAGS",  # gas
+    "GENANC",  # nuclear
+    "GENAHY",  # hydro
+    "GENABM",  # biomass
+    "GENAWI",  # wind
+    "GENASO",  # solar
+    "GENAGT",  # geothermal
+    "GENAOF",  # other fossil
+    "GENAOP",  # other unknown/purchased fuel
+]
 
 # OGE column for each column of the plant sheet that holds the same quantity. Plant
 # attributes come from OGE's plant attributes, or from EIA-860 when OGE does not have
@@ -315,17 +379,14 @@ PLANT_DATA_SOURCES = {
     "PLNGENOZ": "net_generation_mwh_ozone_season",
     "PLNOXOZ": "nox_mass_lb_for_electricity_adjusted_ozone_season",
     "PLCO2EQA": "co2e_mass_lb_for_electricity_adjusted",
+    # not an eGRID column: used for the ozone season combustion output rate
+    f"PL{OZONE_COMBUSTION_GENERATION}": "net_generation_mwh_combustion_ozone_season",
     "PLNOXAN": "nox_mass_lb_for_electricity_adjusted",
     "PLSO2AN": "so2_mass_lb_for_electricity_adjusted",
     "PLCO2AN": "co2_mass_lb_for_electricity_adjusted",
     "PLCH4AN": "ch4_mass_lb_for_electricity_adjusted",
     "PLN2OAN": "n2o_mass_lb_for_electricity_adjusted",
     "PLHGAN": "hg_mass_lb_for_electricity",
-    "PLNOXRTA": "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
-    "PLSO2RTA": "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
-    "PLCO2RTA": "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
-    "PLCH4RTA": "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-    "PLN2ORTA": "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
     "UNNOX": "nox_mass_lb",
     "UNNOXOZ": "nox_mass_lb_ozone_season",
     "UNSO2": "so2_mass_lb",
@@ -504,31 +565,8 @@ REGION_DATA_SOURCES = {
     "CH4AN": ("total", "ch4_mass_lb_for_electricity_adjusted", "annual"),
     "N2OAN": ("total", "n2o_mass_lb_for_electricity_adjusted", "annual"),
     "CO2EQA": ("total", "co2e_mass_lb_for_electricity_adjusted", "annual"),
-    "NOXRTA": (
-        "total",
-        "generated_nox_rate_lb_per_mwh_for_electricity_adjusted",
-        "annual",
-    ),
-    "SO2RTA": (
-        "total",
-        "generated_so2_rate_lb_per_mwh_for_electricity_adjusted",
-        "annual",
-    ),
-    "CO2RTA": (
-        "total",
-        "generated_co2_rate_lb_per_mwh_for_electricity_adjusted",
-        "annual",
-    ),
-    "CH4RTA": (
-        "total",
-        "generated_ch4_rate_lb_per_mwh_for_electricity_adjusted",
-        "annual",
-    ),
-    "N2ORTA": (
-        "total",
-        "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
-        "annual",
-    ),
+    # not an eGRID column: used for the ozone season combustion output rate
+    OZONE_COMBUSTION_GENERATION: ("combustion", "net_generation_mwh", "ozone"),
 } | {
     code: (group, "net_generation_mwh", "annual")
     for code, group in GENERATION_BY_FUEL_CODES.items()
@@ -946,7 +984,8 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
         "SEQPLT",
         ["state", "plant_name_eia", "plant_id_eia"],
     )
-    return convert_mass_to_tons(table, "PLNT", year)
+    table = convert_mass_to_tons(table, "PLNT", year)
+    return add_emission_rates_and_resource_mix(table, "PLNT", year)
 
 
 def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
@@ -997,9 +1036,11 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
     for column in heat_input_columns:
         subplants[f"combustion_{column}"] = subplants[column].where(combustion, 0)
     ozone_season = subplants["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
-    seasonal_columns = ozone_season_columns + [
-        f"combustion_{column}" for column in heat_input_columns
-    ]
+    seasonal_columns = (
+        ozone_season_columns
+        + [f"combustion_{column}" for column in heat_input_columns]
+        + ["net_generation_mwh_combustion"]
+    )
     for column in seasonal_columns:
         subplants[f"{column}_ozone_season"] = subplants[column].where(ozone_season, 0)
     return (
@@ -1075,7 +1116,66 @@ def build_region_table(
             .sort_values("BANAME")
             .reset_index(drop=True)
         )
-    return convert_mass_to_tons(table, sheet, year)
+    table = convert_mass_to_tons(table, sheet, year)
+    return add_emission_rates_and_resource_mix(table, sheet, year)
+
+
+def add_emission_rates_and_resource_mix(
+    table: pd.DataFrame, sheet: str, year: int
+) -> pd.DataFrame:
+    """Adds the emission rates and resource mix to a plant, BA or U.S. sheet, from
+    the sheet's emissions, heat input and generation.
+
+    Rates are in lb per MWh or MMBtu, and are blank where the denominator is zero or
+    negative, as in eGRID. Each fuel's share of the resource mix is its positive
+    generation divided by the sum of the positive generation of every fuel, so that
+    the shares of each row add up to 100%.
+
+    Args:
+        table (pd.DataFrame): table of the sheet with masses in the units of eGRID's
+            columns.
+        sheet (str): "PLNT", "BA" or "US".
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: the table with the emission rate and resource mix columns.
+    """
+    table = table.copy()
+    prefix = "PL" if sheet == "PLNT" else REGION_SHEETS[sheet][0]
+    units = {
+        code: get_unit(header) for code, header, _ in get_egrid_columns(sheet, year)
+    }
+
+    def mass_lb(code: str) -> pd.Series:
+        factor = ConversionFactors.short_ton_to_lbs if units[code] == "tons" else 1
+        return table[code] * factor
+
+    def rate(mass: pd.Series, denominator: pd.Series) -> pd.Series:
+        return mass / denominator.where(denominator > 0)
+
+    for rate_code, (
+        annual,
+        ozone_season,
+        ozone_rate_code,
+    ) in EMISSION_RATE_DENOMINATORS.items():
+        for pollutant, mass_code in EMISSION_RATE_MASSES.items():
+            table[f"{prefix}{pollutant}{rate_code}"] = rate(
+                mass_lb(prefix + mass_code), table[prefix + annual]
+            )
+        table[f"{prefix}NOX{ozone_rate_code}"] = rate(
+            mass_lb(f"{prefix}NOXOZ"), table[prefix + ozone_season]
+        )
+
+    total = (
+        table[[prefix + code for code in RESOURCE_MIX_FUELS]]
+        .clip(lower=0)
+        .sum(axis=1, min_count=1)
+    )
+    for mix_code, generation_code in RESOURCE_MIX_GENERATION.items():
+        table[prefix + mix_code] = table[prefix + generation_code].clip(
+            lower=0
+        ) / total.where(total > 0)
+    return table.drop(columns=f"{prefix}{OZONE_COMBUSTION_GENERATION}")
 
 
 def convert_mass_to_tons(table: pd.DataFrame, sheet: str, year: int) -> pd.DataFrame:
