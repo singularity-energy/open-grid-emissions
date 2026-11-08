@@ -429,6 +429,38 @@ PLANT_DATA_SOURCES = {
     "UNHTIOZ": "combustion_fuel_consumed_mmbtu_ozone_season",
     "UNHTIT": "fuel_consumed_mmbtu",
     "UNHTIOZT": "fuel_consumed_mmbtu_ozone_season",
+    # adjustment values: the biomass adjustment is OGE's unadjusted value minus its
+    # biomass-adjusted value, and the CHP adjustment is the biomass-adjusted value
+    # minus the biomass- and CHP-adjusted value
+    "BIONOX": "nox_mass_lb_biomass_adjustment",
+    "BIONOXOZ": "nox_mass_lb_biomass_adjustment_ozone_season",
+    "BIOSO2": "so2_mass_lb_biomass_adjustment",
+    "BIOCO2": "co2_mass_lb_biomass_adjustment",
+    "BIOCH4": "ch4_mass_lb_biomass_adjustment",
+    "BION2O": "n2o_mass_lb_biomass_adjustment",
+    "BIOCO2E": "co2e_mass_lb_biomass_adjustment",
+    "CHPCHTI": "combustion_fuel_consumed_mmbtu_chp_adjustment",
+    "CHPCHTIOZ": "combustion_fuel_consumed_mmbtu_chp_adjustment_ozone_season",
+    "CHPNOX": "nox_mass_lb_chp_adjustment",
+    "CHPNOXOZ": "nox_mass_lb_chp_adjustment_ozone_season",
+    "CHPSO2": "so2_mass_lb_chp_adjustment",
+    "CHPCO2": "co2_mass_lb_chp_adjustment",
+    "CHPCH4": "ch4_mass_lb_chp_adjustment",
+    "CHPN2O": "n2o_mass_lb_chp_adjustment",
+    "CHPCO2E": "co2e_mass_lb_chp_adjustment",
+    "RMBMFLAG": "biomass_adjustment_flag",
+    "CHPFLAG": "chp_adjustment_flag",
+    # sources of the unadjusted values, from OGE's plant metadata
+    "UNNOXSRC": "nox_mass_lb_source",
+    "UNNOZSRC": "nox_mass_lb_ozone_season_source",
+    "UNSO2SRC": "so2_mass_lb_source",
+    "UNCO2SRC": "co2_mass_lb_source",
+    "UNCH4SRC": "ch4_mass_lb_source",
+    "UNN2OSRC": "n2o_mass_lb_source",
+    "UNC2ESRC": "co2e_mass_lb_source",
+    "UNHGSRC": "hg_mass_lb_source",
+    "UNHTISRC": "fuel_consumed_mmbtu_source",
+    "UNHOZSRC": "fuel_consumed_mmbtu_ozone_season_source",
 } | {
     f"PL{code}": f"net_generation_mwh_{group}"
     for code, group in GENERATION_BY_FUEL_CODES.items()
@@ -458,6 +490,14 @@ UNIT_DATA_SOURCES = {
     "NOXCTLDV": "nox_controls",
     "HGCTLDV": "hg_controls_flag",
     "UNTYRONL": "operating_year",
+    # sources of the emissions, from the CEMS measurement codes, and of the heat input
+    "HTIANSRC": "fuel_consumed_mmbtu_source",
+    "HTIOZSRC": "fuel_consumed_mmbtu_ozone_season_source",
+    "NOXANSRC": "nox_mass_lb_source",
+    "NOXOZSRC": "nox_mass_lb_ozone_season_source",
+    "SO2SRC": "so2_mass_lb_source",
+    "CO2SRC": "co2_mass_lb_source",
+    "HGSRC": "hg_mass_lb_source",
 }
 # OGE column for each column of the generator sheet that holds the same quantity, from
 # the annual totals of OGE's EIA-923 data allocated to generators
@@ -567,6 +607,36 @@ CAMPD_NOX_CONTROL_CODES = {
 # "Water Injection (Retired Jun 01, 2024)"
 CAMPD_DATE_NOTE = r"\s*\((Began|Ended|Retired|Started)[^)]*\)"
 
+# eGRID label of each data source in OGE's plant metadata
+DATA_SOURCE_LABELS = {"CEMS": "EPA/CAPD", "EIA": "EIA"}
+# value column of each source column of the plant sheet. A source is blank where its
+# value is blank, e.g. Hg that is incomplete for the year
+PLANT_SOURCE_VALUES = {
+    "UNNOXSRC": "UNNOX",
+    "UNNOZSRC": "UNNOXOZ",
+    "UNSO2SRC": "UNSO2",
+    "UNCO2SRC": "UNCO2",
+    "UNCH4SRC": "UNCH4",
+    "UNN2OSRC": "UNN2O",
+    "UNC2ESRC": "UNCO2E",
+    "UNHGSRC": "UNHG",
+    "UNHTISRC": "UNHTIT",
+    "UNHOZSRC": "UNHTIOZT",
+}
+# eGRID's label for heat input from CEMS, which has no measurement code
+CEMS_SOURCE_LABEL = "EPA/CAPD"
+# column of the CEMS measurement codes of each emissions column in the cleaned CEMS
+# data, which are the sources of the unit sheet's emissions
+UNIT_MEASUREMENT_CODES = {
+    "nox_mass_lb": "nox_mass_measurement_code",
+    "nox_mass_lb_ozone_season": "nox_mass_measurement_code",
+    "so2_mass_lb": "so2_mass_measurement_code",
+    "co2_mass_lb": "co2_mass_measurement_code",
+    "hg_mass_lb": "hg_mass_measurement_code",
+}
+# pollutants whose plant adjustment values are filled, as in OGE's column names
+ADJUSTED_POLLUTANTS = ["nox", "so2", "co2", "ch4", "n2o", "co2e"]
+
 # eGRID plant sector of each EIA sector ID
 EIA_SECTORS = {
     1: "Electric Utility",
@@ -673,6 +743,10 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
     """Builds the unit sheet of the eGRID data file from OGE's cleaned hourly CEMS data
     and the unit attributes in the CAMPD facility file.
 
+    The sources of the emissions are the CEMS measurement codes of each unit, e.g.
+    "Measured; Substitute", listed from the code covering the most emissions to the
+    least.
+
     The sheet has the units that report to CEMS. Hg is the sum of the hours with Hg
     data, as in eGRID, and is blank for units that do not report Hg.
 
@@ -697,8 +771,10 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
         outputs_folder(f"{path_prefix}cems_cleaned_{year}.csv.zip"),
         usecols=keys
         + data_columns
+        + list(UNIT_MEASUREMENT_CODES.values())
         + ["energy_source_code", "operating_time_hours", "report_date"],
-        dtype={"emissions_unit_id_epa": "str", "energy_source_code": "str"},
+        dtype={"emissions_unit_id_epa": "str", "energy_source_code": "str"}
+        | {code_column: "str" for code_column in UNIT_MEASUREMENT_CODES.values()},
         parse_dates=["report_date"],
     )
     ozone_season = cems["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
@@ -718,6 +794,15 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
         )
         .reset_index()
     )
+    # the sources of each unit's heat input and emissions
+    for column in ["fuel_consumed_mmbtu", "fuel_consumed_mmbtu_ozone_season"]:
+        units[f"{column}_source"] = (
+            units[column].gt(0).map({True: CEMS_SOURCE_LABEL}).astype("object")
+        )
+    for mass, code_column in UNIT_MEASUREMENT_CODES.items():
+        units = units.merge(
+            list_measurement_codes(cems, keys, mass, code_column), on=keys, how="left"
+        )
     units = units.merge(
         load_plant_names(path_prefix), on="plant_id_eia", how="left"
     ).merge(load_campd_unit_attributes(year), on=keys, how="left")
@@ -727,6 +812,35 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
     # every unit in OGE's CEMS data reports to EPA's Clean Air Markets Division
     table["CAPDFLAG"] = "Yes"
     return convert_mass_to_tons(table, "UNT", year)
+
+
+def list_measurement_codes(
+    cems: pd.DataFrame, keys: list[str], mass: str, code_column: str
+) -> pd.DataFrame:
+    """Lists the CEMS measurement codes of each unit's emissions of a pollutant, from
+    the code covering the most emissions to the least, e.g. "Measured; Substitute".
+
+    Args:
+        cems (pd.DataFrame): hourly CEMS data with the keys, mass and code columns.
+        keys (list[str]): columns identifying each unit.
+        mass (str): emissions column.
+        code_column (str): column of the measurement codes of the emissions.
+
+    Returns:
+        pd.DataFrame: the keys and the codes, in a column named after the mass column
+            with "_source". Units without positive emissions are left out.
+    """
+    return (
+        cems.loc[cems[mass] > 0]
+        .groupby(keys + [code_column], observed=True)[mass]
+        .sum()
+        .reset_index()
+        .sort_values(mass, ascending=False)
+        .groupby(keys)[code_column]
+        .agg(lambda codes: "; ".join(codes.astype(str)))
+        .rename(f"{mass}_source")
+        .reset_index()
+    )
 
 
 def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
@@ -970,9 +1084,10 @@ def build_sheet_rows(
 
 
 def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
-    """Builds the plant sheet of the eGRID data file from OGE's annual plant data, and
-    the generation by fuel, combustion heat input and ozone season totals of OGE's
-    monthly subplant data.
+    """Builds the plant sheet of the eGRID data file from OGE's annual plant data, the
+    generation by fuel, combustion heat input, ozone season totals and data sources of
+    OGE's monthly subplant data, and the biomass and CHP adjustments between OGE's
+    unadjusted and adjusted values.
 
     Args:
         year (int): data year.
@@ -1007,6 +1122,7 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     # use the EIA-860 attributes where OGE does not have them
     for column in ["state", "plant_name_eia", "county", "latitude", "longitude"]:
         plants[column] = plants[column].fillna(plants[f"{column}_eia860"])
+    plants = add_adjustment_values(plants)
     table = build_sheet_rows(
         plants,
         PLANT_DATA_SOURCES,
@@ -1014,13 +1130,16 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
         "SEQPLT",
         ["state", "plant_name_eia", "plant_id_eia"],
     )
+    for source_code, value_code in PLANT_SOURCE_VALUES.items():
+        table[source_code] = table[source_code].where(table[value_code].notna())
     table = convert_mass_to_tons(table, "PLNT", year)
     return add_emission_rates_and_resource_mix(table, "PLNT", year)
 
 
 def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
     """Sums OGE's monthly subplant data to each plant's generation by eGRID fuel group,
-    combustion heat input and ozone season totals.
+    combustion heat input and ozone season totals, and lists the data sources of each
+    plant's heat input and emissions.
 
     Each subplant's data counts toward the fuel groups in `EGRID_FUEL_GROUPS` that
     include its fuel category. Plants without subplants in a fuel group have zero
@@ -1032,19 +1151,26 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
     Returns:
         pd.DataFrame: plant_id_eia, the net generation of each fuel group of
             `GENERATION_BY_FUEL_CODES` (e.g. "net_generation_mwh_coal"), the
-            combustion heat input (e.g. "combustion_fuel_consumed_mmbtu"), and the
-            ozone season totals of heat input, net generation, NOx and combustion heat
-            input (with "_ozone_season" added to their column names).
+            combustion heat input (e.g. "combustion_fuel_consumed_mmbtu"), the ozone
+            season totals of heat input, net generation, NOx and combustion heat input
+            (with "_ozone_season" added to their column names), and the data sources of
+            the heat input and emissions (e.g. "nox_mass_lb_source").
     """
     heat_input_columns = ["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]
     ozone_season_columns = heat_input_columns + [
         "net_generation_mwh",
         "nox_mass_lb",
+        "nox_mass_lb_adjusted",
         "nox_mass_lb_for_electricity_adjusted",
     ]
+    source_columns = [
+        f"{pollutant}_mass_lb"
+        for pollutant in ["so2", "co2", "ch4", "n2o", "co2e", "hg"]
+    ]
+    keys = ["plant_id_eia", "subplant_id", "report_date"]
     subplants = pd.read_csv(
         results_folder(f"{path_prefix}plant_data/monthly/us_units/subplant_data.csv"),
-        usecols=["plant_id_eia", "subplant_id", "report_date"] + ozone_season_columns,
+        usecols=keys + ozone_season_columns + source_columns,
         parse_dates=["report_date"],
     ).merge(
         pd.read_csv(
@@ -1073,7 +1199,7 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
     )
     for column in seasonal_columns:
         subplants[f"{column}_ozone_season"] = subplants[column].where(ozone_season, 0)
-    return (
+    totals = (
         subplants.groupby("plant_id_eia")[
             generation_columns
             + [f"combustion_{column}" for column in heat_input_columns]
@@ -1082,6 +1208,108 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
         .sum(min_count=1)
         .reset_index()
     )
+    # the data source of each subplant-month, as eGRID's labels
+    subplants = subplants.merge(
+        pd.read_csv(
+            results_folder(f"{path_prefix}plant_data/plant_metadata.csv"),
+            usecols=keys + ["data_source"],
+            parse_dates=["report_date"],
+        ),
+        on=keys,
+        how="left",
+        validate="1:1",
+    )
+    subplants["data_source"] = subplants["data_source"].map(DATA_SOURCE_LABELS)
+    for column in ["nox_mass_lb", "fuel_consumed_mmbtu"] + source_columns:
+        totals = totals.merge(
+            list_data_sources(subplants, column), on="plant_id_eia", how="left"
+        )
+    for column in ["nox_mass_lb", "fuel_consumed_mmbtu"]:
+        totals = totals.merge(
+            list_data_sources(subplants[ozone_season], column, "_ozone_season"),
+            on="plant_id_eia",
+            how="left",
+        )
+    return totals
+
+
+def list_data_sources(
+    subplants: pd.DataFrame, column: str, suffix: str = ""
+) -> pd.DataFrame:
+    """Lists the data sources of each plant's value of a column, i.e. the sources of
+    the subplant-months where the value is positive, e.g. "EPA/CAPD; EIA".
+
+    Args:
+        subplants (pd.DataFrame): monthly subplant data with plant_id_eia, the column
+            and a "data_source" column of eGRID labels.
+        column (str): column whose sources are listed.
+        suffix (str, optional): added to the column name of the result, e.g.
+            "_ozone_season". Defaults to "".
+
+    Returns:
+        pd.DataFrame: plant_id_eia and the sources, in a column named after the column
+            with the suffix and "_source". Plants without a positive value are left out.
+    """
+    order = list(DATA_SOURCE_LABELS.values())
+    return (
+        subplants.loc[subplants[column] > 0]
+        .groupby("plant_id_eia")["data_source"]
+        .agg(
+            lambda sources: "; ".join(
+                sorted(sources.dropna().unique(), key=order.index)
+            )
+        )
+        .rename(f"{column}{suffix}_source")
+        .reset_index()
+    )
+
+
+def add_adjustment_values(plants: pd.DataFrame) -> pd.DataFrame:
+    """Adds the biomass and CHP adjustment values and flags of each plant, from OGE's
+    unadjusted and adjusted values.
+
+    The biomass adjustment is the unadjusted value minus the biomass-adjusted value,
+    and the CHP adjustment is the biomass-adjusted value minus the biomass- and
+    CHP-adjusted value, so that each plant's adjusted value is its unadjusted value
+    minus both adjustments. A plant is flagged where OGE adjusted it.
+
+    Args:
+        plants (pd.DataFrame): annual plant data with OGE's unadjusted and adjusted
+            columns, and the ozone season and combustion totals of
+            `load_plant_totals_from_subplants()`.
+
+    Returns:
+        pd.DataFrame: the plant data with the adjustment and flag columns of
+            `PLANT_DATA_SOURCES`.
+    """
+    plants = plants.copy()
+    for pollutant in ADJUSTED_POLLUTANTS:
+        mass = f"{pollutant}_mass_lb"
+        plants[f"{mass}_biomass_adjustment"] = plants[mass] - plants[f"{mass}_adjusted"]
+        plants[f"{mass}_chp_adjustment"] = (
+            plants[f"{mass}_adjusted"] - plants[f"{mass}_for_electricity_adjusted"]
+        )
+    plants["nox_mass_lb_biomass_adjustment_ozone_season"] = (
+        plants["nox_mass_lb_ozone_season"] - plants["nox_mass_lb_adjusted_ozone_season"]
+    )
+    plants["nox_mass_lb_chp_adjustment_ozone_season"] = (
+        plants["nox_mass_lb_adjusted_ozone_season"]
+        - plants["nox_mass_lb_for_electricity_adjusted_ozone_season"]
+    )
+    for season in ["", "_ozone_season"]:
+        plants[f"combustion_fuel_consumed_mmbtu_chp_adjustment{season}"] = (
+            plants[f"combustion_fuel_consumed_mmbtu{season}"]
+            - plants[f"combustion_fuel_consumed_for_electricity_mmbtu{season}"]
+        )
+    biomass_adjusted = (
+        plants[[f"{p}_mass_lb_biomass_adjustment" for p in ADJUSTED_POLLUTANTS]] > 0
+    ).any(axis=1)
+    chp_adjusted = (
+        plants["fuel_consumed_mmbtu"] > plants["fuel_consumed_for_electricity_mmbtu"]
+    )
+    plants["biomass_adjustment_flag"] = biomass_adjusted.map({True: "Yes"})
+    plants["chp_adjustment_flag"] = chp_adjusted.map({True: "Yes"})
+    return plants
 
 
 def build_region_table(
