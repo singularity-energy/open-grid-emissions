@@ -606,6 +606,16 @@ def test_region_tables(results):
     assert ba.loc["BA1", "BAGENATR"] == 0
     assert ba.loc["BA2", "BAGENATR"] == 500.0
     assert ba.loc["BA2", "BAGENACN"] == 500.0
+    # rates by fuel type divide each fuel group's emissions by its generation or heat
+    # input, and the fossil group includes coal
+    assert ba.loc["BA1", "BAGCO2RT"] == pytest.approx(1_000_000 / 900)
+    assert ba.loc["BA1", "BAGCO2R"] == pytest.approx(1_000_000 / 9000)
+    assert ba.loc["BA1", "BAFSC2RT"] == pytest.approx(1_000_000 / 950)
+    assert ba.loc["BA1", "BACCO2RT"] == 0
+    assert ba.loc["BA1", "BAGNXORT"] == 0
+    # rates are blank where a BA has none of the fuel group
+    assert pd.isna(ba.loc["BA1", "BAOCO2RT"])
+    assert pd.isna(ba.loc["BA2", "BAFSC2RT"])
     us = output_egrid_file.build_region_table(2024, "2024/", "US", ["US"])
     assert us.loc[0, "USNGENAN"] == 1500.0
     assert "BACODE" not in us
@@ -783,3 +793,24 @@ def test_emission_rates_and_resource_mix():
     assert gas["PLCYPR"] == 0.8
     assert pd.isna(idle["PLGSPR"])
     assert f"PL{output_egrid_file.OZONE_COMBUSTION_GENERATION}" not in rates
+
+
+def test_fuel_type_rates_include_waste_in_fossil():
+    annual = pd.DataFrame(
+        {
+            "net_generation_mwh": [100.0, 50.0, 0.0],
+            "fuel_consumed_for_electricity_mmbtu": [1000.0, 800.0, 10.0],
+            "co2_mass_lb_for_electricity_adjusted": [100_000.0, 50_000.0, 1000.0],
+        },
+        index=pd.Index(["natural_gas", "waste", "petroleum"], name="fuel_category"),
+    )
+    for column in output_egrid_file.FUEL_TYPE_RATE_MASSES.values():
+        if column not in annual:
+            annual[column] = 0.0
+    rates = output_egrid_file.calculate_fuel_type_rates(annual, annual)
+    assert rates["FSC2RT"] == 151_000 / 150
+    assert rates["FSC2R"] == 151_000 / 1810
+    # oil has emissions but no generation, so its output rate is blank
+    assert pd.isna(rates["OCO2RT"])
+    assert rates["OCO2R"] == 100.0
+    assert pd.isna(rates["CCO2RT"])

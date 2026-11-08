@@ -22,6 +22,7 @@ import re
 from datetime import date
 from importlib.metadata import version
 
+import numpy as np
 import pandas as pd
 import xlsxwriter
 from xlsxwriter.utility import xl_rowcol_to_cell
@@ -260,6 +261,11 @@ EGRID_FUEL_GROUPS |= {
         for group in ["nuclear", "hydro", "wind", "solar", "geothermal"]
         for category in EGRID_FUEL_GROUPS[group]
     ],
+    "fossil": [
+        category
+        for group in ["coal", "oil", "gas", "other_fossil"]
+        for category in EGRID_FUEL_GROUPS[group]
+    ],
 }
 # eGRID fuel group of each generation by fuel column, keyed by the code without the
 # sheet's prefix. eGRID's other unknown/purchased fuel generation is counted as
@@ -333,6 +339,30 @@ RESOURCE_MIX_GENERATION = {
     "CNPR": "GENACN",  # total noncombustion
     "COPR": "GENACO",  # other unknown/purchased, with the noncombustion
 }
+# Emission rates by fuel type divide the emissions of a fuel group's rows in the power
+# sector results by their net generation (output rates) or heat input (input rates).
+# OGE column of each pollutant's mass, keyed by the pollutant's code
+FUEL_TYPE_RATE_MASSES = {
+    "NOX": "nox_mass_lb_for_electricity_adjusted",
+    "SO2": "so2_mass_lb_for_electricity_adjusted",
+    "CO2": "co2_mass_lb_for_electricity_adjusted",
+    "CH4": "ch4_mass_lb_for_electricity_adjusted",
+    "N2O": "n2o_mass_lb_for_electricity_adjusted",
+    "C2E": "co2e_mass_lb_for_electricity_adjusted",
+}
+# output rate code of each pollutant and fuel group, without the sheet's prefix. The
+# input rate code is the same without the final "T", e.g. "CNOXR". "NOXOZ" is the
+# ozone season NOx rate, which divides by ozone season generation or heat input
+FUEL_TYPE_OUTPUT_RATE_CODES = {
+    "NOX": {"coal": "CNOXRT", "oil": "ONOXRT", "gas": "GNOXRT", "fossil": "FSNXRT"},
+    "NOXOZ": {"coal": "CNXORT", "oil": "ONXORT", "gas": "GNXORT", "fossil": "FSNORT"},
+    "SO2": {"coal": "CSO2RT", "oil": "OSO2RT", "gas": "GSO2RT", "fossil": "FSS2RT"},
+    "CO2": {"coal": "CCO2RT", "oil": "OCO2RT", "gas": "GCO2RT", "fossil": "FSC2RT"},
+    "CH4": {"coal": "CCH4RT", "oil": "OCH4RT", "gas": "GCH4RT", "fossil": "FCH4RT"},
+    "N2O": {"coal": "CN2ORT", "oil": "ON2ORT", "gas": "GN2ORT", "fossil": "FN2ORT"},
+    "C2E": {"coal": "CC2ERT", "oil": "OC2ERT", "gas": "GC2ERT", "fossil": "FSC2ERT"},
+}
+
 # generation columns of the individual fuels, whose positive generation sums to the
 # total of the resource mix
 RESOURCE_MIX_FUELS = [
@@ -1058,7 +1088,7 @@ def build_region_table(
     year: int, path_prefix: str, sheet: str, ba_codes: list[str]
 ) -> pd.DataFrame:
     """Builds the BA or U.S. sheet of the eGRID data file from OGE's annual and monthly
-    power sector results.
+    power sector results, including the emission rates by fuel type.
 
     Generation and heat input from fuel groups that a BA does not have are zero.
 
@@ -1100,6 +1130,12 @@ def build_region_table(
             elif fuel_category != "total":
                 # the BA has none of the fuel categories
                 row[prefix + code] = 0
+        row |= {
+            prefix + code: rate
+            for code, rate in calculate_fuel_type_rates(
+                ba_data["annual"], ba_data["ozone"]
+            ).items()
+        }
         if sheet == "BA":
             row["BACODE"] = ba_code
         rows.append(row)
@@ -1176,6 +1212,40 @@ def add_emission_rates_and_resource_mix(
             lower=0
         ) / total.where(total > 0)
     return table.drop(columns=f"{prefix}{OZONE_COMBUSTION_GENERATION}")
+
+
+def calculate_fuel_type_rates(
+    annual: pd.DataFrame, ozone_season: pd.DataFrame
+) -> dict[str, float]:
+    """Calculates the emission rates by fuel type of a BA from its power sector results.
+
+    Each rate divides the emissions of the BA's fuel category rows in a fuel group by
+    their net generation (output rates, lb/MWh) or heat input (input rates,
+    lb/MMBtu). Rates are blank where the BA has none of the fuel group's categories or
+    the denominator is zero or negative.
+
+    Args:
+        annual (pd.DataFrame): annual power sector results, indexed by fuel category.
+        ozone_season (pd.DataFrame): ozone season sums of the monthly power sector
+            results, indexed by fuel category.
+
+    Returns:
+        dict[str, float]: each rate, keyed by its code without the sheet's prefix.
+    """
+    rates = {}
+    for pollutant, codes in FUEL_TYPE_OUTPUT_RATE_CODES.items():
+        data = ozone_season if pollutant == "NOXOZ" else annual
+        mass_column = FUEL_TYPE_RATE_MASSES[pollutant.removesuffix("OZ")]
+        for group, output_code in codes.items():
+            rows = data.loc[data.index.isin(EGRID_FUEL_GROUPS[group])]
+            mass = rows[mass_column].sum(min_count=1)
+            for code, denominator_column in [
+                (output_code, "net_generation_mwh"),
+                (output_code.removesuffix("T"), "fuel_consumed_for_electricity_mmbtu"),
+            ]:
+                denominator = rows[denominator_column].sum(min_count=1)
+                rates[code] = mass / denominator if denominator > 0 else np.nan
+    return rates
 
 
 def convert_mass_to_tons(table: pd.DataFrame, sheet: str, year: int) -> pd.DataFrame:
