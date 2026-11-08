@@ -81,6 +81,21 @@ These differ between the datasets, but neither approach is more accurate.
 | Energy Storage (MWH) | other | storage |
 | Refinery Gas (RG) | not categorized | petroleum |
 | Coal Synfuel (SC) | not categorized | coal |
+| Digester Gas (DG) | not categorized | biomass |
+| Hydrogen (H) | other | not categorized |
+
+These differences come from how each dataset groups fuels. OGE follows EIA, which classifies propane and butane as petroleum products. eGRID groups them with natural gas, since plants burn them as a gas. eGRID puts manufactured and waste gases in other fossil (blast furnace gas and other gas) or other (process gas), while OGE counts them as natural_gas. OGE also keeps waste and storage as categories of their own: eGRID splits municipal solid waste between biomass (MSW, MSB) and other fossil (MSN, along with tire-derived fuel), and counts energy storage as other.
+
+**Fuel columns in OGE's eGRID-format file.** OGE's eGRID-format workbook keeps eGRID's fuel columns and headers, but fills them from OGE's fuel categories. So the values follow OGE's definitions above, not eGRID's:
+
+| eGRID column | OGE fuel categories |
+|---|---|
+| gas (`GENAGS`) | natural_gas |
+| oil (`GENAOL`) | petroleum |
+| other fossil (`GENAOF`) | waste |
+| other unknown/purchased fuel (`GENAOP`) | other and storage |
+
+Coal, nuclear, hydro, biomass, wind, solar, and geothermal map to the OGE category of the same name. The renewable, nonrenewable, combustion, and noncombustion totals are sums of these columns: nonrenewables are coal, oil, gas, other fossil, and nuclear; renewables are biomass, hydro, wind, solar, and geothermal; combustion is coal, oil, gas, other fossil, and biomass. Other unknown/purchased fuel is in neither group, as in eGRID. Because storage has negative net generation, the other unknown/purchased fuel columns can be negative.
 
 ### 2b. eGRID2023 bugs
 

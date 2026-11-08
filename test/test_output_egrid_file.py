@@ -313,7 +313,7 @@ def results(tmp_path, monkeypatch):
         if (
             column not in plant_data
             and any(unit in column for unit in ["_lb", "_mmbtu", "_mwh"])
-            and not column.startswith("combustion_")
+            and not column.startswith(("combustion_", "net_generation_mwh_"))
             and not column.endswith("_ozone_season")
         ):
             plant_data[column] = 0.0
@@ -451,6 +451,41 @@ def test_plant_ozone_season_and_combustion_heat_input(results):
     assert plants.loc[2, "PLHTIOZT"] == 1000.0
 
 
+def test_plant_generation_by_fuel(results):
+    plants = output_egrid_file.build_plant_table(2024, "2024/").set_index("ORISPL")
+    # each subplant's generation counts toward the groups of its OGE fuel category
+    assert plants.loc[1, "PLGENAGS"] == 1000.0
+    assert plants.loc[1, "PLGENASO"] == 30.0
+    assert plants.loc[1, "PLGENACL"] == 0
+    assert plants.loc[1, "PLGENATN"] == 1000.0
+    assert plants.loc[1, "PLGENATR"] == 30.0
+    assert plants.loc[1, "PLGENATH"] == 30.0
+    assert plants.loc[1, "PLGENACY"] == 1000.0
+    assert plants.loc[1, "PLGENACN"] == 30.0
+    assert plants.loc[2, "PLGENASO"] == 500.0
+    assert plants.loc[2, "PLGENACY"] == 0
+
+
+def test_fuel_groups_use_oge_fuel_categories():
+    groups = output_egrid_file.EGRID_FUEL_GROUPS
+    assert groups["gas"] == ["natural_gas"]
+    assert groups["other_fossil"] == ["waste"]
+    assert groups["other"] == ["other", "storage"]
+    # every OGE fuel category is in exactly one of eGRID's fuels
+    fuels = ["coal", "oil", "gas", "nuclear", "hydro", "biomass", "wind", "solar"]
+    fuels += ["geothermal", "other_fossil", "other"]
+    categories = [category for fuel in fuels for category in groups[fuel]]
+    assert len(categories) == len(set(categories)) == 12
+    # nonrenewable and renewable, and combustion and noncombustion, together cover
+    # every category except other unknown/purchased fuel
+    assert sorted(groups["nonrenewable"] + groups["renewable"] + groups["other"]) == (
+        sorted(categories)
+    )
+    assert sorted(
+        groups["combustion"] + groups["noncombustion"] + groups["other"]
+    ) == sorted(categories)
+
+
 def test_plant_attributes_use_oge_then_eia860(results):
     plants = output_egrid_file.build_plant_table(2024, "2024/").set_index("ORISPL")
     # OGE's attributes are used where OGE has them, and EIA-860's otherwise
@@ -564,6 +599,13 @@ def test_region_tables(results):
     assert ba.loc["BA1", "BANGENOZ"] == 500.0
     assert ba.loc["BA1", "BAHTIOZT"] == 5000.0
     assert ba.loc["BA1", "BAHTIOZ"] == 4750.0
+    # generation by fuel uses OGE's fuel categories
+    assert ba.loc["BA1", "BAGENAGS"] == 900.0
+    assert ba.loc["BA1", "BAGENATN"] == 950.0
+    assert ba.loc["BA1", "BAGENACY"] == 950.0
+    assert ba.loc["BA1", "BAGENATR"] == 0
+    assert ba.loc["BA2", "BAGENATR"] == 500.0
+    assert ba.loc["BA2", "BAGENACN"] == 500.0
     us = output_egrid_file.build_region_table(2024, "2024/", "US", ["US"])
     assert us.loc[0, "USNGENAN"] == 1500.0
     assert "BACODE" not in us
@@ -581,7 +623,7 @@ def test_egrid_tables_have_every_column(results):
     assert len(tables["GEN"]) == 2
     assert tables["ST"].empty
     # columns that OGE does not calculate are blank
-    assert tables["PLNT"]["PLGENACL"].isna().all()
+    assert tables["PLNT"]["PLCLPR"].isna().all()
 
 
 def test_convert_to_metric():
@@ -623,7 +665,7 @@ def test_write_egrid_files(results):
         codes = [code for code, _, _ in columns]
         # filled columns are colored by category and blank columns are grayed out
         filled = worksheet.cell(1, codes.index("PLNGENAN") + 1)
-        blank = worksheet.cell(1, codes.index("PLGENACL") + 1)
+        blank = worksheet.cell(1, codes.index("PLCLPR") + 1)
         assert filled.fill.fgColor.rgb == "FFF2DCDB"
         assert blank.font.color.rgb == "FFA6A6A6"
 
