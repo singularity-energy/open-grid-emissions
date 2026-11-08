@@ -217,10 +217,73 @@ OGE_ISSUES_URL = "https://github.com/singularity-energy/open-grid-emissions/issu
 
 # months of the ozone season, May to September
 OZONE_SEASON_MONTHS = [5, 6, 7, 8, 9]
-# OGE fuel categories that burn fuel. eGRID's combustion heat input and generation
-# exclude nuclear, hydro, wind, solar, geothermal, storage, and other unknown or
-# purchased energy
-COMBUSTION_FUEL_CATEGORIES = ["coal", "natural_gas", "petroleum", "biomass", "waste"]
+# OGE fuel categories in each of eGRID's fuel groups. The groups use OGE's categories,
+# which are defined differently from eGRID's (see the eGRID comparison doc): OGE's
+# natural gas includes other gases such as blast furnace gas, its waste fills eGRID's
+# other fossil group, and storage is counted with other unknown/purchased fuel
+EGRID_FUEL_GROUPS = {
+    "coal": ["coal"],
+    "oil": ["petroleum"],
+    "gas": ["natural_gas"],
+    "nuclear": ["nuclear"],
+    "hydro": ["hydro"],
+    "biomass": ["biomass"],
+    "wind": ["wind"],
+    "solar": ["solar"],
+    "geothermal": ["geothermal"],
+    "other_fossil": ["waste"],
+    "other": ["other", "storage"],
+}
+EGRID_FUEL_GROUPS |= {
+    "nonrenewable": [
+        category
+        for group in ["coal", "oil", "gas", "other_fossil", "nuclear"]
+        for category in EGRID_FUEL_GROUPS[group]
+    ],
+    "renewable": [
+        category
+        for group in ["biomass", "hydro", "wind", "solar", "geothermal"]
+        for category in EGRID_FUEL_GROUPS[group]
+    ],
+    "nonhydro_renewable": [
+        category
+        for group in ["biomass", "wind", "solar", "geothermal"]
+        for category in EGRID_FUEL_GROUPS[group]
+    ],
+    "combustion": [
+        category
+        for group in ["coal", "oil", "gas", "other_fossil", "biomass"]
+        for category in EGRID_FUEL_GROUPS[group]
+    ],
+    "noncombustion": [
+        category
+        for group in ["nuclear", "hydro", "wind", "solar", "geothermal"]
+        for category in EGRID_FUEL_GROUPS[group]
+    ],
+}
+# eGRID fuel group of each generation by fuel column, keyed by the code without the
+# sheet's prefix. eGRID's other unknown/purchased fuel generation is counted as
+# nonrenewable and noncombustion, so it is in three columns
+GENERATION_BY_FUEL_CODES = {
+    "GENACL": "coal",
+    "GENAOL": "oil",
+    "GENAGS": "gas",
+    "GENANC": "nuclear",
+    "GENAHY": "hydro",
+    "GENABM": "biomass",
+    "GENAWI": "wind",
+    "GENASO": "solar",
+    "GENAGT": "geothermal",
+    "GENAOF": "other_fossil",
+    "GENAOP": "other",
+    "GENATN": "nonrenewable",
+    "GENATR": "renewable",
+    "GENATO": "other",
+    "GENATH": "nonhydro_renewable",
+    "GENACY": "combustion",
+    "GENACN": "noncombustion",
+    "GENACO": "other",
+}
 
 # OGE column for each column of the plant sheet that holds the same quantity. Plant
 # attributes come from OGE's plant attributes, or from EIA-860 when OGE does not have
@@ -275,6 +338,9 @@ PLANT_DATA_SOURCES = {
     "UNHTIOZ": "combustion_fuel_consumed_mmbtu_ozone_season",
     "UNHTIT": "fuel_consumed_mmbtu",
     "UNHTIOZT": "fuel_consumed_mmbtu_ozone_season",
+} | {
+    f"PL{code}": f"net_generation_mwh_{group}"
+    for code, group in GENERATION_BY_FUEL_CODES.items()
 }
 # OGE column for each column of the unit sheet that holds the same quantity, from the
 # annual totals of OGE's cleaned hourly CEMS data
@@ -420,10 +486,10 @@ EIA_SECTORS = {
     6: "Industrial Non-CHP",
     7: "Industrial CHP",
 }
-# OGE fuel categories, column and season of each data column of the BA and U.S. sheets
-# that holds the same quantity, keyed by the code without the sheet's prefix.
-# "combustion" sums the fuel categories in COMBUSTION_FUEL_CATEGORIES, and the ozone
-# season sums May to September from the monthly results
+# OGE fuel category or eGRID fuel group, column and season of each data column of the
+# BA and U.S. sheets that holds the same quantity, keyed by the code without the
+# sheet's prefix. A fuel group sums its fuel categories in EGRID_FUEL_GROUPS, and the
+# ozone season sums May to September from the monthly results
 REGION_DATA_SOURCES = {
     "HTIAN": ("combustion", "fuel_consumed_for_electricity_mmbtu", "annual"),
     "HTIOZ": ("combustion", "fuel_consumed_for_electricity_mmbtu", "ozone"),
@@ -463,17 +529,9 @@ REGION_DATA_SOURCES = {
         "generated_n2o_rate_lb_per_mwh_for_electricity_adjusted",
         "annual",
     ),
-    "GENACL": ("coal", "net_generation_mwh", "annual"),
-    "GENANC": ("nuclear", "net_generation_mwh", "annual"),
-    "GENAHY": ("hydro", "net_generation_mwh", "annual"),
-    "GENAWI": ("wind", "net_generation_mwh", "annual"),
-    "GENASO": ("solar", "net_generation_mwh", "annual"),
-    "GENAGT": ("geothermal", "net_generation_mwh", "annual"),
-    # eGRID's other unknown/purchased fuel generation is counted as nonrenewable and
-    # noncombustion, so it is in these three columns
-    "GENAOP": ("other", "net_generation_mwh", "annual"),
-    "GENATO": ("other", "net_generation_mwh", "annual"),
-    "GENACO": ("other", "net_generation_mwh", "annual"),
+} | {
+    code: (group, "net_generation_mwh", "annual")
+    for code, group in GENERATION_BY_FUEL_CODES.items()
 }
 
 
@@ -845,7 +903,8 @@ def build_sheet_rows(
 
 def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     """Builds the plant sheet of the eGRID data file from OGE's annual plant data, and
-    the ozone season and combustion totals of OGE's monthly subplant data.
+    the generation by fuel, combustion heat input and ozone season totals of OGE's
+    monthly subplant data.
 
     Args:
         year (int): data year.
@@ -866,7 +925,7 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
         plant_data.merge(plant_attributes, on="plant_id_eia", how="left")
         .merge(load_ba_reference()[["ba_code", "ba_name"]], on="ba_code", how="left")
         .merge(
-            load_ozone_season_and_combustion_totals(path_prefix),
+            load_plant_totals_from_subplants(path_prefix),
             on="plant_id_eia",
             how="left",
         )
@@ -890,21 +949,23 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     return convert_mass_to_tons(table, "PLNT", year)
 
 
-def load_ozone_season_and_combustion_totals(path_prefix: str) -> pd.DataFrame:
-    """Sums OGE's monthly subplant data to each plant's ozone season totals and
-    combustion heat input.
+def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
+    """Sums OGE's monthly subplant data to each plant's generation by eGRID fuel group,
+    combustion heat input and ozone season totals.
 
-    Combustion heat input is the heat input of the subplants whose fuel category is in
-    `COMBUSTION_FUEL_CATEGORIES`, and is zero for plants without any.
+    Each subplant's data counts toward the fuel groups in `EGRID_FUEL_GROUPS` that
+    include its fuel category. Plants without subplants in a fuel group have zero
+    generation or heat input in that group.
 
     Args:
         path_prefix (str): prefix of the results folder of the year, e.g. "2024/".
 
     Returns:
-        pd.DataFrame: plant_id_eia, the ozone season totals of heat input, net
-            generation and NOx (with "_ozone_season" added to their column names), and
-            the annual and ozone season combustion heat input (with "combustion_"
-            added to the start of their column names).
+        pd.DataFrame: plant_id_eia, the net generation of each fuel group of
+            `GENERATION_BY_FUEL_CODES` (e.g. "net_generation_mwh_coal"), the
+            combustion heat input (e.g. "combustion_fuel_consumed_mmbtu"), and the
+            ozone season totals of heat input, net generation, NOx and combustion heat
+            input (with "_ozone_season" added to their column names).
     """
     heat_input_columns = ["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]
     ozone_season_columns = heat_input_columns + [
@@ -925,7 +986,14 @@ def load_ozone_season_and_combustion_totals(path_prefix: str) -> pd.DataFrame:
         how="left",
         validate="m:1",
     )
-    combustion = subplants["fuel_category"].isin(COMBUSTION_FUEL_CATEGORIES)
+    generation_columns = []
+    for group in dict.fromkeys(GENERATION_BY_FUEL_CODES.values()):
+        in_group = subplants["fuel_category"].isin(EGRID_FUEL_GROUPS[group])
+        subplants[f"net_generation_mwh_{group}"] = subplants[
+            "net_generation_mwh"
+        ].where(in_group, 0)
+        generation_columns.append(f"net_generation_mwh_{group}")
+    combustion = subplants["fuel_category"].isin(EGRID_FUEL_GROUPS["combustion"])
     for column in heat_input_columns:
         subplants[f"combustion_{column}"] = subplants[column].where(combustion, 0)
     ozone_season = subplants["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
@@ -936,7 +1004,8 @@ def load_ozone_season_and_combustion_totals(path_prefix: str) -> pd.DataFrame:
         subplants[f"{column}_ozone_season"] = subplants[column].where(ozone_season, 0)
     return (
         subplants.groupby("plant_id_eia")[
-            [f"combustion_{column}" for column in heat_input_columns]
+            generation_columns
+            + [f"combustion_{column}" for column in heat_input_columns]
             + [f"{column}_ozone_season" for column in seasonal_columns]
         ]
         .sum(min_count=1)
@@ -950,8 +1019,7 @@ def build_region_table(
     """Builds the BA or U.S. sheet of the eGRID data file from OGE's annual and monthly
     power sector results.
 
-    Generation and combustion heat input from fuel categories that a BA does not have
-    are zero.
+    Generation and heat input from fuel groups that a BA does not have are zero.
 
     Args:
         year (int): data year.
@@ -982,17 +1050,14 @@ def build_region_table(
         }
         row = {"YEAR": year}
         for code, (fuel_category, column, season) in REGION_DATA_SOURCES.items():
-            fuel_categories = (
-                COMBUSTION_FUEL_CATEGORIES
-                if fuel_category == "combustion"
-                else [fuel_category]
-            )
+            fuel_categories = EGRID_FUEL_GROUPS.get(fuel_category, [fuel_category])
             data = ba_data[season]
             if data.index.isin(fuel_categories).any():
                 row[prefix + code] = data.loc[
                     data.index.isin(fuel_categories), column
                 ].sum(min_count=1)
-            elif column == "net_generation_mwh" or fuel_category == "combustion":
+            elif fuel_category != "total":
+                # the BA has none of the fuel categories
                 row[prefix + code] = 0
         if sheet == "BA":
             row["BACODE"] = ba_code
