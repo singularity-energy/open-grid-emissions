@@ -31,8 +31,13 @@ stoplight-id: input_data
 
 **EPA-EIA Power Sector Data Crosswalk**
 * **What is it**: Maps EPA plant IDs and unit IDs to EIA plant IDs and generator IDs
-* **How we use it**: To crosswalk data between CEMS and EIA-923
+* **How we use it**: To crosswalk data between CEMS and EIA-923, and to identify the CEMS units that the EPA excluded from the crosswalk because they are not connected to the grid
 * **More information**: [https://www.epa.gov/airmarkets/power-sector-data-crosswalk](https://www.epa.gov/airmarkets/power-sector-data-crosswalk)
+
+**EPA Clean Air Markets Program Data (CAMPD) facility attributes**
+* **What is it**: Annual list of the units that report to the EPA's Clean Air Markets programs, with attributes such as their unit type, fuel types, emissions controls, and associated generators
+* **How we use it**: To fill boiler firing types and bottom types that are missing from EIA-860 when calculating NOx and SO2 emissions, as a backstop for the fuel type of CEMS units, and to identify updates to the crosswalk between CEMS units and EIA generators
+* **More information**: [https://campd.epa.gov/data/bulk-data-files](https://campd.epa.gov/data/bulk-data-files)
 
 **EIA Form 930 / Hourly Electric Grid Monitor**
 * **What is it**: Reported hourly net generation by fuel category, demand, and interchange for each Balancing Area in the U.S.
