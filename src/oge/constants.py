@@ -93,4 +93,6 @@ class ConversionFactors(float):
     kgal_to_barrel = 23.8095
     mmbtu_to_GJ = 1.055056
     mwh_to_mmbtu = 3.412142
+    mwh_to_GJ = 3.6
+    ft_to_m = 0.3048
     short_ton_to_lbs = 2000
