@@ -6,7 +6,7 @@ stoplight-id: using_the_data
 
 ## Data Availability
 
-The latest release includes data for year 2005-2025 covering the contiguous United States, Alaska, and Hawaii. In future releases, we plan to expand the geographic coverage to additional U.S. territories (track progress [here](https://github.com/singularity-energy/open-grid-emissions/issues/79)).
+The latest release includes data for year 2005-2025 covering the contiguous United States, Alaska, and Hawaii, as well as Puerto Rico from 2018 onward. 2018 is the first year that the EIA reports generator data for Puerto Rico in its monthly EIA-860M files.
 
 Currently, 2005 is the earliest available year. Note that only monthly and annual data are available for year 2005-2018 because 2019 is the first year for which complete EIA-930 data is available (which is used to assign an hourly profile to non-CEMS data).
 
@@ -73,8 +73,8 @@ fuel_category | string | named fuel category associated with the identified `pla
 fuel_category_eia930 | string | named fuel category used by EIA-930 associated with the identified `plant_primary_fuel` | [Mapping table](https://github.com/singularity-energy/open-grid-emissions/blob/main/src/oge/reference_tables/energy_source_groups.csv)
 plant_storage_category | string | For plants with at least one energy storage generator, whether the storage is `standalone`, `co_located`, or `hybrid`. Blank for plants without energy storage | [Calculated](../Methodology/Data%20Aggregation/Energy%20Storage.md)
 state | string | Two-letter state abbreviation where the plant is physically located | EIA-860
-county | string | County name | EIA-860
-city | string | City name | EIA-860
+county | string | County name (for Puerto Rico, the municipio) | EIA-860
+city | string | City name. Puerto Rico has no incorporated cities, so for Puerto Rico this is the municipio, the same as `county`. | EIA-860
 ba_code | string | Three- or four-character code representing the commercial balancing authority with which the plant is associated | EIA-860
 ba_code_physical | string | three- or four-character code representing the commercial balancing authority with which the plant is associated | [Inferred from EIA-860](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md)
 latitude | float | latitude of the plant (in deg.) with Equator as zero point | EIA-860
