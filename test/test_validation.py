@@ -47,3 +47,31 @@ def test_hourly_profile_source_metric_keeps_method_names():
         methods = result.loc[result["ba_code"] == ba_code, "profile_method"]
         assert methods.to_list() == expected
     assert result["net_generation_mwh"].to_list() == [0.2] * 10
+
+
+def test_summarize_cems_measurement_quality_maps_mats_codes():
+    """MATS startup and shutdown values count as measured, and manually calculated
+    values count as imputed."""
+    from oge.validation import summarize_cems_measurement_quality
+
+    cems = pd.DataFrame(
+        {
+            "co2_mass_lb": [1.0, 1.0, 1.0],
+            "co2_mass_measurement_code": ["Measured", "Measured", "Substitute"],
+            "nox_mass_lb": [1.0, 1.0, 1.0],
+            "nox_mass_measurement_code": ["Measured", "LME", "Measured"],
+            "so2_mass_lb": [1.0, 1.0, 1.0],
+            "so2_mass_measurement_code": ["Measured", "Measured", "Measured"],
+            "hg_mass_lb": [0.6, 0.2, 0.2],
+            "hg_mass_measurement_code": [
+                "Measured",
+                "Startup or Shutdown",
+                "Manually Calculated",
+            ],
+        }
+    )
+
+    result = summarize_cems_measurement_quality(cems).set_index("index")
+
+    assert result.loc["Measured", "hg_mass_lb"] == 0.8
+    assert result.loc["Imputed", "hg_mass_lb"] == 0.2

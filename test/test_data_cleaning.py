@@ -439,3 +439,88 @@ def test_add_missing_location_uses_municipio_as_puerto_rico_city():
         plants = helpers.add_missing_location(plants)
 
     assert plants["city"].tolist() == ["Guayama", "Tuscaloosa"]
+
+
+def test_remove_incomplete_hg_data():
+    """Hg is only kept for subplants that report to MATS and for months without fuel
+    that is not reported in CEMS, and is zero in hours without fuel consumption."""
+    jan, feb = pd.Timestamp("2024-01-01"), pd.Timestamp("2024-02-01")
+    cems = pd.DataFrame(
+        [
+            # a missing operating hour stays missing, and an hour without fuel is
+            # set to zero
+            [1, 1, "A", jan, 100, 0.01],
+            [1, 1, "A", jan, 100, np.nan],
+            [1, 1, "A", jan, np.nan, np.nan],
+            # the same applies in a month when the unit didn't report any Hg
+            [1, 1, "A", feb, 100, np.nan],
+            [1, 1, "A", feb, np.nan, np.nan],
+            # a unit that never reports Hg stays missing, even without fuel
+            [1, 2, "G", jan, 50, np.nan],
+            [1, 2, "G", jan, np.nan, np.nan],
+            # some of the subplant's fuel in January is not reported in CEMS
+            [2, 1, "B", jan, 100, 0.02],
+            [2, 1, "B", feb, 100, 0.03],
+        ],
+        columns=[
+            "plant_id_eia",
+            "subplant_id",
+            "emissions_unit_id_epa",
+            "report_date",
+            "fuel_consumed_mmbtu",
+            "hg_mass_lb",
+        ],
+    )
+    eia923_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2, 2],
+            "subplant_id": [1, 1, 1],
+            "report_date": [jan, jan, feb],
+            "fuel_consumed_mmbtu": [300, 50, 100],
+            "hourly_data_source": ["cems", "partial_cems_subplant", "cems"],
+        }
+    )
+
+    result = data_cleaning.remove_incomplete_hg_data(cems, eia923_allocated)
+
+    expected = [0.01, np.nan, 0, np.nan, 0, np.nan, np.nan, np.nan, 0.03]
+    np.testing.assert_array_equal(result["hg_mass_lb"].to_numpy(), expected)
+
+
+def test_aggregate_cems_to_subplant_only_sums_complete_hg():
+    """Subplant-hour Hg is missing if any unit that consumed fuel has no Hg, or if no
+    unit reported Hg."""
+    hours = pd.date_range("2024-01-01", periods=4, freq="h", tz="UTC")
+    cems = pd.DataFrame(
+        {
+            "plant_id_eia": [1] * 8 + [1],
+            "subplant_id": [1] * 8 + [2],
+            "emissions_unit_id_epa": ["A", "B"] * 4 + ["C"],
+            "datetime_utc": list(hours.repeat(2)) + [hours[0]],
+            "report_date": pd.Timestamp("2024-01-01"),
+            "fuel_consumed_mmbtu": [10, 10, 10, 10, 0, np.nan, 0, 0, 10],
+            "hg_mass_lb": [0.1, 0.2, 0.1, np.nan, 0, 0, np.nan, np.nan, np.nan],
+        }
+    )
+    for column in [
+        "gross_generation_mwh",
+        "co2_mass_lb",
+        "ch4_mass_lb",
+        "n2o_mass_lb",
+        "nox_mass_lb",
+        "so2_mass_lb",
+        "co2_mass_lb_adjusted",
+        "ch4_mass_lb_adjusted",
+        "n2o_mass_lb_adjusted",
+        "nox_mass_lb_adjusted",
+        "so2_mass_lb_adjusted",
+    ]:
+        cems[column] = 1.0
+
+    result = data_cleaning.aggregate_cems_to_subplant(cems)
+
+    assert "missing_hg" not in result.columns
+    np.testing.assert_allclose(
+        result["hg_mass_lb"].to_numpy(), [0.3, np.nan, 0, np.nan, np.nan]
+    )
+    assert result["fuel_consumed_mmbtu"].tolist() == [20, 20, 0, 0, 10]

@@ -11,6 +11,8 @@ Although both total `fuel_consumed_mmbtu` and `fuel_consumed_mmbtu_for_electrici
 
 When performing the below calculations, all calculations are performed at the subplant level, rather than at the generator or unit level. This is due to the fact that in some CHP systems, all of the reported fuel consumption at the subplant may be associated with one of the subplant's generators, while all of the reported generation data may be associated with another of the subplant's generators. 
 
+The electric allocation factor is applied to all emissions, including mercury (Hg), for which OGE reports `hg_mass_lb_for_electricity`. eGRID does not apply the electric allocation factor to Hg.
+
 ### Calculating useful thermal output
 In form EIA-923, generators report both the total quantity of each fuel consumed, and the quantity consumed for electric generation. By subtracting these two values, we can calculate the total fuel consumed for heating purposes:
 

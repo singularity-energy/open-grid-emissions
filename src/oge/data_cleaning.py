@@ -17,6 +17,8 @@ from oge.column_checks import (
 )
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.helpers import (
+    flag_missing_hg,
+    remove_incomplete_hg,
     create_plant_ba_table,
     add_subplant_ids_to_df,
     assign_fleet_to_subplant_data,
@@ -1382,6 +1384,9 @@ def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
         year, cems, "cems", ["plant_id_eia", "emissions_unit_id_epa"]
     )
 
+    # add hourly mercury data reported under MATS
+    cems = add_mats_hg_data(cems, year)
+
     cems = remove_negative_cems_data(cems, year)
 
     # remove non-grid connected plants
@@ -1445,6 +1450,48 @@ def clean_cems(year: int, primary_fuel_table, subplant_emission_factors):
     return cems
 
 
+def add_mats_hg_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Adds hourly unit-level mercury (Hg) mass reported under EPA MATS to the CEMS
+    data.
+
+    Units that do not report to MATS keep missing `hg_mass_lb` values. Missing hours
+    for MATS units are not filled. Any MATS data that does not match a CEMS unit-hour
+    is dropped and logged.
+
+    Args:
+        cems (pd.DataFrame): hourly unit-level CEMS data
+        year (int): the data year
+
+    Returns:
+        pd.DataFrame: CEMS data with `hg_mass_lb` and `hg_mass_measurement_code`
+            columns added.
+    """
+    mats = load_data.load_mats_data(year)
+    cems = cems.merge(
+        mats,
+        how="left",
+        on=["plant_id_epa", "emissions_unit_id_epa", "datetime_utc"],
+        validate="1:1",
+    )
+
+    # log any Hg data from MATS that did not match a CEMS unit-hour
+    unmatched_hg = mats["hg_mass_lb"].sum() - cems["hg_mass_lb"].sum()
+    if unmatched_hg > 0.01:
+        unit_keys = ["plant_id_epa", "emissions_unit_id_epa"]
+        unmatched_units = (
+            mats.groupby(unit_keys)["hg_mass_lb"]
+            .sum()
+            .sub(cems.groupby(unit_keys)["hg_mass_lb"].sum(), fill_value=0)
+        )
+        logger.warning(
+            f"{unmatched_hg:.1f} lb of MATS Hg data did not match CEMS data and "
+            "will be dropped:"
+        )
+        logger.warning(unmatched_units[unmatched_units > 0.01].to_string())
+
+    return cems
+
+
 def remove_negative_cems_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
     """Removes anomalous data, defined as negative fuel or emisisons data.
 
@@ -1457,7 +1504,7 @@ def remove_negative_cems_data(cems: pd.DataFrame, year: int) -> pd.DataFrame:
     """
 
     # treat negative emissions as bad data and replace with missing values
-    for column in ["co2_mass_lb", "nox_mass_lb", "so2_mass_lb"]:
+    for column in ["co2_mass_lb", "nox_mass_lb", "so2_mass_lb", "hg_mass_lb"]:
         negative_emissions_data = cems[cems[column] < 0]
         if len(negative_emissions_data) > 0:
             logger.warning(
@@ -2808,12 +2855,87 @@ def aggregate_cems_to_subplant(cems):
         "so2_mass_lb_adjusted",
     ]
 
-    cems = (
-        cems.groupby(GROUPBY_COLUMNS, dropna=False)[cems_columns_to_aggregate]
+    cems["missing_hg"] = flag_missing_hg(cems)
+    subplant_cems = (
+        cems.groupby(GROUPBY_COLUMNS, dropna=False)[
+            cems_columns_to_aggregate + ["missing_hg"]
+        ]
         .sum()
         .reset_index()
     )
 
-    cems = apply_dtypes(cems)
+    # Hg is summed separately so that it remains missing in subplant-hours where no
+    # unit reported Hg, and is only kept where every operating unit reported Hg. Both
+    # groupbys use the same keys, so their rows are aligned.
+    subplant_cems["hg_mass_lb"] = (
+        cems.groupby(GROUPBY_COLUMNS, dropna=False)["hg_mass_lb"]
+        .sum(min_count=1)
+        .to_numpy()
+    )
+    subplant_cems = remove_incomplete_hg(subplant_cems)
+
+    subplant_cems = apply_dtypes(subplant_cems)
+
+    return subplant_cems
+
+
+def remove_incomplete_hg_data(
+    cems: pd.DataFrame, eia923_allocated: pd.DataFrame
+) -> pd.DataFrame:
+    """Removes unit-level Hg data from subplants and months in the `cems` dataframe
+    that cannot have complete Hg data, and sets Hg to zero in hours without fuel
+    consumption.
+
+    MATS Hg data is only reported for some units, so Hg is only kept for subplants
+    that report to MATS (report Hg in at least one hour of the year), so that subplants
+    without Hg monitoring remain blank rather than zero in hours without fuel
+    consumption. Hg is also removed from subplant-months with fuel consumption that is
+    not reported in CEMS (the hourly data source is not "cems" in EIA-923), since Hg
+    data for these months is not complete.
+
+    For the remaining data, missing Hg values in hours with no fuel consumption (zero
+    or missing in CEMS) are set to zero, so that Hg is only missing for operating hours
+    with missing data. Missing Hg values in operating hours are not filled, and make
+    any aggregation of that hour incomplete (see `helpers.flag_missing_hg()`).
+
+    Args:
+        cems (pd.DataFrame): hourly unit-level CEMS data with `hg_mass_lb` and
+            `subplant_id` columns
+        eia923_allocated (pd.DataFrame): EIA-923 data with a `hourly_data_source` column
+
+    Returns:
+        pd.DataFrame: CEMS data where `hg_mass_lb` is missing for subplants that don't
+            report to MATS and for subplant-months with fuel that is not in CEMS
+    """
+    subplant_keys = ["plant_id_eia", "subplant_id"]
+    month_keys = subplant_keys + ["report_date"]
+
+    # subplants that report to MATS
+    mats_subplants = pd.MultiIndex.from_frame(
+        cems.loc[cems["hg_mass_lb"].notna(), subplant_keys].drop_duplicates()
+    )
+    # subplant-months with fuel consumption that is not reported in CEMS
+    non_cems = pd.MultiIndex.from_frame(
+        eia923_allocated.loc[
+            (eia923_allocated["hourly_data_source"] != "cems")
+            & (eia923_allocated["fuel_consumed_mmbtu"] > 0),
+            month_keys,
+        ].drop_duplicates()
+    )
+
+    keep_hg = pd.MultiIndex.from_frame(cems[subplant_keys]).isin(
+        mats_subplants
+    ) & ~pd.MultiIndex.from_frame(cems[month_keys]).isin(non_cems)
+    removed_hg = cems.loc[~keep_hg & cems["hg_mass_lb"].notna()]
+    logger.info(
+        f"Removing {removed_hg['hg_mass_lb'].sum():.1f} lb of Hg data from "
+        f"{len(removed_hg[month_keys].drop_duplicates())} subplant-months with fuel "
+        "consumption that is not reported in CEMS."
+    )
+    cems.loc[~keep_hg, "hg_mass_lb"] = np.nan
+    cems.loc[
+        keep_hg & cems["hg_mass_lb"].isna() & ~(cems["fuel_consumed_mmbtu"] > 0),
+        "hg_mass_lb",
+    ] = 0
 
     return cems

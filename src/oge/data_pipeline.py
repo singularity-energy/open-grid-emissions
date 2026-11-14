@@ -37,7 +37,7 @@ from oge.constants import (
     earliest_hourly_data_year,
     earliest_puerto_rico_data_year,
 )
-from oge.column_checks import DATA_COLUMNS
+from oge.column_checks import DATA_COLUMNS, HG_DATA_COLUMNS
 from oge.filepaths import downloads_folder, outputs_folder, results_folder
 from oge.logging_util import get_logger, configure_root_logger
 
@@ -242,6 +242,7 @@ def main(args):
             "co2_mass_measurement_code",
             "nox_mass_measurement_code",
             "so2_mass_measurement_code",
+            "hg_mass_measurement_code",
         ],
         inplace=True,
     )
@@ -291,6 +292,8 @@ def main(args):
     # 7. Aggregate CEMS data to subplant
     ####################################################################################
     logger.info("7. Aggregating CEMS data from unit to subplant")
+    # only keep Hg data for subplant-months that are completely covered by MATS data
+    cems = data_cleaning.remove_incomplete_hg_data(cems, eia923_allocated)
     # aggregate cems data to subplant level
     cems = data_cleaning.aggregate_cems_to_subplant(cems)
 
@@ -452,6 +455,11 @@ def main(args):
         partial_cems_plant,
         monthly_eia_data_to_shape,
         resolution="monthly",
+        data_columns=DATA_COLUMNS + HG_DATA_COLUMNS,
+    )
+    # Hg is zero in subplant-months without fuel at subplants that report Hg
+    monthly_subplant_data = helpers.fill_hg_without_fuel(
+        monthly_subplant_data, ["plant_id_eia", "subplant_id"]
     )
     # add energy storage charging and discharging data from EIA-923. This is added
     # after combining the data so that it is kept for storage at plants that report to

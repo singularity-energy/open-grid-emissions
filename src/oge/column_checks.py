@@ -86,6 +86,8 @@ COLUMNS = {
         "co2_mass_measurement_code",
         "nox_mass_measurement_code",
         "so2_mass_measurement_code",
+        "hg_mass_lb",
+        "hg_mass_measurement_code",
         "report_date",
         "subplant_id",
         "energy_source_code",
@@ -127,6 +129,8 @@ COLUMNS = {
         "co2e_mass_lb_for_electricity_adjusted",
         "nox_mass_lb_for_electricity_adjusted",
         "so2_mass_lb_for_electricity_adjusted",
+        "hg_mass_lb",
+        "hg_mass_lb_for_electricity",
     },
     "partial_cems_subplant": {
         "report_date",
@@ -389,6 +393,15 @@ STORAGE_DATA_COLUMNS = [
     "storage_discharge_mwh",
 ]
 
+# mercury (Hg) emissions reported under EPA MATS. These are kept separate from
+# DATA_COLUMNS because Hg is only reported for some units, so it is left blank rather
+# than zero for subplants that are not completely covered by MATS data, and is not
+# aggregated to fleets or balancing areas
+HG_DATA_COLUMNS = [
+    "hg_mass_lb",
+    "hg_mass_lb_for_electricity",
+]
+
 
 def check_columns(df: pd.DataFrame, file_name: str):
     """Given a file name and a data frame to export, check that its columns are as
@@ -471,6 +484,9 @@ def get_dtypes() -> dict:
         "fuel_category_eia930_expanded": "string",
         "gross_generation_mwh": "float64",
         "gtn_method": "category",
+        "hg_mass_lb": "float64",
+        "hg_mass_lb_for_electricity": "float64",
+        "hg_mass_measurement_code": "category",
         "hourly_data_source": "category",
         "hours_in_service": "float32",
         "imputed_profile": "float64",
