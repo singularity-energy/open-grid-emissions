@@ -20,6 +20,12 @@ latest_validated_year = 2025
 # current_early_release_year
 # TODO: Change this to 2026 around July 2027 (check PUDL to see when integrated)
 current_early_release_year = 2025
+# earliest_eia930a_year and latest_eia930a_year are the first and last years for which
+# EIA has published EIA-930A data. EIA publishes a year around October of the following
+# year. Last updated 2026-10-25
+# TODO: Change latest_eia930a_year to 2025 once EIA publishes it
+earliest_eia930a_year = 2023
+latest_eia930a_year = 2024
 
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]
