@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 import oge.load_data as load_data
+from oge.column_checks import apply_dtypes
 from oge.download_data import get_eia930a_year
 from oge.filepaths import outputs_folder
 from oge.logging_util import get_logger
@@ -56,8 +57,10 @@ PARTNER_ARRANGEMENT_TYPES = {
     "Pseudo tie": "pseudo_tie",
 }
 
-# values that some BAs submitted in place of a generator ID
-PLACEHOLDER_ID_PATTERN = r"^(?:DOES NOT EXIST|NOT GENERATED|TBD)"
+# values that some BAs submitted in place of a generator ID. These are prefixes, since
+# some values add a note, e.g. "DOES NOT EXIST (RECOMMEND LF1)". A tuple, since
+# str.startswith doesn't accept a list.
+PLACEHOLDER_ID_PREFIXES = ("DOES NOT EXIST", "NOT GENERATED", "TBD")
 
 
 def clean_eia930a(year: int, path_prefix: str) -> EIA930ATables:
@@ -101,7 +104,9 @@ def clean_raw_eia930a(
     schedules["schedule_4"] = clean_eia930a_schedule_4(
         schedules["schedule_4"], schedules["schedule_2"]
     )
-    return EIA930ATables(**schedules)
+    # dtypes are applied once all columns are cleaned, e.g. after Schedule 4's
+    # "reported_in_schedule_2" is converted from "Yes"/"No"
+    return EIA930ATables(**{name: apply_dtypes(df) for name, df in schedules.items()})
 
 
 def clean_eia930a_generators(df: pd.DataFrame, report_year: int) -> pd.DataFrame:
@@ -129,10 +134,10 @@ def clean_eia930a_generators(df: pd.DataFrame, report_year: int) -> pd.DataFrame
     )
     df.insert(0, "report_year", report_year)
     df["validated_eia860"] = df["plant_id_eia"].notna() & df["generator_id"].notna()
-    df["plant_id_eia"] = (
-        pd.to_numeric(df["plant_id_eia"], errors="coerce")
-        .fillna(pd.to_numeric(df["plant_id_as_submitted"], errors="coerce"))
-        .astype("Int64")
+    # numeric columns are parsed here, since some submitted values aren't numbers.
+    # Their dtypes are applied in `clean_raw_eia930a`
+    df["plant_id_eia"] = pd.to_numeric(df["plant_id_eia"], errors="coerce").fillna(
+        pd.to_numeric(df["plant_id_as_submitted"], errors="coerce")
     )
     generator_id = (
         df["generator_id"]
@@ -141,7 +146,7 @@ def clean_eia930a_generators(df: pd.DataFrame, report_year: int) -> pd.DataFrame
         .str.upper()
     )
     df["generator_id"] = generator_id.mask(
-        generator_id.str.contains(PLACEHOLDER_ID_PATTERN, na=False)
+        generator_id.str.startswith(PLACEHOLDER_ID_PREFIXES, na=False)
     )
     df["capacity_mw"] = pd.to_numeric(df["capacity_mw"], errors="coerce").fillna(
         pd.to_numeric(df["capacity_mw_as_submitted"], errors="coerce")
@@ -158,7 +163,7 @@ def clean_eia930a_generators(df: pd.DataFrame, report_year: int) -> pd.DataFrame
             "planned_operating_month",
         ]
     ):
-        df[column] = pd.to_numeric(df[column], errors="coerce").astype("Int64")
+        df[column] = pd.to_numeric(df[column], errors="coerce")
     return df.drop(
         columns=[
             "capacity_mw_as_submitted",
