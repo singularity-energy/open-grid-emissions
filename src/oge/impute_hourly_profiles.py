@@ -27,6 +27,13 @@ logger = get_logger(__name__)
 # other fuels
 STORAGE_PROFILE_COLUMNS = ["storage_discharge_profile", "storage_charge_profile"]
 
+# the monthly charging and discharging that energy storage is shaped with, in the same
+# order as `STORAGE_DATA_COLUMNS`. Shaping fills in the discharge of pumped storage with
+# natural inflow (see `add_storage_data_to_monthly_eia_data`) and adjusts the volumes to
+# keep the net generation (see `calculate_storage_volumes_for_shaping`), so these are
+# kept separate from the reported `STORAGE_DATA_COLUMNS`, which are output as reported
+STORAGE_SHAPING_COLUMNS = [f"{column}_for_shaping" for column in STORAGE_DATA_COLUMNS]
+
 # the categories whose profiles are used to shape energy storage (see
 # assign_storage_shaping_category)
 STORAGE_SHAPING_CATEGORIES = [
@@ -2187,12 +2194,13 @@ def aggregate_eia_data_to_fleet(
 
     # storage is shaped with the volumes of each subplant, as in the plant-level data,
     # so that subplants whose net generation differs from discharge minus charge in
-    # opposite directions don't cancel out in the fleet
-    if set(STORAGE_DATA_COLUMNS).issubset(eia_agg.columns):
-        has_storage = eia_agg[STORAGE_DATA_COLUMNS].notna().any(axis=1)
+    # opposite directions don't cancel out in the fleet. The reported volumes are summed
+    # as they are, as in the monthly data
+    if set(STORAGE_SHAPING_COLUMNS).issubset(eia_agg.columns):
+        has_storage = eia_agg[STORAGE_SHAPING_COLUMNS].notna().any(axis=1)
         (
-            eia_agg.loc[has_storage, "storage_discharge_mwh"],
-            eia_agg.loc[has_storage, "storage_charge_mwh"],
+            eia_agg.loc[has_storage, "storage_discharge_mwh_for_shaping"],
+            eia_agg.loc[has_storage, "storage_charge_mwh_for_shaping"],
         ) = calculate_storage_volumes_for_shaping(eia_agg.loc[has_storage])
 
     # Group
@@ -2207,7 +2215,9 @@ def aggregate_eia_data_to_fleet(
         dropna=False,
     )
     storage_columns = [
-        column for column in STORAGE_DATA_COLUMNS if column in eia_agg.columns
+        column
+        for column in STORAGE_DATA_COLUMNS + STORAGE_SHAPING_COLUMNS
+        if column in eia_agg.columns
     ]
     eia_agg = fleet_groups.sum(numeric_only=True).reset_index()
     # storage data stays blank for fleets without any
@@ -2234,13 +2244,13 @@ def calculate_storage_volumes_for_shaping(
 
     Args:
         data (pd.DataFrame): monthly data with "net_generation_mwh" and
-            `STORAGE_DATA_COLUMNS`.
+            `STORAGE_SHAPING_COLUMNS`.
 
     Returns:
         tuple[pd.Series, pd.Series]: the discharge and the charge to shape.
     """
-    discharge = data["storage_discharge_mwh"].fillna(0)
-    charge = data["storage_charge_mwh"].fillna(0)
+    discharge = data["storage_discharge_mwh_for_shaping"].fillna(0)
+    charge = data["storage_charge_mwh_for_shaping"].fillna(0)
     difference = data["net_generation_mwh"] - (discharge - charge)
     return discharge + difference.clip(lower=0), charge + (-difference).clip(lower=0)
 
@@ -2314,12 +2324,12 @@ def shape_monthly_eia_data_as_hourly(
     # storage with charging or discharging data is shaped with its own profiles
     has_storage_data = all(
         column in shaped_monthly_data.columns
-        for column in STORAGE_DATA_COLUMNS + STORAGE_PROFILE_COLUMNS
+        for column in STORAGE_SHAPING_COLUMNS + STORAGE_PROFILE_COLUMNS
     )
     if has_storage_data:
         is_shaped_storage = shaped_monthly_data[
             "storage_discharge_profile"
-        ].notna() & shaped_monthly_data[STORAGE_DATA_COLUMNS].notna().any(axis=1)
+        ].notna() & shaped_monthly_data[STORAGE_SHAPING_COLUMNS].notna().any(axis=1)
     else:
         is_shaped_storage = pd.Series(False, index=shaped_monthly_data.index)
 
@@ -2858,7 +2868,8 @@ def calculate_storage_profiles(
             by energy source.
         operations (pd.DataFrame): reconciled EIA-930 operations, with "demand_mwh".
         monthly_eia_data_to_shape (pd.DataFrame): monthly, subplant-level EIA data for
-            subplants that only report to EIA-923, with `STORAGE_DATA_COLUMNS`.
+            subplants that only report to EIA-923, with `STORAGE_DATA_COLUMNS` and
+            `STORAGE_SHAPING_COLUMNS`. The volume checks use the volumes to shape.
         monthly_storage_data (pd.DataFrame): monthly charging and discharging of every
             storage subplant, from
             `energy_storage.create_monthly_energy_storage_data`.
@@ -2891,7 +2902,11 @@ def calculate_storage_profiles(
         monthly_storage_data, plant_attributes, primary_fuel_table, year
     )
     monthly_storage_to_shape = aggregate_storage_data_to_ba(
-        monthly_eia_data_to_shape, plant_attributes, primary_fuel_table, year
+        monthly_eia_data_to_shape,
+        plant_attributes,
+        primary_fuel_table,
+        year,
+        storage_columns=STORAGE_SHAPING_COLUMNS,
     )
 
     eia930_storage_series = calculate_eia930_storage_series(eia930_generation)
@@ -3039,16 +3054,20 @@ def aggregate_storage_data_to_ba(
     plant_attributes: pd.DataFrame,
     primary_fuel_table: pd.DataFrame,
     year: int,
+    storage_columns: list[str] = STORAGE_DATA_COLUMNS,
 ) -> pd.DataFrame:
     """Adds up the monthly charging and discharging of storage subplants by BA and
     storage shaping category.
 
     Args:
-        subplant_data (pd.DataFrame): monthly subplant data with
-            `STORAGE_DATA_COLUMNS`.
+        subplant_data (pd.DataFrame): monthly subplant data with `storage_columns`.
         plant_attributes (pd.DataFrame): table of plant-level static attributes.
         primary_fuel_table (pd.DataFrame): table of primary fuels by generator.
         year (int): the data year.
+        storage_columns (list[str], optional): the charge and discharge columns of
+            `subplant_data`, in the same order as `STORAGE_DATA_COLUMNS`, e.g.
+            `STORAGE_SHAPING_COLUMNS` for the volumes that storage is shaped with.
+            Defaults to `STORAGE_DATA_COLUMNS`.
 
     Returns:
         pd.DataFrame: monthly `STORAGE_DATA_COLUMNS` by "ba_code", "fuel_category"
@@ -3069,9 +3088,10 @@ def aggregate_storage_data_to_ba(
     storage = (
         storage[storage["fuel_category"].isin(STORAGE_SHAPING_CATEGORIES)]
         .groupby(["ba_code", "fuel_category", "report_date"], dropna=False)[
-            STORAGE_DATA_COLUMNS
+            storage_columns
         ]
         .sum(min_count=1)
+        .rename(columns=dict(zip(storage_columns, STORAGE_DATA_COLUMNS)))
         .reset_index()
     )
     storage["report_date"] = storage["report_date"].astype("datetime64[s]")
@@ -3735,7 +3755,9 @@ def add_storage_data_to_monthly_eia_data(
 ) -> pd.DataFrame:
     """Adds monthly charging and discharging to the monthly EIA data to shape.
 
-    The discharge of pumped storage with natural inflow is blank (see
+    The reported charge and discharge (`STORAGE_DATA_COLUMNS`) are kept as they are, and
+    copied to the volumes that storage is shaped with (`STORAGE_SHAPING_COLUMNS`). The
+    discharge of pumped storage with natural inflow is blank (see
     `energy_storage.create_monthly_energy_storage_data`). For shaping only, it is
     filled with the net generation plus the charge, but not less than zero, so that it
     is shaped with the discharging profile.
@@ -3748,8 +3770,8 @@ def add_storage_data_to_monthly_eia_data(
             `energy_storage.create_monthly_energy_storage_data`.
 
     Returns:
-        pd.DataFrame: `monthly_eia_data_to_shape` with `STORAGE_DATA_COLUMNS`, blank
-            for subplants that aren't storage.
+        pd.DataFrame: `monthly_eia_data_to_shape` with `STORAGE_DATA_COLUMNS` and
+            `STORAGE_SHAPING_COLUMNS`, blank for subplants that aren't storage.
     """
     subplant_month_keys = ["plant_id_eia", "subplant_id", "report_date"]
     data = monthly_eia_data_to_shape.merge(
@@ -3758,12 +3780,13 @@ def add_storage_data_to_monthly_eia_data(
         on=subplant_month_keys,
         validate="1:1",
     )
+    data[STORAGE_SHAPING_COLUMNS] = data[STORAGE_DATA_COLUMNS].to_numpy()
     has_implied_discharge = (
         data["storage_discharge_mwh"].isna()
         & data["storage_charge_mwh"].notna()
         & data["net_generation_mwh"].notna()
     )
-    data.loc[has_implied_discharge, "storage_discharge_mwh"] = (
+    data.loc[has_implied_discharge, "storage_discharge_mwh_for_shaping"] = (
         data.loc[has_implied_discharge, "net_generation_mwh"]
         + data.loc[has_implied_discharge, "storage_charge_mwh"]
     ).clip(lower=0)

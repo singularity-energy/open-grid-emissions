@@ -1351,6 +1351,8 @@ def test_shape_monthly_eia_data_as_hourly_storage_keeps_monthly_net(
             "fuel_consumed_mmbtu": 0.0,
             "storage_charge_mwh": [372.0, np.nan],
             "storage_discharge_mwh": [310.0, np.nan],
+            "storage_charge_mwh_for_shaping": [372.0, np.nan],
+            "storage_discharge_mwh_for_shaping": [310.0, np.nan],
             "local_timezone_offset": _offset("US/Central"),
         }
     )
@@ -1442,8 +1444,9 @@ def test_residual_cems_switches_category_in_ba_local_month(monkeypatch):
 
 def test_add_storage_data_to_monthly_eia_data_fills_pumped_storage_discharge():
     """The blank discharge of pumped storage with inflow should be filled with the
-    discharge implied by the net generation and charge (but not less than zero), and
-    subplants without storage data should stay blank.
+    discharge implied by the net generation and charge (but not less than zero) in the
+    volumes to shape, the reported volumes should be kept as reported, and subplants
+    without storage data should stay blank.
     """
     report_date = pd.Timestamp("2025-01-01")
     monthly_eia_data_to_shape = pd.DataFrame(
@@ -1469,8 +1472,30 @@ def test_add_storage_data_to_monthly_eia_data_fills_pumped_storage_discharge():
     )
 
     # filled for pumped storage, clipped at zero, kept where reported, blank otherwise
-    assert result["storage_discharge_mwh"].to_list()[:3] == [80.0, 0.0, 90.0]
-    assert result[["storage_charge_mwh", "storage_discharge_mwh"]].iloc[3].isna().all()
+    assert result["storage_discharge_mwh_for_shaping"].to_list()[:3] == [
+        80.0,
+        0.0,
+        90.0,
+    ]
+    assert result["storage_charge_mwh_for_shaping"].to_list()[:3] == [
+        100.0,
+        100.0,
+        40.0,
+    ]
+    # the reported volumes are unchanged
+    pd.testing.assert_frame_equal(
+        result[["storage_charge_mwh", "storage_discharge_mwh"]].iloc[:3],
+        monthly_storage_data[["storage_charge_mwh", "storage_discharge_mwh"]],
+    )
+    assert (
+        result[
+            ["storage_charge_mwh", "storage_discharge_mwh"]
+            + impute_hourly_profiles.STORAGE_SHAPING_COLUMNS
+        ]
+        .iloc[3]
+        .isna()
+        .all()
+    )
 
 
 def test_select_storage_profiles_ignores_national_average_at_year_edges():
@@ -1541,6 +1566,8 @@ def test_storage_fleet_shaping_matches_sum_of_subplants(
             "fuel_consumed_mmbtu": 0.0,
             "storage_charge_mwh": 120.0,
             "storage_discharge_mwh": 100.0,
+            "storage_charge_mwh_for_shaping": 120.0,
+            "storage_discharge_mwh_for_shaping": 100.0,
             "local_timezone_offset": _offset("US/Central"),
         }
     )
@@ -1624,7 +1651,7 @@ def test_calculate_storage_profiles_without_storage_series(monkeypatch):
     monkeypatch.setattr(
         impute_hourly_profiles,
         "aggregate_storage_data_to_ba",
-        lambda *_: monthly_storage,
+        lambda *_, **__: monthly_storage,
     )
     monkeypatch.setattr(
         impute_hourly_profiles,
