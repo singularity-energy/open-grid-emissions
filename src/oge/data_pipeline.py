@@ -18,6 +18,7 @@ import oge.data_cleaning as data_cleaning
 import oge.consumed as consumed
 import oge.download_data as download_data
 import oge.eia930 as eia930
+import oge.eia930a as eia930a
 import oge.emissions as emissions
 import oge.energy_storage as energy_storage
 import oge.gross_to_net_generation as gross_to_net_generation
@@ -139,6 +140,10 @@ def main(args):
         max(latest_validated_year, current_early_release_year)
     )
     download_data.download_raw_eia923(year)
+    # EIA-930A, the generators that each BA includes in its EIA-930 data
+    download_data.download_raw_eia930a(year)
+    # NOTE: the cleaned EIA-930A tables are not used by the pipeline yet
+    eia930a.clean_eia930a(year, path_prefix=path_prefix)
 
     # 2. Identify subplants
     ####################################################################################

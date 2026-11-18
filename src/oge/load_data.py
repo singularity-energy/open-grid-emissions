@@ -1197,6 +1197,61 @@ def load_raw_eia930_data(year: int, description: str) -> pd.DataFrame:
     return eia_930
 
 
+def load_raw_eia930a(year: int) -> dict[str, pd.DataFrame]:
+    """Loads Schedules 2, 3 and 4 of a downloaded EIA-930A file.
+
+    Args:
+        year (int): a four-digit year.
+
+    Raises:
+        ValueError: if a sheet has a column that isn't expected, which means that EIA
+            changed the layout of the file.
+
+    Returns:
+        dict[str, pd.DataFrame]: each schedule ("schedule_2", "schedule_3" and
+            "schedule_4"), with renamed columns and all values as strings.
+    """
+    columns = {
+        "BA Code": "balancing_authority_code_eia",
+        "Plant Name": "plant_name",
+        "EIA Plant ID": "plant_id_eia",
+        "EIA Generator ID": "generator_id",
+        "Plant ID (EIA-930A)": "plant_id_as_submitted",
+        "Generator ID (EIA-930A)": "generator_id_as_submitted",
+        "Generator Reported on EIA-930A Schedule 2?": "reported_in_schedule_2",
+        "BAs having a Pseudo-Tie or Dynamic Relationship": "partner_bas_as_submitted",
+        "Electric Generator Technology": "technology_description",
+        "Nameplate Capacity (MW) (EIA-860)": "capacity_mw",
+        "State (EIA-860)": "state",
+        "County (EIA-860)": "county",
+        "Latitude (EIA-860)": "latitude",
+        "Longitude (EIA-860)": "longitude",
+        "Operation Year (EIA-860)": "operating_year",
+        # sic, EIA's header has this typo
+        "Opeartion Month (EIA-860)": "operating_month",
+        "Operation Month (EIA-860)": "operating_month",
+        "Planned Operation Year (EIA-860)": "planned_operating_year",
+        "Planned Operation Month (EIA-860)": "planned_operating_month",
+        "Nameplate Capacity (MW) (EIA-930A)": "capacity_mw_as_submitted",
+        "State (EIA-930A)": "state_as_submitted",
+        "County (EIA-930A)": "county_as_submitted",
+    }
+    filepath = downloads_folder(f"eia930a/EIA_930A_{year}.xlsx")
+    sheets = pd.read_excel(filepath, sheet_name=["SCH 2", "SCH 3", "SCH 4"], dtype=str)
+    schedules = {}
+    for sheet_name, df in sheets.items():
+        # the BA column of the 2023 Schedule 2 sheet has no header
+        df = df.rename(columns={df.columns[0]: "BA Code"})
+        unexpected_columns = set(df.columns) - set(columns)
+        if unexpected_columns:
+            raise ValueError(
+                f"Unexpected columns in sheet {sheet_name} of {filepath}: "
+                f"{unexpected_columns}"
+            )
+        schedules[f"schedule_{sheet_name[-1]}"] = df.rename(columns=columns)
+    return schedules
+
+
 def load_ba_reference() -> pd.DataFrame:
     """Loads the balancing authority information table.
 
