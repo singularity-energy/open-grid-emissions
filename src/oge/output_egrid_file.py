@@ -17,6 +17,7 @@ authorities and fuel categories. Columns that OGE does not calculate yet are lef
 and their headers are grayed out.
 """
 
+import calendar
 import os
 import re
 from datetime import date
@@ -29,6 +30,7 @@ from xlsxwriter.utility import xl_rowcol_to_cell
 
 from oge.constants import ConversionFactors
 from oge.filepaths import outputs_folder, results_folder
+from oge.helpers import assign_fuel_category_to_esc
 from oge.load_data import load_ba_reference, load_campd_facility, load_pudl_table
 from oge.logging_util import get_logger
 
@@ -400,6 +402,11 @@ PLANT_DATA_SOURCES = {
     "LAT": "latitude",
     "LON": "longitude",
     "PLPRMFL": "plant_primary_fuel",
+    "ISORTO": "iso_rto",
+    "CAPDFLAG": "capd_flag",
+    "PLFUELCT": "fuel_category_egrid",
+    "COALFLAG": "coal_flag",
+    "PSFLAG": "pumped_storage_flag",
     "NAMEPCAP": "capacity_mw",
     "PLHTIAN": "combustion_fuel_consumed_for_electricity_mmbtu",
     "PLHTIOZ": "combustion_fuel_consumed_for_electricity_mmbtu_ozone_season",
@@ -490,6 +497,8 @@ UNIT_DATA_SOURCES = {
     "NOXCTLDV": "nox_controls",
     "HGCTLDV": "hg_controls_flag",
     "UNTYRONL": "operating_year",
+    # generators of the unit in OGE's subplant crosswalk
+    "NUMGEN": "generator_count",
     # sources of the emissions, from the CEMS measurement codes, and of the heat input
     "HTIANSRC": "fuel_consumed_mmbtu_source",
     "HTIOZSRC": "fuel_consumed_mmbtu_ozone_season_source",
@@ -607,6 +616,35 @@ CAMPD_NOX_CONTROL_CODES = {
 # "Water Injection (Retired Jun 01, 2024)"
 CAMPD_DATE_NOTE = r"\s*\((Began|Ended|Retired|Started)[^)]*\)"
 
+# eGRID's ISO/RTO of each OGE BA that is an ISO or RTO
+BA_ISO_RTO = {
+    "CISO": "CAISO",
+    "ERCO": "ERCOT",
+    "ISNE": "ISONE",
+    "MISO": "MISO",
+    "NYIS": "NYISO",
+    "PJM": "PJM",
+    "SWPP": "SPP",
+}
+# eGRID's plant primary fuel category of each OGE plant fuel category. As in the fuel
+# columns, other fossil is OGE's waste and other is OGE's other and storage (DAT-1067)
+PLANT_FUEL_CATEGORIES = {
+    "coal": "COAL",
+    "petroleum": "OIL",
+    "natural_gas": "GAS",
+    "nuclear": "NUCLEAR",
+    "hydro": "HYDRO",
+    "biomass": "BIOMASS",
+    "wind": "WIND",
+    "solar": "SOLAR",
+    "geothermal": "GEOTHERMAL",
+    "waste": "OFSL",
+    "other": "OTHF",
+    "storage": "OTHF",
+}
+# prime mover of pumped storage subplants
+PUMPED_STORAGE_PRIME_MOVER = "PS"
+
 # eGRID label of each data source in OGE's plant metadata
 DATA_SOURCE_LABELS = {"CEMS": "EPA/CAPD", "EIA": "EIA"}
 # value column of each source column of the plant sheet. A source is blank where its
@@ -623,6 +661,21 @@ PLANT_SOURCE_VALUES = {
     "UNHTISRC": "UNHTIT",
     "UNHOZSRC": "UNHTIOZT",
 }
+# Hg columns of the plant and regional sheets, without the sheet's prefix. OGE calculates
+# Hg, but leaves it blank where its Hg data are incomplete (e.g. every region in 2024),
+# so their headers are not grayed out even when they have no data
+HG_CODES = [
+    "HGAN",  # annual Hg
+    "HGRTA",  # output rate
+    "HGRA",  # input rate
+    "HGCRT",  # combustion output rate
+    "CHGRT",  # coal output rate
+    "FSHGRT",  # fossil output rate
+    "CHGR",  # coal input rate
+    "FSHGR",  # fossil input rate
+    "UNHG",  # plant unadjusted Hg
+    "UNHGSRC",  # plant unadjusted Hg source
+]
 # eGRID's label for heat input from CEMS, which has no measurement code
 CEMS_SOURCE_LABEL = "EPA/CAPD"
 # column of the CEMS measurement codes of each emissions column in the cleaned CEMS
@@ -733,6 +786,7 @@ def build_egrid_tables(year: int, path_prefix: str) -> dict[str, pd.DataFrame]:
         "US": build_region_table(year, path_prefix, "US", ["US"]),
     }
     tables = add_regional_capacity(tables)
+    tables = add_plant_counts(tables)
     return {
         sheet: tables.get(sheet, pd.DataFrame()).reindex(
             columns=[code for code, _, _ in get_egrid_columns(sheet, year)]
@@ -760,6 +814,28 @@ def add_regional_capacity(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataF
             **{f"{sheet}NAMEPCAP": tables[sheet][key].map(capacity)}
         )
     tables["US"] = tables["US"].assign(USNAMEPCAP=plants["NAMEPCAP"].sum(min_count=1))
+    return tables
+
+
+def add_plant_counts(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Fills the number of units and generators of each plant on the plant sheet with
+    the number of the plant's rows on the unit and generator sheets.
+
+    The unit sheet has CEMS units only, so plants without CEMS units have no units.
+
+    Args:
+        tables (dict[str, pd.DataFrame]): tables of the sheets, including UNT, GEN and
+            PLNT.
+
+    Returns:
+        dict[str, pd.DataFrame]: the tables, with the plant sheet's counts.
+    """
+    tables = tables.copy()
+    plants = tables["PLNT"]
+    tables["PLNT"] = plants.assign(
+        NUMUNT=plants["ORISPL"].map(tables["UNT"]["ORISPL"].value_counts()).fillna(0),
+        NUMGEN=plants["ORISPL"].map(tables["GEN"]["ORISPL"].value_counts()).fillna(0),
+    )
     return tables
 
 
@@ -827,15 +903,59 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
         units = units.merge(
             list_measurement_codes(cems, keys, mass, code_column), on=keys, how="left"
         )
-    units = units.merge(
-        load_plant_names(path_prefix), on="plant_id_eia", how="left"
-    ).merge(load_campd_unit_attributes(year), on=keys, how="left")
+    units = (
+        units.merge(load_plant_names(path_prefix), on="plant_id_eia", how="left")
+        .merge(load_campd_unit_attributes(year), on=keys, how="left")
+        .merge(count_unit_generators(path_prefix, year), on=keys, how="left")
+    )
     table = build_sheet_rows(
         units, UNIT_DATA_SOURCES, year, "SEQUNT", ["state", "plant_name_eia", *keys]
     )
     # every unit in OGE's CEMS data reports to EPA's Clean Air Markets Division
     table["CAPDFLAG"] = "Yes"
     return convert_mass_to_tons(table, "UNT", year)
+
+
+def count_unit_generators(path_prefix: str, year: int) -> pd.DataFrame:
+    """Counts the generators of each CEMS unit in OGE's subplant crosswalk.
+
+    Args:
+        path_prefix (str): prefix of the outputs folder of the year, e.g. "2024/".
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: plant_id_eia, emissions_unit_id_epa and generator_count.
+    """
+    keys = ["plant_id_eia", "emissions_unit_id_epa"]
+    crosswalk = pd.read_csv(
+        outputs_folder(f"{path_prefix}subplant_crosswalk_{year}.csv.zip"),
+        usecols=keys + ["generator_id"],
+        dtype={"emissions_unit_id_epa": "str", "generator_id": "str"},
+    ).dropna()
+    return (
+        crosswalk.groupby(keys)["generator_id"]
+        .nunique()
+        .rename("generator_count")
+        .reset_index()
+    )
+
+
+def calculate_capacity_factor(
+    net_generation: pd.Series, capacity: pd.Series, year: int
+) -> pd.Series:
+    """Calculates capacity factors as net generation divided by the generation at
+    nameplate capacity in every hour of the year, i.e. 8,784 hours in a leap year.
+
+    Args:
+        net_generation (pd.Series): annual net generation in MWh.
+        capacity (pd.Series): nameplate capacity in MW.
+        year (int): data year.
+
+    Returns:
+        pd.Series: capacity factors, blank where the capacity is zero or blank.
+    """
+    hours = 24 * (366 if calendar.isleap(year) else 365)
+    return net_generation / (capacity.where(capacity > 0) * hours)
 
 
 def list_measurement_codes(
@@ -933,13 +1053,17 @@ def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
         "operational_status_code"
     ].str.upper()
     generators = generators.merge(eia860_generators, on=keys, how="left")
-    return build_sheet_rows(
+    table = build_sheet_rows(
         generators,
         GENERATOR_DATA_SOURCES,
         year,
         "SEQGEN",
         ["state", "plant_name_eia", *keys],
     )
+    table["CFACT"] = calculate_capacity_factor(
+        table["GENNTAN"], table["NAMEPCAP"], year
+    )
+    return table
 
 
 def load_campd_unit_attributes(year: int) -> pd.DataFrame:
@@ -1126,8 +1250,14 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     )
     plant_attributes = pd.read_csv(
         results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
-        usecols=["plant_id_eia", "latitude", "longitude", "plant_primary_fuel"],
-    )
+        usecols=[
+            "plant_id_eia",
+            "latitude",
+            "longitude",
+            "plant_primary_fuel",
+            "fuel_category",
+        ],
+    ).rename(columns={"fuel_category": "plant_fuel_category"})
     plants = (
         plant_data.merge(plant_attributes, on="plant_id_eia", how="left")
         .merge(load_ba_reference()[["ba_code", "ba_name"]], on="ba_code", how="left")
@@ -1146,6 +1276,13 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     # use the EIA-860 attributes where OGE does not have them
     for column in ["state", "plant_name_eia", "county", "latitude", "longitude"]:
         plants[column] = plants[column].fillna(plants[f"{column}_eia860"])
+    plants["iso_rto"] = plants["ba_code"].map(BA_ISO_RTO)
+    plants["fuel_category_egrid"] = plants["plant_fuel_category"].map(
+        PLANT_FUEL_CATEGORIES
+    )
+    plants = plants.merge(
+        load_coal_flags(path_prefix, year), on="plant_id_eia", how="left"
+    )
     plants = add_adjustment_values(plants)
     table = build_sheet_rows(
         plants,
@@ -1157,7 +1294,18 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     for source_code, value_code in PLANT_SOURCE_VALUES.items():
         table[source_code] = table[source_code].where(table[value_code].notna())
     table = convert_mass_to_tons(table, "PLNT", year)
-    return add_emission_rates_and_resource_mix(table, "PLNT", year)
+    table = add_emission_rates_and_resource_mix(table, "PLNT", year)
+    table["CAPFAC"] = calculate_capacity_factor(
+        table["PLNGENAN"], table["NAMEPCAP"], year
+    )
+    # combustion heat input per kWh of combustion generation, blank where either is
+    # zero or negative
+    table["PLHTRT"] = (
+        table["PLHTIAN"].where(table["PLHTIAN"] > 0)
+        * 1000
+        / table["PLGENACY"].where(table["PLGENACY"] > 0)
+    )
+    return table
 
 
 def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
@@ -1177,8 +1325,10 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
             `GENERATION_BY_FUEL_CODES` (e.g. "net_generation_mwh_coal"), the
             combustion heat input (e.g. "combustion_fuel_consumed_mmbtu"), the ozone
             season totals of heat input, net generation, NOx and combustion heat input
-            (with "_ozone_season" added to their column names), and the data sources of
-            the heat input and emissions (e.g. "nox_mass_lb_source").
+            (with "_ozone_season" added to their column names), the data sources of
+            the heat input and emissions (e.g. "nox_mass_lb_source"), and "Yes" in capd_flag for plants
+            with CEMS data and in pumped_storage_flag for plants with a pumped storage
+            subplant.
     """
     heat_input_columns = ["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]
     ozone_season_columns = heat_input_columns + [
@@ -1199,7 +1349,12 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
     ).merge(
         pd.read_csv(
             results_folder(f"{path_prefix}plant_data/subplant_attributes.csv"),
-            usecols=["plant_id_eia", "subplant_id", "fuel_category"],
+            usecols=[
+                "plant_id_eia",
+                "subplant_id",
+                "fuel_category",
+                "subplant_primary_prime_mover_code",
+            ],
         ),
         on=["plant_id_eia", "subplant_id"],
         how="left",
@@ -1244,6 +1399,21 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
         validate="1:1",
     )
     subplants["data_source"] = subplants["data_source"].map(DATA_SOURCE_LABELS)
+    # flag plants with CEMS data and plants with a pumped storage subplant
+    flags = (
+        subplants.assign(
+            capd_flag=subplants["data_source"] == CEMS_SOURCE_LABEL,
+            pumped_storage_flag=subplants["subplant_primary_prime_mover_code"]
+            == PUMPED_STORAGE_PRIME_MOVER,
+        )
+        .groupby("plant_id_eia")[["capd_flag", "pumped_storage_flag"]]
+        .any()
+    )
+    totals = totals.merge(
+        flags.replace({True: "Yes", False: None}).reset_index(),
+        on="plant_id_eia",
+        how="left",
+    )
     for column in ["nox_mass_lb", "fuel_consumed_mmbtu"] + source_columns:
         totals = totals.merge(
             list_data_sources(subplants, column), on="plant_id_eia", how="left"
@@ -1255,6 +1425,39 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
             how="left",
         )
     return totals
+
+
+def load_coal_flags(path_prefix: str, year: int) -> pd.DataFrame:
+    """Flags the plants that burned coal or generated electricity from coal in OGE's
+    EIA-923 data by subplant and energy source, including plants whose coal is not
+    their subplants' primary fuel.
+
+    Args:
+        path_prefix (str): prefix of the outputs folder of the year, e.g. "2024/".
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: plant_id_eia and coal_flag ("Yes") of each plant with coal.
+    """
+    eia923 = assign_fuel_category_to_esc(
+        pd.read_csv(
+            outputs_folder(f"{path_prefix}subplant_eia923_{year}.csv.zip"),
+            usecols=[
+                "plant_id_eia",
+                "energy_source_code",
+                "fuel_consumed_mmbtu",
+                "net_generation_mwh",
+            ],
+        ),
+        fuel_category_names=["fuel_category"],
+    )
+    coal = eia923[
+        eia923["fuel_category"].isin(EGRID_FUEL_GROUPS["coal"])
+        & ((eia923["fuel_consumed_mmbtu"] > 0) | (eia923["net_generation_mwh"] > 0))
+    ]
+    return pd.DataFrame(
+        {"plant_id_eia": coal["plant_id_eia"].unique(), "coal_flag": "Yes"}
+    )
 
 
 def list_data_sources(
@@ -1667,7 +1870,8 @@ def write_egrid_workbook(
     data file, after a contents sheet.
 
     The first row of each sheet holds the column headers and the second row the column
-    codes, colored by category. The headers of columns with no data are grayed out.
+    codes, colored by category. The headers of columns that OGE does not calculate,
+    i.e. columns with no data other than Hg, are grayed out.
 
     Args:
         tables (dict[str, pd.DataFrame]): table of each sheet, keyed by its name in
@@ -1690,7 +1894,7 @@ def write_egrid_workbook(
             for i, (code, header, category) in enumerate(
                 get_egrid_columns(sheet, year, metric)
             ):
-                calculated = table[code].notna().any()
+                calculated = table[code].notna().any() or is_hg_column(sheet, code)
                 worksheet.write(0, i, header, formats.header(category, calculated))
                 worksheet.write(
                     1, i, code, formats.header(category, calculated, code_row=True)
@@ -1750,6 +1954,27 @@ class WorkbookFormats:
                 "font_color": "#FFFFFF" if category in DARK_CATEGORIES else "#000000",
             }
         return self.get(properties)
+
+
+def is_hg_column(sheet: str, code: str) -> bool:
+    """Whether a column of a plant or regional sheet is one of `HG_CODES`, including
+    its metric GJ twin.
+
+    Args:
+        sheet (str): sheet name without the year, one of `EGRID_SHEETS`.
+        code (str): column code.
+
+    Returns:
+        bool: whether the column holds Hg data.
+    """
+    if sheet == "PLNT":
+        prefix = "PL"
+    elif sheet in REGION_SHEETS:
+        prefix = REGION_SHEETS[sheet][0]
+    else:
+        return False
+    base = code.removeprefix(prefix)
+    return base in HG_CODES or base.removesuffix("2") in HG_CODES
 
 
 def get_number_formats(sheet: str, year: int, metric: bool = False) -> dict[str, str]:
