@@ -329,6 +329,7 @@ def results(tmp_path, monkeypatch):
         latitude=[30.0, 32.0],
         longitude=[-97.0, -111.0],
         plant_primary_fuel=["NG", "SUN"],
+        fuel_category=["natural_gas", "solar"],
     ).to_csv(plant_folder / "plant_static_attributes.csv", index=False)
     # monthly subplant data: plant 1 has a gas subplant that runs in January and June
     # and a solar subplant that runs in June, and plant 2 is solar
@@ -372,6 +373,7 @@ def results(tmp_path, monkeypatch):
             "plant_id_eia": [1, 1, 2],
             "subplant_id": [1, 2, 1],
             "fuel_category": ["natural_gas", "solar", "solar"],
+            "subplant_primary_prime_mover_code": ["CT", "PV", "PV"],
         }
     ).to_csv(plant_folder / "subplant_attributes.csv", index=False)
     outputs_folder = tmp_path / "outputs/2024"
@@ -412,6 +414,18 @@ def results(tmp_path, monkeypatch):
             "generator_retirement_date": [None, None, "2024-09-30"],
         }
     ).to_csv(outputs_folder / "subplant_crosswalk_2024.csv.zip", index=False)
+    # EIA-923 data by subplant and energy source: plant 1's gas subplant burned a
+    # little coal in January
+    pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 2],
+            "subplant_id": [1, 1, 2, 1],
+            "report_date": ["2024-01-01", "2024-01-01", "2024-06-01", "2024-06-01"],
+            "energy_source_code": ["NG", "BIT", "SUN", "SUN"],
+            "net_generation_mwh": [590.0, 10.0, 30.0, 500.0],
+            "fuel_consumed_mmbtu": [6900.0, 100.0, 100.0, 1000.0],
+        }
+    ).to_csv(outputs_folder / "subplant_eia923_2024.csv.zip", index=False)
     # power sector results, with half of each annual value in January and half in June.
     # Heat input is ten times net generation
     fleet_folder = tmp_path / "2024/power_sector_data/{resolution}/us_units"
@@ -546,6 +560,8 @@ def test_unit_table(results):
     # operating hours count the hours with any operation
     assert units.loc["1", "HRSOP"] == 2
     assert units.loc["2", "HRSOP"] == 1
+    # each unit has one generator in the subplant crosswalk
+    assert list(units["NUMGEN"]) == [1, 1]
     assert units.loc["1", "HTIAN"] == 150.0
     # the ozone season is May to September
     assert units.loc["1", "HTIOZ"] == 50.0
@@ -598,6 +614,40 @@ def test_translate_campd_values():
     assert translated[2] == "New control"
 
 
+def test_plant_derived_attributes(results):
+    plants = output_egrid_file.build_plant_table(2024, "2024/").set_index("ORISPL")
+    assert plants.loc[1, "PLFUELCT"] == "GAS"
+    assert plants.loc[2, "PLFUELCT"] == "SOLAR"
+    # plant 1 has CEMS data in January
+    assert plants.loc[1, "CAPDFLAG"] == "Yes"
+    assert pd.isna(plants.loc[2, "CAPDFLAG"])
+    # neither BA is an ISO or RTO, and neither plant has pumped storage
+    assert plants["ISORTO"].isna().all()
+    assert plants["PSFLAG"].isna().all()
+    # plant 1 burned some coal, although its subplants' primary fuels are gas and solar
+    assert plants.loc[1, "COALFLAG"] == "Yes"
+    assert pd.isna(plants.loc[2, "COALFLAG"])
+    assert plants.loc[1, "CAPFAC"] == pytest.approx(1000 / (100 * 8784))
+    # the heat rate divides combustion heat input by combustion generation, and is
+    # blank for the solar plant
+    assert plants.loc[1, "PLHTRT"] == pytest.approx(10_000 * 1000 / 1000)
+    assert pd.isna(plants.loc[2, "PLHTRT"])
+
+
+def test_plant_pumped_storage_flag(results):
+    path = results / "2024/plant_data/subplant_attributes.csv"
+    subplants = pd.read_csv(path)
+    # plant 1's second subplant is pumped storage
+    subplants.loc[
+        (subplants["plant_id_eia"] == 1) & (subplants["subplant_id"] == 2),
+        "subplant_primary_prime_mover_code",
+    ] = "PS"
+    subplants.to_csv(path, index=False)
+    plants = output_egrid_file.build_plant_table(2024, "2024/").set_index("ORISPL")
+    assert plants.loc[1, "PSFLAG"] == "Yes"
+    assert pd.isna(plants.loc[2, "PSFLAG"])
+
+
 def test_generator_table(results):
     generators = output_egrid_file.build_generator_table(2024, "2024/")
     # generators are sorted by state, so plant 2 (AZ) comes first
@@ -619,6 +669,8 @@ def test_generator_table(results):
     assert generators.loc["PV1", "GENSTAT"] == "RE"
     assert generators.loc["GT1", "FUELG1"] == "NG"
     assert generators.loc["PV1", "NAMEPCAP"] == 50.0
+    # capacity factors use the 8,784 hours of 2024, a leap year
+    assert generators.loc["GT1", "CFACT"] == pytest.approx(1000 / (100 * 8784))
 
 
 def test_region_tables(results):
@@ -702,12 +754,16 @@ def test_egrid_tables_have_every_column(results):
     assert len(tables["UNT"]) == 2
     assert len(tables["GEN"]) == 2
     assert list(tables["ST"]["PSTATABB"]) == ["AZ", "TX"]
+    # the plant sheet counts each plant's units and generators
+    plants = tables["PLNT"].set_index("ORISPL")
+    assert plants.loc[1, ["NUMUNT", "NUMGEN"]].tolist() == [2, 1]
+    assert plants.loc[2, ["NUMUNT", "NUMGEN"]].tolist() == [0, 1]
     # regional capacity sums the capacity of the plant sheet
     assert list(tables["ST"]["STNAMEPCAP"]) == [50.0, 100.0]
     assert list(tables["BA"]["BANAMEPCAP"]) == [100.0, 50.0]
     assert list(tables["US"]["USNAMEPCAP"]) == [150.0]
     # columns that OGE does not calculate are blank
-    assert tables["PLNT"]["CAPFAC"].isna().all()
+    assert tables["PLNT"]["NBFACTOR"].isna().all()
 
 
 def test_convert_to_metric():
@@ -749,9 +805,17 @@ def test_write_egrid_files(results):
         codes = [code for code, _, _ in columns]
         # filled columns are colored by category and blank columns are grayed out
         filled = worksheet.cell(1, codes.index("PLNGENAN") + 1)
-        blank = worksheet.cell(1, codes.index("CAPFAC") + 1)
+        blank = worksheet.cell(1, codes.index("NBFACTOR") + 1)
         assert filled.fill.fgColor.rgb == "FFF2DCDB"
         assert blank.font.color.rgb == "FFA6A6A6"
+        # Hg is blank where it is incomplete, but OGE calculates it
+        hg = worksheet.cell(1, codes.index("PLHGAN") + 1)
+        assert hg.fill.fgColor.rgb == "FFF2DCDB"
+        assert hg.font.color.rgb != "FFA6A6A6"
+    assert output_egrid_file.is_hg_column("BA", "BAHGRTA2")
+    assert output_egrid_file.is_hg_column("PLNT", "UNHGSRC")
+    assert not output_egrid_file.is_hg_column("BA", "BANBHG")
+    assert not output_egrid_file.is_hg_column("UNT", "HGAN")
 
 
 def test_skip_outputs_writes_nothing(results):
