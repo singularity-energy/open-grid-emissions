@@ -34,6 +34,15 @@ The data is organized into three categories based on the primary use case
 
 Each of these data categories includes data at different temporal resolutions (hourly, monthly, annual), and in different units (U.S. and Metric). U.S.-unit files uses lb for mass and MMBtu for fuel consumption, while the metric files use kg for mass and GJ for fuel consumption.
 
+OGE also publishes each year's annual results in the layout of EPA's eGRID data file, for users who already work with eGRID. The `eGRID` folder of each year's results holds an Excel workbook in U.S. units (`oge_egrid{year}_data.xlsx`) and one in metric units (`oge_egrid{year}_data_metric.xlsx`). Each workbook has eGRID's sheets, columns, and column codes:
+
+* **Unit (UNT)**: CEMS-reporting units, from OGE's cleaned CEMS data, with unit attributes from EPA's CAMPD facility files.
+* **Generator (GEN)**: generators, from OGE's EIA-923 data allocated to generators, with generator attributes from EIA-860.
+* **Plant (PLNT)**: plants, from OGE's plant results and plant attributes.
+* **State (ST), balancing authority (BA), and U.S. (US)**: states are summed from OGE's subplant results, and balancing authorities and the U.S. come from OGE's power sector results.
+
+The eGRID subregion (SRL), NERC region (NRL), and grid gross loss (GGL) sheets are included but empty, and columns that OGE does not calculate yet are blank, with their headers grayed out. The values follow OGE's methods, fuel categories, and plant IDs, so they don't match eGRID exactly. See [Comparison to eGRID](Comparison%20to%20eGRID.md) for the differences and for the fields that OGE does not fill yet.
+
 <!-- theme: info -->
 
 > #### Carbon accounting data in Hawaii and Alaska

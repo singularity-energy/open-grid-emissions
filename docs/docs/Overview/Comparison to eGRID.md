@@ -184,23 +184,16 @@ These are deliberate methodological choices in eGRID that OGE improves on.
 
 ## 3. What eGRID provides that OGE does not (yet)
 
-A column-by-column mapping of eGRID2023's 1,114 data fields to OGE outputs finds that 568 fields have a direct or derivable OGE equivalent and 546 don't. The main gaps, grouped by theme:
+OGE publishes its annual results in an eGRID-format workbook (see [Using the Data](Using%20the%20Data.md#files)), with eGRID's sheets, columns, and column codes. The workbook fills 575 of eGRID2023's 1,114 data fields from OGE's data. Most of these are summed or calculated from OGE's results, such as state totals, ozone season values, input and combustion emission rates, plant heat rates, capacity factors, and resource mix. The unit and generator sheets come from OGE's cleaned CEMS data and its EIA-923 data allocated to generators, and attributes that OGE doesn't otherwise publish, such as unit controls and plant utilities, come from EIA-860 (via PUDL) and EPA's CAMPD facility files.
 
-- **Regional aggregations.**
-  - **State (ST, 169 fields):** OGE doesn't publish state totals, but 127 of the 169 fields can be derived by summing OGE plant data by state. The other 42 are nonbaseload metrics (31), mercury (8), the "other fossil" fuel category (2), and the state FIPS code.
-  - **eGRID subregion and NERC region (SRL/NRL, 338 fields):** these need a subregion and NERC assignment for each plant. NERC region is reported in EIA-860 (it matches eGRID for 98% of plants). eGRID subregions are assigned by EPA and would need to be adopted or replicated.
-- **Nonbaseload metrics:** 31 fields in each aggregated file (nonbaseload generation, emission rates, and generation and resource mix by fuel), plus plant nonbaseload generation. These are computable from existing plant data using eGRID's capacity-factor method, but OGE doesn't calculate them.
-- **Other derived metrics OGE doesn't publish:**
-  - ozone-season (May–Sep) values
-  - input emission rates (lb/MMBtu)
-  - combustion-only heat input, generation, and output rates
-  - plant heat rate
-  - resource mix percentages, including renewable/nonrenewable and combustion/non-combustion groupings
-  
-  All of these can be derived from existing OGE monthly or annual outputs or subplant data.
-- **Unit- and generator-level files:** OGE's finest published level is the subplant. Unit-level CEMS data and generator-level EIA-923 data exist within the OGE pipeline but aren't published as annual tables. Unit and generator attributes (status, firing type, controls, online and retirement years, capacity) are available in PUDL's EIA-860 tables. A few smaller fields would also need to be added: the EPA/CAPD programs each unit is subject to (e.g. Acid Rain Program, Cross-State Air Pollution Rule), unit stack height (from EIA-860), and generator capacity factor (annual net generation ÷ (nameplate capacity × 8,760)).
-- **Plant attributes:** utility, transmission owner, sector, NERC region, ISO/RTO, FIPS codes, CHP and biomass flags, capacity factor. Most are available directly from EIA-860 (via PUDL) or derivable from OGE data.
-- **Mercury:** unit-level mercury emissions from EPA CAMD, reported for 357 units (4,757 lb) in eGRID2023. The plant and regional files include mercury fields, but they're blank in eGRID2023.
-- **Demographics:** EJScreen demographic indicators within 3 miles of each plant.
-- **Grid gross loss:** transmission and distribution loss factors by interconnection, from EIA State Electricity Profiles.
-- **Formats and supporting resources:** the Excel workbook, summary tables, a PDF technical guide, the eGRID Explorer, and GIS files for subregions.
+The other 539 fields are blank in the workbook:
+
+- **eGRID subregion and NERC region (SRL/NRL, 338 fields, plus each plant's subregion):** these need a subregion and NERC assignment for each plant. NERC region is reported in EIA-860 (it matches eGRID for 98% of plants), and the plant sheet already includes it, but OGE doesn't sum its results by NERC region yet. eGRID subregions are assigned by EPA and would need to be adopted or replicated.
+- **Nonbaseload metrics (95 fields):** 31 fields in each of the state, BA, and U.S. sheets (nonbaseload generation, emission rates, and generation and resource mix by fuel), plus each plant's nonbaseload factor and generation. These are computable from existing plant data using eGRID's capacity-factor method, but OGE doesn't calculate them.
+- **CHP values (3 fields):** useful thermal output, power to heat ratio, and electric allocation factor. OGE calculates useful thermal output and the electric allocation factor in its [CHP adjustment](../Methodology/Emissions%20Calculations/Adjusting%20Emissions%20for%20CHP.md), but doesn't publish them yet.
+- **Mercury rates and regional mercury (27 fields):** these are also blank in eGRID2023. The plant sheet includes each plant's annual mercury, but only where the plant's mercury data is complete for the whole year, which no plant met in 2024 (see [Hg Emissions](../Methodology/Emissions%20Calculations/Hg%20Emissions.md)).
+- **A few unit and generator attributes (3 fields):** unit stack height, and each generator's number of boilers and data source.
+- **Demographics (DEMO, 65 fields):** EJScreen demographic indicators within 3 miles of each plant. The workbook doesn't include this sheet, which eGRID2025 also dropped.
+- **Grid gross loss (GGL, 6 fields):** transmission and distribution loss factors by interconnection, from EIA State Electricity Profiles.
+
+eGRID also publishes supporting resources that OGE doesn't: summary tables, a PDF technical guide, the eGRID Explorer, and GIS files for subregions.
