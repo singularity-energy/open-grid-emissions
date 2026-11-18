@@ -6,9 +6,11 @@ from openpyxl.utils import get_column_letter
 import pandas as pd
 import pytest
 
+import oge.egrid_schema as egrid_schema
+import oge.egrid_workbook as egrid_workbook
 import oge.output_egrid_file as output_egrid_file
 from oge.column_checks import DATA_COLUMNS, HG_DATA_COLUMNS
-from oge.output_egrid_file import (
+from oge.egrid_schema import (
     EGRID_CATEGORIES,
     EGRID_SHEETS,
     get_egrid_columns,
@@ -812,10 +814,10 @@ def test_write_egrid_files(results):
         hg = worksheet.cell(1, codes.index("PLHGAN") + 1)
         assert hg.fill.fgColor.rgb == "FFF2DCDB"
         assert hg.font.color.rgb != "FFA6A6A6"
-    assert output_egrid_file.is_hg_column("BA", "BAHGRTA2")
-    assert output_egrid_file.is_hg_column("PLNT", "UNHGSRC")
-    assert not output_egrid_file.is_hg_column("BA", "BANBHG")
-    assert not output_egrid_file.is_hg_column("UNT", "HGAN")
+    assert egrid_workbook.is_hg_column("BA", "BAHGRTA2")
+    assert egrid_workbook.is_hg_column("PLNT", "UNHGSRC")
+    assert not egrid_workbook.is_hg_column("BA", "BANBHG")
+    assert not egrid_workbook.is_hg_column("UNT", "HGAN")
 
 
 def test_skip_outputs_writes_nothing(results):
@@ -824,25 +826,25 @@ def test_skip_outputs_writes_nothing(results):
 
 
 def test_number_formats_follow_egrid():
-    plant = output_egrid_file.get_number_formats("PLNT", 2024)
+    plant = egrid_workbook.get_number_formats("PLNT", 2024)
     assert plant["PNAME"] == "General"
     assert plant["NAMEPCAP"] == "#,##0.0"
-    assert plant["PLNGENAN"] == output_egrid_file.QUANTITY_FORMAT
-    assert plant["PLCO2RTA"] == output_egrid_file.RATE_FORMAT
-    assert plant["PLHGAN"] == output_egrid_file.HG_MASS_FORMAT
+    assert plant["PLNGENAN"] == egrid_workbook.QUANTITY_FORMAT
+    assert plant["PLCO2RTA"] == egrid_workbook.RATE_FORMAT
+    assert plant["PLHGAN"] == egrid_workbook.HG_MASS_FORMAT
     assert plant["UNCO2"] == "#,##0"
-    assert plant["PLCLPR"] == output_egrid_file.PERCENT_FORMAT
-    state = output_egrid_file.get_number_formats("ST", 2024)
-    assert state["STNAMEPCAP"] == output_egrid_file.QUANTITY_FORMAT
-    assert state["STCCH4RT"] == output_egrid_file.SMALL_RATE_FORMAT
-    assert state["STCCO2RT"] == output_egrid_file.RATE_FORMAT
-    unit = output_egrid_file.get_number_formats("UNT", 2024)
-    assert unit["NOXAN"] == output_egrid_file.UNIT_MASS_FORMAT
+    assert plant["PLCLPR"] == egrid_workbook.PERCENT_FORMAT
+    state = egrid_workbook.get_number_formats("ST", 2024)
+    assert state["STNAMEPCAP"] == egrid_workbook.QUANTITY_FORMAT
+    assert state["STCCH4RT"] == egrid_workbook.SMALL_RATE_FORMAT
+    assert state["STCCO2RT"] == egrid_workbook.RATE_FORMAT
+    unit = egrid_workbook.get_number_formats("UNT", 2024)
+    assert unit["NOXAN"] == egrid_workbook.UNIT_MASS_FORMAT
     assert unit["HTIAN"] == "#,##0"
     # GJ columns have the format of the column they follow
-    metric = output_egrid_file.get_number_formats("US", 2024, metric=True)
+    metric = egrid_workbook.get_number_formats("US", 2024, metric=True)
     assert metric["USNGENAN2"] == metric["USNGENAN"]
-    assert metric["USCO2RTA2"] == output_egrid_file.RATE_FORMAT
+    assert metric["USCO2RTA2"] == egrid_workbook.RATE_FORMAT
     assert set(metric) == {code for code, _, _ in get_egrid_columns("US", 2024, True)}
 
 
@@ -871,7 +873,7 @@ def test_contents_sheet_links(results):
 
 
 def test_describe_sheets():
-    assert output_egrid_file.describe_sheets() == (
+    assert egrid_workbook.describe_sheets() == (
         "Unit, Generator, Plant, State, Balancing Authority Area, eGRID Subregion, "
         "NERC Region, U.S., and Grid Gross Loss (%)"
     )
@@ -906,7 +908,7 @@ def test_emission_rates_and_resource_mix():
         PLGENATN=[800.0, -10.0],
         PLGENATR=[200.0, 0.0],
     )
-    table[f"PL{output_egrid_file.OZONE_COMBUSTION_GENERATION}"] = [320.0, 0.0]
+    table[f"PL{egrid_schema.OZONE_COMBUSTION_GENERATION}"] = [320.0, 0.0]
     rates = output_egrid_file.add_emission_rates_and_resource_mix(table, "PLNT", 2024)
     gas, idle = rates.iloc[0], rates.iloc[1]
     # tons are converted to lb, and masses in lb are used as they are
@@ -930,7 +932,7 @@ def test_emission_rates_and_resource_mix():
     assert gas["PLTNPR"] == 0.8
     assert gas["PLCYPR"] == 0.8
     assert pd.isna(idle["PLGSPR"])
-    assert f"PL{output_egrid_file.OZONE_COMBUSTION_GENERATION}" not in rates
+    assert f"PL{egrid_schema.OZONE_COMBUSTION_GENERATION}" not in rates
 
 
 def test_fuel_type_rates_include_waste_in_fossil():
