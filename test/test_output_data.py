@@ -199,6 +199,52 @@ def test_national_hourly_results():
     assert wind["net_generation_mwh"].tolist() == [1.0, 2.0, 1.0]
 
 
+def test_hourly_results_have_same_columns_as_monthly_and_annual(monthly_fleet_data):
+    """The hourly power sector files should have the same data columns as the monthly
+    and annual files, including the storage columns, which should be blank for
+    non-storage fuels and the residual mix, summed for storage, and included in the
+    total row.
+    """
+    hourly_fleet_data = monthly_fleet_data.assign(
+        datetime_utc=lambda df: (
+            pd.to_datetime(df["report_date"]).dt.tz_localize("UTC")
+            + pd.Timedelta(hours=5)
+        )
+    )
+    hourly = capture_outputs(
+        hourly_fleet_data,
+        skip_outputs=False,
+        include_hourly=True,
+        include_monthly=False,
+        include_annual=False,
+    )
+    monthly = capture_outputs(
+        monthly_fleet_data,
+        skip_outputs=False,
+        include_hourly=False,
+        include_monthly=True,
+        include_annual=True,
+    )
+
+    for ba in ["BA1", "BA2", "US"]:
+        hourly_table = hourly[("power_sector_data/hourly/", ba)][0]
+        for agg_level in ["monthly", "annual"]:
+            other_table = monthly[(f"power_sector_data/{agg_level}/", ba)][0]
+            assert [
+                column
+                for column in hourly_table.columns
+                if column not in ["datetime_local", "datetime_utc"]
+            ] == [column for column in other_table.columns if column != "report_date"]
+
+    table = hourly[("power_sector_data/hourly/", "BA2")][0]
+    january = table[table["datetime_utc"].dt.month == 1].set_index("fuel_category")
+    assert january.loc["natural_gas", STORAGE_DATA_COLUMNS].isna().all()
+    assert january.loc["residual", STORAGE_DATA_COLUMNS].isna().all()
+    assert january.loc["storage", "storage_charge_mwh"] == 5.0
+    assert january.loc["total", "storage_charge_mwh"] == 5.0
+    assert january.loc["total", "storage_discharge_mwh"] == 4.0
+
+
 def test_residual_mix_annual_results(monthly_fleet_data):
     """The residual row should sum only the residual mix fuel categories.
 

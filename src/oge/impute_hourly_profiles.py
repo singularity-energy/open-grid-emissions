@@ -2270,13 +2270,17 @@ def shape_monthly_eia_data_as_hourly(
     is used to identify the correct profile. This column can be based on any fuel
     assignment method before passing the dataframe to this function.
 
-    Storage with monthly charging or discharging data (`STORAGE_DATA_COLUMNS`) is
-    shaped with its discharging and charging profiles (`STORAGE_PROFILE_COLUMNS`):
-    hourly net generation is the shaped discharge minus the shaped charge. In months
-    when the monthly net generation isn't equal to the discharge minus the charge, the
-    difference is added to the charge (if the net generation is lower) or to the
-    discharge (if it is higher) before shaping, so that the monthly net generation is
-    kept. The other data columns of storage are shaped with the discharging profile.
+    Storage with monthly charging or discharging volumes to shape
+    (`STORAGE_SHAPING_COLUMNS`) is shaped with its discharging and charging profiles
+    (`STORAGE_PROFILE_COLUMNS`): hourly net generation is the shaped discharge minus the
+    shaped charge. In months when the monthly net generation isn't equal to the
+    discharge minus the charge, the difference is added to the charge (if the net
+    generation is lower) or to the discharge (if it is higher) before shaping, so that
+    the monthly net generation is kept. The reported charge and discharge
+    (`STORAGE_DATA_COLUMNS`) are shaped with the charging and discharging profiles
+    without this adjustment, so that they add up to the monthly reported values, and
+    stay blank where they are not reported. The other data columns of storage are
+    shaped with the discharging profile.
 
     Args:
         monthly_eia_data_to_shape (pd.DataFrame): The monthly data to shape
@@ -2362,7 +2366,12 @@ def shape_monthly_eia_data_as_hourly(
 
     # shape the data by multiplying the monthly activity data by the fraction of total
     # monthly activity occuring in that hour ("profile")
-    for column in DATA_COLUMNS:
+    storage_columns = [
+        column
+        for column in STORAGE_DATA_COLUMNS
+        if column in shaped_monthly_data.columns
+    ]
+    for column in DATA_COLUMNS + storage_columns:
         if column in shaped_monthly_data.columns:
             shaped_monthly_data[column] = (
                 shaped_monthly_data[column] * shaped_monthly_data["profile"]
@@ -2373,17 +2382,30 @@ def shape_monthly_eia_data_as_hourly(
         shaped_monthly_data.loc[is_shaped_storage, "net_generation_mwh"] = (
             storage_net_generation
         )
+        # the reported charge and discharge are shaped with their own profiles
+        for column, profile in [
+            ("storage_discharge_mwh", "storage_discharge_profile"),
+            ("storage_charge_mwh", "storage_charge_profile"),
+        ]:
+            if column in storage_columns:
+                shaped_monthly_data.loc[is_shaped_storage, column] = (
+                    storage[column] * storage[profile]
+                )
 
     # re order the columns
-    column_order = [
-        "plant_id_eia",
-        "subplant_id",
-        "ba_code",
-        "fuel_category",
-        "datetime_utc",
-        "report_date",
-        "profile_method",
-    ] + DATA_COLUMNS
+    column_order = (
+        [
+            "plant_id_eia",
+            "subplant_id",
+            "ba_code",
+            "fuel_category",
+            "datetime_utc",
+            "report_date",
+            "profile_method",
+        ]
+        + DATA_COLUMNS
+        + STORAGE_DATA_COLUMNS
+    )
 
     # re-order and drop intermediate columns
     shaped_monthly_data = shaped_monthly_data[

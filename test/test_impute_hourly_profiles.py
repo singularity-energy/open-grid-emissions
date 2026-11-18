@@ -1339,6 +1339,10 @@ def test_shape_monthly_eia_data_as_hourly_storage_keeps_monthly_net(
     shaped with the charging profile (at 3h). In February, there is no charging or
     discharging data, so the net generation is shaped as before (flat, since it's
     negative).
+
+    The reported charge and discharge should be shaped with their own profiles without
+    the 38 MWh adjustment, so that they keep their monthly values, and stay blank in
+    February.
     """
     monthly_data = pd.DataFrame(
         {
@@ -1370,9 +1374,19 @@ def test_shape_monthly_eia_data_as_hourly_storage_keeps_monthly_net(
         expected.to_numpy()
     )
     assert (january["profile_method"] == "eia930_profile").all()
+    assert january["storage_discharge_mwh"].to_numpy() == pytest.approx(
+        local_hour.map({19: 310.0 / 31}).fillna(0).to_numpy()
+    )
+    assert january["storage_charge_mwh"].to_numpy() == pytest.approx(
+        local_hour.map({3: 372.0 / 31}).fillna(0).to_numpy()
+    )
+    assert not set(impute_hourly_profiles.STORAGE_SHAPING_COLUMNS) & set(shaped.columns)
     february = shaped[shaped["report_date"].dt.month == 2]
     assert february["net_generation_mwh"].nunique() == 1
     assert (february["profile_method"] == "flat_negative_generation").all()
+    assert (
+        february[["storage_charge_mwh", "storage_discharge_mwh"]].isna().all(axis=None)
+    )
 
 
 def test_residual_cems_switches_category_in_ba_local_month(monkeypatch):
@@ -1553,7 +1567,8 @@ def test_storage_fleet_shaping_matches_sum_of_subplants(
     generation (-30 MWh) is 10 MWh lower than discharge minus charge, and the second's
     (-10 MWh) is 10 MWh higher. Each is shaped with 100/130 and 110/120 MWh, so the
     fleet should be shaped with 210/250 MWh, not with 200/240 MWh, where the
-    differences cancel.
+    differences cancel. The reported charge and discharge of the fleet should still
+    add up to the reported 240 and 200 MWh.
     """
     monthly_data = pd.DataFrame(
         {
@@ -1610,6 +1625,8 @@ def test_storage_fleet_shaping_matches_sum_of_subplants(
     local_hour = fleet_total.index.tz_convert("US/Central").hour
     assert fleet_total[local_hour == 19].sum() == pytest.approx(210.0)
     assert fleet_total[local_hour == 3].sum() == pytest.approx(-250.0)
+    assert fleet["storage_discharge_mwh"].sum() == pytest.approx(200.0)
+    assert fleet["storage_charge_mwh"].sum() == pytest.approx(240.0)
 
 
 def test_calculate_storage_profiles_without_storage_series(monkeypatch):

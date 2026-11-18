@@ -3,7 +3,7 @@ import numpy as np
 
 import oge.load_data as load_data
 from oge.anomaly_screening import flag_cems_outliers
-from oge.column_checks import get_dtypes
+from oge.column_checks import get_dtypes, STORAGE_DATA_COLUMNS
 from oge.helpers import create_plant_ba_table
 from oge.filepaths import reference_table_folder, outputs_folder
 from oge.logging_util import get_logger
@@ -985,18 +985,24 @@ def validate_shaped_totals(
     group_keys,
 ):
     """Checks that any shaped monthly data still adds up to the monthly total after
-    shaping."""
+    shaping, including any energy storage charge and discharge in both."""
 
     logger.info("Checking that shaped hourly data matches monthly totals...  ")
 
     monthly_group_keys = group_keys + ["report_date"]
+    columns_to_check = ["net_generation_mwh", "fuel_consumed_mmbtu"] + [
+        column
+        for column in STORAGE_DATA_COLUMNS
+        if column in shaped_eia_data.columns
+        and column in monthly_eia_data_to_shape.columns
+    ]
 
     # aggregate data to ba fuel month
     shaped_data_agg = shaped_eia_data.groupby(monthly_group_keys, dropna=False)[
-        ["net_generation_mwh", "fuel_consumed_mmbtu"]
+        columns_to_check
     ].sum()
     eia_data_agg = monthly_eia_data_to_shape.groupby(monthly_group_keys, dropna=False)[
-        ["net_generation_mwh", "fuel_consumed_mmbtu"]
+        columns_to_check
     ].sum()
 
     # calculate the difference between the two datasets. Months missing from either
@@ -1016,10 +1022,7 @@ def validate_shaped_totals(
         logger.warning(
             "\n"
             + limit_error_output_df(
-                compare[
-                    (compare["net_generation_mwh"] != 0)
-                    | (compare["fuel_consumed_mmbtu"] != 0)
-                ]
+                compare[(compare[columns_to_check] != 0).any(axis=1)]
             ).to_string()
         )
         raise UserWarning(

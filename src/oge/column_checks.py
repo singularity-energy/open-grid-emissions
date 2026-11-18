@@ -382,8 +382,8 @@ DATA_COLUMNS = [
 
 # energy storage charging and discharging data. These are kept separate from
 # DATA_COLUMNS because they are only reported for energy storage resources (so are left
-# blank rather than zero for other resources), and because they are not currently
-# shaped to an hourly resolution
+# blank rather than zero for other resources), and because they are shaped to an hourly
+# resolution with their own charging and discharging profiles
 STORAGE_DATA_COLUMNS = [
     "storage_charge_mwh",
     "storage_discharge_mwh",
