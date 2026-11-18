@@ -25,6 +25,7 @@ import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.load_data as load_data
 import oge.output_data as output_data
+import oge.output_egrid_file as output_egrid_file
 import oge.physics_reconciliation as physics_reconciliation
 import oge.subplant_identification as subplant_identification
 import oge.validation as validation
@@ -890,6 +891,11 @@ def main(args):
             )
             hourly_consumed_calc.run()
             hourly_consumed_calc.output_results()
+
+    # 20. Export annual results in the eGRID format
+    ####################################################################################
+    logger.info("20. Exporting annual results in the eGRID format")
+    output_egrid_file.write_egrid_files(year, path_prefix, args.skip_outputs)
 
 
 if __name__ == "__main__":

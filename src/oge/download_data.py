@@ -131,11 +131,18 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
         # download the pudl sqlite database
         if not os.path.exists(downloads_folder(f"pudl/{build}/pudl.sqlite")):
             # download the marker file that identifies the PUDL build (see
-            # `get_pudl_release()`)
-            fsspec.filesystem("s3", anon=True).get(
-                f"pudl.catalyst.coop/{build}/{build}-*",
-                downloads_folder(f"pudl/{build}/"),
-            )
+            # `get_pudl_release()`). The marker only labels the release in the logs, so
+            # a missing marker does not stop the download (e.g. the v2026.11.0 stable
+            # build was deployed with a "branch-...-main" marker instead)
+            fs = fsspec.filesystem("s3", anon=True)
+            markers = fs.glob(f"pudl.catalyst.coop/{build}/{build}-*")
+            if markers:
+                fs.get(markers, downloads_folder(f"pudl/{build}/"))
+            else:
+                logger.warning(
+                    f"No '{build}-*' marker file found in the PUDL {build} build, so "
+                    "the PUDL release will be reported as unknown"
+                )
             output_filepath = downloads_folder(f"pudl/{build}/pudl.sqlite")
             pudl_db_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/pudl.sqlite.zip"
             download_helper(

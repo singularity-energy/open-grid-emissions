@@ -1431,7 +1431,7 @@ def load_epa_eia_crosswalk(year: int) -> pd.DataFrame:
 def load_campd_facility(year: int) -> pd.DataFrame:
     """Loads the unit attributes from the EPA's Clean Air Markets Program Data (CAMPD)
     facility file. These are used to fill unit attributes that are missing from the EIA
-    data.
+    data, and to report the attributes of CEMS units in the eGRID format.
 
     Args:
         year (int): a four-digit year.
@@ -1439,8 +1439,9 @@ def load_campd_facility(year: int) -> pd.DataFrame:
     Returns:
         pd.DataFrame: table with one row per CAMPD unit, giving its EIA plant ID, unit
             type, boiler firing type and wet/dry bottom type, fuel types and the EIA
-            energy source code of its primary fuel, source category, and associated
-            generators.
+            energy source code of its primary fuel, source category, associated
+            generators, program codes, operating status, emission controls, and
+            commercial operation date.
     """
     facility = pd.read_csv(
         downloads_folder(f"epa/facility-{year}.csv"),
@@ -1454,6 +1455,12 @@ def load_campd_facility(year: int) -> pd.DataFrame:
             "Primary Fuel Type",
             "Secondary Fuel Type",
             "Associated Generators & Nameplate Capacity (MWe)",
+            "Program Code",
+            "Operating Status",
+            "SO2 Controls",
+            "NOx Controls",
+            "Hg Controls",
+            "Commercial Operation Date",
         ],
         dtype={"Unit ID": "str"},
     ).rename(
@@ -1469,6 +1476,12 @@ def load_campd_facility(year: int) -> pd.DataFrame:
             "Associated Generators & Nameplate Capacity (MWe)": (
                 "associated_generators_and_capacity_epa"
             ),
+            "Program Code": "program_code_epa",
+            "Operating Status": "operating_status_epa",
+            "SO2 Controls": "so2_controls_epa",
+            "NOx Controls": "nox_controls_epa",
+            "Hg Controls": "hg_controls_epa",
+            "Commercial Operation Date": "commercial_operation_date_epa",
         }
     )
 
