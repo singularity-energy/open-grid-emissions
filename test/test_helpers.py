@@ -90,3 +90,46 @@ def test_combine_subplant_data_monthly_hg_requires_every_hour():
 
     np.testing.assert_allclose(result["hg_mass_lb"], [np.nan, 0.2])
     assert result["fuel_consumed_mmbtu"].tolist() == [20, 10]
+
+
+def test_add_plant_nerc_region(monkeypatch):
+    plants = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2, 3, 4, 5, 6],
+            "state": ["TX", "CA", "NY", "AK", "PR", "OH"],
+        }
+    )
+    yearly_plants = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2, 2, 3, 3, 4],
+            "report_date": pd.to_datetime(
+                [
+                    "2023-01-01",
+                    "2024-01-01",
+                    "2023-01-01",
+                    "2024-01-01",
+                    "2025-01-01",
+                    "2026-01-01",
+                    "2024-01-01",
+                ]
+            ),
+            "nerc_region": ["SERC", "TRE", "WECC", pd.NA, "NPCC", "RFC", "WECC"],
+        }
+    ).astype({"nerc_region": "string"})
+    monkeypatch.setattr(
+        helpers.load_data,
+        "load_pudl_table",
+        lambda table, columns=None: yearly_plants,
+    )
+    result = helpers.add_plant_nerc_region(plants, 2024).set_index("plant_id_eia")
+    # the current year's region is used where it is reported
+    assert result.loc[1, "nerc_region"] == "TRE"
+    # otherwise the most recent region before the current year
+    assert result.loc[2, "nerc_region"] == "WECC"
+    # otherwise the earliest region after the current year
+    assert result.loc[3, "nerc_region"] == "NPCC"
+    # Alaska and Puerto Rico are their own regions, as in eGRID
+    assert result.loc[4, "nerc_region"] == "AK"
+    assert result.loc[5, "nerc_region"] == "PR"
+    # plants without a reported region are left blank
+    assert pd.isna(result.loc[6, "nerc_region"])

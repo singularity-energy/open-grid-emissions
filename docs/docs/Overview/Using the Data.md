@@ -39,9 +39,9 @@ OGE also publishes each year's annual results in the layout of EPA's eGRID data 
 * **Unit (UNT)**: CEMS-reporting units, from OGE's cleaned CEMS data, with unit attributes from EPA's CAMPD facility files.
 * **Generator (GEN)**: generators, from OGE's EIA-923 data allocated to generators, with generator attributes from EIA-860.
 * **Plant (PLNT)**: plants, from OGE's plant results and plant attributes.
-* **State (ST), balancing authority (BA), and U.S. (US)**: states are summed from OGE's subplant results, and balancing authorities and the U.S. come from OGE's power sector results.
+* **State (ST), balancing authority (BA), NERC region (NRL), and U.S. (US)**: states and NERC regions are summed from OGE's subplant results, using each plant's `state` and `nerc_region` in the plant static attributes, and balancing authorities and the U.S. come from OGE's power sector results.
 
-The eGRID subregion (SRL), NERC region (NRL), and grid gross loss (GGL) sheets are included but empty, and columns that OGE does not calculate yet are blank, with their headers grayed out. The values follow OGE's methods, fuel categories, and plant IDs, so they don't match eGRID exactly. See [Comparison to eGRID](Comparison%20to%20eGRID.md) for the differences and for the fields that OGE does not fill yet.
+The eGRID subregion (SRL) and grid gross loss (GGL) sheets are included but empty, and columns that OGE does not calculate yet are blank, with their headers grayed out. The values follow OGE's methods, fuel categories, and plant IDs, so they don't match eGRID exactly. See [Comparison to eGRID](Comparison%20to%20eGRID.md) for the differences and for the fields that OGE does not fill yet.
 
 <!-- theme: info -->
 
@@ -86,7 +86,8 @@ state | string | Two-letter state abbreviation where the plant is physically loc
 county | string | County name (for Puerto Rico, the municipio) | EIA-860
 city | string | City name. Puerto Rico has no incorporated cities, so for Puerto Rico this is the municipio, the same as `county`. | EIA-860
 ba_code | string | Three- or four-character code representing the commercial balancing authority with which the plant is associated | EIA-860
-ba_code_physical | string | Three- or four-character code representing the physical balancing authority with which the plant is associated. Not yet used in the data pipeline | [Inferred from EIA-860](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md)
+ba_code_physical | string | three- or four-character code representing the commercial balancing authority with which the plant is associated | [Inferred from EIA-860](../Methodology/Data%20Aggregation/Aggregating%20Data%20to%20Balancing%20Authority.md)
+nerc_region | string | Acronym of the NERC region in which the plant is located. Plants in Alaska, Hawaii, and Puerto Rico, which are not in a NERC region, use their state abbreviation (`AK`, `HI`, or `PR`), as in eGRID. If EIA-860 does not report a region for the plant in the data year, the most recent earlier year's region is used, or else the earliest later year's | EIA-860
 latitude | float | latitude of the plant (in deg.) with Equator as zero point | EIA-860
 longitude | float | longitude of the plant (in deg.) measured eastward from Greenwich, UK | EIA-860
 plant_operating_date | date | Date the plant began commercial operation | EIA-860

@@ -167,6 +167,10 @@ def create_plant_attributes_table(
     # fill out missing location/coordinates
     plant_attributes = add_missing_location(plant_attributes)
 
+    # add the NERC region, which uses the plant's state for Alaska, Hawaii and Puerto
+    # Rico
+    plant_attributes = add_plant_nerc_region(plant_attributes, year)
+
     # add nameplate capacity
     plant_attributes = add_plant_nameplate_capacity(year, plant_attributes)
 
@@ -190,6 +194,7 @@ def create_plant_attributes_table(
         "city",
         "ba_code",
         "ba_code_physical",
+        "nerc_region",
         "latitude",
         "longitude",
         "plant_operating_date",
@@ -791,6 +796,56 @@ def create_plant_ba_table(year: int) -> pd.DataFrame:
     plant_ba.drop(columns="state")
 
     return plant_ba
+
+
+def add_plant_nerc_region(df: pd.DataFrame, year: int) -> pd.DataFrame:
+    """Adds the NERC region of each plant reported in EIA-860.
+
+    As with BA codes, a plant's region is taken from its most recent EIA-860 record up
+    to the current year, or from its earliest record after the current year if it has
+    none before. Records with an unknown region ("UNK") are skipped. Alaska, Hawaii
+    and Puerto Rico are not in a NERC region, so, as in eGRID, their plants' region is
+    their state abbreviation (AK, HI or PR).
+
+    Args:
+        df (pd.DataFrame): table with 'plant_id_eia' and 'state' columns.
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: original data frame with an additional 'nerc_region' column.
+    """
+    plant_nerc = load_data.load_pudl_table(
+        "out_eia__yearly_plants",
+        columns=["plant_id_eia", "report_date", "nerc_region"],
+    )
+    plant_nerc = plant_nerc[
+        plant_nerc["nerc_region"].notna() & (plant_nerc["nerc_region"] != "UNK")
+    ]
+    report_year = plant_nerc["report_date"].dt.year
+    # keep the most recent record up to the current year, or else the earliest record
+    # after the current year
+    plant_nerc = (
+        plant_nerc.assign(
+            after_year=report_year > year, years_apart=(report_year - year).abs()
+        )
+        .sort_values(["plant_id_eia", "after_year", "years_apart"])
+        .drop_duplicates(subset="plant_id_eia", keep="first")
+    )
+    df = df.merge(
+        plant_nerc[["plant_id_eia", "nerc_region"]],
+        how="left",
+        on="plant_id_eia",
+        validate="m:1",
+    )
+    outside_nerc = df["state"].isin(["AK", "HI", "PR"])
+    df.loc[outside_nerc, "nerc_region"] = df.loc[outside_nerc, "state"]
+
+    if df["nerc_region"].isna().any():
+        logger.warning(
+            f"{df['nerc_region'].isna().sum()} plants are missing a NERC region: "
+            f"{df.loc[df['nerc_region'].isna(), 'plant_id_eia'].tolist()}"
+        )
+    return df
 
 
 def add_plant_operating_and_retirement_dates(df: pd.DataFrame) -> pd.DataFrame:
