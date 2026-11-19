@@ -281,7 +281,6 @@ def results(tmp_path, monkeypatch):
                 "transmission_distribution_owner_id": [10, 10],
                 "utility_id_eia": [20, 21],
                 "sector_id_eia": [2, 1],
-                "nerc_region": ["TRE", "WECC"],
             }
         ),
         "core_pudl__codes_subdivisions": pd.DataFrame(
@@ -332,6 +331,7 @@ def results(tmp_path, monkeypatch):
         longitude=[-97.0, -111.0],
         plant_primary_fuel=["NG", "SUN"],
         fuel_category=["natural_gas", "solar"],
+        nerc_region=["TRE", "WECC"],
     ).to_csv(plant_folder / "plant_static_attributes.csv", index=False)
     # monthly subplant data: plant 1 has a gas subplant that runs in January and June
     # and a solar subplant that runs in June, and plant 2 is solar
@@ -718,7 +718,7 @@ def test_region_tables(results):
 
 
 def test_state_table(results):
-    states = output_egrid_file.build_state_table(2024, "2024/")
+    states = output_egrid_file.build_plant_region_table(2024, "2024/", "ST")
     # states are sorted by abbreviation, with their FIPS codes
     assert list(states["PSTATABB"]) == ["AZ", "TX"]
     assert list(states["FIPSST"]) == ["04", "48"]
@@ -745,6 +745,24 @@ def test_state_table(results):
     assert states.loc["AZ", "STCO2RTA"] == 0
 
 
+def test_nerc_region_table(results):
+    regions = output_egrid_file.build_plant_region_table(2024, "2024/", "NRL")
+    # regions are sorted by acronym, with eGRID's names
+    assert list(regions["NERC"]) == ["TRE", "WECC"]
+    assert list(regions["NERCNAME"]) == [
+        "Texas Regional Entity",
+        "Western Electricity Coordinating Council",
+    ]
+    assert "FIPSST" not in regions
+    regions = regions.set_index("NERC")
+    # each region sums the subplants of its plants, as the state sheet does
+    assert regions.loc["TRE", "NRNGENAN"] == 1030.0
+    assert regions.loc["TRE", "NRGENAGS"] == 1000.0
+    assert regions.loc["WECC", "NRGENASO"] == 500.0
+    assert regions.loc["TRE", "NRCO2AN"] == 5.0
+    assert regions.loc["TRE", "NRNOXOZ"] == 8.0 / 2000
+
+
 def test_egrid_tables_have_every_column(results):
     tables = output_egrid_file.build_egrid_tables(2024, "2024/")
     assert list(tables) == EGRID_SHEETS
@@ -756,6 +774,9 @@ def test_egrid_tables_have_every_column(results):
     assert len(tables["UNT"]) == 2
     assert len(tables["GEN"]) == 2
     assert list(tables["ST"]["PSTATABB"]) == ["AZ", "TX"]
+    assert list(tables["NRL"]["NERC"]) == ["TRE", "WECC"]
+    # the eGRID subregion sheet is not filled yet
+    assert tables["SRL"].empty
     # the plant sheet counts each plant's units and generators
     plants = tables["PLNT"].set_index("ORISPL")
     assert plants.loc[1, ["NUMUNT", "NUMGEN"]].tolist() == [2, 1]
@@ -763,6 +784,7 @@ def test_egrid_tables_have_every_column(results):
     # regional capacity sums the capacity of the plant sheet
     assert list(tables["ST"]["STNAMEPCAP"]) == [50.0, 100.0]
     assert list(tables["BA"]["BANAMEPCAP"]) == [100.0, 50.0]
+    assert list(tables["NRL"]["NRNAMEPCAP"]) == [100.0, 50.0]
     assert list(tables["US"]["USNAMEPCAP"]) == [150.0]
     # columns that OGE does not calculate are blank
     assert tables["PLNT"]["NBFACTOR"].isna().all()

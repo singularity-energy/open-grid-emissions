@@ -368,6 +368,22 @@ BA_ISO_RTO = {
     "PJM": "PJM",
     "SWPP": "SPP",
 }
+# eGRID's name of each NERC region. Alaska, Hawaii and Puerto Rico are not in a NERC
+# region, so, as in eGRID, their plants' region is their state
+NERC_REGION_NAMES = {
+    "AK": "Alaska",
+    "HI": "Hawaii",
+    "MRO": "Midwest Reliability Organization",
+    "NPCC": "Northeast Power Coordinating Council",
+    "PR": "Puerto Rico",
+    "RFC": "Reliability First Corporation",
+    "SERC": "SERC Reliability Corporation",
+    "TRE": "Texas Regional Entity",
+    "WECC": "Western Electricity Coordinating Council",
+}
+# plant static attribute and identifying column of the regional sheets that are summed
+# from plants
+PLANT_REGION_ATTRIBUTES = {"ST": ("state", "PSTATABB"), "NRL": ("nerc_region", "NERC")}
 # eGRID's plant primary fuel category of each OGE plant fuel category. As in the fuel
 # columns, other fossil is OGE's waste and other is OGE's other and storage (DAT-1067)
 PLANT_FUEL_CATEGORIES = {
@@ -390,9 +406,9 @@ PUMPED_STORAGE_PRIME_MOVER = "PS"
 ADJUSTED_POLLUTANTS = ["nox", "so2", "co2", "ch4", "n2o", "co2e"]
 
 # OGE fuel category or eGRID fuel group, column and season of each data column of the
-# state, BA and U.S. sheets that holds the same quantity, keyed by the code without the
-# sheet's prefix. A fuel group sums its fuel categories in EGRID_FUEL_GROUPS, and the
-# ozone season sums May to September from the monthly results
+# state, BA, NERC region and U.S. sheets that holds the same quantity, keyed by the code
+# without the sheet's prefix. A fuel group sums its fuel categories in
+# EGRID_FUEL_GROUPS, and the ozone season sums May to September from the monthly results
 REGION_DATA_SOURCES = {
     "HTIAN": ("combustion", "fuel_consumed_for_electricity_mmbtu", "annual"),
     "HTIOZ": ("combustion", "fuel_consumed_for_electricity_mmbtu", "ozone"),
@@ -475,7 +491,8 @@ def build_egrid_tables(year: int, path_prefix: str) -> dict[str, pd.DataFrame]:
         "UNT": build_unit_table(year, path_prefix),
         "GEN": build_generator_table(year, path_prefix),
         "PLNT": build_plant_table(year, path_prefix),
-        "ST": build_state_table(year, path_prefix),
+        "ST": build_plant_region_table(year, path_prefix, "ST"),
+        "NRL": build_plant_region_table(year, path_prefix, "NRL"),
         "BA": build_region_table(year, path_prefix, "BA", ba_codes),
         "US": build_region_table(year, path_prefix, "US", ["US"]),
     }
@@ -811,6 +828,7 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
             "longitude",
             "plant_primary_fuel",
             "fuel_category",
+            "nerc_region",
         ],
     ).rename(columns={"fuel_category": "plant_fuel_category"})
     plants = (
@@ -1055,8 +1073,8 @@ def load_eia860_plant_attributes(year: int) -> pd.DataFrame:
     Returns:
         pd.DataFrame: plant_id_eia, name, state, county, location, state and county
             FIPS codes, transmission or distribution system owner, utility, eGRID
-            sector and NERC region of each plant. The county FIPS code is the three
-            digits within the state, as in eGRID.
+            sector of each plant. The county FIPS code is the three digits within the
+            state, as in eGRID.
     """
     plants = load_pudl_table(
         "core_eia__entity_plants",
@@ -1080,7 +1098,6 @@ def load_eia860_plant_attributes(year: int) -> pd.DataFrame:
                 "transmission_distribution_owner_id",
                 "utility_id_eia",
                 "sector_id_eia",
-                "nerc_region",
             ],
         ).merge(
             load_pudl_table("core_eia__entity_utilities"),
@@ -1148,24 +1165,27 @@ def add_adjustment_values(plants: pd.DataFrame) -> pd.DataFrame:
 ########################################################################################
 
 
-def build_state_table(year: int, path_prefix: str) -> pd.DataFrame:
-    """Builds the state sheet of the eGRID data file by summing OGE's monthly subplant
-    results to each plant's state, including the emission rates by fuel type.
+def build_plant_region_table(year: int, path_prefix: str, sheet: str) -> pd.DataFrame:
+    """Builds the state or NERC region sheet of the eGRID data file by summing OGE's
+    monthly subplant results to each plant's state or NERC region in OGE's plant static
+    attributes, including the emission rates by fuel type.
 
-    Each state's data are shaped like OGE's power sector results, i.e. one row for
-    each subplant fuel category and a total row, so that a state's columns are
+    Each region's data are shaped like OGE's power sector results, i.e. one row for
+    each subplant fuel category and a total row, so that a region's columns are
     calculated the same way as a BA's. Generation and heat input from fuel groups that
-    a state does not have are zero.
+    a region does not have are zero. Plants without a region are left out.
 
     Args:
         year (int): data year.
         path_prefix (str): prefix of the results folder of the year, e.g. "2024/".
+        sheet (str): "ST" or "NRL".
 
     Returns:
-        pd.DataFrame: one row for each state with plants in OGE's results, in U.S.
-            units, with the year, the state abbreviation and FIPS code, and the columns
-            of `REGION_DATA_SOURCES`.
+        pd.DataFrame: one row for each region with plants in OGE's results, in U.S.
+            units, with the year, the state abbreviation and FIPS code or the NERC
+            region acronym and name, and the columns of `REGION_DATA_SOURCES`.
     """
+    attribute, code = PLANT_REGION_ATTRIBUTES[sheet]
     data_columns = list(
         dict.fromkeys(
             [column for _, column, _ in REGION_DATA_SOURCES.values()]
@@ -1192,56 +1212,62 @@ def build_state_table(year: int, path_prefix: str) -> pd.DataFrame:
         .merge(
             pd.read_csv(
                 results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
-                usecols=["plant_id_eia", "state"],
-            ),
+                usecols=["plant_id_eia", attribute],
+            ).rename(columns={attribute: "region"}),
             on="plant_id_eia",
             how="left",
             validate="m:1",
         )
     )
-    # monthly data of each state by fuel category, with a total row for each month
+    # monthly data of each region by fuel category, with a total row for each month
     monthly = pd.concat(
         [
-            subplants.groupby(["state", "fuel_category", "report_date"], dropna=False)[
+            subplants.groupby(["region", "fuel_category", "report_date"], dropna=False)[
                 data_columns
             ]
             .sum(min_count=1)
             .reset_index(),
-            subplants.groupby(["state", "report_date"])[data_columns]
+            subplants.groupby(["region", "report_date"])[data_columns]
             .sum(min_count=1)
             .reset_index()
             .assign(fuel_category="total"),
         ]
     )
     annual = (
-        monthly.groupby(["state", "fuel_category"], dropna=False)[data_columns]
+        monthly.groupby(["region", "fuel_category"], dropna=False)[data_columns]
         .sum(min_count=1)
         .reset_index()
     )
-    prefix = REGION_SHEETS["ST"][0]
+    prefix = REGION_SHEETS[sheet][0]
     rows = [
-        {"YEAR": year, "PSTATABB": state}
+        {"YEAR": year, code: region}
         | calculate_region_values(
             prefix,
-            annual[annual["state"] == state],
-            monthly[monthly["state"] == state],
+            annual[annual["region"] == region],
+            monthly[monthly["region"] == region],
         )
-        for state in sorted(subplants["state"].dropna().unique())
+        for region in sorted(subplants["region"].dropna().unique())
     ]
-    fips = load_pudl_table(
-        "core_pudl__codes_subdivisions",
-        columns=["country_code", "subdivision_code", "state_id_fips"],
-    )
-    table = pd.DataFrame(rows).merge(
-        fips.loc[
-            fips["country_code"] == "USA", ["subdivision_code", "state_id_fips"]
-        ].rename(columns={"subdivision_code": "PSTATABB", "state_id_fips": "FIPSST"}),
-        on="PSTATABB",
-        how="left",
-        validate="1:1",
-    )
-    table = convert_mass_to_tons(table, "ST", year)
-    return add_emission_rates_and_resource_mix(table, "ST", year)
+    table = pd.DataFrame(rows)
+    if sheet == "ST":
+        fips = load_pudl_table(
+            "core_pudl__codes_subdivisions",
+            columns=["country_code", "subdivision_code", "state_id_fips"],
+        )
+        table = table.merge(
+            fips.loc[
+                fips["country_code"] == "USA", ["subdivision_code", "state_id_fips"]
+            ].rename(
+                columns={"subdivision_code": "PSTATABB", "state_id_fips": "FIPSST"}
+            ),
+            on="PSTATABB",
+            how="left",
+            validate="1:1",
+        )
+    else:
+        table["NERCNAME"] = table["NERC"].map(NERC_REGION_NAMES)
+    table = convert_mass_to_tons(table, sheet, year)
+    return add_emission_rates_and_resource_mix(table, sheet, year)
 
 
 def build_region_table(
@@ -1342,22 +1368,22 @@ def calculate_region_values(
 
 
 def add_regional_capacity(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    """Fills the nameplate capacity of the state, BA and U.S. sheets with the sum of
-    the nameplate capacity of their plants on the plant sheet.
+    """Fills the nameplate capacity of the state, BA, NERC region and U.S. sheets with
+    the sum of the nameplate capacity of their plants on the plant sheet.
 
     Args:
-        tables (dict[str, pd.DataFrame]): tables of the sheets, including PLNT, ST, BA
-            and US.
+        tables (dict[str, pd.DataFrame]): tables of the sheets, including PLNT, ST, BA,
+            NRL and US.
 
     Returns:
         dict[str, pd.DataFrame]: the tables, with the regional sheets' capacity.
     """
     tables = tables.copy()
     plants = tables["PLNT"]
-    for sheet, key in [("ST", "PSTATABB"), ("BA", "BACODE")]:
+    for sheet, key in [("ST", "PSTATABB"), ("BA", "BACODE"), ("NRL", "NERC")]:
         capacity = plants.groupby(key)["NAMEPCAP"].sum(min_count=1)
         tables[sheet] = tables[sheet].assign(
-            **{f"{sheet}NAMEPCAP": tables[sheet][key].map(capacity)}
+            **{f"{REGION_SHEETS[sheet][0]}NAMEPCAP": tables[sheet][key].map(capacity)}
         )
     tables["US"] = tables["US"].assign(USNAMEPCAP=plants["NAMEPCAP"].sum(min_count=1))
     return tables
@@ -1437,7 +1463,7 @@ def build_sheet_rows(
 def add_emission_rates_and_resource_mix(
     table: pd.DataFrame, sheet: str, year: int
 ) -> pd.DataFrame:
-    """Adds the emission rates and resource mix to a plant, state, BA or U.S. sheet, from
+    """Adds the emission rates and resource mix to the plant sheet or a regional sheet, from
     the sheet's emissions, heat input and generation.
 
     Rates are in lb per MWh or MMBtu, and are blank where the denominator is zero or
@@ -1448,7 +1474,7 @@ def add_emission_rates_and_resource_mix(
     Args:
         table (pd.DataFrame): table of the sheet with masses in the units of eGRID's
             columns.
-        sheet (str): "PLNT", "ST", "BA" or "US".
+        sheet (str): "PLNT", "ST", "BA", "NRL" or "US".
         year (int): data year.
 
     Returns:

@@ -206,6 +206,7 @@ COLUMNS = {
         "plant_storage_category",
         "ba_code",
         "ba_code_physical",
+        "nerc_region",
         "distribution_flag",
         "timezone",
         "data_availability",
