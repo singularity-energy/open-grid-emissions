@@ -37,7 +37,7 @@ from oge.constants import (
     current_early_release_year,
     earliest_hourly_data_year,
 )
-from oge.column_checks import DATA_COLUMNS
+from oge.column_checks import DATA_COLUMNS, STORAGE_DATA_COLUMNS
 from oge.filepaths import downloads_folder, outputs_folder, results_folder
 from oge.logging_util import get_logger, configure_root_logger
 
@@ -744,21 +744,25 @@ def main(args):
             del eia923_allocated
             gc.collect()
             # group shaped data by fleet, since the fuel category used for shaping might
-            # not match the fuel category for fleet aggregation
-            shaped_eia_fleet_data = (
-                shaped_eia_fleet_data.groupby(
-                    [
-                        "ba_code",
-                        "fuel_category",
-                        "datetime_utc",
-                        "report_date",
-                    ],
-                    dropna=False,
-                    sort=False,
-                )[DATA_COLUMNS]
-                .sum(numeric_only=True)
-                .reset_index()
+            # not match the fuel category for fleet aggregation. Storage data stays
+            # blank for fleets without any
+            fleet_groups = shaped_eia_fleet_data.groupby(
+                [
+                    "ba_code",
+                    "fuel_category",
+                    "datetime_utc",
+                    "report_date",
+                ],
+                dropna=False,
+                sort=False,
             )
+            shaped_eia_fleet_data = fleet_groups[DATA_COLUMNS].sum().reset_index()
+            shaped_eia_fleet_data[STORAGE_DATA_COLUMNS] = (
+                fleet_groups[STORAGE_DATA_COLUMNS]
+                .sum(min_count=1)
+                .reset_index(drop=True)
+            )
+            del fleet_groups
 
             # 17. Combine plant-level data from all sources
             ################################################################################
@@ -836,14 +840,19 @@ def main(args):
             del cems_fleet_data
             del shaped_eia_fleet_data
             gc.collect()
-            combined_fleet_data = (
-                combined_fleet_data.groupby(
-                    ["ba_code", "fuel_category", "datetime_utc", "report_date"],
-                    dropna=False,
-                )[data_cleaning.DATA_COLUMNS]
-                .sum()
-                .reset_index()
+            # storage data is only in the shaped EIA data, and stays blank for fleets
+            # without any
+            fleet_groups = combined_fleet_data.groupby(
+                ["ba_code", "fuel_category", "datetime_utc", "report_date"],
+                dropna=False,
             )
+            combined_fleet_data = fleet_groups[DATA_COLUMNS].sum().reset_index()
+            combined_fleet_data[STORAGE_DATA_COLUMNS] = (
+                fleet_groups[STORAGE_DATA_COLUMNS]
+                .sum(min_count=1)
+                .reset_index(drop=True)
+            )
+            del fleet_groups
 
             # a ba can span more than one plant timezone, so summing plants that were each
             # completed onto their own local year can span the union of two local years.

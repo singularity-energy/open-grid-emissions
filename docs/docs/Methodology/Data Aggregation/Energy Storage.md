@@ -62,14 +62,14 @@ When storage is co-located with a generator at a different plant (identified by 
 
 ## Energy Storage Charging and Discharging Data
 
-Because of roundtrip efficiency losses, the cumulative energy discharged by a storage resource over time will always be less than the amount of energy charged. This means that over the course of a month or year, the "net generation" of a storage resource will generally be negative. The `net_generation_mwh` of a storage resource therefore does not show how much energy it charged and discharged, so the monthly and annual plant and power sector results also include:
+Because of roundtrip efficiency losses, the cumulative energy discharged by a storage resource over time will always be less than the amount of energy charged. This means that over the course of a month or year, the "net generation" of a storage resource will generally be negative. The `net_generation_mwh` of a storage resource therefore does not show how much energy it charged and discharged, so the monthly and annual plant and power sector results, and the hourly power sector results, also include:
 
 Column | Description
 ---------|---------
 `storage_charge_mwh` | The electricity used to charge energy storage resources, in MWh
 `storage_discharge_mwh` | The electricity discharged by energy storage resources, in MWh
 
-These columns are only reported for energy storage resources. They are blank for all other resources, and are zero for storage resources that did not charge or discharge in a given month. The `net_generation_mwh` column is unchanged, and for most storage resources is equal to `storage_discharge_mwh` minus `storage_charge_mwh`. These columns are not published in the hourly results, but they are used to shape the hourly net generation of storage (see [Energy storage profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md#energy-storage-profiles)).
+These columns are only reported for energy storage resources. They are blank for all other resources, and are zero for storage resources that did not charge or discharge in a given month. The `net_generation_mwh` column is unchanged, and for most storage resources is equal to `storage_discharge_mwh` minus `storage_charge_mwh`. In the hourly power sector results, they are the monthly values shaped with the storage charging and discharging profiles, which are also used to shape the hourly net generation of storage (see [Energy storage profiles](../Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md#energy-storage-profiles)). They are not included in the hourly plant data.
 
 ### Source data
 

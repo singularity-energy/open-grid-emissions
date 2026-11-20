@@ -604,6 +604,11 @@ def write_power_sector_results(
         else:
             ba_table = fleet_data[fleet_data["ba_code"] == ba].drop(columns="ba_code")
 
+        # include any energy storage data, which is only reported for energy storage
+        combined_data_columns = DATA_COLUMNS + [
+            column for column in STORAGE_DATA_COLUMNS if column in ba_table.columns
+        ]
+
         if include_hourly:
             # convert the datetime_utc column back to a datetime
             ba_table["datetime_utc"] = (
@@ -621,7 +626,7 @@ def write_power_sector_results(
             # datetime_utc for the hourly calculations
             ba_total = (
                 ba_table.groupby(["datetime_utc", "report_date"], dropna=False)[
-                    DATA_COLUMNS
+                    combined_data_columns
                 ]
                 .sum(min_count=1)
                 .reset_index()
@@ -665,7 +670,7 @@ def write_power_sector_results(
             ba_table_hourly = ba_table_hourly[
                 ["fuel_category"]
                 + datetime_columns
-                + DATA_COLUMNS
+                + combined_data_columns
                 + GENERATED_EMISSION_RATE_COLS
             ]
             ba_table_hourly = sort_fuel_categories(ba_table_hourly, ["datetime_utc"])
@@ -697,11 +702,6 @@ def write_power_sector_results(
                 skip_outputs,
             )
         elif include_monthly or include_annual:
-            # include any energy storage data, which is only available at the monthly
-            # level
-            combined_data_columns = DATA_COLUMNS + [
-                column for column in STORAGE_DATA_COLUMNS if column in ba_table.columns
-            ]
             ba_total = (
                 ba_table.groupby(["report_date"], dropna=False)[combined_data_columns]
                 .sum(min_count=1)
