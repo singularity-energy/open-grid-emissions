@@ -35,10 +35,10 @@ pytest test/test_emissions.py::test_co2e_AR6_100   # single test
 
 ```bash
 cd src/oge
-python data_pipeline.py --year 2024 [--flat] [--skip_outputs]
+python data_pipeline.py --year 2024 [--skip_outputs]
 ```
 
-Set `PUDL_DATA_STORE=s3` (or `2`; case-insensitive) to load PUDL tables from S3 in memory instead of downloading locally (`local`/`1`/unset = local disk). `--flat` uses flat hourly profiles instead of imputed ones; `--skip_outputs` skips writing CSVs for faster iteration.
+Set `PUDL_DATA_STORE=s3` (or `2`; case-insensitive) to load PUDL tables from S3 in memory instead of downloading locally (`local`/`1`/unset = local disk). `--skip_outputs` skips writing CSVs for faster iteration.
 
 ## Architecture
 
