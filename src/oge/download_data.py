@@ -3,6 +3,7 @@ import fsspec
 import functools
 import gzip
 import os
+import re
 import requests
 import shutil
 import tarfile
@@ -136,11 +137,17 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
         # download the pudl sqlite database
         if not os.path.exists(downloads_folder(f"pudl/{build}/pudl.sqlite")):
             # download the marker file that identifies the PUDL build (see
-            # `get_pudl_release()`)
-            fsspec.filesystem("s3", anon=True).get(
-                f"pudl.catalyst.coop/{build}/{build}-*",
-                downloads_folder(f"pudl/{build}/"),
-            )
+            # `get_pudl_release()`). It is only used for logging, so a missing marker
+            # should not stop the download.
+            s3 = fsspec.filesystem("s3", anon=True)
+            marker = find_pudl_build_marker(s3, f"pudl.catalyst.coop/{build}")
+            if marker is None:
+                logger.warning(
+                    f"No PUDL build marker found in s3://pudl.catalyst.coop/{build}, "
+                    "so the PUDL release will be logged as unknown."
+                )
+            else:
+                s3.get(marker, downloads_folder(f"pudl/{build}/"))
             output_filepath = downloads_folder(f"pudl/{build}/pudl.sqlite")
             pudl_db_url = f"https://s3.us-west-2.amazonaws.com/pudl.catalyst.coop/{build}/pudl.sqlite.zip"
             download_helper(
@@ -219,14 +226,47 @@ def download_pudl_data(source: str = "aws", build: str = get_pudl_build_version(
         )
 
 
+# e.g. "stable-2026-10-14-1552-90561c620-v2026-10-0": build type, build date and time,
+# git commit and git ref (release tag or branch)
+PUDL_BUILD_MARKER = re.compile(
+    r"^(?P<kind>[a-z]+)-(?P<date>\d{4}-\d{2}-\d{2})-(?P<time>\d{4})"
+    r"-(?P<commit>[0-9a-f]+)-(?P<ref>.+)$"
+)
+
+
+def find_pudl_build_marker(fs: fsspec.AbstractFileSystem, path: str) -> str | None:
+    """Finds the marker file that identifies the PUDL build in a folder.
+
+    Each PUDL build writes a marker file to its S3 directory, e.g.
+    "stable-2026-10-14-1552-90561c620-v2026-10-0". The first part is usually the
+    build's name ("stable" or "nightly") but not always: PUDL has deployed builds of
+    its `main` branch to the stable folder with a "branch-..." marker. Any marker is
+    therefore accepted, and if there are several, the most recently built one is used.
+
+    Args:
+        fs (fsspec.AbstractFileSystem): the file system that contains `path`.
+        path (str): the folder that contains the build's data.
+
+    Returns:
+        str | None: the path of the marker file, or None if there is none.
+    """
+    markers = {}
+    for file in fs.ls(path, detail=False):
+        match = PUDL_BUILD_MARKER.match(os.path.basename(file.rstrip("/")))
+        if match:
+            markers[file] = match["date"] + match["time"]
+    if not markers:
+        return None
+    return max(markers, key=markers.get)
+
+
 @functools.cache
 def get_pudl_release(build: str, data_store: str) -> str:
     """Describes the release of a PUDL build.
 
-    Each PUDL build writes a marker file to its S3 directory whose name identifies the
-    build, e.g. "stable-2026-10-14-1552-90561c620-v2026-10-0" (build date and time, git
-    commit, and release tag). This file is also downloaded alongside local copies of
-    the PUDL data, so the same lookup works for local and S3 data.
+    The release is read from the build's marker file (see `find_pudl_build_marker()`).
+    This file is also downloaded alongside local copies of the PUDL data, so the same
+    lookup works for local and S3 data.
 
     The result is cached for each build and data store, so each is only checked once
     per Python process.
@@ -237,15 +277,19 @@ def get_pudl_release(build: str, data_store: str) -> str:
             `get_pudl_data_store()`.
 
     Returns:
-        str: e.g. "stable build v2026.10.0 (built 2026-10-14)"
+        str: e.g. "stable build v2026.10.0 (built 2026-10-14)". If the marker comes
+            from a different kind of build, that is noted, e.g. "stable build main
+            (built 2026-11-10 by a branch build)".
     """
     fs, path = fsspec.core.url_to_fs(data_store, anon=True)
-    markers = fs.glob(f"{path}/{build}-*")
-    if not markers:
+    marker = find_pudl_build_marker(fs, path) if fs.isdir(path) else None
+    if marker is None:
         return f"{build} build (unknown release)"
-    # marker names start with the build timestamp, so the max is the most recent
-    _, year, month, day, _, _, ref = os.path.basename(max(markers)).split("-", 6)
-    return f"{build} build {ref.replace('-', '.')} (built {year}-{month}-{day})"
+    match = PUDL_BUILD_MARKER.match(os.path.basename(marker.rstrip("/")))
+    release = f"{build} build {match['ref'].replace('-', '.')} (built {match['date']}"
+    if match["kind"] != build:
+        release += f" by a {match['kind']} build"
+    return release + ")"
 
 
 def download_pudl_from_zenodo(zenodo_url: str, pudl_version: str):

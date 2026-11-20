@@ -159,8 +159,8 @@ def test_download_raw_eia923_early_release_from_archive(monkeypatch, tmp_path):
 
 
 def test_get_pudl_release_uses_requested_build_and_data_store(tmp_path):
-    """The release should be read from the marker file of the requested build in the
-    requested folder, regardless of the PUDL_BUILD and PUDL_DATA_STORE settings."""
+    """The release should be read from the marker file in the requested folder,
+    regardless of the PUDL_BUILD and PUDL_DATA_STORE settings."""
     for build, marker in [
         ("stable", "stable-2026-10-14-1552-90561c620-v2026-10-0"),
         ("nightly", "nightly-2026-10-20-0602-1a2b3c4d5-main"),
@@ -178,7 +178,30 @@ def test_get_pudl_release_uses_requested_build_and_data_store(tmp_path):
     )
     assert (
         download_data.get_pudl_release("nightly", str(tmp_path / "stable"))
-        == "nightly build (unknown release)"
+        == "nightly build v2026.10.0 (built 2026-10-14 by a stable build)"
+    )
+
+
+def test_get_pudl_release_accepts_markers_from_other_build_kinds(tmp_path):
+    """PUDL has deployed `main` branch builds to the stable folder with a "branch-..."
+    marker. The newest marker should be used, whatever kind of build wrote it."""
+    for marker in [
+        "stable-2026-10-14-1552-90561c620-v2026-10-0",
+        "branch-2026-11-10-1806-8d43dadf5-main",
+        "pudl.sqlite",
+    ]:
+        (tmp_path / marker).touch()
+
+    assert (
+        download_data.get_pudl_release("stable", str(tmp_path))
+        == "stable build main (built 2026-11-10 by a branch build)"
+    )
+
+
+def test_get_pudl_release_unknown_when_folder_missing(tmp_path):
+    assert (
+        download_data.get_pudl_release("stable", str(tmp_path / "missing"))
+        == "stable build (unknown release)"
     )
 
 
