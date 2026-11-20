@@ -40,6 +40,19 @@ def use_pudl_s3() -> bool:
     )
 
 
+def pudl_storage_options() -> dict | None:
+    """Storage options for reading PUDL files with pandas.
+
+    The PUDL S3 bucket is public, so it is read anonymously. Without this, the reader
+    looks for AWS credentials and can hang indefinitely when there are none.
+
+    Returns:
+        dict | None: `{"anon": True}` when reading from S3, None for local files
+            (pandas does not accept storage options for local paths).
+    """
+    return {"anon": True} if use_pudl_s3() else None
+
+
 def get_pudl_data_store():
     """Get PUDL data location"""
     if use_pudl_s3():

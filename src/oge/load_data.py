@@ -23,6 +23,7 @@ from oge.filepaths import (
     get_pudl_data_store,
     outputs_folder,
     pudl_folder,
+    pudl_storage_options,
     reference_table_folder,
 )
 from oge.download_data import get_pudl_release
@@ -64,6 +65,7 @@ def load_cems_data(year: int) -> pd.DataFrame:
         logger.info(f"Loading core_epacems__hourly_emissions from PUDL {pudl_release}")
     cems = pd.read_parquet(
         pudl_folder("core_epacems__hourly_emissions.parquet"),
+        storage_options=pudl_storage_options(),
         filters=[["year", "==", year]],
         columns=cems_columns,
     )
@@ -157,6 +159,7 @@ def load_cems_ids(year: int | None = None) -> pd.DataFrame:
     for year_for_id in range(min_year, max_year + 1):
         cems_id_year = pd.read_parquet(
             pudl_folder("core_epacems__hourly_emissions.parquet"),
+            storage_options=pudl_storage_options(),
             filters=[["year", "==", year_for_id]],
             columns=["plant_id_epa", "plant_id_eia", "emissions_unit_id_epa"],
         ).drop_duplicates()
@@ -693,6 +696,7 @@ def load_pudl_table_from_local(
             if inspector.has_table(table_name)
             else pd.read_parquet(
                 pudl_folder(f"{table_name}.parquet"),
+                storage_options=pudl_storage_options(),
                 columns=columns,
             )
         )
@@ -709,6 +713,7 @@ def load_pudl_table_from_local(
             if inspector.has_table(table_name)
             else pd.read_parquet(
                 pudl_folder(f"{table_name}.parquet"),
+                storage_options=pudl_storage_options(),
                 filters=[
                     (datetime_column, ">=", start_datetime),
                     (datetime_column, "<=", end_datetime),
@@ -758,6 +763,7 @@ def load_pudl_table_from_s3(
         # No filtering on datetime
         table = pd.read_parquet(
             pudl_folder(f"{table_name}.parquet"),
+            storage_options=pudl_storage_options(),
             columns=columns,
         )
     else:
@@ -768,6 +774,7 @@ def load_pudl_table_from_s3(
         ]
         table = pd.read_parquet(
             pudl_folder(f"{table_name}.parquet"),
+            storage_options=pudl_storage_options(),
             filters=filters,
             columns=columns,
         )

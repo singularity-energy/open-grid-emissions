@@ -31,3 +31,11 @@ def test_use_pudl_s3_raises_on_unknown_value(monkeypatch):
     monkeypatch.setenv("PUDL_DATA_STORE", "aws")
     with pytest.raises(ValueError, match="PUDL_DATA_STORE"):
         filepaths.use_pudl_s3()
+
+
+@pytest.mark.parametrize("store, expected", [("local", None), ("s3", {"anon": True})])
+def test_pudl_storage_options(monkeypatch, store, expected):
+    """The public PUDL bucket should be read anonymously, and local files without
+    storage options."""
+    monkeypatch.setenv("PUDL_DATA_STORE", store)
+    assert filepaths.pudl_storage_options() == expected
