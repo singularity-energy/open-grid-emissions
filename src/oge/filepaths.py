@@ -21,15 +21,30 @@ def get_oge_data_store():
         return f"s3://open-grid-emissions/open_grid_emissions_data/v{oge_data_version}"
 
 
+def use_pudl_s3() -> bool:
+    """Whether PUDL tables are read directly from S3 rather than from a local copy.
+
+    Reads the `PUDL_DATA_STORE` environment variable, ignoring case: "2" or "s3"
+    reads from S3, while "1", "local" or no value uses the local copy.
+
+    Raises:
+        ValueError: if `PUDL_DATA_STORE` is set to any other value.
+    """
+    store = os.getenv("PUDL_DATA_STORE")
+    if store is None or store.strip().lower() in ["1", "local"]:
+        return False
+    if store.strip().lower() in ["2", "s3"]:
+        return True
+    raise ValueError(
+        f"PUDL_DATA_STORE must be 'local' (or '1') or 's3' (or '2'), not '{store}'"
+    )
+
+
 def get_pudl_data_store():
     """Get PUDL data location"""
-    store = os.getenv("PUDL_DATA_STORE")
-    if store is None:
-        return os.path.join(downloads_folder(f"pudl/{get_pudl_build_version()}"))
-    elif store == "1" or store.lower() == "local":
-        return os.path.join(downloads_folder(f"pudl/{get_pudl_build_version()}"))
-    elif store == "2" or store.lower() == "s3":
+    if use_pudl_s3():
         return f"s3://pudl.catalyst.coop/{get_pudl_build_version()}"
+    return os.path.join(downloads_folder(f"pudl/{get_pudl_build_version()}"))
 
 
 def get_pudl_build_version():

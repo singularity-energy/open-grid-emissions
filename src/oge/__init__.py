@@ -1,8 +1,7 @@
-import os
 import sqlalchemy as sa
 import warnings
 
-from oge.filepaths import pudl_folder
+from oge.filepaths import pudl_folder, use_pudl_s3
 from oge.logging_util import configure_root_logger
 
 # Suppress specific PUDL UserWarning about schema field shadowing
@@ -15,9 +14,9 @@ warnings.filterwarnings(
 
 # Set PUDL engine
 PUDL_ENGINE = (
-    sa.create_engine("sqlite:///" + pudl_folder("pudl.sqlite"))
-    if os.getenv("PUDL_DATA_STORE") not in ["2", "s3"]
-    else None
+    None
+    if use_pudl_s3()
+    else sa.create_engine("sqlite:///" + pudl_folder("pudl.sqlite"))
 )
 
 
