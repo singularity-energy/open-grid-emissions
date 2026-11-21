@@ -254,7 +254,8 @@ def test_eaf_missing_generation(df_chp):
 
 def test_load_generator_boiler_firing_type_fills_gaps_with_campd(monkeypatch):
     """CAMPD unit types should only fill the boiler designs that EIA-860 does not
-    report, and add a design for generators that have no boilers in EIA-860."""
+    report, and add a design for each boiler of generators that have no boilers in
+    EIA-860, only using the crosswalk mappings that are valid in the year."""
     eia_boilers = pd.DataFrame(
         {
             "plant_id_eia": [1, 1, 1, 1],
@@ -265,9 +266,9 @@ def test_load_generator_boiler_firing_type_fills_gaps_with_campd(monkeypatch):
     )
     campd_units = pd.DataFrame(
         {
-            "plant_id_epa": [1, 1, 1, 1, 1, 1, 1, 1],
-            "emissions_unit_id_epa": ["1", "2", "3", "4", "5", "6", "7", "8"],
-            "plant_id_eia": [1, 1, 1, 1, 1, 1, 1, 1],
+            "plant_id_epa": [1] * 12,
+            "emissions_unit_id_epa": [str(unit) for unit in range(1, 13)],
+            "plant_id_eia": [1] * 12,
             "boiler_firing_type": [
                 "tangential_firing",
                 "wall_fired",
@@ -277,17 +278,27 @@ def test_load_generator_boiler_firing_type_fills_gaps_with_campd(monkeypatch):
                 "fluidized_bed_firing",
                 "stoker",
                 pd.NA,
+                "fluidized_bed_firing",
+                "fluidized_bed_firing",
+                "wall_fired",
+                "wall_fired",
             ],
-            "wet_dry_bottom": [pd.NA, "dry", "wet", pd.NA, pd.NA, pd.NA, pd.NA, pd.NA],
+            "wet_dry_bottom": [
+                "dry" if unit in [2] else pd.NA for unit in range(1, 13)
+            ],
         }
     )
+    campd_units.loc[2, "wet_dry_bottom"] = "wet"
     crosswalk = pd.DataFrame(
         {
-            "plant_id_epa": [1, 1, 1, 1, 1, 1, 1, 1],
-            "emissions_unit_id_epa": ["1", "2", "3", "4", "5", "6", "7", "8"],
-            "plant_id_eia": [1, 1, 1, 1, 1, 1, 1, 1],
-            "boiler_id": ["A", "B", "C", "D", "D", pd.NA, pd.NA, pd.NA],
-            "generator_id": ["1", "2", "3", "4", "4", "5", "1", "6"],
+            "plant_id_epa": [1] * 13,
+            "emissions_unit_id_epa": [str(unit) for unit in range(1, 13)] + ["9"],
+            "plant_id_eia": [1] * 13,
+            "boiler_id": ["A", "B", "C", "D", "D"] + [pd.NA] * 8,
+            "generator_id": ["1", "2", "3", "4", "4", "5", "1", "6"]
+            + ["7", "7", "8", "9", "7"],
+            "start_year": pd.array([pd.NA] * 10 + [2025, pd.NA, pd.NA], dtype="Int32"),
+            "end_year": pd.array([pd.NA] * 11 + [2023, pd.NA], dtype="Int32"),
         }
     )
     boiler_generator_assn = pd.DataFrame(
@@ -329,4 +340,11 @@ def test_load_generator_boiler_firing_type_fills_gaps_with_campd(monkeypatch):
     assert firing_type.loc["5", "wet_dry_bottom"] == "none"
     # units that are not boilers are not used
     assert "6" not in firing_type.index
-    assert len(firing_type) == 5
+    # each boiler of a generator without EIA-860 boilers is kept, even if they have the
+    # same design, and repeated crosswalk links are only kept once
+    assert firing_type.loc["7", "boiler_id"].tolist() == ["9", "10"]
+    assert (firing_type.loc["7", "boiler_firing_type"] == "fluidized_bed_firing").all()
+    # mappings that start after or end before the year are not used
+    assert "8" not in firing_type.index
+    assert "9" not in firing_type.index
+    assert len(firing_type) == 7

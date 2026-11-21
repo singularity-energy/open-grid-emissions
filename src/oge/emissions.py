@@ -1000,18 +1000,25 @@ def load_generator_boiler_firing_type(year: int) -> pd.DataFrame:
         pd.DataFrame: table with one row per generator and associated boiler, giving
             the boiler firing type and wet/dry bottom type.
     """
+    # only use the crosswalk mappings that are valid in the year
+    crosswalk = load_data.load_epa_eia_crosswalk(year)
+    crosswalk = crosswalk[
+        (crosswalk["start_year"].fillna(year) <= year)
+        & (crosswalk["end_year"].fillna(year) >= year)
+    ]
     campd_firing_type = (
         load_data.load_campd_facility(year)
         .dropna(subset="boiler_firing_type")
         .drop(columns="plant_id_eia")
         .merge(
-            load_data.load_epa_eia_crosswalk(year),
+            crosswalk,
             how="inner",
             on=["plant_id_epa", "emissions_unit_id_epa"],
             validate="1:m",
         )[
             [
                 "plant_id_eia",
+                "emissions_unit_id_epa",
                 "boiler_id",
                 "generator_id",
                 "boiler_firing_type",
@@ -1024,7 +1031,7 @@ def load_generator_boiler_firing_type(year: int) -> pd.DataFrame:
     # fill missing values for EIA-860 boilers, only using boilers whose associated CAMPD
     # units all have the same design
     campd_boilers = (
-        campd_firing_type.drop(columns="generator_id")
+        campd_firing_type.drop(columns=["emissions_unit_id_epa", "generator_id"])
         .dropna(subset="boiler_id")
         .drop_duplicates()
         .drop_duplicates(subset=["plant_id_eia", "boiler_id"], keep=False)
@@ -1044,7 +1051,7 @@ def load_generator_boiler_firing_type(year: int) -> pd.DataFrame:
             .fillna("none")
         )
 
-    # associate each boiler record with generator_id s
+    # associate each boiler record with generator IDs
     boiler_generator_assn = load_data.load_pudl_table(
         "core_eia860__assn_boiler_generator",
         year,
@@ -1058,12 +1065,17 @@ def load_generator_boiler_firing_type(year: int) -> pd.DataFrame:
     )
 
     # add the design of the CAMPD units associated with generators that have no boilers
-    # in EIA-860
+    # in EIA-860. Keep one row for each boiler, so that a generator's factors are
+    # averaged over all of its boilers, using the CAMPD unit ID where the crosswalk has
+    # no EIA boiler ID.
     generator_keys = ["plant_id_eia", "generator_id"]
     campd_generators = (
-        campd_firing_type.drop(columns="boiler_id")
+        campd_firing_type.assign(
+            boiler_id=lambda x: x["boiler_id"].fillna(x["emissions_unit_id_epa"])
+        )
+        .drop(columns="emissions_unit_id_epa")
         .dropna(subset="generator_id")
-        .drop_duplicates()
+        .drop_duplicates(subset=["plant_id_eia", "boiler_id", "generator_id"])
     )
     campd_generators = campd_generators[
         ~campd_generators.set_index(generator_keys).index.isin(
