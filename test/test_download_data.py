@@ -69,6 +69,16 @@ def test_download_raw_eia860():
         download_data.download_raw_eia860(year)
 
 
+def test_download_raw_eia860m_december():
+    """Test that the December EIA-860M download works for the years that report Puerto
+    Rico generators."""
+    testable_years = range(2018, constants.latest_validated_year + 1)
+    print("Will test the following years:\n", testable_years)
+    for year in testable_years:
+        print(f"Testing December EIA-860M download for {year}")
+        download_data.download_raw_eia860m_december(year)
+
+
 def test_download_raw_eia923():
     """Test that EIA-923 data download works."""
     testable_years = range(2008, 2021)

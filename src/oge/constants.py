@@ -26,6 +26,10 @@ current_early_release_year = 2025
 # TODO: Change latest_eia930a_year to 2025 once EIA publishes it
 earliest_eia930a_year = 2023
 latest_eia930a_year = 2024
+# earliest_puerto_rico_data_year is the first year for which Puerto Rico data is
+# included. Puerto Rico generators are only reported in EIA-860M, whose December files
+# list them from 2018 onward.
+earliest_puerto_rico_data_year = 2018
 
 # specify the energy_source_codes that are considered clean/carbon-free
 CLEAN_FUELS = ["SUN", "MWH", "WND", "WAT", "WH", "PUR", "NUC"]

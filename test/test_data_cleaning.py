@@ -416,3 +416,39 @@ def test_calculate_subplant_efs_biomass_co2_fraction():
     # subplant-months without fuel are dropped
     assert 2 not in result.index.get_level_values("plant_id_eia")
     assert np.isnan(result[(3, 1, pd.Timestamp("2024-01-01"))])
+
+
+def test_add_missing_location_uses_municipio_as_puerto_rico_city():
+    """Puerto Rico plants should use their municipio (reported as the county) as the
+    city.
+
+    Puerto Rico has no incorporated cities, so the Census lookup never returns one.
+    The test sets up one Puerto Rico plant with a county, one without, and one plant in
+    another state, and checks that:
+    - a plant whose county is known gets it as its city
+    - a plant whose county is missing gets the county found from its coordinates as
+      both its county and city
+    - plants in other states are unchanged
+    """
+    plants = pd.DataFrame(
+        {
+            "plant_id_eia": [61082, 61147, 1],
+            "latitude": [17.95, 18.0, 33.46],
+            "longitude": [-66.15, -66.76, -87.36],
+            "state": ["PR", "PR", "AL"],
+            "county": pd.array(["Guayama", pd.NA, "Tuscaloosa"], dtype="string"),
+            "city": pd.array([pd.NA, pd.NA, "Tuscaloosa"], dtype="string"),
+        }
+    )
+    # Puerto Rico has no incorporated places, so the lookup finds no city
+    with patch.object(
+        helpers,
+        "search_location_from_coordinates",
+        return_value=("PR", "Guayanilla", pd.NA),
+    ):
+        plants = helpers.add_missing_location(plants)
+
+    # the missing county is filled from the coordinates
+    assert plants["county"].tolist() == ["Guayama", "Guayanilla", "Tuscaloosa"]
+    # both Puerto Rico plants use their municipio as the city
+    assert plants["city"].tolist() == ["Guayama", "Guayanilla", "Tuscaloosa"]
