@@ -379,7 +379,8 @@ def test_identify_partial_cems_plants_keeps_battery_storage_as_eia():
 
 def test_calculate_subplant_efs_biomass_co2_fraction():
     """The biomass fraction is the share of each subplant-month's CO2 (not fuel) that
-    comes from biomass, and is undefined when the subplant-month has no CO2."""
+    comes from biomass, rounded to 4 decimals to remove floating-point error, and is
+    undefined when the subplant-month has no CO2."""
     gen_fuel_allocated = pd.DataFrame(
         {
             "plant_id_eia": [1, 1, 1, 1, 2, 3],
@@ -409,7 +410,7 @@ def test_calculate_subplant_efs_biomass_co2_fraction():
     )["biomass_co2_fraction"]
 
     assert result[(1, 1, pd.Timestamp("2024-01-01"))] == pytest.approx(
-        20900 / (11700 + 20900)
+        round(20900 / (11700 + 20900), 4)
     )
     assert result[(1, 1, pd.Timestamp("2024-02-01"))] == 0
     assert result[(1, 2, pd.Timestamp("2024-01-01"))] == 1
