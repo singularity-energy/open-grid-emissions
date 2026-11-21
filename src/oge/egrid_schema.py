@@ -160,6 +160,18 @@ RESOURCE_MIX_FUELS = [
     "GENAOF",  # other fossil
     "GENAOP",  # other unknown/purchased fuel
 ]
+# fuel columns in each grouped resource mix column. A group's share is the sum of the
+# positive generation of its fuels, so that a fuel with negative generation does not
+# lower the group's share, and the grouped shares add up to 100% like the fuel shares
+RESOURCE_MIX_GROUP_FUELS = {
+    "GENATN": ["GENACL", "GENAOL", "GENAGS", "GENANC", "GENAOF"],
+    "GENATR": ["GENAHY", "GENABM", "GENAWI", "GENASO", "GENAGT"],
+    "GENATO": ["GENAOP"],
+    "GENATH": ["GENABM", "GENAWI", "GENASO", "GENAGT"],
+    "GENACY": ["GENACL", "GENAOL", "GENAGS", "GENABM", "GENAOF"],
+    "GENACN": ["GENANC", "GENAHY", "GENAWI", "GENASO", "GENAGT"],
+    "GENACO": ["GENAOP"],
+}
 # output rate code of each pollutant and fuel group, without the sheet's prefix. The
 # input rate code is the same without the final "T", e.g. "CNOXR". "NOXOZ" is the
 # ozone season NOx rate, which divides by ozone season generation or heat input

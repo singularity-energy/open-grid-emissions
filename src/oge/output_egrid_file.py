@@ -29,6 +29,7 @@ from oge.egrid_schema import (
     REGION_SHEETS,
     RESOURCE_MIX_FUELS,
     RESOURCE_MIX_GENERATION,
+    RESOURCE_MIX_GROUP_FUELS,
     get_egrid_columns,
     get_unit,
 )
@@ -198,6 +199,7 @@ CAMPD_UNIT_TYPE_PRIME_MOVERS = {
     "Dry bottom vertically-fired boiler": "ST",
     "Dry bottom wall-fired boiler": "ST",
     "Integrated gasification combined cycle": "ST",
+    "Internal combustion engine": "IC",
     "Other boiler": "ST",
     "Other turbine": "OT",
     "Pressurized fluidized bed boiler": "ST",
@@ -279,7 +281,6 @@ PLANT_DATA_SOURCES = {
     "LON": "longitude",
     "PLPRMFL": "plant_primary_fuel",
     "ISORTO": "iso_rto",
-    "CAPDFLAG": "capd_flag",
     "PLFUELCT": "fuel_category_egrid",
     "COALFLAG": "coal_flag",
     "PSFLAG": "pumped_storage_flag",
@@ -480,7 +481,7 @@ def build_egrid_tables(year: int, path_prefix: str) -> dict[str, pd.DataFrame]:
         "US": build_region_table(year, path_prefix, "US", ["US"]),
     }
     tables = add_regional_capacity(tables)
-    tables = add_plant_counts(tables)
+    tables = add_plant_unit_values(tables)
     return {
         sheet: tables.get(sheet, pd.DataFrame()).reindex(
             columns=[code for code, _, _ in get_egrid_columns(sheet, year)]
@@ -532,10 +533,20 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
         | {code_column: "str" for code_column in UNIT_MEASUREMENT_CODES.values()},
         parse_dates=["report_date"],
     )
-    ozone_season = cems["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
-    for column in ["fuel_consumed_mmbtu", "nox_mass_lb"]:
-        cems[f"{column}_ozone_season"] = cems[column].where(ozone_season, 0)
-        data_columns.append(f"{column}_ozone_season")
+    # ozone season NOx, used to list the measurement codes of the ozone season
+    cems["nox_mass_lb_ozone_season"] = cems["nox_mass_lb"].where(
+        cems["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
+    )
+    # hours in which a unit did not operate have no heat input or NOx, so their blanks
+    # are zeros in the ozone season totals, which are otherwise blank when unknown
+    seasonal_columns = ["fuel_consumed_mmbtu", "nox_mass_lb"]
+    seasonal_data = cems.copy()[
+        keys + ["report_date", "operating_time_hours"] + seasonal_columns
+    ]
+    not_operating = seasonal_data["operating_time_hours"] == 0
+    seasonal_data.loc[not_operating, seasonal_columns] = seasonal_data.loc[
+        not_operating, seasonal_columns
+    ].fillna(0)
     units = (
         cems.groupby(keys)
         .agg(
@@ -548,6 +559,12 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
             },
         )
         .reset_index()
+        .merge(
+            sum_ozone_season_values(seasonal_data, keys, seasonal_columns),
+            on=keys,
+            how="left",
+            validate="1:1",
+        )
     )
     # the sources of each unit's heat input and emissions. Heat input from CEMS has no
     # measurement code, so its source is CEMS
@@ -722,20 +739,6 @@ def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
         dtype={"generator_id": "str"},
         parse_dates=["report_date"],
     )
-    allocated["net_generation_mwh_ozone_season"] = allocated[
-        "net_generation_mwh"
-    ].where(allocated["report_date"].dt.month.isin(OZONE_SEASON_MONTHS), 0)
-    generators = (
-        allocated.groupby(keys)
-        .agg(
-            prime_mover_code=("prime_mover_code", "first"),
-            **{
-                column: (column, lambda values: values.sum(min_count=1))
-                for column in ["net_generation_mwh", "net_generation_mwh_ozone_season"]
-            },
-        )
-        .reset_index()
-    )
     dates = (
         pd.read_csv(
             outputs_folder(f"{path_prefix}subplant_crosswalk_{year}.csv.zip"),
@@ -751,6 +754,35 @@ def build_generator_table(year: int, path_prefix: str) -> pd.DataFrame:
             generator_retirement_year=lambda df: df[
                 "generator_retirement_date"
             ].dt.year.astype("Int64"),
+        )
+    )
+    # months before a generator started operating or after it retired have no
+    # generation, so their blanks are zeros in the ozone season totals, which are
+    # otherwise blank when unknown
+    seasonal_data = fill_zeros_when_not_operating(
+        allocated.merge(
+            dates[keys + ["generator_operating_date", "generator_retirement_date"]],
+            on=keys,
+            how="left",
+            validate="m:1",
+        ),
+        ["net_generation_mwh"],
+    )
+    generators = (
+        allocated.groupby(keys)
+        .agg(
+            prime_mover_code=("prime_mover_code", "first"),
+            net_generation_mwh=(
+                "net_generation_mwh",
+                lambda values: values.sum(min_count=1),
+            ),
+        )
+        .reset_index()
+        .merge(
+            sum_ozone_season_values(seasonal_data, keys, ["net_generation_mwh"]),
+            on=keys,
+            how="left",
+            validate="1:1",
         )
     )
     generators = generators.merge(
@@ -817,7 +849,7 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
         plant_data.merge(plant_attributes, on="plant_id_eia", how="left")
         .merge(load_ba_reference()[["ba_code", "ba_name"]], on="ba_code", how="left")
         .merge(
-            load_plant_totals_from_subplants(path_prefix),
+            load_plant_totals_from_subplants(path_prefix, year),
             on="plant_id_eia",
             how="left",
         )
@@ -863,7 +895,7 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
     return table
 
 
-def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
+def load_plant_totals_from_subplants(path_prefix: str, year: int) -> pd.DataFrame:
     """Sums OGE's monthly subplant data to each plant's generation by eGRID fuel group,
     combustion heat input and ozone season totals, and lists the data sources of each
     plant's heat input and emissions.
@@ -873,7 +905,9 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
     generation or heat input in that group.
 
     Args:
-        path_prefix (str): prefix of the results folder of the year, e.g. "2024/".
+        path_prefix (str): prefix of the outputs and results folders of the year, e.g.
+            "2024/".
+        year (int): data year.
 
     Returns:
         pd.DataFrame: plant_id_eia, the net generation of each fuel group of
@@ -881,9 +915,8 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
             combustion heat input (e.g. "combustion_fuel_consumed_mmbtu"), the ozone
             season totals of heat input, net generation, NOx and combustion heat input
             (with "_ozone_season" added to their column names), the data sources of
-            the heat input and emissions (e.g. "nox_mass_lb_source"), and "Yes" in capd_flag for plants
-            with CEMS data and in pumped_storage_flag for plants with a pumped storage
-            subplant.
+            the heat input and emissions (e.g. "nox_mass_lb_source"), and "Yes" in
+            pumped_storage_flag for plants with a pumped storage subplant.
     """
     heat_input_columns = ["fuel_consumed_mmbtu", "fuel_consumed_for_electricity_mmbtu"]
     ozone_season_columns = heat_input_columns + [
@@ -925,22 +958,36 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
     combustion = subplants["fuel_category"].isin(EGRID_FUEL_GROUPS["combustion"])
     for column in heat_input_columns:
         subplants[f"combustion_{column}"] = subplants[column].where(combustion, 0)
-    ozone_season = subplants["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
     seasonal_columns = (
         ozone_season_columns
         + [f"combustion_{column}" for column in heat_input_columns]
         + ["net_generation_mwh_combustion"]
     )
-    for column in seasonal_columns:
-        subplants[f"{column}_ozone_season"] = subplants[column].where(ozone_season, 0)
     totals = (
-        subplants.groupby("plant_id_eia")[
+        subplants.groupby("plant_id_eia", dropna=False)[
             generation_columns
             + [f"combustion_{column}" for column in heat_input_columns]
-            + [f"{column}_ozone_season" for column in seasonal_columns]
         ]
         .sum(min_count=1)
         .reset_index()
+        .merge(
+            sum_ozone_season_values(
+                fill_zeros_when_not_operating(
+                    subplants.merge(
+                        load_subplant_operating_dates(path_prefix, year),
+                        on=["plant_id_eia", "subplant_id"],
+                        how="left",
+                        validate="m:1",
+                    ),
+                    seasonal_columns,
+                ),
+                ["plant_id_eia"],
+                seasonal_columns,
+            ),
+            on="plant_id_eia",
+            how="left",
+            validate="1:1",
+        )
     )
     # the data source of each subplant-month, as eGRID's labels
     subplants = subplants.merge(
@@ -954,14 +1001,13 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
         validate="1:1",
     )
     subplants["data_source"] = subplants["data_source"].map(DATA_SOURCE_LABELS)
-    # flag plants with CEMS data and plants with a pumped storage subplant
+    # flag plants with a pumped storage subplant
     flags = (
         subplants.assign(
-            capd_flag=subplants["data_source"] == DATA_SOURCE_LABELS["CEMS"],
             pumped_storage_flag=subplants["subplant_primary_prime_mover_code"]
             == PUMPED_STORAGE_PRIME_MOVER,
         )
-        .groupby("plant_id_eia")[["capd_flag", "pumped_storage_flag"]]
+        .groupby("plant_id_eia", dropna=False)[["pumped_storage_flag"]]
         .any()
     )
     totals = totals.merge(
@@ -973,6 +1019,7 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
         totals = totals.merge(
             list_data_sources(subplants, column), on="plant_id_eia", how="left"
         )
+    ozone_season = subplants["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)
     for column in ["nox_mass_lb", "fuel_consumed_mmbtu"]:
         totals = totals.merge(
             list_data_sources(subplants[ozone_season], column, "_ozone_season"),
@@ -980,6 +1027,49 @@ def load_plant_totals_from_subplants(path_prefix: str) -> pd.DataFrame:
             how="left",
         )
     return totals
+
+
+def load_subplant_operating_dates(path_prefix: str, year: int) -> pd.DataFrame:
+    """Loads the dates that each subplant started operating and retired, from the
+    operating and retirement dates of its generators.
+
+    A subplant started operating when its first generator did, and retired when its
+    last generator did. Subplants with a generator that has not retired have no
+    retirement date.
+
+    Args:
+        path_prefix (str): prefix of the outputs folder of the year, e.g. "2024/".
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: plant_id_eia, subplant_id, generator_operating_date and
+            generator_retirement_date of each subplant.
+    """
+    generators = pd.read_csv(
+        outputs_folder(f"{path_prefix}subplant_crosswalk_{year}.csv.zip"),
+        usecols=[
+            "plant_id_eia",
+            "subplant_id",
+            "generator_id",
+            "generator_operating_date",
+            "generator_retirement_date",
+        ],
+        dtype={"generator_id": "str"},
+        parse_dates=["generator_operating_date", "generator_retirement_date"],
+    ).drop_duplicates(subset=["plant_id_eia", "generator_id"])
+    return (
+        generators.groupby(["plant_id_eia", "subplant_id"], dropna=False)
+        .agg(
+            generator_operating_date=("generator_operating_date", "min"),
+            # a generator without a retirement date has not retired, so neither has
+            # its subplant
+            generator_retirement_date=(
+                "generator_retirement_date",
+                lambda dates: dates.max() if dates.notna().all() else pd.NaT,
+            ),
+        )
+        .reset_index()
+    )
 
 
 def load_coal_flags(path_prefix: str, year: int) -> pd.DataFrame:
@@ -1363,24 +1453,31 @@ def add_regional_capacity(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataF
     return tables
 
 
-def add_plant_counts(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    """Fills the number of units and generators of each plant on the plant sheet with
-    the number of the plant's rows on the unit and generator sheets.
+def add_plant_unit_values(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Fills the values of the plant sheet that come from the plant's rows on the unit
+    and generator sheets: the number of units and generators, and the CAPD flag.
 
-    The unit sheet has CEMS units only, so plants without CEMS units have no units.
+    The unit sheet has CEMS units only, so plants without CEMS units have no units. A
+    plant is flagged as reporting to EPA's Clean Air Markets Division if it has units
+    on the unit sheet, including plants whose CEMS data only covers some of their
+    subplants or months, whose plant-level values then come partly from EIA.
 
     Args:
         tables (dict[str, pd.DataFrame]): tables of the sheets, including UNT, GEN and
             PLNT.
 
     Returns:
-        dict[str, pd.DataFrame]: the tables, with the plant sheet's counts.
+        dict[str, pd.DataFrame]: the tables, with the plant sheet's counts and CAPD
+            flag.
     """
     tables = tables.copy()
     plants = tables["PLNT"]
     tables["PLNT"] = plants.assign(
         NUMUNT=plants["ORISPL"].map(tables["UNT"]["ORISPL"].value_counts()).fillna(0),
         NUMGEN=plants["ORISPL"].map(tables["GEN"]["ORISPL"].value_counts()).fillna(0),
+        CAPDFLAG=plants["ORISPL"]
+        .isin(tables["UNT"]["ORISPL"])
+        .map({True: "Yes", False: None}),
     )
     return tables
 
@@ -1403,6 +1500,71 @@ def load_plant_names(path_prefix: str) -> pd.DataFrame:
         results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
         usecols=["plant_id_eia", "state", "plant_name_eia"],
     )
+
+
+def sum_ozone_season_values(
+    df: pd.DataFrame, keys: list[str], columns: list[str]
+) -> pd.DataFrame:
+    """Sums the ozone season (May to September) values of each group, keeping blank
+    the values that are unknown.
+
+    A group's ozone season value is blank when all of its ozone season values are
+    blank, so a missing measurement is not published as zero. A group with no ozone
+    season records at all did not operate in the ozone season, so its value is zero
+    wherever its annual value is known.
+
+    Args:
+        df (pd.DataFrame): data with the keys, the columns and report_date.
+        keys (list[str]): columns identifying each group, e.g. ["plant_id_eia"].
+        columns (list[str]): columns to sum.
+
+    Returns:
+        pd.DataFrame: the keys of each group in the data and its ozone season totals,
+            with "_ozone_season" added to the column names.
+    """
+    annual = df.groupby(keys, dropna=False)[columns].sum(min_count=1)
+    in_season = df[df["report_date"].dt.month.isin(OZONE_SEASON_MONTHS)]
+    seasonal = (
+        in_season.groupby(keys, dropna=False)[columns]
+        .sum(min_count=1)
+        .reindex(annual.index)
+    )
+    # groups without ozone season records did not operate in the ozone season, so
+    # their value is zero, unless their annual value is unknown too
+    has_season_records = (
+        in_season.groupby(keys, dropna=False)
+        .size()
+        .reindex(annual.index, fill_value=0)
+        .gt(0)
+    )
+    no_season = annual.loc[~has_season_records]
+    seasonal.loc[~has_season_records] = no_season.where(no_season.isna(), 0)
+    return seasonal.add_suffix("_ozone_season").reset_index()
+
+
+def fill_zeros_when_not_operating(
+    data: pd.DataFrame, columns: list[str]
+) -> pd.DataFrame:
+    """Fills blank values with zeros in months before a generator or subplant started
+    operating or after it retired, since it had no generation, heat input or
+    emissions in those months.
+
+    Args:
+        data (pd.DataFrame): monthly data with report_date, the columns,
+            generator_operating_date and generator_retirement_date.
+        columns (list[str]): columns to fill.
+
+    Returns:
+        pd.DataFrame: a copy of the data, with zeros in the blank values of the
+            columns in months outside the operating period.
+    """
+    data = data.copy()
+    month = data["report_date"].dt.to_period("M")
+    not_operating = (month < data["generator_operating_date"].dt.to_period("M")) | (
+        month > data["generator_retirement_date"].dt.to_period("M")
+    )
+    data.loc[not_operating, columns] = data.loc[not_operating, columns].fillna(0)
+    return data
 
 
 def build_sheet_rows(
@@ -1443,7 +1605,8 @@ def add_emission_rates_and_resource_mix(
     Rates are in lb per MWh or MMBtu, and are blank where the denominator is zero or
     negative, as in eGRID. Each fuel's share of the resource mix is its positive
     generation divided by the sum of the positive generation of every fuel, so that
-    the shares of each row add up to 100%.
+    the shares of each row add up to 100%. The share of a group of fuels, such as
+    renewables, is the sum of the positive generation of its fuels on the same basis.
 
     Args:
         table (pd.DataFrame): table of the sheet with masses in the units of eGRID's
@@ -1486,9 +1649,13 @@ def add_emission_rates_and_resource_mix(
         .sum(axis=1, min_count=1)
     )
     for mix_code, generation_code in RESOURCE_MIX_GENERATION.items():
-        table[prefix + mix_code] = table[prefix + generation_code].clip(
-            lower=0
-        ) / total.where(total > 0)
+        fuels = RESOURCE_MIX_GROUP_FUELS.get(generation_code, [generation_code])
+        positive_generation = (
+            table[[prefix + fuel for fuel in fuels]]
+            .clip(lower=0)
+            .sum(axis=1, min_count=1)
+        )
+        table[prefix + mix_code] = positive_generation / total.where(total > 0)
     return table.drop(columns=f"{prefix}{OZONE_COMBUSTION_GENERATION}")
 
 

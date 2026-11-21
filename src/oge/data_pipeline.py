@@ -428,6 +428,18 @@ def main(args):
     # 11. Export monthly and annual plant-level results
     ####################################################################################
     logger.info("11. Exporting monthly and annual plant-level results")
+    # write the data source of each subplant-month. This is written for every year,
+    # not only years with hourly data, because the eGRID-format workbook uses it
+    output_data.write_plant_metadata(
+        plant_attributes,
+        eia923_allocated,
+        cems,
+        partial_cems_subplant,
+        partial_cems_plant,
+        path_prefix,
+        args.skip_outputs,
+        year,
+    )
     # create a separate dataframe containing only the EIA data that is missing from cems
     monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
@@ -754,18 +766,6 @@ def main(args):
             )
             del monthly_eia_fleet_data
 
-            # write metadata outputs
-            output_data.write_plant_metadata(
-                plant_attributes,
-                eia923_allocated,
-                cems,
-                partial_cems_subplant,
-                partial_cems_plant,
-                shaped_eia_fleet_data,
-                path_prefix,
-                args.skip_outputs,
-                year,
-            )
             del eia923_allocated
             gc.collect()
             # group shaped data by fleet, since the fuel category used for shaping might

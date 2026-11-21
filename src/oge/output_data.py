@@ -446,7 +446,6 @@ def write_plant_metadata(
     cems: pd.DataFrame,
     partial_cems_subplant: pd.DataFrame,
     partial_cems_plant: pd.DataFrame,
-    shaped_eia_data: pd.DataFrame,
     path_prefix: str,
     skip_outputs: bool,
     year: int,
@@ -464,8 +463,6 @@ def write_plant_metadata(
             reporting in CEMS.
         partial_cems_plant (pd.DataFrame): subplant data for which there is partial
             plant data reporting in CEMS.
-        shaped_eia_data (pd.DataFrame): hourly generation profile derived from
-            monthly-level EIA data.
         path_prefix (str): name of base directory prefixing directory where data will
             be saved.
         skip_outputs (bool): whether to save data or not.

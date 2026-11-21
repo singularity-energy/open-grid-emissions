@@ -412,6 +412,7 @@ def results(tmp_path, monkeypatch):
             "plant_id_eia": [1, 1, 2],
             "emissions_unit_id_epa": ["1", "2", None],
             "generator_id": ["GT1", "GT1", "PV1"],
+            "subplant_id": [1, 1, 1],
             "generator_operating_date": ["2001-06-01", "2001-06-01", "2015-03-01"],
             "generator_retirement_date": [None, None, "2024-09-30"],
         }
@@ -620,9 +621,6 @@ def test_plant_derived_attributes(results):
     plants = output_egrid_file.build_plant_table(2024, "2024/").set_index("ORISPL")
     assert plants.loc[1, "PLFUELCT"] == "GAS"
     assert plants.loc[2, "PLFUELCT"] == "SOLAR"
-    # plant 1 has CEMS data in January
-    assert plants.loc[1, "CAPDFLAG"] == "Yes"
-    assert pd.isna(plants.loc[2, "CAPDFLAG"])
     # neither BA is an ISO or RTO, and neither plant has pumped storage
     assert plants["ISORTO"].isna().all()
     assert plants["PSFLAG"].isna().all()
@@ -760,6 +758,9 @@ def test_egrid_tables_have_every_column(results):
     plants = tables["PLNT"].set_index("ORISPL")
     assert plants.loc[1, ["NUMUNT", "NUMGEN"]].tolist() == [2, 1]
     assert plants.loc[2, ["NUMUNT", "NUMGEN"]].tolist() == [0, 1]
+    # plants with units on the unit sheet report to EPA's Clean Air Markets Division
+    assert plants.loc[1, "CAPDFLAG"] == "Yes"
+    assert pd.isna(plants.loc[2, "CAPDFLAG"])
     # regional capacity sums the capacity of the plant sheet
     assert list(tables["ST"]["STNAMEPCAP"]) == [50.0, 100.0]
     assert list(tables["BA"]["BANAMEPCAP"]) == [100.0, 50.0]
@@ -935,6 +936,71 @@ def test_emission_rates_and_resource_mix():
     assert f"PL{egrid_schema.OZONE_COMBUSTION_GENERATION}" not in rates
 
 
+def test_grouped_resource_mix_uses_positive_fuel_generation():
+    """Grouped resource mix shares should add up to 100%, like the fuel shares, when a
+    fuel in a group has negative generation.
+
+    The plant has 100 MWh of gas, -10 MWh of oil and 100 MWh of solar. Netting the oil
+    against the gas would give nonrenewables 45% while gas alone has 50%.
+    """
+    columns = [code for code, _, _ in get_egrid_columns("PLNT", 2024)]
+    table = pd.DataFrame({code: [0.0] for code in columns}).assign(
+        PLGENAGS=[100.0],
+        PLGENAOL=[-10.0],
+        PLGENASO=[100.0],
+        PLGENATN=[90.0],
+        PLGENATR=[100.0],
+        PLGENACY=[90.0],
+        PLGENACN=[100.0],
+    )
+    table[f"PL{egrid_schema.OZONE_COMBUSTION_GENERATION}"] = [0.0]
+    mix = output_egrid_file.add_emission_rates_and_resource_mix(
+        table, "PLNT", 2024
+    ).iloc[0]
+    assert mix["PLGSPR"] == 0.5
+    assert mix["PLOLPR"] == 0
+    # groups sum the positive generation of their fuels
+    assert mix["PLTNPR"] == 0.5
+    assert mix["PLTRPR"] == 0.5
+    assert mix["PLCYPR"] == 0.5
+    assert mix["PLCNPR"] == 0.5
+
+
+def test_sum_ozone_season_values_keeps_unknown_values_blank():
+    """Ozone season totals should be blank when every ozone season value is missing,
+    and zero only when the group did not operate in the ozone season.
+
+    - unit A has data in January and July, so its total is the July value.
+    - unit B has data in January but a blank in July, so its total is unknown, not
+      zero.
+    - unit C only has a January record, so it did not operate in the ozone season.
+    - unit D only has a blank January record, so its total is unknown.
+    """
+    data = pd.DataFrame(
+        {
+            "unit": ["A", "A", "B", "B", "C", "D"],
+            "report_date": pd.to_datetime(
+                [
+                    "2024-01-01",
+                    "2024-07-01",
+                    "2024-01-01",
+                    "2024-07-01",
+                    "2024-01-01",
+                    "2024-01-01",
+                ]
+            ),
+            "nox_mass_lb": [1.0, 2.0, 3.0, None, 4.0, None],
+        }
+    )
+    totals = output_egrid_file.sum_ozone_season_values(
+        data, ["unit"], ["nox_mass_lb"]
+    ).set_index("unit")["nox_mass_lb_ozone_season"]
+    assert totals["A"] == 2.0
+    assert pd.isna(totals["B"])
+    assert totals["C"] == 0
+    assert pd.isna(totals["D"])
+
+
 def test_fuel_type_rates_include_waste_in_fossil():
     annual = pd.DataFrame(
         {
@@ -980,3 +1046,29 @@ def test_plant_adjustment_values_and_sources(results):
     assert pd.isna(gas["UNHGSRC"])
     assert plants.loc[2, "UNHTISRC"] == "EIA"
     assert pd.isna(plants.loc[2, "UNCO2SRC"])
+
+
+def test_fill_zeros_when_not_operating():
+    """Blank values should become zeros only in months before a generator started
+    operating or after it retired, when it is known to have had no generation.
+
+    The generator started operating in March and retired in October. Its blank
+    January and November values become zeros, while its blank June value, during its
+    operating period, stays blank because it is unknown.
+    """
+    data = pd.DataFrame(
+        {
+            "report_date": pd.to_datetime(["2024-01-01", "2024-06-01", "2024-11-01"]),
+            "net_generation_mwh": [np.nan, np.nan, np.nan],
+            "generator_operating_date": pd.to_datetime(["2024-03-15"] * 3),
+            "generator_retirement_date": pd.to_datetime(["2024-10-15"] * 3),
+        }
+    )
+    filled = output_egrid_file.fill_zeros_when_not_operating(
+        data, ["net_generation_mwh"]
+    )
+    assert filled.loc[0, "net_generation_mwh"] == 0
+    assert pd.isna(filled.loc[1, "net_generation_mwh"])
+    assert filled.loc[2, "net_generation_mwh"] == 0
+    # the input is not changed
+    assert data["net_generation_mwh"].isna().all()
