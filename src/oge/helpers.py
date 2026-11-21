@@ -1203,8 +1203,8 @@ def add_missing_location(df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: original data frame with missing 'latitude', 'longitude',
             'state', 'county' and 'city' filled out when possible.
     """
-    # Puerto Rico has no incorporated cities. Its municipios, which EIA reports as the
-    # county, are its local governments, so use these as the city.
+    # Puerto Rico has no incorporated cities. Its municipios, which EIA and the Census
+    # Bureau report as the county, are its local governments, so use these as the city.
     is_puerto_rico = df["state"] == "PR"
     df.loc[is_puerto_rico, "city"] = df.loc[is_puerto_rico, "city"].fillna(
         df.loc[is_puerto_rico, "county"]
@@ -1238,6 +1238,12 @@ def add_missing_location(df: pd.DataFrame) -> pd.DataFrame:
                     df.loc[i, "county"] = county
                 if pd.isna(df.loc[i, "city"]):
                     df.loc[i, "city"] = city
+
+    # For Puerto Rico, if any counties have been filled by the geocoder, attempt to
+    # fill any missing cities again
+    df.loc[is_puerto_rico, "city"] = df.loc[is_puerto_rico, "city"].fillna(
+        df.loc[is_puerto_rico, "county"]
+    )
 
     return df
 

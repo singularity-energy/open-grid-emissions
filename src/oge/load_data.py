@@ -464,7 +464,9 @@ def load_raw_eia860_generator_dates_and_unit_ids(year: int) -> pd.DataFrame:
 
     # EIA-860 does not include Puerto Rico, so load the operating dates and unit codes
     # of Puerto Rico generators from the December EIA-860M
-    # TODO: remove once PUDL keeps a yearly history of Puerto Rico generators
+    # NOTE: (2026-11-06) PUDL drops the unit codes of Puerto Rico generators. Revisit
+    # once PUDL keeps a yearly history of Puerto Rico generators
+    # (https://github.com/catalyst-cooperative/pudl/issues/5370)
     puerto_rico_unit_ids = (
         load_raw_eia860m_puerto_rico_generators(year).rename(
             columns={"generator_operating_date": "operating_date_eia"}
@@ -1093,33 +1095,8 @@ def load_pudl_table(
         start_datetime = dt
         end_datetime = end_dt if end_dt is not None else dt
 
-    table = (
-        load_pudl_table_from_local(
-            table_name,
-            datetime_column=datetime_column,
-            columns=columns,
-            start_datetime=start_datetime,
-            end_datetime=end_datetime,
-        )
-        if PUDL_ENGINE
-        else load_pudl_table_from_s3(
-            table_name,
-            datetime_column=datetime_column,
-            columns=columns,
-            start_datetime=start_datetime,
-            end_datetime=end_datetime,
-        )
-    )
-
-    # Puerto Rico
-    # Puerto Rico generators are only reported in EIA-860M, and PUDL only includes the most
-    # recent EIA-860M snapshot of them, with a report_date in the latest year. Until PUDL
-    # keeps a yearly history of these generators, we replace PUDL's snapshot with the
-    # generators in the December EIA-860M of each year, as eGRID does. PUDL also does not
-    # yet include the Puerto Rico generation and fuel data, which EIA-923 reports on a
-    # separate sheet, so we load it from the raw EIA-923.
-    # TODO: remove once PUDL keeps a yearly history of Puerto Rico generators and
-    # includes the EIA-923 Puerto Rico data
+    # the PUDL tables whose Puerto Rico data is replaced (see below), and the function
+    # that loads their Puerto Rico data for one year
     puerto_rico_loaders = {
         "core_eia860__scd_generators": load_puerto_rico_generators,
         "out_eia__yearly_generators": load_puerto_rico_generators,
@@ -1130,10 +1107,51 @@ def load_pudl_table(
             load_raw_eia923_puerto_rico_generation_fuel
         ),
     }
+    # Puerto Rico data is matched to PUDL's data by plant, so always read the plant ID
+    # of these tables
+    read_columns = columns
+    if (
+        table_name in puerto_rico_loaders
+        and columns is not None
+        and "plant_id_eia" not in columns
+    ):
+        read_columns = columns + ["plant_id_eia"]
+
+    table = (
+        load_pudl_table_from_local(
+            table_name,
+            datetime_column=datetime_column,
+            columns=read_columns,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+        )
+        if PUDL_ENGINE
+        else load_pudl_table_from_s3(
+            table_name,
+            datetime_column=datetime_column,
+            columns=read_columns,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+        )
+    )
+
+    # Puerto Rico
+    # Puerto Rico generators are only reported in EIA-860M, and PUDL only includes the
+    # most recent EIA-860M snapshot of them, with a report_date in the latest year.
+    # Until PUDL keeps a yearly history of these generators, we replace PUDL's snapshot
+    # with the generators in the December EIA-860M of each year, as eGRID does. PUDL
+    # also does not yet include the Puerto Rico generation and fuel data, which EIA-923
+    # reports on a separate sheet, so we load it from the raw EIA-923.
+    # NOTE: (2026-11-06) remove once PUDL keeps a yearly history of Puerto Rico
+    # generators and includes the EIA-923 Puerto Rico data. See:
+    # https://github.com/catalyst-cooperative/pudl/issues/5370
+    # https://github.com/catalyst-cooperative/pudl/issues/457
     if table_name in puerto_rico_loaders:
         table = replace_puerto_rico_data(
-            table, puerto_rico_loaders[table_name], year, end_year, columns
+            table, puerto_rico_loaders[table_name], year, end_year, read_columns
         )
+        if columns is not None:
+            table = table.copy()[columns]
 
     table = apply_dtypes(table)
 
@@ -1255,9 +1273,10 @@ def load_puerto_rico_generators(year: int) -> pd.DataFrame:
     generators["fuel_type_code_pudl"] = generators["energy_source_code_1"].map(
         fuel_types.set_index("code")["fuel_type_code_pudl"]
     )
-    generators["fuel_type_count"] = (
-        generators["energy_source_code_1"].notna().astype(int)
-    )
+    # as in PUDL, count the distinct fuel types of each plant's generators
+    generators["fuel_type_count"] = generators.groupby(
+        ["plant_id_eia", "report_date"], dropna=False
+    )["fuel_type_code_pudl"].transform("nunique")
     generators["data_maturity"] = "monthly_update"
 
     return apply_dtypes(generators)

@@ -325,7 +325,16 @@ def test_replace_puerto_rico_data():
 
 def test_load_puerto_rico_generators_fills_late_reporters(monkeypatch):
     """Plants that report generation but are missing from the December EIA-860M should
-    get the generators from PUDL's snapshot that operated during the year."""
+    get the generators from PUDL's snapshot that operated during the year.
+
+    Lilly del Caribe (66319) reported generation in 2022 but first appears in the
+    December 2023 EIA-860M, so without this its generation couldn't be allocated. The
+    test checks that:
+    - only snapshot generators operating during the year are kept, and those that
+      retired after the year are treated as operating
+    - `fuel_type_count` counts the distinct fuel types at each plant, as in PUDL, so a
+      plant with oil and gas generators isn't treated as a single-fuel plant
+    """
     monkeypatch.setattr(
         load_data,
         "load_raw_eia860m_puerto_rico_generators",
@@ -352,7 +361,7 @@ def test_load_puerto_rico_generators_fills_late_reporters(monkeypatch):
         {
             "plant_id_eia": [66319, 66319, 66319, 66319],
             "generator_id": ["OLD", "RETIRED_LATER", "NEW", "RETIRED_EARLIER"],
-            "energy_source_code_1": ["DFO", "DFO", "SUN", "DFO"],
+            "energy_source_code_1": ["DFO", "NG", "SUN", "DFO"],
             "operational_status_code": ["SB", "RE", "OP", "RE"],
             "operational_status": ["existing", "retired", "existing", "retired"],
             "generator_operating_date": pd.to_datetime(
@@ -382,5 +391,51 @@ def test_load_puerto_rico_generators_fills_late_reporters(monkeypatch):
     assert generators.loc["RETIRED_LATER", "operational_status_code"] == "OP"
     assert pd.isna(generators.loc["RETIRED_LATER", "generator_retirement_date"])
     assert (generators["report_date"] == pd.Timestamp("2022-01-01")).all()
-    assert generators["fuel_type_code_pudl"].tolist() == ["gas", "oil", "oil"]
-    assert generators["fuel_type_count"].tolist() == [1, 1, 1]
+    assert generators["fuel_type_code_pudl"].tolist() == ["gas", "oil", "gas"]
+    # the number of distinct fuel types of each plant's generators
+    assert generators["fuel_type_count"].tolist() == [1, 2, 2]
+
+
+def test_load_pudl_table_replaces_puerto_rico_data_without_plant_id(monkeypatch):
+    """Puerto Rico data should be replaced even when the plant ID isn't one of the
+    columns requested, and only the requested columns should be returned.
+
+    PUDL's Puerto Rico rows are matched to the replacement data by plant, so the plant
+    ID has to be read even when the caller doesn't ask for it. In this test, PUDL's row
+    for plant 61034 has a capacity (999 MW) that should be replaced.
+    """
+    pudl_generators = pd.DataFrame(
+        {
+            "plant_id_eia": [3, 61034],
+            "generator_id": ["1", "CT1"],
+            "capacity_mw": [100.0, 999.0],
+            "report_date": pd.to_datetime(["2024-01-01", "2024-01-01"]),
+        }
+    )
+
+    def read_pudl_table(table_name, columns=None, **kwargs):
+        return pudl_generators[columns] if columns is not None else pudl_generators
+
+    for reader in ["load_pudl_table_from_local", "load_pudl_table_from_s3"]:
+        monkeypatch.setattr(load_data, reader, read_pudl_table)
+    monkeypatch.setattr(
+        load_data,
+        "load_puerto_rico_generators",
+        lambda year: pd.DataFrame(
+            {
+                "plant_id_eia": [61034],
+                "generator_id": ["CT1"],
+                "capacity_mw": [50.0],
+                "report_date": [pd.Timestamp(year=year, month=1, day=1)],
+            }
+        ),
+    )
+
+    capacity = load_data.load_pudl_table(
+        "core_eia860__scd_generators", 2024, columns=["capacity_mw"]
+    )
+
+    # only the requested column is returned
+    assert capacity.columns.tolist() == ["capacity_mw"]
+    # PUDL's Puerto Rico row is replaced, and the other plant is kept
+    assert capacity["capacity_mw"].tolist() == [100.0, 50.0]

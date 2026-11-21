@@ -150,7 +150,10 @@ def main(args):
     # Puerto Rico generators are only reported in EIA-860M, and are needed for every
     # year when identifying subplants. The raw EIA-923 is used to find plants that
     # report generation before their generators appear in EIA-860M.
-    # TODO: remove once PUDL keeps a yearly history of Puerto Rico generators
+    # NOTE: (2026-11-06) remove once PUDL keeps a yearly history of Puerto Rico
+    # generators and includes the EIA-923 Puerto Rico data. See:
+    # https://github.com/catalyst-cooperative/pudl/issues/5370
+    # https://github.com/catalyst-cooperative/pudl/issues/457
     for puerto_rico_year in range(
         earliest_puerto_rico_data_year,
         max(latest_validated_year, current_early_release_year) + 1,
