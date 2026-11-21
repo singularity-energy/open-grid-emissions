@@ -439,3 +439,18 @@ def test_load_pudl_table_replaces_puerto_rico_data_without_plant_id(monkeypatch)
     assert capacity.columns.tolist() == ["capacity_mw"]
     # PUDL's Puerto Rico row is replaced, and the other plant is kept
     assert capacity["capacity_mw"].tolist() == [100.0, 50.0]
+
+
+def test_load_mats_data_before_mats():
+    """There is no MATS data before 2015, so an empty table is returned."""
+    mats = load_data.load_mats_data(2014)
+
+    assert mats.empty
+    assert mats.columns.tolist() == [
+        "plant_id_epa",
+        "emissions_unit_id_epa",
+        "datetime_utc",
+        "hg_mass_lb",
+        "hg_mass_measurement_code",
+    ]
+    assert mats["hg_mass_lb"].dtype == "float64"

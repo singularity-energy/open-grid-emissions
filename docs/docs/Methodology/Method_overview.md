@@ -5,7 +5,7 @@ stoplight-id: pipeline_overview
 # Overview of the data pipeline
 The pipeline is run for each year following several steps that are enumerated below. Note that these steps will differ depending on the year that is processed. The reason is that complete EIA-930 data is available in 2019 onward, which is used to assign an hourly profile to non-CEMS data.
 
-1. **Download data**: Download data, including CEMS (via PUDL), EIA Forms 860, 861, and 923 (raw data and via PUDL), the December EIA-860M files (for Puerto Rico generators), EPA-EIA Power Sector Data Crosswalk, EPA CAMPD facility attributes, EIA-930 data
+1. **Download data**: Download data, including CEMS and MATS (via PUDL), EIA Forms 860, 861, and 923 (raw data and via PUDL), the December EIA-860M files (for Puerto Rico generators), EPA-EIA Power Sector Data Crosswalk, EPA CAMPD facility attributes, EIA-930 data
 2. **Identify subplants**: Identify distinct “subplants” which represent interconnected groupings of units, generators, and boilers within a plant using graph analysis, based on relationships reported in the power sector data crosswalk and the EIA-860 boiler-generator association table. ([methodology](../Methodology/Data%20Aggregation/Subplant%20Aggregation.md))
 3. **Clean EIA-923 data**: Clean and allocate monthly generation and fuel data from EIA-923 ([methodology](../Methodology/Data%20Cleaning/EIA-923%20Data.md))
     1. Allocate monthly net generation and fuel consumption data reported at the prime-mover level in the EIA-923 generation and fuel table to individual generators. Data is allocated to each generator-month in proportion to data in the generator table and boiler fuel table, if reported, otherwise it is allocated in proportion to the nameplate capacity of each generator.
@@ -19,19 +19,20 @@ The pipeline is run for each year following several steps that are enumerated be
     9. Remove non-grid connected plants
 4. **Clean CEMS data**: Clean hourly generation, fuel, and emissions data from CEMS ([methodology](../Methodology/Data%20Cleaning/CEMS%20Data.md))
     1. Load data from pudl and crosswalk CAMD plant IDs to EIA plant IDs
-    2. Remove data for non grid-connected plants and plants in Puerto Rico (data for Puerto Rico plants comes from EIA-923 instead, since the only Puerto Rico plant with hourly CEMS data only reports gross generation)
-    3. Assign a monthly "report_date" to each hourly observation based on the date of the local timestamp (this allows us to match the data to EIA-923 monthly report dates)
-    4. Remove data for any unit-months where there is incomplete hourly data.
-    5. Assign a fuel type to each unit, mostly based on the primary fuel of its subplant in EIA-923 ([methodology](../Methodology/Emissions%20Calculations/Assigning%20Energy%20Source%20Codes.md))
-    6. Fill in missing hourly emissions data using the assigned fuel type and reported hourly fuel consumption data
-    7. Calculate biomass-adjusted emissions
+    2. Add hourly mercury (Hg) emissions data reported under MATS ([methodology](../Methodology/Emissions%20Calculations/Hg%20Emissions.md))
+    3. Remove data for non grid-connected plants and plants in Puerto Rico (data for Puerto Rico plants comes from EIA-923 instead, since the only Puerto Rico plant with hourly CEMS data only reports gross generation)
+    4. Assign a monthly "report_date" to each hourly observation based on the date of the local timestamp (this allows us to match the data to EIA-923 monthly report dates)
+    5. Remove data for any unit-months where there is incomplete hourly data.
+    6. Assign a fuel type to each unit, mostly based on the primary fuel of its subplant in EIA-923 ([methodology](../Methodology/Emissions%20Calculations/Assigning%20Energy%20Source%20Codes.md))
+    7. Fill in missing hourly emissions data using the assigned fuel type and reported hourly fuel consumption data
+    8. Calculate biomass-adjusted emissions
 5. **Assign static attributes to all plants** This includes primary fuel, data sources, state, balancing authority (both commercial and physical), whether the plant is connected to the distribution grid or transmission grid, a fuel category, an energy storage category for plants with storage ([methodology](../Methodology/Data%20Aggregation/Energy%20Storage.md)), and local timezone
 6. **Crosswalk the EIA-923 and CEMS data**, identifying for each subplant-month whether there is complete CEMS data available, partial CEMS data available (available for some but not all units that consist a subplant), or only EIA data available.
     1. For subplant-months with complete CEMS data, we will use the hourly CEMS data directly
     2. For subplant-months with partial CEMS data, we will use the partial CEMS data to assign an hourly profile to the monthly EIA-923 data for that subplant ([methodology](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Scaling%20Partial%20CEMS%20Subplant%20Data.md))
     3. For plant-months where certain subplants have CEMS data, we will use the CEMS data from those subplants to shape the EIA-923 data for the subplants for which no CEMS data is available ([methodology](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Partial%20CEMS%20Plant%20Data.md))
     4. For plant-months where no CEMS data is available, we impute the hourly profile based on reported EIA-930 net generation data
-7. **Aggregate CEMS data to subplant**: Aggregate hourly CEMS data from units to subplants
+7. **Aggregate CEMS data to subplant**: Aggregate hourly CEMS data from units to subplants. Hg data is only summed where it is complete ([methodology](../Methodology/Emissions%20Calculations/Hg%20Emissions.md))
 8. **Shape partial CEMS data**: For subplants with partial CEMS data, use the available CEMS data to assign an hourly profile to the EIA-923 data reported for that subplant-month.
 9. **Convert CEMS hourly gross generation to hourly net generation** ([methodology](../Methodology/Converting%20Gross%20to%20Net%20Generation.md))
     1. Calculate various gross-to-net conversion factors based on gross generation reported in CEMS and net generation reported in EIA, including subplant- and plant-specific, monthly and annual gross to net ratios, shift factors, and linear regressions

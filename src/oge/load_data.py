@@ -14,6 +14,7 @@ from oge.constants import (
     ConversionFactors,
     earliest_data_year,
     earliest_puerto_rico_data_year,
+    earliest_mats_data_year,
     earliest_validated_year,
     latest_validated_year,
     current_early_release_year,
@@ -127,6 +128,59 @@ def load_cems_data(year: int) -> pd.DataFrame:
     )
 
     return cems
+
+
+def load_mats_data(year: int) -> pd.DataFrame:
+    """Loads hourly mercury (Hg) data reported under the EPA Mercury and Air Toxics
+    Standards (MATS) for the specified year from PUDL.
+
+    MATS hourly data only exists for coal- and petroleum coke-fired units that monitor
+    Hg with a CEMS or sorbent traps, so most CEMS units have no rows. Missing hours are
+    not substituted. No MATS data exists before `constants.earliest_mats_data_year`, so
+    an empty table is returned for earlier years.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: hourly Hg mass by unit, keyed on `plant_id_epa`,
+            `emissions_unit_id_epa`, and `datetime_utc`.
+    """
+    output_columns = [
+        "plant_id_epa",
+        "emissions_unit_id_epa",
+        "datetime_utc",
+        "hg_mass_lb",
+        "hg_mass_measurement_code",
+    ]
+    if year < earliest_mats_data_year:
+        return apply_dtypes(pd.DataFrame(columns=output_columns))
+
+    if PUDL_ENGINE is None:
+        pudl_release = get_pudl_release(get_pudl_build_version(), get_pudl_data_store())
+        logger.info(f"Loading core_epamats__hourly_emissions from PUDL {pudl_release}")
+    mats = pd.read_parquet(
+        pudl_folder("core_epamats__hourly_emissions.parquet"),
+        filters=[["year", "==", year]],
+        columns=[
+            "plant_id_epa",
+            "emissions_unit_id_epa",
+            "operating_datetime_utc",
+            "hg_mass_lbs",
+            "hg_mass_measurement_code",
+        ],
+    ).rename(
+        columns={
+            "operating_datetime_utc": "datetime_utc",
+            "hg_mass_lbs": "hg_mass_lb",
+        }
+    )
+    mats = apply_dtypes(mats)
+
+    # strip leading zeros from emissions unit id to match `load_cems_data()`
+    mats["emissions_unit_id_epa"] = mats["emissions_unit_id_epa"].str.lstrip("0")
+
+    return mats[output_columns]
 
 
 def load_cems_ids(year: int | None = None) -> pd.DataFrame:

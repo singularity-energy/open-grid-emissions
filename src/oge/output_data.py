@@ -5,10 +5,19 @@ import shutil
 import os
 
 import oge.load_data as load_data
-from oge.column_checks import check_columns, DATA_COLUMNS, STORAGE_DATA_COLUMNS
+from oge.column_checks import (
+    check_columns,
+    DATA_COLUMNS,
+    HG_DATA_COLUMNS,
+    STORAGE_DATA_COLUMNS,
+)
 import oge.validation as validation
 from oge.filepaths import outputs_folder, results_folder, data_folder
-from oge.helpers import assign_fleet_to_subplant_data
+from oge.helpers import (
+    assign_fleet_to_subplant_data,
+    flag_missing_hg,
+    remove_incomplete_hg,
+)
 from oge.logging_util import get_logger
 from oge.constants import (
     ConversionFactors,
@@ -250,8 +259,11 @@ def output_to_results(
     # Check for negatives after rounding
     validation.test_for_negative_values(df, year)
     # Check that there are no missing values. Energy storage data is only reported for
-    # energy storage resources, so it is expected to be missing for other resources
-    validation.test_for_missing_values(df, skip_cols=STORAGE_DATA_COLUMNS)
+    # energy storage resources, and Hg data is only reported for some subplants, so
+    # they are expected to be missing for other resources
+    validation.test_for_missing_values(
+        df, skip_cols=STORAGE_DATA_COLUMNS + HG_DATA_COLUMNS
+    )
 
     if not skip_outputs:
         df.to_csv(
@@ -321,14 +333,26 @@ def write_plant_data_to_results(
 
         # group data to specified groups. Only sum the data columns so that numeric
         # identifiers (e.g. subplant_id in plant-level data) are not summed
-        data_columns = DATA_COLUMNS + [
-            col for col in STORAGE_DATA_COLUMNS if col in monthly_subplant_data.columns
-        ]
+        # Hg is only summed where it is complete for every subplant-month in the group
+        data_columns = (
+            DATA_COLUMNS
+            + HG_DATA_COLUMNS
+            + ["missing_hg"]
+            + [
+                col
+                for col in STORAGE_DATA_COLUMNS
+                if col in monthly_subplant_data.columns
+            ]
+        )
         df = (
-            monthly_subplant_data.groupby(groupby_cols, dropna=False)[data_columns]
+            monthly_subplant_data.assign(
+                missing_hg=flag_missing_hg(monthly_subplant_data)
+            )
+            .groupby(groupby_cols, dropna=False)[data_columns]
             .sum(min_count=1)
             .reset_index()
         )
+        df = remove_incomplete_hg(df)
 
         # add some basic plant data to the annual plant output table
         if resolution == "annual" and plant_part == "plant":
@@ -363,6 +387,7 @@ def write_plant_data_to_results(
                     "state",
                 ]
                 + DATA_COLUMNS
+                + HG_DATA_COLUMNS
                 + [column for column in STORAGE_DATA_COLUMNS if column in df.columns]
             ]
 

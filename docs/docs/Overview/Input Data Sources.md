@@ -9,6 +9,11 @@ stoplight-id: input_data
 * **How we use it**: Primary source for hourly emissions and generation data
 * **More information**: [https://ampd.epa.gov/ampd/](https://ampd.epa.gov/ampd/)
 
+**EPA Mercury and Air Toxics Standards (MATS) data**
+* **What is it**: Measured hourly mercury (Hg) emissions reported to the EPA by coal- and petroleum coke-fired generating units that continuously monitor Hg, from 2015 onward
+* **How we use it**: Source of hourly Hg emissions data, loaded from PUDL. Hg is only reported for subplants and plants where the data is complete ([methodology](../Methodology/Emissions%20Calculations/Hg%20Emissions.md))
+* **More information**: [https://www.epa.gov/stationary-sources-air-pollution/mercury-and-air-toxics-standards](https://www.epa.gov/stationary-sources-air-pollution/mercury-and-air-toxics-standards)
+
 **EIA Form 923**
 * **What is it**: Reported monthly net generation and fuel consumption data for power generators > 1 MW
 * **How we use it**: To convert gross generation data from CEMS to net generation, and to fill in generation and emissions data for generator-months that are not reported in CEMS. EIA-923 reports Puerto Rico plants on a separate sheet, which PUDL does not yet include, so we load these data from the raw EIA-923 files.
