@@ -344,6 +344,10 @@ def results(tmp_path, monkeypatch):
             "state": ["TX", "AZ"],
             "county": ["Travis", None],
             "capacity_mw": [100.0, 50.0],
+            # the gas plant's capacity factor is low, so it is fully nonbaseload, and
+            # solar plants have no nonbaseload factor
+            "capacity_factor": [0.0011, 0.0011],
+            "nonbaseload_factor": [1.0, np.nan],
             "net_generation_mwh": [1000.0, 500.0],
             "fuel_consumed_mmbtu": [12000.0, 0.0],
             "fuel_consumed_for_electricity_mmbtu": [10000.0, 0.0],
@@ -727,7 +731,13 @@ def test_plant_derived_attributes(results):
     # plant 1 burned some coal, although its subplants' primary fuels are gas and solar
     assert plants.loc[1, "COALFLAG"] == "Yes"
     assert pd.isna(plants.loc[2, "COALFLAG"])
-    assert plants.loc[1, "CAPFAC"] == pytest.approx(1000 / (100 * 8784))
+    # the capacity and nonbaseload factors come from OGE's annual plant results, and
+    # nonbaseload generation is the plant's generation times its factor
+    assert plants.loc[1, "CAPFAC"] == 0.0011
+    assert plants.loc[1, "NBFACTOR"] == 1.0
+    assert plants.loc[1, "PLNGENNB"] == 1000.0
+    assert pd.isna(plants.loc[2, "NBFACTOR"])
+    assert pd.isna(plants.loc[2, "PLNGENNB"])
     # the heat rate divides combustion heat input by combustion generation, and is
     # blank for the solar plant
     assert plants.loc[1, "PLHTRT"] == pytest.approx(10_000 * 1000 / 1000)
@@ -935,7 +945,7 @@ def test_egrid_tables_have_every_column(results):
     assert list(tables["NRL"]["NRNAMEPCAP"]) == [100.0, 50.0]
     assert list(tables["US"]["USNAMEPCAP"]) == [150.0]
     # columns that OGE does not calculate are blank
-    assert tables["PLNT"]["NBFACTOR"].isna().all()
+    assert tables["PLNT"]["ELCALLOC"].isna().all()
 
 
 def test_convert_to_metric():
@@ -977,7 +987,7 @@ def test_write_egrid_files(results):
         codes = [code for code, _, _ in columns]
         # filled columns are colored by category and blank columns are grayed out
         filled = worksheet.cell(1, codes.index("PLNGENAN") + 1)
-        blank = worksheet.cell(1, codes.index("NBFACTOR") + 1)
+        blank = worksheet.cell(1, codes.index("ELCALLOC") + 1)
         assert filled.fill.fgColor.rgb == "FFF2DCDB"
         assert blank.font.color.rgb == "FFA6A6A6"
         # Hg is blank where it is incomplete, but OGE calculates it
@@ -1241,3 +1251,107 @@ def test_fill_zeros_when_not_operating():
     assert filled.loc[2, "net_generation_mwh"] == 0
     # the input is not changed
     assert data["net_generation_mwh"].isna().all()
+
+
+@pytest.fixture
+def nonbaseload_tables():
+    """Plant and regional sheets for testing nonbaseload values, with masses in the
+    units of eGRID's columns (tons, except CH4 and N2O in lb).
+
+    - Plant 1 (TX, BA1) is a coal plant with a nonbaseload factor of 0.5.
+    - Plant 2 (TX, BA1) is a gas peaker with a factor of 1.
+    - Plant 3 (TX, BA1) is nuclear, with no factor. Its large generation and emissions
+      would make BA1's rates obviously wrong if they were counted.
+    - Plant 4 (AZ, BA2) is solar, with no factor, so BA2 and AZ have no nonbaseload
+      plants.
+    - Plant 5 has no state, BA or NERC region, so it is only counted in the U.S.
+    """
+    plants = pd.DataFrame(
+        {
+            "ORISPL": [1, 2, 3, 4, 5],
+            "PSTATABB": ["TX", "TX", "TX", "AZ", None],
+            "BACODE": ["BA1", "BA1", "BA1", "BA2", None],
+            "NERC": ["TRE", "TRE", "TRE", "WECC", None],
+            "PLFUELCT": ["COAL", "GAS", "NUCLEAR", "SOLAR", "GAS"],
+            "NBFACTOR": [0.5, 1.0, np.nan, np.nan, 1.0],
+            "PLNGENAN": [1000.0, 100.0, 1_000_000.0, 500.0, 10.0],
+            "PLNGENOZ": [400.0, 80.0, 400_000.0, 250.0, 0.0],
+            "PLNOXAN": [1.0, 0.1, 1000.0, 0.0, 0.0],
+            "PLNOXOZ": [0.4, 0.08, 400.0, 0.0, 0.0],
+            "PLSO2AN": [2.0, 0.0, 1000.0, 0.0, 0.0],
+            "PLCO2AN": [1000.0, 60.0, 1000.0, 0.0, 6.0],
+            "PLCH4AN": [100.0, 10.0, 1000.0, 0.0, 1.0],
+            "PLN2OAN": [20.0, 1.0, 1000.0, 0.0, 0.1],
+            "PLCO2EQA": [1010.0, 61.0, 1000.0, 0.0, 6.1],
+        }
+    )
+    plants["PLNGENNB"] = plants["PLNGENAN"] * plants["NBFACTOR"]
+    return {
+        "PLNT": plants,
+        "ST": pd.DataFrame({"PSTATABB": ["AZ", "TX"]}),
+        "BA": pd.DataFrame({"BACODE": ["BA1", "BA2"]}),
+        "NRL": pd.DataFrame({"NERC": ["TRE", "WECC"]}),
+        "US": pd.DataFrame({"YEAR": [2024]}),
+    }
+
+
+def test_regional_nonbaseload_values(nonbaseload_tables):
+    """Regional nonbaseload values should be summed from the plant sheet as in eGRID,
+    so that each region's rates and generation are consistent with its plants'
+    nonbaseload factors.
+
+    eGRID's 2024 and 2025 files divide nonbaseload emissions by a nonbaseload
+    generation that doesn't match their plants' factors, which makes their rates about
+    18% too high, so this checks the identities that those files break:
+
+    - regional nonbaseload generation is the sum of its plants' PLNGENNB;
+    - each rate is the sum of emissions times the factor divided by the regional
+      nonbaseload generation, with tons converted to lb;
+    - the ozone season NOx rate applies the annual factor to ozone season values;
+    - nonbaseload generation by fuel type follows each plant's fuel category and adds
+      up to the total, and the resource mix adds up to 100%;
+    - plants without a factor (nuclear, solar) are not counted, and regions without
+      any nonbaseload plants have blank values.
+    """
+    tables = output_egrid_file.add_regional_nonbaseload_values(nonbaseload_tables, 2024)
+    ba = tables["BA"].set_index("BACODE")
+    # 0.5 * 1000 + 1 * 100
+    assert ba.loc["BA1", "BANGENNB"] == 600.0
+    assert (
+        ba.loc["BA1", "BANGENNB"]
+        == (tables["PLNT"].groupby("BACODE")["PLNGENNB"].sum()["BA1"])
+    )
+    # tons are converted to lb, and the nuclear plant is not counted
+    assert ba.loc["BA1", "BANBCO2"] == pytest.approx((0.5 * 1000 + 60) * 2000 / 600)
+    assert ba.loc["BA1", "BANBNOX"] == pytest.approx((0.5 * 1.0 + 0.1) * 2000 / 600)
+    assert ba.loc["BA1", "BANBCH4"] == pytest.approx((0.5 * 100 + 10) / 600)
+    assert ba.loc["BA1", "BANBC2E"] == pytest.approx((0.5 * 1010 + 61) * 2000 / 600)
+    # the ozone season rate divides nonbaseload ozone season NOx by nonbaseload ozone
+    # season generation
+    assert ba.loc["BA1", "BANBNXO"] == pytest.approx(
+        (0.5 * 0.4 + 0.08) * 2000 / (0.5 * 400 + 80)
+    )
+    # generation by fuel type follows the plant's fuel category, fuel types without
+    # nonbaseload plants are zero, and the fuel types add up to the total
+    assert ba.loc["BA1", "BANBGNCL"] == 500.0
+    assert ba.loc["BA1", "BANBGNGS"] == 100.0
+    assert ba.loc["BA1", "BANBGNNC"] == 0.0
+    nonbaseload_generation = [
+        f"BA{code}" for code in egrid_schema.NONBASELOAD_GENERATION_CODES.values()
+    ]
+    assert ba.loc["BA1", nonbaseload_generation].sum() == ba.loc["BA1", "BANGENNB"]
+    assert ba.loc["BA1", "BANBCLPR"] == pytest.approx(500 / 600)
+    nonbaseload_mix = [
+        f"BA{code}" for code in egrid_schema.NONBASELOAD_RESOURCE_MIX_GENERATION
+    ]
+    assert ba.loc["BA1", nonbaseload_mix].sum() == pytest.approx(1.0)
+    # BA2 only has a solar plant, so it has no nonbaseload values
+    assert ba.loc["BA2", ["BANGENNB", "BANBCO2", "BANBGNSO", "BANBSOPR"]].isna().all()
+    # states and NERC regions are summed the same way
+    assert tables["ST"].set_index("PSTATABB").loc["TX", "STNGENNB"] == 600.0
+    assert tables["NRL"].set_index("NERC").loc["TRE", "NRNGENNB"] == 600.0
+    # the U.S. includes the plant without a region
+    us = tables["US"].iloc[0]
+    assert us["USNGENNB"] == 610.0
+    assert us["USNBCO2"] == pytest.approx((0.5 * 1000 + 60 + 6) * 2000 / 610)
+    assert us["USNBGNGS"] == 110.0

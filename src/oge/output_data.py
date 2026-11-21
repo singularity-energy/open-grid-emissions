@@ -1,3 +1,4 @@
+import calendar
 import math
 import pandas as pd
 import numpy as np
@@ -66,6 +67,11 @@ UNIT_CONVERSIONS = {
     "lb": ("kg", ConversionFactors.lb_to_kg),
     "mmbtu": ("GJ", ConversionFactors.mmbtu_to_GJ),
 }
+
+# plant factor columns of the annual plant results. They are blank where they don't
+# apply (e.g. the nonbaseload factor of a wind plant), and are rounded to a fixed
+# number of decimals because they are multiplied by generation and emissions
+PLANT_FACTOR_COLUMNS = ["capacity_factor", "nonbaseload_factor"]
 
 
 def prepare_files_for_upload(years: list):
@@ -262,7 +268,7 @@ def output_to_results(
     # energy storage resources, and Hg data is only reported for some subplants, so
     # they are expected to be missing for other resources
     validation.test_for_missing_values(
-        df, skip_cols=STORAGE_DATA_COLUMNS + HG_DATA_COLUMNS
+        df, skip_cols=STORAGE_DATA_COLUMNS + HG_DATA_COLUMNS + PLANT_FACTOR_COLUMNS
     )
 
     if not skip_outputs:
@@ -362,6 +368,7 @@ def write_plant_data_to_results(
                         "plant_id_eia",
                         "plant_name_eia",
                         "fuel_category",
+                        "plant_primary_fuel",
                         "capacity_mw",
                         "ba_code",
                         "city",
@@ -373,6 +380,14 @@ def write_plant_data_to_results(
                 on="plant_id_eia",
                 validate="m:1",
             )
+            # capacity factors are zero where net generation is negative, as in eGRID
+            df["capacity_factor"] = calculate_capacity_factor(
+                df["net_generation_mwh"], df["capacity_mw"], year
+            ).clip(lower=0)
+            df["nonbaseload_factor"] = calculate_nonbaseload_factor(
+                df["capacity_factor"], df["plant_primary_fuel"]
+            )
+            validation.check_for_capacity_factors_above_one(df)
 
             # rearrange columns
             df = df[
@@ -381,6 +396,8 @@ def write_plant_data_to_results(
                     "plant_name_eia",
                     "fuel_category",
                     "capacity_mw",
+                    "capacity_factor",
+                    "nonbaseload_factor",
                     "ba_code",
                     "city",
                     "county",
@@ -408,6 +425,72 @@ def write_plant_data_to_results(
             path_prefix=path_prefix,
             skip_outputs=skip_outputs,
         )
+
+
+def calculate_capacity_factor(
+    net_generation: pd.Series, capacity: pd.Series, year: int
+) -> pd.Series:
+    """Calculates capacity factors as net generation divided by the generation at
+    nameplate capacity in every hour of the year, i.e. 8,784 hours in a leap year.
+
+    Capacity factors are negative where net generation is negative. eGRID keeps these
+    negative capacity factors for generators, but sets them to zero for plants.
+
+    Args:
+        net_generation (pd.Series): annual net generation in MWh.
+        capacity (pd.Series): nameplate capacity in MW.
+        year (int): data year.
+
+    Returns:
+        pd.Series: capacity factors, blank where the capacity is zero or blank.
+    """
+    hours = 24 * (366 if calendar.isleap(year) else 365)
+    return net_generation / (capacity.where(capacity > 0) * hours)
+
+
+def calculate_nonbaseload_factor(
+    capacity_factor: pd.Series, primary_fuel: pd.Series
+) -> pd.Series:
+    """Calculates the nonbaseload factor of each plant, which is the share of its
+    generation and emissions that is considered nonbaseload, from its annual capacity
+    factor, as in eGRID.
+
+    The capacity factor stands in for where a plant falls in the dispatch order: plants
+    with a capacity factor below 0.2 are fully nonbaseload (a factor of 1), plants
+    above 0.8 are fully baseload (a factor of 0), and in between the factor is
+    -5/3 * capacity factor + 4/3, which falls linearly from 1 to 0.
+
+    The factor is blank for plants whose capacity factor is blank or zero, which have no
+    nonbaseload generation, and for plants whose primary fuel is not dispatched to
+    follow load, so that their capacity factor says nothing about whether they are on
+    the margin. As in eGRID's code (but not its technical guide), biomass plants are not
+    excluded.
+
+    Args:
+        capacity_factor (pd.Series): annual capacity factor of each plant.
+        primary_fuel (pd.Series): primary fuel (energy source code) of each plant.
+
+    Returns:
+        pd.Series: nonbaseload factor of each plant, between 0 and 1.
+    """
+    excluded_fuels = [
+        "GEO",  # geothermal
+        "MWH",  # energy storage
+        "NUC",  # nuclear
+        "PUR",  # purchased steam
+        "SUN",  # solar
+        "WAT",  # water (hydro, including pumped storage)
+        "WND",  # wind
+    ]
+    factor = pd.Series(
+        np.select(
+            [capacity_factor < 0.2, capacity_factor > 0.8],
+            [1.0, 0.0],
+            default=-5 / 3 * capacity_factor + 4 / 3,
+        ),
+        index=capacity_factor.index,
+    )
+    return factor.where((capacity_factor > 0) & ~primary_fuel.isin(excluded_fuels))
 
 
 def convert_results(df: pd.DataFrame) -> pd.DataFrame:
@@ -544,7 +627,8 @@ def write_plant_metadata(
 
 def round_table(table: pd.DataFrame) -> pd.DataFrame:
     """Round each numeric columns. All values in a column have the same rounding.
-    Rounding for each column is based on the median non-zero value.
+    Rounding for each column is based on the median non-zero value, except for the
+    columns of `PLANT_FACTOR_COLUMNS`, which have four decimals.
 
     Args:
         table (pd.DataFrame): table whose numeric columns will be rounded.
@@ -558,6 +642,9 @@ def round_table(table: pd.DataFrame) -> pd.DataFrame:
     decimals = {}
     # Iterate through numeric columns
     for c in table.select_dtypes(include=np.number).columns:
+        if c in PLANT_FACTOR_COLUMNS:
+            decimals[c] = 4
+            continue
         # Non-zero minimum
         val = table.loc[table[c] > 0, c].median()
         # if val is NaN, then this col has only NaN or only 0 values

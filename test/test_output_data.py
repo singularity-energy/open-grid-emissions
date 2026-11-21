@@ -365,6 +365,7 @@ def test_plant_data_does_not_sum_subplant_id(plant_part, resolution):
             "plant_id_eia": [1],
             "plant_name_eia": ["Plant 1"],
             "fuel_category": ["natural_gas"],
+            "plant_primary_fuel": ["NG"],
             "capacity_mw": [100.0],
             "ba_code": ["BA1"],
             "city": ["City"],
@@ -402,3 +403,139 @@ def test_plant_data_does_not_sum_subplant_id(plant_part, resolution):
         expected_value = 1.0 * months_per_row
     assert (table[DATA_COLUMNS] == expected_value).all().all()
     assert table[STORAGE_DATA_COLUMNS].isna().all().all()
+
+
+def test_capacity_factor_uses_hours_in_year():
+    """Capacity factors should divide net generation by nameplate capacity times the
+    hours in the data year, including the extra day of a leap year, and be negative
+    where net generation is negative.
+
+    Capacity factors are blank where capacity is zero or blank, rather than infinite.
+    """
+    generation = pd.Series([8784.0, 8760.0, -100.0, 10.0, 10.0])
+    capacity = pd.Series([1.0, 1.0, 1.0, 0.0, np.nan])
+    leap_year = output_data.calculate_capacity_factor(generation, capacity, 2024)
+    assert leap_year[0] == 1.0
+    assert leap_year[2] == pytest.approx(-100 / 8784)
+    # zero or blank capacity
+    assert leap_year[[3, 4]].isna().all()
+    # a year that is not a leap year has 8,760 hours
+    assert output_data.calculate_capacity_factor(generation, capacity, 2023)[1] == 1.0
+
+
+def test_nonbaseload_factor_follows_egrid():
+    """The nonbaseload factor should follow eGRID's piecewise linear function of the
+    capacity factor and its exclusions.
+
+    - Below a capacity factor of 0.2 a plant is fully nonbaseload (1), above 0.8 it is
+      fully baseload (0), and in between the factor is -5/3 * CF + 4/3.
+    - Plants whose capacity factor is zero or blank have no factor, as in eGRID, since
+      they have no nonbaseload generation. Negative capacity factors also have none,
+      although the plant results set them to zero before this is calculated.
+    - Plants whose primary fuel is not dispatched to follow load (e.g. nuclear, solar,
+      hydro) have no factor, but biomass plants do, as in eGRID's code.
+    """
+    capacity_factor = pd.Series([0.1, 0.2, 0.5, 0.8, 0.95, 0.0, -0.1, np.nan, 0.5, 0.1])
+    primary_fuel = pd.Series(
+        ["NG", "NG", "BIT", "NG", "NG", "NG", "NG", "NG", "NUC", "WDS"]
+    )
+    factor = output_data.calculate_nonbaseload_factor(capacity_factor, primary_fuel)
+    assert factor[0] == 1.0
+    assert factor[1] == pytest.approx(1.0)
+    assert factor[2] == pytest.approx(-5 / 3 * 0.5 + 4 / 3)
+    assert factor[3] == pytest.approx(0.0)
+    assert factor[4] == 0.0
+    # no factor for zero, negative or blank capacity factors
+    assert factor[[5, 6, 7]].isna().all()
+    # nuclear is excluded, biomass is not
+    assert pd.isna(factor[8])
+    assert factor[9] == 1.0
+
+
+def test_annual_plant_data_has_capacity_and_nonbaseload_factors():
+    """The annual plant results should include each plant's capacity factor and
+    nonbaseload factor next to its capacity, without the plant primary fuel used to
+    calculate the nonbaseload factor.
+
+    The eGRID-format file reads both factors from these results, so they must be
+    calculated from the plant's annual generation and capacity. Plant 1 generates half
+    of what it could at full capacity in a leap year. Plant 2 has negative net
+    generation, so, as in eGRID's plant sheet, its capacity factor is zero rather than
+    negative, and it has no nonbaseload factor.
+    """
+    records = []
+    for plant_id, generation in [(1, 100 * 8784 / 4), (2, -50.0)]:
+        for month in ["2024-01-01", "2024-02-01"]:
+            record = {
+                "plant_id_eia": plant_id,
+                "subplant_id": 1,
+                "report_date": pd.Timestamp(month),
+            }
+            record.update({col: 0.0 for col in DATA_COLUMNS})
+            record.update({col: np.nan for col in STORAGE_DATA_COLUMNS})
+            record.update({col: np.nan for col in HG_DATA_COLUMNS})
+            record["net_generation_mwh"] = generation
+            records.append(record)
+    monthly_subplant_data = pd.DataFrame(records).astype({"subplant_id": "Int32"})
+    plant_attributes = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2],
+            "plant_name_eia": ["Plant 1", "Plant 2"],
+            "fuel_category": ["natural_gas", "natural_gas"],
+            "plant_primary_fuel": ["NG", "NG"],
+            "capacity_mw": [100.0, 100.0],
+            "ba_code": ["BA1", "BA1"],
+            "city": ["City", "City"],
+            "county": ["County", "County"],
+            "state": ["ST", "ST"],
+        }
+    )
+    outputs = {}
+
+    def fake_output_to_results(df, year, file_name, subfolder, **_):
+        outputs[(subfolder, file_name)] = df.copy()
+
+    with (
+        patch.object(output_data, "output_to_results", fake_output_to_results),
+        patch.object(output_data.validation, "check_for_anomalous_co2_factors"),
+    ):
+        output_data.write_plant_data_to_results(
+            monthly_subplant_data,
+            2024,
+            path_prefix="2024/",
+            plant_part="plant",
+            resolution="annual",
+            skip_outputs=False,
+            plant_attributes=plant_attributes,
+        )
+
+    table = outputs[("plant_data/annual/", "plant_data")]
+    columns = list(table.columns)
+    assert columns[
+        columns.index("capacity_mw") + 1 : columns.index("capacity_mw") + 3
+    ] == [
+        "capacity_factor",
+        "nonbaseload_factor",
+    ]
+    assert "plant_primary_fuel" not in table
+    # half of the year's generation at full capacity
+    assert table.loc[0, "capacity_factor"] == pytest.approx(0.5)
+    assert table.loc[0, "nonbaseload_factor"] == pytest.approx(-5 / 3 * 0.5 + 4 / 3)
+    # negative generation gives a zero capacity factor and no nonbaseload factor
+    assert table.loc[1, "capacity_factor"] == 0
+    assert pd.isna(table.loc[1, "nonbaseload_factor"])
+
+
+def test_plant_factors_are_rounded_to_fixed_decimals():
+    """Capacity and nonbaseload factors should keep four decimals however small the
+    median factor is, since they are multiplied by generation and emissions.
+    """
+    table = pd.DataFrame(
+        {
+            "capacity_factor": [0.123456, 0.9],
+            "nonbaseload_factor": [0.987654, 0.0],
+        }
+    )
+    rounded = output_data.round_table(table)
+    assert rounded["capacity_factor"].tolist() == [0.1235, 0.9]
+    assert rounded["nonbaseload_factor"].tolist() == [0.9877, 0.0]
