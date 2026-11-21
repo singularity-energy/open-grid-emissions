@@ -100,7 +100,9 @@ Both `gross_to_net_generation.convert_gross_to_net_generation` and `impute_hourl
 
 ### Release packaging (`output_data.py`)
 
-Beyond writing per-year CSVs, `output_data` also contains one-off release-management functions (`prepare_files_for_upload`, `zip_results_for_s3`, `zip_data_for_zenodo`) that zip/reorganize published results for upload to S3 and Zenodo. These are only run manually when cutting a new versioned data release, not as part of a normal `data_pipeline.py` run.
+Beyond writing per-year CSVs, `output_data` also contains one-off release-management functions (`build_data_download_manifest`, `zip_data_for_zenodo`) that build the download manifest and zip published results for upload to S3 and Zenodo. These are run from `notebooks/manual_data/prepare_uploads.ipynb` only when cutting a new versioned data release, not as part of a normal `data_pipeline.py` run.
+
+The zipped files are then uploaded to Zenodo as a new version of the existing record with `python -m oge.zenodo_upload` (see the module docstring for token setup and the `--sandbox` and `--publish` flags). By default it leaves the new version as a draft to review on zenodo.org before publishing.
 
 ### On-disk layout produced by the pipeline
 
