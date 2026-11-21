@@ -281,7 +281,6 @@ def results(tmp_path, monkeypatch):
                 "transmission_distribution_owner_id": [10, 10],
                 "utility_id_eia": [20, 21],
                 "sector_id_eia": [2, 1],
-                "nerc_region": ["TRE", "WECC"],
             }
         ),
         "core_pudl__codes_subdivisions": pd.DataFrame(
@@ -332,6 +331,7 @@ def results(tmp_path, monkeypatch):
         longitude=[-97.0, -111.0],
         plant_primary_fuel=["NG", "SUN"],
         fuel_category=["natural_gas", "solar"],
+        nerc_region=["TRE", "WECC"],
     ).to_csv(plant_folder / "plant_static_attributes.csv", index=False)
     # monthly subplant data: plant 1 has a gas subplant that runs in January and June
     # and a solar subplant that runs in June, and plant 2 is solar
@@ -716,7 +716,7 @@ def test_region_tables(results):
 
 
 def test_state_table(results):
-    states = output_egrid_file.build_state_table(2024, "2024/")
+    states = output_egrid_file.build_plant_region_table(2024, "2024/", "ST")
     # states are sorted by abbreviation, with their FIPS codes
     assert list(states["PSTATABB"]) == ["AZ", "TX"]
     assert list(states["FIPSST"]) == ["04", "48"]
@@ -743,6 +743,71 @@ def test_state_table(results):
     assert states.loc["AZ", "STCO2RTA"] == 0
 
 
+def test_build_plant_region_table_nerc_regions(results):
+    """The NERC region sheet should sum OGE's subplant results by each plant's NERC
+    region in the plant static attributes, the same way the state sheet sums them by
+    state.
+
+    - Regions are sorted by acronym and have eGRID's names, and no state FIPS code.
+    - Generation, fuel groups, masses in tons and ozone season values are summed from
+      the subplants of each region's plants.
+    """
+    regions = output_egrid_file.build_plant_region_table(2024, "2024/", "NRL")
+    assert list(regions["NERC"]) == ["TRE", "WECC"]
+    assert list(regions["NERCNAME"]) == [
+        "Texas Regional Entity",
+        "Western Electricity Coordinating Council",
+    ]
+    assert "FIPSST" not in regions
+    regions = regions.set_index("NERC")
+    assert regions.loc["TRE", "NRNGENAN"] == 1030.0
+    assert regions.loc["TRE", "NRGENAGS"] == 1000.0
+    assert regions.loc["WECC", "NRGENASO"] == 500.0
+    assert regions.loc["TRE", "NRCO2AN"] == 5.0
+    assert regions.loc["TRE", "NRNOXOZ"] == 8.0 / 2000
+
+
+def test_build_plant_region_table_historical_region_name(results):
+    """Historical NERC regions should have eGRID's names.
+
+    Plant static attributes keep the region EIA-860 reported for the data year, so a
+    workbook for an earlier year has regions that were later merged or dissolved, e.g.
+    FRCC, which merged into SERC in 2019.
+    """
+    attributes_path = results / "2024/plant_data/plant_static_attributes.csv"
+    attributes = pd.read_csv(attributes_path)
+    attributes["nerc_region"] = ["FRCC", "SPP"]
+    attributes.to_csv(attributes_path, index=False)
+    regions = output_egrid_file.build_plant_region_table(2024, "2024/", "NRL")
+    assert list(regions["NERCNAME"]) == [
+        "Florida Reliability Coordinating Council",
+        "Southwest Power Pool",
+    ]
+
+
+def test_build_plant_region_table_without_regions(results):
+    """If no plant has a NERC region, the NERC region sheet should be empty but keep
+    every column, and the workbooks should still be written.
+
+    Plant static attributes allow a blank NERC region, and plants without a region are
+    left out of the sheet, so a sheet with no regions must not stop the workbooks from
+    being written.
+    """
+    attributes_path = results / "2024/plant_data/plant_static_attributes.csv"
+    attributes = pd.read_csv(attributes_path)
+    attributes["nerc_region"] = pd.NA
+    attributes.to_csv(attributes_path, index=False)
+    regions = output_egrid_file.build_plant_region_table(2024, "2024/", "NRL")
+    assert regions.empty
+    assert list(regions.columns) == [
+        code for code, _, _ in get_egrid_columns("NRL", 2024)
+    ]
+    output_egrid_file.write_egrid_files(2024, "2024/")
+    workbook = openpyxl.load_workbook(results / "2024/eGRID/oge_egrid2024_data.xlsx")
+    # only the header and column code rows are written
+    assert workbook["NRL24"].max_row == 2
+
+
 def test_egrid_tables_have_every_column(results):
     tables = output_egrid_file.build_egrid_tables(2024, "2024/")
     assert list(tables) == EGRID_SHEETS
@@ -754,6 +819,9 @@ def test_egrid_tables_have_every_column(results):
     assert len(tables["UNT"]) == 2
     assert len(tables["GEN"]) == 2
     assert list(tables["ST"]["PSTATABB"]) == ["AZ", "TX"]
+    assert list(tables["NRL"]["NERC"]) == ["TRE", "WECC"]
+    # the eGRID subregion sheet is not filled yet
+    assert tables["SRL"].empty
     # the plant sheet counts each plant's units and generators
     plants = tables["PLNT"].set_index("ORISPL")
     assert plants.loc[1, ["NUMUNT", "NUMGEN"]].tolist() == [2, 1]
@@ -764,6 +832,7 @@ def test_egrid_tables_have_every_column(results):
     # regional capacity sums the capacity of the plant sheet
     assert list(tables["ST"]["STNAMEPCAP"]) == [50.0, 100.0]
     assert list(tables["BA"]["BANAMEPCAP"]) == [100.0, 50.0]
+    assert list(tables["NRL"]["NRNAMEPCAP"]) == [100.0, 50.0]
     assert list(tables["US"]["USNAMEPCAP"]) == [150.0]
     # columns that OGE does not calculate are blank
     assert tables["PLNT"]["NBFACTOR"].isna().all()
