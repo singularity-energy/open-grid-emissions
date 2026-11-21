@@ -551,6 +551,8 @@ def get_dtypes() -> dict:
         "so2_removal_efficiency_annual": "float64",
         "so2_removal_efficiency_at_full_load": "float64",
         "source_category_epa": "string",
+        "stack_flue_id_eia": "string",
+        "stack_height_ft": "float64",
         "start_year": "Int32",
         "steam_load_lbs": "float64",
         "storage_charge_mwh": "float64",
