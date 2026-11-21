@@ -9,7 +9,7 @@ The formula and assumptions used for calculating the electric allocation factor 
 
 Although both total `fuel_consumed_mmbtu` and `fuel_consumed_mmbtu_for_electricity` are reported in EIA-923, the eGRID methodology does not directly use these values to calculate an electric allocation factor. Although this is not explicitly explained in the eGRID methodology, this is ostensibly because they are trying to allocate fuel based on the proportion of energy outputs, not energy inputs. This means that the `fuel_consumed_mmbtu_for_electricity` values calculated using this method will not match the reported `fuel_consumed_mmbtu_for_electricity` values from EIA-923.
 
-When performing the below calculations, all calculations are performed at the subplant level, rather than at the generator or unit level. This is due to the fact that in some CHP systems, all of the reported fuel consumption at the subplant may be associated with one of the subplant's generators, while all of the reported generation data may be associated with another of the subplant's generators. 
+All calculations are performed at the subplant level, rather than at the generator or unit level. This is due to the fact that in some CHP systems, all of the reported fuel consumption at the subplant may be associated with one of the subplant's generators, while all of the reported generation data may be associated with another of the subplant's generators. 
 
 The electric allocation factor is applied to all emissions, including mercury (Hg), for which OGE reports `hg_mass_lb_for_electricity`. eGRID does not apply the electric allocation factor to Hg.
 
