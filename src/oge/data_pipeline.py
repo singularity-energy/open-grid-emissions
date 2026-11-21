@@ -26,6 +26,7 @@ import oge.helpers as helpers
 import oge.impute_hourly_profiles as impute_hourly_profiles
 import oge.load_data as load_data
 import oge.output_data as output_data
+import oge.output_egrid_file as output_egrid_file
 import oge.physics_reconciliation as physics_reconciliation
 import oge.subplant_identification as subplant_identification
 import oge.validation as validation
@@ -427,6 +428,18 @@ def main(args):
     # 11. Export monthly and annual plant-level results
     ####################################################################################
     logger.info("11. Exporting monthly and annual plant-level results")
+    # write the data source of each subplant-month. This is written for every year,
+    # not only years with hourly data, because the eGRID-format workbook uses it
+    output_data.write_plant_metadata(
+        plant_attributes,
+        eia923_allocated,
+        cems,
+        partial_cems_subplant,
+        partial_cems_plant,
+        path_prefix,
+        args.skip_outputs,
+        year,
+    )
     # create a separate dataframe containing only the EIA data that is missing from cems
     monthly_eia_data_to_shape = eia923_allocated[
         (eia923_allocated["hourly_data_source"] == "eia")
@@ -753,18 +766,6 @@ def main(args):
             )
             del monthly_eia_fleet_data
 
-            # write metadata outputs
-            output_data.write_plant_metadata(
-                plant_attributes,
-                eia923_allocated,
-                cems,
-                partial_cems_subplant,
-                partial_cems_plant,
-                shaped_eia_fleet_data,
-                path_prefix,
-                args.skip_outputs,
-                year,
-            )
             del eia923_allocated
             gc.collect()
             # group shaped data by fleet, since the fuel category used for shaping might
@@ -898,6 +899,11 @@ def main(args):
             )
             hourly_consumed_calc.run()
             hourly_consumed_calc.output_results()
+
+    # 20. Export annual results in the eGRID format
+    ####################################################################################
+    logger.info("20. Exporting annual results in the eGRID format")
+    output_egrid_file.write_egrid_files(year, path_prefix, args.skip_outputs)
 
 
 if __name__ == "__main__":
