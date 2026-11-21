@@ -1928,14 +1928,7 @@ def combine_and_export_hourly_plant_data(
         copy=False,
     )
     # flag data that is missing Hg, so that Hg is only summed where it is complete
-    combined_cems_data["missing_hg"] = pd.concat(
-        [
-            flag_missing_hg(cems),
-            flag_missing_hg_in_shaped_data(partial_cems_subplant),
-            flag_missing_hg_in_shaped_data(partial_cems_plant),
-        ],
-        ignore_index=True,
-    )
+    combined_cems_data["missing_hg"] = flag_missing_hg(combined_cems_data)
     combined_cems_data = combined_cems_data[
         [
             col
@@ -1963,6 +1956,14 @@ def combine_and_export_hourly_plant_data(
         how="left",
         on="plant_id_eia",
         validate="m:1",
+    )
+
+    # Partial CEMS and EIA-only data is shaped from monthly totals, so a plant's Hg is
+    # not complete in any hour of a month in which this data consumed fuel. This is
+    # identified from monthly totals, since hours with zero values have been removed
+    # from the partial CEMS data.
+    non_cems_plant_months = identify_non_cems_plant_months(
+        [partial_cems_subplant, partial_cems_plant, monthly_eia_data_to_shape]
     )
 
     # because we need to shape the EIA based on its fleet category, we need to assign
@@ -2018,9 +2019,6 @@ def combine_and_export_hourly_plant_data(
         )
 
         # group the subplant data to plant
-        shaped_eia_region_data["missing_hg"] = flag_missing_hg_in_shaped_data(
-            shaped_eia_region_data
-        )
         shaped_eia_region_data = (
             shaped_eia_region_data.groupby(
                 key_columns,
@@ -2029,7 +2027,7 @@ def combine_and_export_hourly_plant_data(
                 [
                     col
                     for col in shaped_eia_region_data.columns
-                    if col in data_columns_for_plant_export + ["missing_hg"]
+                    if col in data_columns_for_plant_export
                 ]
             ]
             .sum(numeric_only=True)
@@ -2074,10 +2072,17 @@ def combine_and_export_hourly_plant_data(
             ],
         )
 
+        # Hg is zero in hours without fuel at plants that report Hg, including hours
+        # added to complete the timeseries
         combined_plant_data = fill_hg_without_fuel(
-            combined_plant_data, ["plant_id_eia"]
+            combined_plant_data, ["plant_id_eia"], hg_data=cems
         )
         combined_plant_data = remove_incomplete_hg(combined_plant_data)
+        combined_plant_data = remove_hg_in_non_cems_plant_months(
+            combined_plant_data,
+            non_cems_plant_months,
+            plant_attributes.copy()[["plant_id_eia", "timezone"]],
+        )
 
         # round the data columns to two decimal places. Hg values are too small to
         # round this way, so they are rounded in `output_to_results()`
@@ -2112,27 +2117,75 @@ def combine_and_export_hourly_plant_data(
         )
 
 
-def flag_missing_hg_in_shaped_data(df: pd.DataFrame) -> pd.Series:
-    """Flags every hour of shaped subplant-months that consumed fuel as missing Hg.
+def identify_non_cems_plant_months(dfs: list[pd.DataFrame]) -> pd.MultiIndex:
+    """Identifies plant-months with fuel consumption in data that is not from CEMS.
 
-    The hourly values of shaped data are estimated from a profile of monthly data, so
-    Hg data is not complete in any hour of a month in which the subplant consumed fuel.
+    Hg data only comes from CEMS, so a plant's hourly Hg is only complete in hours
+    when every subplant that consumed fuel has measured Hg. Partial CEMS and EIA-only
+    subplants have no Hg, and their hourly fuel consumption is shaped from monthly
+    totals using a profile, so we can't tell in which hours of the month they actually
+    consumed fuel. A plant's Hg is therefore not complete in any hour of a month in
+    which one of these subplants consumed fuel, and these plant-months are used to
+    remove Hg from the hourly plant data (see `remove_hg_in_non_cems_plant_months()`).
+
+    These plant-months are identified from monthly fuel totals rather than from the
+    hourly rows, because hours in which the shaped data is zero have been removed from
+    the partial CEMS data, so the hourly rows don't cover every hour of the month.
 
     Args:
-        df (pd.DataFrame): shaped hourly subplant data with `fuel_consumed_mmbtu` and
-            `report_date` columns
+        dfs (list[pd.DataFrame]): partial CEMS and EIA-only subplant data, with
+            `plant_id_eia`, `report_date` and `fuel_consumed_mmbtu` columns
 
     Returns:
-        pd.Series: True for each hour of subplant-months that consumed fuel
+        pd.MultiIndex: the `plant_id_eia` and `report_date` of each plant-month in
+            which this data consumed fuel
     """
-    if df.empty:
-        return pd.Series(dtype=bool)
-    return (
-        df.groupby(["plant_id_eia", "subplant_id", "report_date"], dropna=False)[
-            "fuel_consumed_mmbtu"
-        ].transform("sum")
-        > 0
-    )
+    columns = ["plant_id_eia", "report_date", "fuel_consumed_mmbtu"]
+    dfs = [df[columns] for df in dfs if not df.empty]
+    if not dfs:
+        return pd.MultiIndex.from_arrays([[], []], names=columns[:2])
+    fuel = pd.concat(dfs, ignore_index=True)
+    fuel["report_date"] = fuel["report_date"].astype("datetime64[s]")
+    monthly_fuel = fuel.groupby(["plant_id_eia", "report_date"], dropna=False)[
+        "fuel_consumed_mmbtu"
+    ].sum(min_count=1)
+    return monthly_fuel[monthly_fuel > 0].index
+
+
+def remove_hg_in_non_cems_plant_months(
+    plant_data: pd.DataFrame,
+    non_cems_plant_months: pd.MultiIndex,
+    plant_timezone: pd.DataFrame,
+) -> pd.DataFrame:
+    """Removes hourly plant Hg data in every hour of plant-months with fuel consumption
+    in data that is not from CEMS (see `identify_non_cems_plant_months()`).
+
+    In these plant-months, a subplant without Hg data consumed fuel in hours we can't
+    identify, so the Hg of the plant's other subplants doesn't represent the whole
+    plant in any hour of the month. Without this step, hours in which the shaped data
+    happens to be zero (or was removed) would report the Hg of the other subplants as
+    if it were complete. Each hour is assigned to the month of the plant's local time,
+    to match the `report_date` of the monthly data.
+
+    Args:
+        plant_data (pd.DataFrame): hourly plant data with `plant_id_eia`,
+            `datetime_utc` and Hg columns
+        non_cems_plant_months (pd.MultiIndex): `plant_id_eia` and `report_date` of the
+            plant-months to remove Hg from
+        plant_timezone (pd.DataFrame): the `timezone` of each `plant_id_eia`, used to
+            assign each hour to a local month
+
+    Returns:
+        pd.DataFrame: `plant_data` with Hg removed in these plant-months
+    """
+    report_date = load_data.add_report_date(
+        plant_data.copy()[["plant_id_eia", "datetime_utc"]], plant_timezone
+    )["report_date"]
+    in_non_cems_month = pd.MultiIndex.from_arrays(
+        [plant_data["plant_id_eia"].to_numpy(), report_date.to_numpy()]
+    ).isin(non_cems_plant_months)
+    plant_data.loc[in_non_cems_month, HG_DATA_COLUMNS] = np.nan
+    return plant_data
 
 
 def get_shaped_plant_id_from_ba_fuel(df: pd.DataFrame) -> pd.DataFrame:

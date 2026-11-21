@@ -579,7 +579,9 @@ def flag_missing_hg(df: pd.DataFrame) -> pd.Series:
     return df["hg_mass_lb"].isna() & (df["fuel_consumed_mmbtu"] > 0)
 
 
-def fill_hg_without_fuel(df: pd.DataFrame, groupby_cols: list[str]) -> pd.DataFrame:
+def fill_hg_without_fuel(
+    df: pd.DataFrame, groupby_cols: list[str], hg_data: pd.DataFrame
+) -> pd.DataFrame:
     """Sets missing Hg to zero where no fuel was consumed, for groups that report Hg.
 
     Data without fuel consumption has no Hg emissions. This fills Hg for data that
@@ -587,17 +589,24 @@ def fill_hg_without_fuel(df: pd.DataFrame, groupby_cols: list[str]) -> pd.DataFr
     that are added to complete a timeseries. Groups that don't report any Hg remain
     blank.
 
+    Whether a group reports Hg is identified from `hg_data`, which should be the hourly
+    CEMS data before Hg is summed to `df`. Summing Hg removes it wherever it is
+    incomplete, so a group that reports Hg can have no Hg left in `df`.
+
     Args:
         df (pd.DataFrame): data with `fuel_consumed_mmbtu` and Hg columns
         groupby_cols (list[str]): columns identifying each group, such as a plant or
             subplant
+        hg_data (pd.DataFrame): data with `hg_mass_lb` and `groupby_cols` columns,
+            used to identify the groups that report Hg
 
     Returns:
         pd.DataFrame: `df` with missing Hg set to zero where no fuel was consumed
     """
-    reports_hg = (
-        df.groupby(groupby_cols, dropna=False)["hg_mass_lb"].transform("count") > 0
+    reporting_groups = pd.MultiIndex.from_frame(
+        hg_data.loc[hg_data["hg_mass_lb"].notna(), groupby_cols].drop_duplicates()
     )
+    reports_hg = pd.MultiIndex.from_frame(df[groupby_cols]).isin(reporting_groups)
     no_fuel = reports_hg & ~(df["fuel_consumed_mmbtu"] > 0)
     hg_columns = [col for col in HG_DATA_COLUMNS if col in df.columns]
     df.loc[no_fuel, hg_columns] = df.loc[no_fuel, hg_columns].fillna(0)

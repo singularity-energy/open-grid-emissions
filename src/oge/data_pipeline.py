@@ -467,7 +467,7 @@ def main(args):
     )
     # Hg is zero in subplant-months without fuel at subplants that report Hg
     monthly_subplant_data = helpers.fill_hg_without_fuel(
-        monthly_subplant_data, ["plant_id_eia", "subplant_id"]
+        monthly_subplant_data, ["plant_id_eia", "subplant_id"], hg_data=cems
     )
     # add energy storage charging and discharging data from EIA-923. This is added
     # after combining the data so that it is kept for storage at plants that report to

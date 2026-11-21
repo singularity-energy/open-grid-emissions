@@ -1642,20 +1642,69 @@ def test_calculate_storage_profiles_without_storage_series(monkeypatch):
     assert (january["storage_charge_profile_method"] == "net_load_proxy").all()
 
 
-def test_flag_missing_hg_in_shaped_data():
-    """Every hour of a shaped subplant-month that consumed fuel is missing Hg, even
-    hours where the shaped fuel consumption is zero."""
+def test_identify_non_cems_plant_months():
+    """Plant-months in which partial CEMS or EIA-only data consumed fuel should be
+    identified from monthly fuel totals.
+
+    Hours in which the shaped partial CEMS data is zero are removed from the pipeline
+    data, so a month must still be identified when only some of its hours remain. A
+    month in which this data consumed no fuel should not be identified, and empty
+    dataframes should be skipped.
+    """
     jan, feb = pd.Timestamp("2024-01-01"), pd.Timestamp("2024-02-01")
-    shaped = pd.DataFrame(
+    partial_cems_subplant = pd.DataFrame(
         {
-            "plant_id_eia": [1, 1, 1, 1],
-            "subplant_id": [1, 1, 1, 1],
-            "report_date": [jan, jan, feb, feb],
-            "fuel_consumed_mmbtu": [0, 5, 0, 0],
+            "plant_id_eia": [1, 1, 1],
+            "report_date": [jan, jan, feb],
+            "fuel_consumed_mmbtu": [5, 3, 0],
         }
     )
+    monthly_eia = pd.DataFrame(
+        {"plant_id_eia": [2], "report_date": [feb], "fuel_consumed_mmbtu": [10]}
+    )
 
-    result = impute_hourly_profiles.flag_missing_hg_in_shaped_data(shaped)
+    result = impute_hourly_profiles.identify_non_cems_plant_months(
+        [partial_cems_subplant, pd.DataFrame(), monthly_eia]
+    )
 
-    assert result.tolist() == [True, True, False, False]
-    assert impute_hourly_profiles.flag_missing_hg_in_shaped_data(pd.DataFrame()).empty
+    assert sorted(result.tolist()) == [(1, jan), (2, feb)]
+    assert impute_hourly_profiles.identify_non_cems_plant_months([pd.DataFrame()]).empty
+
+
+def test_remove_hg_in_non_cems_plant_months():
+    """Hourly plant Hg should be removed in every hour of a plant-month with non-CEMS
+    fuel, and nowhere else.
+
+    The hours are assigned to months using each plant's local time, so that they match
+    the monthly `report_date`: 2024-02-01 03:00 UTC is still January in New York, so
+    its Hg is removed along with the rest of plant 1's January hours, while plant 1's
+    February hours and plant 2 keep their Hg.
+    """
+    plant_data = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 2],
+            "datetime_utc": pd.to_datetime(
+                [
+                    "2024-01-15 00:00",
+                    "2024-02-01 03:00",
+                    "2024-02-01 06:00",
+                    "2024-01-15 00:00",
+                ],
+                utc=True,
+            ),
+            "hg_mass_lb": [0.1, 0.0, 0.2, 0.3],
+            "hg_mass_lb_for_electricity": [0.1, 0.0, 0.2, 0.3],
+        }
+    )
+    non_cems_plant_months = pd.MultiIndex.from_tuples(
+        [(1, pd.Timestamp("2024-01-01"))], names=["plant_id_eia", "report_date"]
+    )
+    plant_timezone = pd.DataFrame(
+        {"plant_id_eia": [1, 2], "timezone": ["America/New_York"] * 2}
+    )
+
+    result = impute_hourly_profiles.remove_hg_in_non_cems_plant_months(
+        plant_data, non_cems_plant_months, plant_timezone
+    )
+
+    np.testing.assert_allclose(result["hg_mass_lb"], [np.nan, np.nan, 0.2, 0.3])

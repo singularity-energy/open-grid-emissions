@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 import oge.output_data as output_data
-from oge.column_checks import DATA_COLUMNS, STORAGE_DATA_COLUMNS
+from oge.column_checks import DATA_COLUMNS, HG_DATA_COLUMNS, STORAGE_DATA_COLUMNS
 
 
 def capture_outputs(fleet_data, **kwargs):
@@ -357,6 +357,7 @@ def test_plant_data_does_not_sum_subplant_id(plant_part, resolution):
             }
             record.update({col: 1.0 for col in DATA_COLUMNS})
             record.update({col: np.nan for col in STORAGE_DATA_COLUMNS})
+            record.update({col: np.nan for col in HG_DATA_COLUMNS})
             records.append(record)
     monthly_subplant_data = pd.DataFrame(records).astype({"subplant_id": "Int32"})
     plant_attributes = pd.DataFrame(

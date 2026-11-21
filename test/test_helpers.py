@@ -37,22 +37,31 @@ def test_remove_incomplete_hg():
 
 
 def test_fill_hg_without_fuel():
-    """Missing Hg is zero without fuel consumption, but only for groups that report
-    Hg, and stays missing when fuel was consumed."""
+    """Missing Hg should be set to zero where no fuel was consumed, but only for
+    groups that report Hg in the hourly data.
+
+    - Hg stays missing where fuel was consumed, since that is missing data.
+    - Plant 2 doesn't report Hg, so it stays blank rather than zero.
+    - Plant 3 reports Hg in the hourly data, but none of its Hg is left in the summed
+      data (as when every month it operated has a gap), so it should still get zeros.
+    """
     df = pd.DataFrame(
         {
-            "plant_id_eia": [1, 1, 1, 2],
-            "fuel_consumed_mmbtu": [10, 0, 10, 0],
-            "hg_mass_lb": [0.1, np.nan, np.nan, np.nan],
-            "hg_mass_lb_for_electricity": [0.1, np.nan, np.nan, np.nan],
+            "plant_id_eia": [1, 1, 1, 2, 3],
+            "fuel_consumed_mmbtu": [10, 0, 10, 0, 0],
+            "hg_mass_lb": [0.1, np.nan, np.nan, np.nan, np.nan],
+            "hg_mass_lb_for_electricity": [0.1, np.nan, np.nan, np.nan, np.nan],
         }
     )
+    hg_data = pd.DataFrame(
+        {"plant_id_eia": [1, 2, 3], "hg_mass_lb": [0.1, np.nan, 0.2]}
+    )
 
-    result = helpers.fill_hg_without_fuel(df, ["plant_id_eia"])
+    result = helpers.fill_hg_without_fuel(df, ["plant_id_eia"], hg_data)
 
-    np.testing.assert_allclose(result["hg_mass_lb"], [0.1, 0, np.nan, np.nan])
+    np.testing.assert_allclose(result["hg_mass_lb"], [0.1, 0, np.nan, np.nan, 0])
     np.testing.assert_allclose(
-        result["hg_mass_lb_for_electricity"], [0.1, 0, np.nan, np.nan]
+        result["hg_mass_lb_for_electricity"], [0.1, 0, np.nan, np.nan, 0]
     )
 
 
