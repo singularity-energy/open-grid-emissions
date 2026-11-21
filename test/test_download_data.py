@@ -53,6 +53,14 @@ def test_download_epa_psdc():
     print("DONE")
 
 
+def test_download_campd_facility():
+    """Test that the CAMPD facility attributes download works."""
+    print("Will test the following years:\n", YEARS_TO_TEST)
+    for year in YEARS_TO_TEST:
+        print(f"Testing CAMPD facility download for {year}")
+        download_data.download_campd_facility(year)
+
+
 def test_download_raw_eia860():
     """Test that EIA-860 data download works."""
     print("Will test the following years:\n", YEARS_TO_TEST)

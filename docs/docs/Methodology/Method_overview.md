@@ -5,7 +5,7 @@ stoplight-id: pipeline_overview
 # Overview of the data pipeline
 The pipeline is run for each year following several steps that are enumerated below. Note that these steps will differ depending on the year that is processed. The reason is that complete EIA-930 data is available in 2019 onward, which is used to assign an hourly profile to non-CEMS data.
 
-1. **Download data**: Download data, including CEMS (via PUDL), EIA Forms 860, 861, and 923 (raw data and via PUDL), EPA-EIA Power Sector Data Crosswalk, EIA-930 data
+1. **Download data**: Download data, including CEMS (via PUDL), EIA Forms 860, 861, and 923 (raw data and via PUDL), EPA-EIA Power Sector Data Crosswalk, EPA CAMPD facility attributes, EIA-930 data
 2. **Identify subplants**: Identify distinct “subplants” which represent interconnected groupings of units, generators, and boilers within a plant using graph analysis, based on relationships reported in the power sector data crosswalk and the EIA-860 boiler-generator association table. ([methodology](../Methodology/Data%20Aggregation/Subplant%20Aggregation.md))
 3. **Clean EIA-923 data**: Clean and allocate monthly generation and fuel data from EIA-923 ([methodology](../Methodology/Data%20Cleaning/EIA-923%20Data.md))
     1. Allocate monthly net generation and fuel consumption data reported at the prime-mover level in the EIA-923 generation and fuel table to individual generators. Data is allocated to each generator-month in proportion to data in the generator table and boiler fuel table, if reported, otherwise it is allocated in proportion to the nameplate capacity of each generator.
@@ -22,7 +22,7 @@ The pipeline is run for each year following several steps that are enumerated be
     2. Remove data for non grid-connected plants and plants in Puerto Rico
     3. Assign a monthly "report_date" to each hourly observation based on the date of the local timestamp (this allows us to match the data to EIA-923 monthly report dates)
     4. Remove data for any unit-months where there is incomplete hourly data.
-    5. Assign a fuel type to each unit based on the power sector data crosswalk
+    5. Assign a fuel type to each unit, mostly based on the primary fuel of its subplant in EIA-923 ([methodology](../Methodology/Emissions%20Calculations/Assigning%20Energy%20Source%20Codes.md))
     6. Fill in missing hourly emissions data using the assigned fuel type and reported hourly fuel consumption data
     7. Calculate biomass-adjusted emissions
 5. **Assign static attributes to all plants** This includes primary fuel, data sources, state, balancing authority (both commercial and physical), whether the plant is connected to the distribution grid or transmission grid, a fuel category, an energy storage category for plants with storage ([methodology](../Methodology/Data%20Aggregation/Energy%20Storage.md)), and local timezone
