@@ -369,16 +369,29 @@ BA_ISO_RTO = {
     "PJM": "PJM",
     "SWPP": "SPP",
 }
-# eGRID's name of each NERC region. Alaska, Hawaii and Puerto Rico are not in a NERC
-# region, so, as in eGRID, their plants' region is their state
+# eGRID's name of each NERC region that EIA-860 reports for plants since 2005, including
+# historical regions that were later merged or dissolved. The names of ECAR, MAAC, MAIN
+# and MAPP are from the eGRID 1996-2000 Technical Support Document, and the others from
+# eGRID's NERC region sheets. Alaska, Hawaii and Puerto Rico are not in a NERC region,
+# so, as in eGRID, their plants' region is their state (since 2020 for Alaska and
+# Hawaii, which were ASCC and HICC before)
 NERC_REGION_NAMES = {
     "AK": "Alaska",
+    "ASCC": "Alaska Systems Coordinating Council",  # dissolved 2019 -> AK
+    "ECAR": "East Central Area Reliability Coordination Agreement",  # dissolved 2005 -> RF
+    "ERCOT": "Electric Reliability Council of Texas",  # legacy name for TRE
+    "FRCC": "Florida Reliability Coordinating Council",  # dissolved 2019 -> SERC
     "HI": "Hawaii",
+    "HICC": "Hawaiian Islands Coordinating Council",  # dissolved 2019 -> HI
+    "MAAC": "Mid-Atlantic Area Council",  # dissolved 2005 -> RF
+    "MAIN": "Mid-America Interconnected Network",  # dissolved 2005
+    "MAPP": "Mid-Continent Area Power Pool",  # dissolved 2004 -> MRO
     "MRO": "Midwest Reliability Organization",
     "NPCC": "Northeast Power Coordinating Council",
     "PR": "Puerto Rico",
-    "RFC": "Reliability First Corporation",
+    "RFC": "Reliability First Corporation",  # aka RF / "ReliabilityFirst"
     "SERC": "SERC Reliability Corporation",
+    "SPP": "Southwest Power Pool",  # legacy
     "TRE": "Texas Regional Entity",
     "WECC": "Western Electricity Coordinating Council",
 }
@@ -1263,7 +1276,8 @@ def build_plant_region_table(year: int, path_prefix: str, sheet: str) -> pd.Data
     Each region's data are shaped like OGE's power sector results, i.e. one row for
     each subplant fuel category and a total row, so that a region's columns are
     calculated the same way as a BA's. Generation and heat input from fuel groups that
-    a region does not have are zero. Plants without a region are left out.
+    a region does not have are zero. Plants without a region are left out, and if no
+    plant has a region, the table has no rows.
 
     Args:
         year (int): data year.
@@ -1309,6 +1323,11 @@ def build_plant_region_table(year: int, path_prefix: str, sheet: str) -> pd.Data
             validate="m:1",
         )
     )
+    # plants without a region are left out of the sheet
+    subplants = subplants[subplants["region"].notna()]
+    if subplants.empty:
+        logger.warning(f"No plant has a {attribute}, so the {sheet} sheet is empty")
+        return pd.DataFrame(columns=[c for c, _, _ in get_egrid_columns(sheet, year)])
     # monthly data of each region by fuel category, with a total row for each month
     monthly = pd.concat(
         [
@@ -1317,7 +1336,7 @@ def build_plant_region_table(year: int, path_prefix: str, sheet: str) -> pd.Data
             ]
             .sum(min_count=1)
             .reset_index(),
-            subplants.groupby(["region", "report_date"])[data_columns]
+            subplants.groupby(["region", "report_date"], dropna=False)[data_columns]
             .sum(min_count=1)
             .reset_index()
             .assign(fuel_category="total"),
@@ -1336,7 +1355,7 @@ def build_plant_region_table(year: int, path_prefix: str, sheet: str) -> pd.Data
             annual[annual["region"] == region],
             monthly[monthly["region"] == region],
         )
-        for region in sorted(subplants["region"].dropna().unique())
+        for region in sorted(subplants["region"].unique())
     ]
     table = pd.DataFrame(rows)
     if sheet == "ST":
@@ -1356,6 +1375,11 @@ def build_plant_region_table(year: int, path_prefix: str, sheet: str) -> pd.Data
         )
     else:
         table["NERCNAME"] = table["NERC"].map(NERC_REGION_NAMES)
+        if table["NERCNAME"].isna().any():
+            logger.warning(
+                "The following NERC regions have no name: "
+                f"{table.loc[table['NERCNAME'].isna(), 'NERC'].tolist()}"
+            )
     table = convert_mass_to_tons(table, sheet, year)
     return add_emission_rates_and_resource_mix(table, sheet, year)
 

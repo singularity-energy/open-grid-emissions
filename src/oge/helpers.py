@@ -803,9 +803,14 @@ def add_plant_nerc_region(df: pd.DataFrame, year: int) -> pd.DataFrame:
 
     As with BA codes, a plant's region is taken from its most recent EIA-860 record up
     to the current year, or from its earliest record after the current year if it has
-    none before. Records with an unknown region ("UNK") are skipped. Alaska, Hawaii
-    and Puerto Rico are not in a NERC region, so, as in eGRID, their plants' region is
-    their state abbreviation (AK, HI or PR).
+    none before. Records with an unknown region ("UNK") are skipped.
+
+    Alaska, Hawaii and Puerto Rico are not in a NERC region. EIA-860 reported Alaska and
+    Hawaii plants in the ASCC and HICC regions until 2019, and reports them as unknown
+    since 2020, when eGRID switched to state codes. So, as in eGRID, Alaska and Hawaii
+    plants keep their EIA-860 region until 2019 and use their state abbreviation (AK
+    or HI) from 2020, and Puerto Rico plants, which have no EIA-860 region, always use
+    PR.
 
     Args:
         df (pd.DataFrame): table with 'plant_id_eia' and 'state' columns.
@@ -837,7 +842,10 @@ def add_plant_nerc_region(df: pd.DataFrame, year: int) -> pd.DataFrame:
         on="plant_id_eia",
         validate="m:1",
     )
-    outside_nerc = df["state"].isin(["AK", "HI", "PR"])
+    # use the state as the region of plants outside NERC regions that EIA-860 does not
+    # report a region for
+    states_outside_nerc = ["PR"] if year < 2020 else ["AK", "HI", "PR"]
+    outside_nerc = df["state"].isin(states_outside_nerc)
     df.loc[outside_nerc, "nerc_region"] = df.loc[outside_nerc, "state"]
 
     if df["nerc_region"].isna().any():

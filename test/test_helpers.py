@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 import oge.helpers as helpers
 
@@ -92,16 +93,21 @@ def test_combine_subplant_data_monthly_hg_requires_every_hour():
     assert result["fuel_consumed_mmbtu"].tolist() == [20, 10]
 
 
-def test_add_plant_nerc_region(monkeypatch):
-    plants = pd.DataFrame(
-        {
-            "plant_id_eia": [1, 2, 3, 4, 5, 6],
-            "state": ["TX", "CA", "NY", "AK", "PR", "OH"],
-        }
-    )
+@pytest.fixture
+def yearly_plants_nerc(monkeypatch):
+    """EIA-860 NERC regions of six plants over several years, returned in place of
+    PUDL's `out_eia__yearly_plants` table.
+
+    - Plant 1 reports SERC in 2023 and TRE in 2024.
+    - Plant 2 reports WECC in 2023 and no region in 2024.
+    - Plant 3 only reports after 2024 (NPCC in 2025, RFC in 2026).
+    - Plant 4 is in Alaska and reports ASCC in 2019, and is unknown ("UNK") since 2020,
+      as in EIA-860.
+    - Plant 5 is in Puerto Rico and plant 6 is in Ohio, and neither reports a region.
+    """
     yearly_plants = pd.DataFrame(
         {
-            "plant_id_eia": [1, 1, 2, 2, 3, 3, 4],
+            "plant_id_eia": [1, 1, 2, 2, 3, 3, 4, 4],
             "report_date": pd.to_datetime(
                 [
                     "2023-01-01",
@@ -110,10 +116,20 @@ def test_add_plant_nerc_region(monkeypatch):
                     "2024-01-01",
                     "2025-01-01",
                     "2026-01-01",
+                    "2019-01-01",
                     "2024-01-01",
                 ]
             ),
-            "nerc_region": ["SERC", "TRE", "WECC", pd.NA, "NPCC", "RFC", "WECC"],
+            "nerc_region": [
+                "SERC",
+                "TRE",
+                "WECC",
+                pd.NA,
+                "NPCC",
+                "RFC",
+                "ASCC",
+                "UNK",
+            ],
         }
     ).astype({"nerc_region": "string"})
     monkeypatch.setattr(
@@ -121,15 +137,50 @@ def test_add_plant_nerc_region(monkeypatch):
         "load_pudl_table",
         lambda table, columns=None: yearly_plants,
     )
-    result = helpers.add_plant_nerc_region(plants, 2024).set_index("plant_id_eia")
-    # the current year's region is used where it is reported
+    return pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2, 3, 4, 5, 6],
+            "state": ["TX", "CA", "NY", "AK", "PR", "OH"],
+        }
+    )
+
+
+def test_add_plant_nerc_region_uses_nearest_year(yearly_plants_nerc):
+    """Each plant's NERC region should come from its EIA-860 record for the data year,
+    or else its most recent earlier record, or else its earliest later record.
+
+    This covers plants that don't report a region for the data year, such as retired or
+    CEMS-only plants, the same way BA codes are assigned.
+    """
+    result = helpers.add_plant_nerc_region(yearly_plants_nerc, 2024).set_index(
+        "plant_id_eia"
+    )
+    # the data year's region is used where it is reported
     assert result.loc[1, "nerc_region"] == "TRE"
-    # otherwise the most recent region before the current year
+    # otherwise the most recent region before the data year
     assert result.loc[2, "nerc_region"] == "WECC"
-    # otherwise the earliest region after the current year
+    # otherwise the earliest region after the data year
     assert result.loc[3, "nerc_region"] == "NPCC"
-    # Alaska and Puerto Rico are their own regions, as in eGRID
-    assert result.loc[4, "nerc_region"] == "AK"
-    assert result.loc[5, "nerc_region"] == "PR"
-    # plants without a reported region are left blank
+    # plants that never report a region are left blank
     assert pd.isna(result.loc[6, "nerc_region"])
+
+
+@pytest.mark.parametrize(
+    "year, alaska_region", [(2019, "ASCC"), (2020, "AK"), (2024, "AK")]
+)
+def test_add_plant_nerc_region_outside_nerc_regions(
+    yearly_plants_nerc, year, alaska_region
+):
+    """Plants in Alaska, Hawaii and Puerto Rico should be labeled as in eGRID.
+
+    EIA-860 reported Alaska plants in ASCC (and Hawaii plants in HICC) until 2019, and
+    as unknown since 2020, when eGRID switched to state codes. So an Alaska plant keeps
+    its EIA-860 region until 2019 and is "AK" from 2020, even though its last known
+    EIA-860 region is ASCC. Puerto Rico plants have no EIA-860 region, and are always
+    "PR".
+    """
+    result = helpers.add_plant_nerc_region(yearly_plants_nerc, year).set_index(
+        "plant_id_eia"
+    )
+    assert result.loc[4, "nerc_region"] == alaska_region
+    assert result.loc[5, "nerc_region"] == "PR"
