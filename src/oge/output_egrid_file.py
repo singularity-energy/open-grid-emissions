@@ -7,7 +7,6 @@ in `oge.egrid_schema`, and the workbooks are formatted and written by
 `oge.egrid_workbook`.
 """
 
-import calendar
 import os
 import re
 
@@ -23,6 +22,10 @@ from oge.egrid_schema import (
     GENERATION_BY_FUEL_CODES,
     GJ_UNITS,
     METRIC_UNITS,
+    NONBASELOAD_GENERATION_CODES,
+    NONBASELOAD_OZONE_NOX_RATE,
+    NONBASELOAD_RATE_PREFIX,
+    NONBASELOAD_RESOURCE_MIX_GENERATION,
     OZONE_COMBUSTION_GENERATION,
     OZONE_SEASON_MONTHS,
     PLANT_SOURCE_VALUES,
@@ -44,6 +47,7 @@ from oge.load_data import (
     load_unit_to_boiler_associations,
 )
 from oge.logging_util import get_logger
+from oge.output_data import calculate_capacity_factor
 
 logger = get_logger(__name__)
 
@@ -296,6 +300,8 @@ PLANT_DATA_SOURCES = {
     "COALFLAG": "coal_flag",
     "PSFLAG": "pumped_storage_flag",
     "NAMEPCAP": "capacity_mw",
+    "CAPFAC": "capacity_factor",
+    "NBFACTOR": "nonbaseload_factor",
     "PLHTIAN": "combustion_fuel_consumed_for_electricity_mmbtu",
     "PLHTIOZ": "combustion_fuel_consumed_for_electricity_mmbtu_ozone_season",
     "PLHTIANT": "fuel_consumed_for_electricity_mmbtu",
@@ -522,6 +528,7 @@ def build_egrid_tables(year: int, path_prefix: str) -> dict[str, pd.DataFrame]:
         "US": build_region_table(year, path_prefix, "US", ["US"]),
     }
     tables = add_regional_capacity(tables)
+    tables = add_regional_nonbaseload_values(tables, year)
     tables = add_plant_unit_values(tables)
     return {
         sheet: tables.get(sheet, pd.DataFrame()).reindex(
@@ -1005,9 +1012,9 @@ def build_plant_table(year: int, path_prefix: str) -> pd.DataFrame:
         table[source_code] = table[source_code].where(table[value_code].notna())
     table = convert_mass_to_tons(table, "PLNT", year)
     table = add_emission_rates_and_resource_mix(table, "PLNT", year)
-    table["CAPFAC"] = calculate_capacity_factor(
-        table["PLNGENAN"], table["NAMEPCAP"], year
-    )
+    # the regional nonbaseload values are summed from this column, so that each
+    # region's nonbaseload generation matches the nonbaseload factors of its plants
+    table["PLNGENNB"] = table["PLNGENAN"] * table["NBFACTOR"]
     # combustion heat input per kWh of combustion generation, blank where either is
     # zero or negative
     table["PLHTRT"] = (
@@ -1595,6 +1602,102 @@ def add_regional_capacity(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataF
     return tables
 
 
+def add_regional_nonbaseload_values(
+    tables: dict[str, pd.DataFrame], year: int
+) -> dict[str, pd.DataFrame]:
+    """Fills the nonbaseload generation, output emission rates, generation by fuel type
+    and resource mix of the state, BA, NERC region and U.S. sheets from the plants on
+    the plant sheet, as in eGRID.
+
+    Each plant's nonbaseload generation and emissions are its annual and ozone season
+    values times its nonbaseload factor. A region's nonbaseload rates divide the sum of
+    its plants' nonbaseload emissions by the sum of their nonbaseload generation, and
+    its nonbaseload generation is the sum of the plant sheet's PLNGENNB, so the two are
+    always consistent. Each plant's nonbaseload generation counts toward the fuel type of
+    its plant fuel category. Regions without any plant with a nonbaseload factor have
+    blank nonbaseload values, and the Hg rate is blank.
+
+    Args:
+        tables (dict[str, pd.DataFrame]): tables of the sheets, including PLNT, ST, BA,
+            NRL and US, with the plant sheet's masses in the units of its columns.
+        year (int): data year.
+
+    Returns:
+        dict[str, pd.DataFrame]: the tables, with the regional sheets' nonbaseload
+            values.
+    """
+    tables = tables.copy()
+    plants = convert_mass_to_lb(tables["PLNT"], "PLNT", year)
+    factor = plants["NBFACTOR"]
+    # nonbaseload values of each plant, keyed by their codes without the prefix
+    nonbaseload = pd.DataFrame(
+        {
+            "NGENNB": plants["PLNGENNB"],
+            "NGENOZ": plants["PLNGENOZ"] * factor,
+            "NOXOZ": plants["PLNOXOZ"] * factor,
+        }
+        | {
+            mass_code: plants[f"PL{mass_code}"] * factor
+            for mass_code in EMISSION_RATE_MASSES.values()
+        }
+        | {
+            generation_code: plants["PLNGENNB"].where(plants["PLFUELCT"] == category)
+            for category, generation_code in NONBASELOAD_GENERATION_CODES.items()
+        }
+    )
+    for sheet, key in [("ST", "PSTATABB"), ("BA", "BACODE"), ("NRL", "NERC")]:
+        # plants without a state, BA or NERC region are only counted in the U.S.
+        values = calculate_nonbaseload_values(
+            nonbaseload.groupby(plants[key], dropna=True).sum(min_count=1)
+        )
+        tables[sheet] = tables[sheet].assign(
+            **{
+                f"{REGION_SHEETS[sheet][0]}{code}": tables[sheet][key].map(values[code])
+                for code in values.columns
+            }
+        )
+    values = calculate_nonbaseload_values(nonbaseload.sum(min_count=1).to_frame().T)
+    tables["US"] = tables["US"].assign(
+        **{f"US{code}": values[code].iloc[0] for code in values.columns}
+    )
+    return tables
+
+
+def calculate_nonbaseload_values(sums: pd.DataFrame) -> pd.DataFrame:
+    """Calculates the nonbaseload values of regions from the sums of their plants'
+    nonbaseload generation and emissions.
+
+    Args:
+        sums (pd.DataFrame): sums of each region's nonbaseload generation ("NGENNB"),
+            ozone season generation ("NGENOZ"), emissions in lb (the masses of
+            `EMISSION_RATE_MASSES` and "NOXOZ") and generation by fuel type (the
+            columns of `NONBASELOAD_GENERATION_CODES`), indexed by region.
+
+    Returns:
+        pd.DataFrame: each region's nonbaseload generation, output emission rates in
+            lb/MWh, generation by fuel type and resource mix, with their codes without
+            the sheet's prefix as columns.
+    """
+    total = sums["NGENNB"]
+    values = pd.DataFrame({"NGENNB": total}, index=sums.index)
+    for pollutant, mass_code in EMISSION_RATE_MASSES.items():
+        values[f"{NONBASELOAD_RATE_PREFIX}{pollutant}"] = sums[mass_code] / total.where(
+            total > 0
+        )
+    values[NONBASELOAD_OZONE_NOX_RATE] = sums["NOXOZ"] / sums["NGENOZ"].where(
+        sums["NGENOZ"] > 0
+    )
+    # regions with nonbaseload generation have zero generation in the fuel types none
+    # of their nonbaseload plants are in
+    for generation_code in NONBASELOAD_GENERATION_CODES.values():
+        values[generation_code] = sums[generation_code].where(
+            total.isna(), sums[generation_code].fillna(0)
+        )
+    for mix_code, generation_code in NONBASELOAD_RESOURCE_MIX_GENERATION.items():
+        values[mix_code] = values[generation_code] / total.where(total > 0)
+    return values
+
+
 def add_plant_unit_values(tables: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     """Fills the values of the plant sheet that come from the plant's rows on the unit
     and generator sheets: the number of units and generators, and the CAPD flag.
@@ -1761,13 +1864,7 @@ def add_emission_rates_and_resource_mix(
     """
     table = table.copy()
     prefix = "PL" if sheet == "PLNT" else REGION_SHEETS[sheet][0]
-    units = {
-        code: get_unit(header) for code, header, _ in get_egrid_columns(sheet, year)
-    }
-
-    def mass_lb(code: str) -> pd.Series:
-        factor = ConversionFactors.short_ton_to_lbs if units[code] == "tons" else 1
-        return table[code] * factor
+    masses_lb = convert_mass_to_lb(table, sheet, year)
 
     def rate(mass: pd.Series, denominator: pd.Series) -> pd.Series:
         return mass / denominator.where(denominator > 0)
@@ -1779,10 +1876,10 @@ def add_emission_rates_and_resource_mix(
     ) in EMISSION_RATE_DENOMINATORS.items():
         for pollutant, mass_code in EMISSION_RATE_MASSES.items():
             table[f"{prefix}{pollutant}{rate_code}"] = rate(
-                mass_lb(prefix + mass_code), table[prefix + annual]
+                masses_lb[prefix + mass_code], table[prefix + annual]
             )
         table[f"{prefix}NOX{ozone_rate_code}"] = rate(
-            mass_lb(f"{prefix}NOXOZ"), table[prefix + ozone_season]
+            masses_lb[f"{prefix}NOXOZ"], table[prefix + ozone_season]
         )
 
     total = (
@@ -1835,24 +1932,6 @@ def calculate_fuel_type_rates(
     return rates
 
 
-def calculate_capacity_factor(
-    net_generation: pd.Series, capacity: pd.Series, year: int
-) -> pd.Series:
-    """Calculates capacity factors as net generation divided by the generation at
-    nameplate capacity in every hour of the year, i.e. 8,784 hours in a leap year.
-
-    Args:
-        net_generation (pd.Series): annual net generation in MWh.
-        capacity (pd.Series): nameplate capacity in MW.
-        year (int): data year.
-
-    Returns:
-        pd.Series: capacity factors, blank where the capacity is zero or blank.
-    """
-    hours = 24 * (366 if calendar.isleap(year) else 365)
-    return net_generation / (capacity.where(capacity > 0) * hours)
-
-
 def convert_mass_to_tons(table: pd.DataFrame, sheet: str, year: int) -> pd.DataFrame:
     """Converts OGE masses in lb to short tons, in the columns of an eGRID sheet whose
     headers are in tons.
@@ -1869,6 +1948,26 @@ def convert_mass_to_tons(table: pd.DataFrame, sheet: str, year: int) -> pd.DataF
     for code, header, _ in get_egrid_columns(sheet, year):
         if code in table and get_unit(header) == "tons":
             table[code] = table[code] / ConversionFactors.short_ton_to_lbs
+    return table
+
+
+def convert_mass_to_lb(table: pd.DataFrame, sheet: str, year: int) -> pd.DataFrame:
+    """Converts the masses of an eGRID sheet's columns whose headers are in short tons
+    back to lb, e.g. to calculate emission rates in lb/MWh.
+
+    Args:
+        table (pd.DataFrame): table of an eGRID sheet, with masses in the units of the
+            sheet.
+        sheet (str): sheet name without the year, one of `EGRID_SHEETS`.
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: the table with masses in lb.
+    """
+    table = table.copy()
+    for code, header, _ in get_egrid_columns(sheet, year):
+        if code in table and get_unit(header) == "tons":
+            table[code] = table[code] * ConversionFactors.short_ton_to_lbs
     return table
 
 

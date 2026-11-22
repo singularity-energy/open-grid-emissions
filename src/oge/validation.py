@@ -317,6 +317,54 @@ def test_for_missing_values(df, skip_cols: list = []):
     return missing_test
 
 
+def check_for_capacity_factors_above_one(df: pd.DataFrame) -> pd.DataFrame:
+    """Warns about plants whose annual capacity factor is greater than 1, i.e. that
+    generated more than their nameplate capacity could in every hour of the year.
+
+    These are not corrected, since they point to problems in the input data rather
+    than in the capacity factor, such as missing capacity (e.g. generators that are
+    still testing and not yet counted as operating) or net generation that is too
+    high (e.g. CEMS gross generation that is much higher than EIA-923 net generation).
+
+    Args:
+        df (pd.DataFrame): annual plant data with 'plant_id_eia', 'capacity_mw',
+            'net_generation_mwh' and 'capacity_factor' columns.
+
+    Returns:
+        pd.DataFrame: the plants whose capacity factor is greater than 1.
+    """
+    logger.info("Checking that capacity factors are not greater than 1...  ")
+    above_one = df[df["capacity_factor"] > 1]
+    if not above_one.empty:
+        logger.warning(
+            f"There are {len(above_one)} plants with a capacity factor greater than 1, "
+            "which suggests that their capacity is missing or their net generation is "
+            "too high:"
+        )
+        logger.warning(
+            "\n"
+            + limit_error_output_df(
+                above_one[
+                    [
+                        column
+                        for column in [
+                            "plant_id_eia",
+                            "plant_name_eia",
+                            "fuel_category",
+                            "capacity_mw",
+                            "net_generation_mwh",
+                            "capacity_factor",
+                        ]
+                        if column in above_one.columns
+                    ]
+                ].sort_values("capacity_factor", ascending=False)
+            ).to_string()
+        )
+    else:
+        logger.info("OK")
+    return above_one
+
+
 def check_for_1_to_many_subplant_mappings(
     subplant_crosswalk: pd.DataFrame, plant_part: str
 ):

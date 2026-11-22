@@ -1,3 +1,4 @@
+import calendar
 import math
 import pandas as pd
 import numpy as np
@@ -22,6 +23,7 @@ from oge.logging_util import get_logger
 from oge.constants import (
     ConversionFactors,
     CLEAN_FUELS,
+    ENERGY_STORAGE_PRIME_MOVERS,
     RESIDUAL_MIX_FUEL_CATEGORIES,
     earliest_validated_year,
     earliest_hourly_data_year,
@@ -66,6 +68,11 @@ UNIT_CONVERSIONS = {
     "lb": ("kg", ConversionFactors.lb_to_kg),
     "mmbtu": ("GJ", ConversionFactors.mmbtu_to_GJ),
 }
+
+# plant factor columns of the annual plant results. They are blank where they don't
+# apply (e.g. the nonbaseload factor of a wind plant), and are rounded to a fixed
+# number of decimals because they are multiplied by generation and emissions
+PLANT_FACTOR_COLUMNS = ["capacity_factor", "nonbaseload_factor"]
 
 
 def prepare_files_for_upload(years: list):
@@ -262,7 +269,7 @@ def output_to_results(
     # energy storage resources, and Hg data is only reported for some subplants, so
     # they are expected to be missing for other resources
     validation.test_for_missing_values(
-        df, skip_cols=STORAGE_DATA_COLUMNS + HG_DATA_COLUMNS
+        df, skip_cols=STORAGE_DATA_COLUMNS + HG_DATA_COLUMNS + PLANT_FACTOR_COLUMNS
     )
 
     if not skip_outputs:
@@ -310,6 +317,7 @@ def write_plant_data_to_results(
     resolution: str,
     skip_outputs: bool,
     plant_attributes: pd.DataFrame,
+    plant_factors: pd.DataFrame,
 ):
     """
     Helper function to write subplant or plant data at the monthly or annual resolution.
@@ -323,6 +331,9 @@ def write_plant_data_to_results(
         resolution (str): temporal resolution. Wither 'hourly', 'monthly' or 'annual'.
         skip_outputs (bool): whether to save data or not.
         plant_attributes (pd.DataFrame): the plant static attributes table.
+        plant_factors (pd.DataFrame): each plant's annual capacity factor and
+            nonbaseload factor, from `calculate_plant_factors`, which are added to the
+            annual plant data.
     """
     if not skip_outputs:
         groupby_cols = ["plant_id_eia"]
@@ -372,7 +383,7 @@ def write_plant_data_to_results(
                 how="left",
                 on="plant_id_eia",
                 validate="m:1",
-            )
+            ).merge(plant_factors, how="left", on="plant_id_eia", validate="1:1")
 
             # rearrange columns
             df = df[
@@ -381,6 +392,8 @@ def write_plant_data_to_results(
                     "plant_name_eia",
                     "fuel_category",
                     "capacity_mw",
+                    "capacity_factor",
+                    "nonbaseload_factor",
                     "ba_code",
                     "city",
                     "county",
@@ -408,6 +421,300 @@ def write_plant_data_to_results(
             path_prefix=path_prefix,
             skip_outputs=skip_outputs,
         )
+
+
+def calculate_plant_factors(
+    monthly_subplant_data: pd.DataFrame,
+    plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
+    eia923_allocated: pd.DataFrame,
+    year: int,
+) -> pd.DataFrame:
+    """Calculates each plant's annual capacity factor and nonbaseload factor.
+
+    This is the coordinating function for the plant factors of the annual plant data.
+    The capacity factor only counts the months when each generator was operating (see
+    `calculate_operating_capacity_mwh`), and is zero where net generation is negative,
+    as in eGRID. It leaves out energy storage (including pumped storage), whose net
+    generation is mostly charging losses, so that storage capacity doesn't lower the
+    capacity factor of the plant's other generators. Plants with only storage have no
+    capacity factor. The nonbaseload factor follows eGRID's method (see
+    `calculate_nonbaseload_factor`).
+
+    Args:
+        monthly_subplant_data (pd.DataFrame): monthly data for all subplants, whose net
+            generation is summed to each plant's annual net generation.
+        plant_attributes (pd.DataFrame): the plant static attributes table, with each
+            plant's 'capacity_mw' and 'plant_primary_fuel'.
+        primary_fuel_table (pd.DataFrame): primary fuel and prime mover of each
+            subplant, used to identify storage subplants.
+        eia923_allocated (pd.DataFrame): monthly EIA-923 data allocated to generators.
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: 'plant_id_eia', 'capacity_factor' and 'nonbaseload_factor' of
+            each plant in `monthly_subplant_data`.
+    """
+    # identify storage subplants, whose primary prime mover is a storage technology,
+    # in the same way as the subplant attributes
+    subplant_fuel_categories = assign_fleet_to_subplant_data(
+        monthly_subplant_data[["plant_id_eia", "subplant_id"]].drop_duplicates(),
+        plant_attributes,
+        primary_fuel_table,
+        year,
+    )
+    subplants = monthly_subplant_data.copy()[
+        ["plant_id_eia", "subplant_id", "net_generation_mwh"]
+    ]
+    subplants = subplants.merge(
+        subplant_fuel_categories[["plant_id_eia", "subplant_id", "fuel_category"]],
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
+
+    # leave storage out of the net generation. Storage subplants are kept with a blank
+    # generation, so that plants with only storage have a blank capacity factor
+    subplants["net_generation_mwh"] = subplants["net_generation_mwh"].where(
+        subplants["fuel_category"] != "storage"
+    )
+
+    # sum each plant's monthly subplant net generation to its annual net generation
+    plants = (
+        subplants.groupby("plant_id_eia", dropna=False)["net_generation_mwh"]
+        .sum(min_count=1)
+        .reset_index()
+    )
+
+    # add the nameplate capacity, which is used where a plant has no generator data,
+    # and the primary fuel, which decides whether a plant has a nonbaseload factor.
+    # The name and fuel category are only used to describe plants in warnings
+    plants = plants.merge(
+        plant_attributes[
+            [
+                "plant_id_eia",
+                "plant_name_eia",
+                "fuel_category",
+                "plant_primary_fuel",
+                "capacity_mw",
+            ]
+        ],
+        how="left",
+        on="plant_id_eia",
+        validate="1:1",
+    )
+
+    # add the generation at nameplate capacity in the months when each of the plant's
+    # generators other than storage was operating or generating, which is the
+    # denominator of the capacity factor
+    operating_capacity = calculate_operating_capacity_mwh(eia923_allocated, year)
+    plants = plants.merge(
+        operating_capacity, how="left", on="plant_id_eia", validate="1:1"
+    )
+
+    # capacity factors are zero where net generation is negative, as in eGRID
+    plants["capacity_factor"] = calculate_capacity_factor(
+        plants["net_generation_mwh"],
+        plants["capacity_mw"],
+        year,
+        operating_capacity_mwh=plants["operating_capacity_mwh"],
+    ).clip(lower=0)
+
+    # the nonbaseload factor is the share of the plant's generation and emissions that
+    # is considered nonbaseload, based on its capacity factor and primary fuel
+    plants["nonbaseload_factor"] = calculate_nonbaseload_factor(
+        plants["capacity_factor"], plants["plant_primary_fuel"]
+    )
+
+    # capacity factors above 1 point to missing capacity or net generation that is too
+    # high, which are not corrected but are listed in a warning
+    validation.check_for_capacity_factors_above_one(plants)
+
+    return plants[["plant_id_eia", "capacity_factor", "nonbaseload_factor"]]
+
+
+def calculate_capacity_factor(
+    net_generation: pd.Series,
+    capacity: pd.Series,
+    year: int,
+    operating_capacity_mwh: pd.Series | None = None,
+) -> pd.Series:
+    """Calculates capacity factors as net generation divided by the generation at
+    nameplate capacity in the hours when the capacity was operating.
+
+    Where `operating_capacity_mwh` is given and positive, it is the generation at
+    nameplate capacity in the months when each generator operated (see
+    `calculate_operating_capacity_mwh`), so that plants that only operated part of the
+    year are not counted as idle for the rest of it. Otherwise, the capacity is assumed
+    to operate in every hour of the year, i.e. 8,784 hours in a leap year.
+
+    Capacity factors are negative where net generation is negative. eGRID keeps these
+    negative capacity factors for generators, but sets them to zero for plants.
+
+    Args:
+        net_generation (pd.Series): annual net generation in MWh.
+        capacity (pd.Series): nameplate capacity in MW.
+        year (int): data year.
+        operating_capacity_mwh (pd.Series, optional): generation at nameplate capacity
+            in the months when the capacity was operating, in MWh. Defaults to None.
+
+    Returns:
+        pd.Series: capacity factors, blank where the capacity is zero or blank.
+    """
+    hours = 24 * (366 if calendar.isleap(year) else 365)
+    full_year_capacity_mwh = capacity.where(capacity > 0) * hours
+    if operating_capacity_mwh is not None:
+        full_year_capacity_mwh = operating_capacity_mwh.where(
+            operating_capacity_mwh > 0, full_year_capacity_mwh
+        )
+    return net_generation / full_year_capacity_mwh
+
+
+def calculate_operating_capacity_mwh(
+    eia923_allocated: pd.DataFrame, year: int
+) -> pd.DataFrame:
+    """Calculates each plant's generation at nameplate capacity in the months when each
+    of its generators was operating, which is the denominator of its capacity factor.
+
+    Energy storage generators (prime movers in `ENERGY_STORAGE_PRIME_MOVERS`, including
+    pumped storage) are left out. A generator is counted as operating in a month if
+    either:
+    - its EIA-860 dates cover the month: it is existing or retired, its operating date
+      is blank or on or before the end of the month, and its retirement date is blank
+      or on or after the start of the month. A generator that starts or retires
+      during a month is counted for the whole month, since EIA-860 dates are by month.
+    - it produced electricity in the month (positive net generation in the EIA-923
+      data allocated to generators), even if it has not reached its commercial
+      operation date. For example, generators that are still testing (EIA-860 status
+      TS) are reported as proposed, but can generate for months before they are
+      considered operating.
+
+    Args:
+        eia923_allocated (pd.DataFrame): monthly EIA-923 data allocated to generators,
+            with 'plant_id_eia', 'generator_id', 'report_date' and
+            'net_generation_mwh' columns.
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: 'plant_id_eia' and 'operating_capacity_mwh', the sum of each
+            generator's nameplate capacity times the hours of the months in which it
+            operated. Plants without generators other than storage that have a
+            capacity are not included.
+    """
+    generators = load_data.load_pudl_table(
+        "out_eia__yearly_generators",
+        year,
+        columns=[
+            "plant_id_eia",
+            "generator_id",
+            "capacity_mw",
+            "operational_status",
+            "generator_operating_date",
+            "generator_retirement_date",
+            "prime_mover_code",
+        ],
+    )
+    # storage capacity isn't counted, since its net generation isn't either
+    generators = generators[
+        ~generators["prime_mover_code"].isin(ENERGY_STORAGE_PRIME_MOVERS)
+    ]
+    generator_months = generators.merge(
+        pd.DataFrame(
+            {"report_date": pd.date_range(f"{year}-01-01", periods=12, freq="MS")}
+        ),
+        how="cross",
+    )
+    month_end = generator_months["report_date"] + pd.offsets.MonthEnd(0)
+    in_operation = (
+        generator_months["operational_status"].isin(["existing", "retired"])
+        & (
+            generator_months["generator_operating_date"].isna()
+            | (generator_months["generator_operating_date"] <= month_end)
+        )
+        & (
+            generator_months["generator_retirement_date"].isna()
+            | (
+                generator_months["generator_retirement_date"]
+                >= generator_months["report_date"]
+            )
+        )
+    ).fillna(False)
+
+    # months in which each generator produced electricity
+    generation = (
+        eia923_allocated.assign(
+            report_date=pd.to_datetime(eia923_allocated["report_date"])
+        )
+        .groupby(["plant_id_eia", "generator_id", "report_date"], dropna=False)[
+            "net_generation_mwh"
+        ]
+        .sum(min_count=1)
+        .reset_index()
+    )
+    generator_months = generator_months.merge(
+        generation,
+        how="left",
+        on=["plant_id_eia", "generator_id", "report_date"],
+        validate="1:1",
+    )
+    generating = generator_months["net_generation_mwh"].fillna(0) > 0
+
+    generator_months["operating_capacity_mwh"] = (
+        generator_months["capacity_mw"]
+        * generator_months["report_date"].dt.days_in_month
+        * 24
+    ).where(in_operation | generating)
+    return (
+        generator_months.groupby("plant_id_eia", dropna=False)["operating_capacity_mwh"]
+        .sum(min_count=1)
+        .dropna()
+        .reset_index()
+    )
+
+
+def calculate_nonbaseload_factor(
+    capacity_factor: pd.Series, primary_fuel: pd.Series
+) -> pd.Series:
+    """Calculates the nonbaseload factor of each plant, which is the share of its
+    generation and emissions that is considered nonbaseload, from its annual capacity
+    factor, as in eGRID.
+
+    The capacity factor stands in for where a plant falls in the dispatch order: plants
+    with a capacity factor below 0.2 are fully nonbaseload (a factor of 1), plants
+    above 0.8 are fully baseload (a factor of 0), and in between the factor is
+    -5/3 * capacity factor + 4/3, which falls linearly from 1 to 0.
+
+    The factor is blank for plants whose capacity factor is blank or zero, which have no
+    nonbaseload generation, and for plants whose primary fuel is not dispatched to
+    follow load, so that their capacity factor says nothing about whether they are on
+    the margin. As in eGRID's code (but not its technical guide), biomass plants are not
+    excluded.
+
+    Args:
+        capacity_factor (pd.Series): annual capacity factor of each plant.
+        primary_fuel (pd.Series): primary fuel (energy source code) of each plant.
+
+    Returns:
+        pd.Series: nonbaseload factor of each plant, between 0 and 1.
+    """
+    excluded_fuels = [
+        "GEO",  # geothermal
+        "MWH",  # energy storage
+        "NUC",  # nuclear
+        "PUR",  # purchased steam
+        "SUN",  # solar
+        "WAT",  # water (hydro, including pumped storage)
+        "WND",  # wind
+    ]
+    factor = pd.Series(
+        np.select(
+            [capacity_factor < 0.2, capacity_factor > 0.8],
+            [1.0, 0.0],
+            default=-5 / 3 * capacity_factor + 4 / 3,
+        ),
+        index=capacity_factor.index,
+    )
+    return factor.where((capacity_factor > 0) & ~primary_fuel.isin(excluded_fuels))
 
 
 def convert_results(df: pd.DataFrame) -> pd.DataFrame:
@@ -544,7 +851,8 @@ def write_plant_metadata(
 
 def round_table(table: pd.DataFrame) -> pd.DataFrame:
     """Round each numeric columns. All values in a column have the same rounding.
-    Rounding for each column is based on the median non-zero value.
+    Rounding for each column is based on the median non-zero value, except for the
+    columns of `PLANT_FACTOR_COLUMNS`, which have four decimals.
 
     Args:
         table (pd.DataFrame): table whose numeric columns will be rounded.
@@ -558,6 +866,9 @@ def round_table(table: pd.DataFrame) -> pd.DataFrame:
     decimals = {}
     # Iterate through numeric columns
     for c in table.select_dtypes(include=np.number).columns:
+        if c in PLANT_FACTOR_COLUMNS:
+            decimals[c] = 4
+            continue
         # Non-zero minimum
         val = table.loc[table[c] > 0, c].median()
         # if val is NaN, then this col has only NaN or only 0 values

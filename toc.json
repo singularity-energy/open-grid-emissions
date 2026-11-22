@@ -118,6 +118,11 @@
           "type": "item",
           "title": "Fossil-only Residual Mix",
           "uri": "/docs/docs/Methodology/Emissions Calculations/Fossil-only Residual Mix.md"
+        },
+        {
+          "type": "item",
+          "title": "Nonbaseload Emission Rates",
+          "uri": "/docs/docs/Methodology/Emissions Calculations/Nonbaseload Emission Rates.md"
         }
       ]
     },

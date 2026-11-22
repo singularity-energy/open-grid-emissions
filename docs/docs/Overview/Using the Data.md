@@ -39,7 +39,7 @@ OGE also publishes each year's annual results in the layout of EPA's eGRID data 
 * **Unit (UNT)**: CEMS-reporting units, from OGE's cleaned CEMS data, with unit attributes from EPA's CAMPD facility files and stack heights from EIA-860.
 * **Generator (GEN)**: generators, from OGE's EIA-923 data allocated to generators, with generator attributes from EIA-860.
 * **Plant (PLNT)**: plants, from OGE's plant results and plant attributes.
-* **State (ST), balancing authority (BA), NERC region (NRL), and U.S. (US)**: states and NERC regions are summed from OGE's subplant results, using each plant's `state` and `nerc_region` in the plant static attributes, and balancing authorities and the U.S. come from OGE's power sector results.
+* **State (ST), balancing authority (BA), NERC region (NRL), and U.S. (US)**: states and NERC regions are summed from OGE's subplant results, using each plant's `state` and `nerc_region` in the plant static attributes, and balancing authorities and the U.S. come from OGE's power sector results. Nonbaseload values on all four sheets are summed from the plant sheet, using each plant's nonbaseload factor (see [Nonbaseload Emission Rates](../Methodology/Emissions%20Calculations/Nonbaseload%20Emission%20Rates.md)).
 
 The eGRID subregion (SRL) and grid gross loss (GGL) sheets are included but empty, and columns that OGE does not calculate yet are blank, with their headers grayed out. The values follow OGE's methods, fuel categories, and plant IDs, so they don't match eGRID exactly. See [Comparison to eGRID](Comparison%20to%20eGRID.md) for the differences and for the fields that OGE does not fill yet.
 
@@ -67,6 +67,7 @@ A few notes on column names:
 - Column names that include the `_for_electricity_adjusted` adjustment type have been adjusted for both CHP and biomass.
 - The `storage_charge_mwh` and `storage_discharge_mwh` columns in the monthly and annual plant and power sector data report the electricity charged and discharged by energy storage resources. They are blank for resources that are not energy storage, and are not yet included in hourly data (see [methodology](../Methodology/Data%20Aggregation/Energy%20Storage.md#energy-storage-charging-and-discharging-data)).
 - The `hg_mass_lb` and `hg_mass_lb_for_electricity` columns in the plant and subplant data report mercury (Hg) emissions measured under the EPA's Mercury and Air Toxics Standards. They are only reported for subplants and plants where Hg data is complete, and are blank otherwise. Hg is not included in the power sector or carbon accounting data, and no Hg emission rates are calculated (see [methodology](../Methodology/Emissions%20Calculations/Hg%20Emissions.md)).
+- The annual plant data includes each plant's `capacity_factor` (annual net generation divided by nameplate capacity times the hours in the months when each generator was operating or generating, leaving out energy storage, or zero if net generation is negative; blank for plants with only storage) and `nonbaseload_factor` (the share of the plant's generation and emissions considered nonbaseload, as in eGRID). The nonbaseload factor is blank for plants whose primary fuel is not dispatched to follow load, such as nuclear, hydro, wind, and solar, and for plants with no positive generation (see [methodology](../Methodology/Emissions%20Calculations/Nonbaseload%20Emission%20Rates.md)).
 - A value of zero means that the value was reported or calculated to be zero, while a blank value means that the data is missing or does not apply. For example, emissions are zero for resources that do not have any direct emissions (such as solar, wind, and hydro) or that did not consume any fuel, but are blank for resources where no fuel consumption data was reported, and energy storage columns are blank for resources that are not energy storage.
 - The `report_date` column is in the format `MM/01/YYYY` and represents the month `MM` with which the data is associated. So data with a report date of "03/01/2020" is associated with March 2020.
 
@@ -95,7 +96,6 @@ plant_retirement_date | date | Date of the scheduled or effected retirement of t
 distribution_flag | boolean | Indicates whether a plant is connected to the distribution grid (<= 60kV interconnection) | EIA-860
 timezone | string | IANA timezone name for the local timezone where the plant is physically located | EIA-860
 data_availability | string | identifies whether this plant only reports to EIA, only reports to CEMS, or reports to both EIA and CEMS | Derived from EIA and CEMS data
-shaped_plant_id | integer | A synthetic plant id code used when aggregating plants to the ba-fuel level. If blank, this plant is not aggregated | [See fleet shaping method](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md)
 
 ### Plant Metadata Table
 

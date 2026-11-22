@@ -1,6 +1,9 @@
 import pandas as pd
 
-from oge.validation import hourly_profile_source_metric
+from oge.validation import (
+    check_for_capacity_factors_above_one,
+    hourly_profile_source_metric,
+)
 
 DATA_METRICS = [
     "net_generation_mwh",
@@ -75,3 +78,24 @@ def test_summarize_cems_measurement_quality_maps_mats_codes():
 
     assert result.loc["Measured", "hg_mass_lb"] == 0.8
     assert result.loc["Imputed", "hg_mass_lb"] == 0.2
+
+
+def test_check_for_capacity_factors_above_one(caplog):
+    """Plants with a capacity factor greater than 1 should be listed in a warning, since
+    they point to missing capacity or net generation that is too high, while plants at
+    or below 1 and plants without a capacity factor should not be listed.
+    """
+    df = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2, 3, 4],
+            "plant_name_eia": ["Testing Solar", "Peaker", "Baseload", "No Capacity"],
+            "capacity_mw": [10.0, 100.0, 100.0, None],
+            "net_generation_mwh": [200_000.0, 1000.0, 878_400.0, 10.0],
+            "capacity_factor": [2.28, 0.0011, 1.0, None],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        above_one = check_for_capacity_factors_above_one(df)
+    assert above_one["plant_id_eia"].tolist() == [1]
+    assert "1 plants with a capacity factor greater than 1" in caplog.text
+    assert "Testing Solar" in caplog.text

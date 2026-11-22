@@ -493,21 +493,19 @@ def main(args):
     helpers.create_subplant_attributes_table(
         monthly_subplant_data, plant_attributes, primary_fuel_table, year, path_prefix
     )
-    # For years before 2019, export the plant attributes table now
-    if year < earliest_hourly_data_year:
-        # export plant static attributes to csv
-        output_data.output_intermediate_data(
-            plant_attributes,
-            "plant_static_attributes",
-            path_prefix,
-            year,
-            args.skip_outputs,
+    # export plant static attributes table
+    output_data.output_intermediate_data(
+        plant_attributes,
+        "plant_static_attributes",
+        path_prefix,
+        year,
+        args.skip_outputs,
+    )
+    if not args.skip_outputs:
+        plant_attributes.to_csv(
+            results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
+            index=False,
         )
-        if not args.skip_outputs:
-            plant_attributes.to_csv(
-                results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
-                index=False,
-            )
 
     validation.check_for_complete_monthly_timeseries(
         df=monthly_subplant_data,
@@ -516,7 +514,15 @@ def main(args):
         columns_to_check=["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"],
         year=year,
     )
-    # output plant and subplant data
+    # output plant and subplant data, with each plant's capacity factor and nonbaseload
+    # factor in the annual plant data
+    plant_factors = output_data.calculate_plant_factors(
+        monthly_subplant_data,
+        plant_attributes,
+        primary_fuel_table,
+        eia923_allocated,
+        year,
+    )
     for plant_part in ["subplant", "plant"]:
         for resolution in ["monthly", "annual"]:
             output_data.write_plant_data_to_results(
@@ -527,6 +533,7 @@ def main(args):
                 resolution=resolution,
                 skip_outputs=args.skip_outputs,
                 plant_attributes=plant_attributes,
+                plant_factors=plant_factors,
             )
     # 12. Export monthly and annual power sector data
     ####################################################################################
@@ -549,6 +556,13 @@ def main(args):
     del fleet_data
     gc.collect()
 
+    # 13. Export annual results in the eGRID format
+    ####################################################################################
+    # this only reads the annual and monthly results written above, so it doesn't
+    # need to wait for the hourly data
+    logger.info("13. Exporting annual results in the eGRID format")
+    output_egrid_file.write_egrid_files(year, path_prefix, args.skip_outputs)
+
     # calculate hourly outputs for years after 2019
     if year >= earliest_hourly_data_year:
         # storage is shaped using its monthly charging and discharging
@@ -557,9 +571,9 @@ def main(args):
                 monthly_eia_data_to_shape, monthly_storage_data
             )
         )
-        # 13. Clean and Reconcile EIA-930 data
+        # 14. Clean and Reconcile EIA-930 data
         ################################################################################
-        logger.info("13. Cleaning EIA-930 data")
+        logger.info("14. Cleaning EIA-930 data")
         # Loads, adjusts and reconciles EIA-930 data, and writes each step to
         # outputs/{path_prefix}/eia930/
         eia930_folder = outputs_folder(f"{path_prefix}/eia930/")
@@ -593,9 +607,9 @@ def main(args):
         # months with no EIA-930 generation get an imputed profile instead
         eia930_data = eia930.remove_months_with_zero_data(eia930_data)
 
-        # 14. Calculate hourly profiles for monthly EIA data
+        # 15. Calculate hourly profiles for monthly EIA data
         ################################################################################
-        logger.info("14. Estimating hourly profiles for EIA data")
+        logger.info("15. Estimating hourly profiles for EIA data")
         # discharging and charging profiles for storage
         storage_profiles, other_storage_months = (
             impute_hourly_profiles.calculate_storage_profiles(
@@ -679,14 +693,14 @@ def main(args):
             + impute_hourly_profiles.STORAGE_PROFILE_COLUMNS,
         )
 
-        # 15. Export hourly plant-level data
+        # 16. Export hourly plant-level data
         ################################################################################
         # This provides a complete hourly timeseries for each plant, but is more
         # memory-intensive and results in larger output files.
         # This data is immediately exported and not held in memory for the rest of the
         # pipeline. Instead, this data is re-combined again using the aggregated shaped
-        # plants in step 17.
-        logger.info("15. Exporting Hourly Plant-level data for each BA")
+        # plants in step 18.
+        logger.info("16. Exporting Hourly Plant-level data for each BA")
         impute_hourly_profiles.combine_and_export_hourly_plant_data(
             year,
             cems,
@@ -701,29 +715,15 @@ def main(args):
             region_to_group="ba_code",
         )
 
-        # Export data
-        output_data.output_intermediate_data(
-            plant_attributes,
-            "plant_static_attributes",
-            path_prefix,
-            year,
-            args.skip_outputs,
-        )
-        if not args.skip_outputs:
-            plant_attributes.to_csv(
-                results_folder(f"{path_prefix}plant_data/plant_static_attributes.csv"),
-                index=False,
-            )
-
         # When running the early release pipeline, we do not want to output aggregated
         # power sector or carbon accounting data because the plant-level data is
         # incomplete (analysis of 2024 data revealed that the EIa-923 generation fuel
         # table is missing about 6-7% of records representing about 2% of the total
         # generation and fuel).
         if year <= latest_validated_year:
-            # 16. Shape fleet-level data
+            # 17. Shape fleet-level data
             ################################################################################
-            logger.info("16. Assigning hourly profiles to monthly EIA-923 data")
+            logger.info("17. Assigning hourly profiles to monthly EIA-923 data")
             # Aggregate EIA data to BA/fuel/month, then assign hourly profile per BA/fuel
             monthly_eia_fleet_data = impute_hourly_profiles.aggregate_eia_data_to_fleet(
                 monthly_eia_data_to_shape, plant_attributes, primary_fuel_table, year
@@ -785,9 +785,9 @@ def main(args):
                 .reset_index()
             )
 
-            # 17. Combine plant-level data from all sources
+            # 18. Combine plant-level data from all sources
             ################################################################################
-            logger.info("17. Combining hourly CEMS data")
+            logger.info("18. Combining hourly CEMS data")
             # Because EIA data is already aggregated to the fleet level, at this point, we
             # only want to combine CEMS data together. We pass a blank dataframe as the
             # EIA data
@@ -839,10 +839,10 @@ def main(args):
                 keys=["plant_id_eia", "subplant_id"],
             )
 
-            # 18. Aggregate CEMS data to fleet and write power sector results
+            # 19. Aggregate CEMS data to fleet and write power sector results
             ################################################################################
             logger.info(
-                "18. Creating and exporting hourly, fleet-level power sector results"
+                "19. Creating and exporting hourly, fleet-level power sector results"
             )
             # aggregate CEMS data to the fleet level
             cems_fleet_data = data_cleaning.aggregate_subplant_data_to_fleet(
@@ -888,9 +888,9 @@ def main(args):
                 include_annual=False,
             )
 
-            # 19. Calculate consumption-based emissions and write carbon accounting results
+            # 20. Calculate consumption-based emissions and write carbon accounting results
             ################################################################################
-            logger.info("19. Calculating and exporting consumption-based results")
+            logger.info("20. Calculating and exporting consumption-based results")
             hourly_consumed_calc = consumed.HourlyConsumed(
                 outputs_folder(f"{path_prefix}/eia930/"),
                 path_prefix,
@@ -899,11 +899,6 @@ def main(args):
             )
             hourly_consumed_calc.run()
             hourly_consumed_calc.output_results()
-
-    # 20. Export annual results in the eGRID format
-    ####################################################################################
-    logger.info("20. Exporting annual results in the eGRID format")
-    output_egrid_file.write_egrid_files(year, path_prefix, args.skip_outputs)
 
 
 if __name__ == "__main__":

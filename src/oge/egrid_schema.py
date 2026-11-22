@@ -145,6 +145,41 @@ RESOURCE_MIX_GENERATION = {
     "CNPR": "GENACN",  # total noncombustion
     "COPR": "GENACO",  # other unknown/purchased, with the noncombustion
 }
+# Nonbaseload values are summed from the plant sheet. Each plant's nonbaseload
+# generation counts toward the nonbaseload generation column of its plant fuel category
+# (PLFUELCT), as in eGRID, keyed by the category
+NONBASELOAD_GENERATION_CODES = {
+    "COAL": "NBGNCL",  # coal
+    "OIL": "NBGNOL",  # oil
+    "GAS": "NBGNGS",  # gas
+    "NUCLEAR": "NBGNNC",  # nuclear
+    "HYDRO": "NBGNHY",  # hydro
+    "BIOMASS": "NBGNBM",  # biomass
+    "WIND": "NBGNWI",  # wind
+    "SOLAR": "NBGNSO",  # solar
+    "GEOTHERMAL": "NBGNGT",  # geothermal
+    "OFSL": "NBGNOF",  # other fossil
+    "OTHF": "NBGNOP",  # other unknown/purchased fuel
+}
+# nonbaseload generation column of each nonbaseload resource mix column. Shares are of
+# the sum of the nonbaseload generation columns, i.e. the total nonbaseload generation
+NONBASELOAD_RESOURCE_MIX_GENERATION = {
+    "NBCLPR": "NBGNCL",  # coal
+    "NBOLPR": "NBGNOL",  # oil
+    "NBGSPR": "NBGNGS",  # gas
+    "NBNCPR": "NBGNNC",  # nuclear
+    "NBHYPR": "NBGNHY",  # hydro
+    "NBBMPR": "NBGNBM",  # biomass
+    "NBWIPR": "NBGNWI",  # wind
+    "NBSOPR": "NBGNSO",  # solar
+    "NBGTPR": "NBGNGT",  # geothermal
+    "NBOFPR": "NBGNOF",  # other fossil
+    "NBOPPR": "NBGNOP",  # other unknown/purchased fuel
+}
+# nonbaseload output rates are "NB" followed by the pollutant's code in
+# `EMISSION_RATE_MASSES`, e.g. "NBCO2", except for the ozone season NOx rate
+NONBASELOAD_RATE_PREFIX = "NB"
+NONBASELOAD_OZONE_NOX_RATE = "NBNXO"
 # generation columns of the individual fuels, whose positive generation sums to the
 # total of the resource mix
 RESOURCE_MIX_FUELS = [
