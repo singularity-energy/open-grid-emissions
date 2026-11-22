@@ -36,7 +36,13 @@ from oge.egrid_schema import (
 from oge.egrid_workbook import write_egrid_workbook
 from oge.filepaths import outputs_folder, results_folder
 from oge.helpers import assign_fuel_category_to_esc
-from oge.load_data import load_ba_reference, load_campd_facility, load_pudl_table
+from oge.load_data import (
+    load_ba_reference,
+    load_campd_facility,
+    load_pudl_table,
+    load_raw_eia860_stack_heights,
+    load_unit_to_boiler_associations,
+)
 from oge.logging_util import get_logger
 
 logger = get_logger(__name__)
@@ -131,6 +137,8 @@ UNIT_DATA_SOURCES = {
     "NOXCTLDV": "nox_controls",
     "HGCTLDV": "hg_controls_flag",
     "UNTYRONL": "operating_year",
+    # tallest operating stack of the unit's boilers, from EIA-860
+    "STACKHT": "stack_height_ft",
     # generators of the unit in OGE's subplant crosswalk
     "NUMGEN": "generator_count",
     # sources of the emissions, from the CEMS measurement codes, and of the heat input
@@ -151,6 +159,9 @@ UNIT_MEASUREMENT_CODES = {
     "co2_mass_lb": "co2_mass_measurement_code",
     "hg_mass_lb": "hg_mass_measurement_code",
 }
+# EIA-860 statuses of the stacks whose heights are used for each unit's stack height.
+# As in eGRID, retired, cancelled, planned and out-of-service stacks are left out
+OPERATING_STACK_STATUS_CODES = ["OP", "SB"]
 # eGRID codes for the unit attributes in the CAMPD facility file, from eGRID's
 # crosswalks. Operating statuses are EIA status codes
 CAMPD_OPERATING_STATUS_CODES = {
@@ -534,7 +545,8 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
     least.
 
     The sheet has the units that report to CEMS. Hg is the sum of the hours with Hg
-    data, as in eGRID, and is blank for units that do not report Hg.
+    data, as in eGRID, and is blank for units that do not report Hg. Stack heights come
+    from EIA-860 (see `load_unit_stack_heights`).
 
     Args:
         year (int): data year.
@@ -610,6 +622,7 @@ def build_unit_table(year: int, path_prefix: str) -> pd.DataFrame:
         units.merge(load_plant_names(path_prefix), on="plant_id_eia", how="left")
         .merge(load_campd_unit_attributes(year), on=keys, how="left")
         .merge(count_unit_generators(path_prefix, year), on=keys, how="left")
+        .merge(load_unit_stack_heights(year), on=keys, how="left", validate="1:1")
     )
     table = build_sheet_rows(
         units, UNIT_DATA_SOURCES, year, "SEQUNT", ["state", "plant_name_eia", *keys]
@@ -742,6 +755,85 @@ def translate_campd_values(values: pd.Series, codes: dict[str, str]) -> pd.Serie
         ),
         na_action="ignore",
     )
+
+
+def load_unit_stack_heights(year: int) -> pd.DataFrame:
+    """Finds the stack height of each CEMS unit from the stacks and flues of its EIA-860
+    boilers.
+
+    Only operating and standby stacks are used, leaving out retired, cancelled, planned
+    and out-of-service stacks, as eGRID does. Each unit's stack height comes from:
+
+    1. the tallest stack of the boiler whose ID is the unit's ID, as in eGRID.
+    2. the stacks of the boilers of the unit's generators, from OGE's subplant
+       crosswalk and the EIA-860 boiler-generator associations, if they all have the
+       same height. This fills units whose IDs are not boiler IDs, such as combustion
+       turbines exhausting through a heat recovery steam generator (HRSG). For combined
+       cycles, these associations link each turbine to every boiler of the block,
+       not only its own HRSG, so units whose boilers have stacks of different heights
+       are left blank rather than given another turbine's stack.
+
+    Stack heights are blank before 2013, when the raw EIA-860 does not report them in
+    this layout.
+
+    Args:
+        year (int): data year.
+
+    Returns:
+        pd.DataFrame: plant_id_eia, emissions_unit_id_epa and stack_height_ft of each
+            unit that has an operating stack with a reported height.
+    """
+    keys = ["plant_id_eia", "emissions_unit_id_epa"]
+    stacks = load_raw_eia860_stack_heights(year)
+    stacks = stacks.loc[
+        stacks["operational_status_code"].isin(OPERATING_STACK_STATUS_CODES),
+        ["plant_id_eia", "stack_flue_id_eia", "stack_height_ft"],
+    ]
+    boiler_heights = (
+        load_pudl_table(
+            "core_eia860__assn_boiler_stack_flue",
+            year,
+            columns=["plant_id_eia", "boiler_id", "stack_flue_id_eia"],
+        )
+        .merge(
+            stacks,
+            on=["plant_id_eia", "stack_flue_id_eia"],
+            how="inner",
+            validate="m:1",
+        )
+        .groupby(["plant_id_eia", "boiler_id"], dropna=False)["stack_height_ft"]
+        .max()
+        .reset_index()
+    )
+    # 1. the boiler with the unit's ID
+    heights_by_id = boiler_heights.rename(
+        columns={"boiler_id": "emissions_unit_id_epa"}
+    )
+    # 2. the boilers of the unit's generators, only where their stacks all have the same
+    # height, since a combined cycle turbine is linked to every boiler of its block
+    heights_by_generator = (
+        load_unit_to_boiler_associations(year)
+        .dropna(subset=keys + ["boiler_id"])
+        .drop_duplicates()
+        .merge(boiler_heights, on=["plant_id_eia", "boiler_id"], how="inner")
+        .groupby(keys, dropna=False)["stack_height_ft"]
+        .agg(["min", "max"])
+        .reset_index()
+    )
+    heights_by_generator = heights_by_generator.loc[
+        heights_by_generator["min"] == heights_by_generator["max"], keys + ["max"]
+    ].rename(columns={"max": "stack_height_ft"})
+    heights = heights_by_id.merge(
+        heights_by_generator,
+        on=keys,
+        how="outer",
+        suffixes=("", "_from_generators"),
+        validate="1:1",
+    )
+    heights["stack_height_ft"] = heights["stack_height_ft"].fillna(
+        heights["stack_height_ft_from_generators"]
+    )
+    return heights[keys + ["stack_height_ft"]]
 
 
 ########################################################################################

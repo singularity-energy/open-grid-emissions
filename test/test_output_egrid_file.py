@@ -220,6 +220,11 @@ def results(tmp_path, monkeypatch):
     (PV1), which retired in 2024. The CAMPD facility file and EIA-860 tables are
     replaced by small tables: plant 2 is missing its county from OGE's attributes, so it
     comes from EIA-860.
+
+    Unit 1 has a boiler with its own ID, venting through an operating 200 ft stack and a
+    taller retired stack. Unit 2's ID is not a boiler ID, but its generator's heat
+    recovery boiler (HRSG) vents through a 150 ft standby stack, which unit 1's
+    generator also reaches.
     """
     monkeypatch.setattr(
         output_egrid_file, "results_folder", lambda rel="": str(tmp_path / rel)
@@ -293,7 +298,37 @@ def results(tmp_path, monkeypatch):
         "core_eia__entity_utilities": pd.DataFrame(
             {"utility_id_eia": [20, 21], "utility_name_eia": ["Gas Co", "Solar Co"]}
         ),
+        "core_eia860__assn_boiler_stack_flue": pd.DataFrame(
+            {
+                "plant_id_eia": [1, 1, 1],
+                "boiler_id": ["1", "1", "HRSG"],
+                "stack_flue_id_eia": ["S1", "S1OLD", "S2"],
+            }
+        ),
     }
+    monkeypatch.setattr(
+        output_egrid_file,
+        "load_raw_eia860_stack_heights",
+        lambda year: pd.DataFrame(
+            {
+                "plant_id_eia": [1, 1, 1],
+                "stack_flue_id_eia": ["S1", "S1OLD", "S2"],
+                "operational_status_code": ["OP", "RE", "SB"],
+                "stack_height_ft": [200.0, 300.0, 150.0],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        output_egrid_file,
+        "load_unit_to_boiler_associations",
+        lambda year: pd.DataFrame(
+            {
+                "plant_id_eia": [1, 1, 1],
+                "emissions_unit_id_epa": ["1", "1", "2"],
+                "boiler_id": ["1", "HRSG", "HRSG"],
+            }
+        ),
+    )
     monkeypatch.setattr(
         output_egrid_file,
         "load_pudl_table",
@@ -593,6 +628,11 @@ def test_unit_table(results):
     assert pd.isna(units.loc["1", "HGCTLDV"])
     assert units.loc["2", "HGCTLDV"] == "Yes"
     assert units.loc["1", "UNTYRONL"] == 2001
+    # the stack height is the tallest operating stack of the boiler with the unit's ID,
+    # leaving out the retired stack and the generator's other boiler
+    assert units.loc["1", "STACKHT"] == 200.0
+    # a unit without a boiler of its own ID gets the stacks of its generator's boilers
+    assert units.loc["2", "STACKHT"] == 150.0
     # sources are the measurement codes, from the one covering the most emissions
     assert units.loc["1", "CO2SRC"] == "Measured"
     assert units.loc["2", "CO2SRC"] == "Imputed"
@@ -602,6 +642,66 @@ def test_unit_table(results):
     assert pd.isna(units.loc["2", "HGSRC"])
     assert units.loc["1", "HTIANSRC"] == "EPA/CAPD"
     assert units.loc["2", "SO2SRC"] == "Measured"
+
+
+def test_unit_stack_heights_from_generators_must_agree(monkeypatch):
+    """A unit found only through its generators' boilers should get a stack height only
+    when all of those boilers' operating stacks have the same height.
+
+    Combined cycle turbines are linked to every boiler of their block, so a unit whose
+    boilers have stacks of different heights can't be matched to its own stack. In the
+    test data:
+
+    - unit CT1 reaches two HRSGs whose stacks are both 150 ft, so it gets 150 ft.
+    - unit CT3 reaches two HRSGs with 120 ft and 160 ft stacks, so it is blank.
+    - unit CT4 reaches an HRSG with a 90 ft stack and one whose only stack is retired,
+      so it gets 90 ft.
+    """
+    monkeypatch.setattr(
+        output_egrid_file,
+        "load_raw_eia860_stack_heights",
+        lambda year: pd.DataFrame(
+            {
+                "plant_id_eia": [1, 1, 2, 2, 3, 3],
+                "stack_flue_id_eia": ["S1", "S2", "S3", "S4", "S5", "S6"],
+                "operational_status_code": ["OP", "OP", "OP", "OP", "OP", "RE"],
+                "stack_height_ft": [150.0, 150.0, 120.0, 160.0, 90.0, 300.0],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        output_egrid_file,
+        "load_pudl_table",
+        lambda table, year=None, columns=None: pd.DataFrame(
+            {
+                "plant_id_eia": [1, 1, 2, 2, 3, 3],
+                "boiler_id": ["HRSG1", "HRSG2", "HRSG3", "HRSG4", "HRSG5", "HRSG6"],
+                "stack_flue_id_eia": ["S1", "S2", "S3", "S4", "S5", "S6"],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        output_egrid_file,
+        "load_unit_to_boiler_associations",
+        lambda year: pd.DataFrame(
+            {
+                "plant_id_eia": [1, 1, 2, 2, 3, 3],
+                "emissions_unit_id_epa": ["CT1", "CT1", "CT3", "CT3", "CT4", "CT4"],
+                "boiler_id": ["HRSG1", "HRSG2", "HRSG3", "HRSG4", "HRSG5", "HRSG6"],
+            }
+        ),
+    )
+
+    heights = output_egrid_file.load_unit_stack_heights(2024).set_index(
+        "emissions_unit_id_epa"
+    )["stack_height_ft"]
+
+    # both of CT1's boilers have 150 ft stacks
+    assert heights["CT1"] == 150.0
+    # CT3's boilers have stacks of different heights, so it has no stack height
+    assert "CT3" not in heights.index
+    # the retired stack is left out before comparing heights
+    assert heights["CT4"] == 90.0
 
 
 def test_translate_campd_values():

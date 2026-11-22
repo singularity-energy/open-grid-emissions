@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 import oge.load_data as load_data
 
@@ -471,3 +472,67 @@ def test_load_mats_data_before_mats():
         "hg_mass_measurement_code",
     ]
     assert mats["hg_mass_lb"].dtype == "float64"
+
+
+@pytest.mark.parametrize("title_rows", [1, 2])
+def test_load_raw_eia860_stack_heights(monkeypatch, tmp_path, title_rows):
+    """Each stack should be listed once with its height, whether the file has one title
+    row (final release) or two (early release).
+
+    The sheet has a stack repeated as a blank row, a stack repeated exactly, a stack
+    repeated with a different height (the tallest is kept), a stack with no height, and
+    the note below the table, which should all be dropped.
+    """
+    stack = {
+        "Utility ID": 1,
+        "Plant Code": 3,
+        "Stack or Flue ID": "1",
+        "Stack Flue Status": "OP",
+        "Stack Height (Feet)": 600,
+    }
+    sheet = pd.DataFrame(
+        [
+            stack,
+            # blank repeat of stack 1
+            stack | {"Stack Flue Status": " ", "Stack Height (Feet)": " "},
+            # exact repeat of stack 2
+            stack | {"Stack or Flue ID": "2", "Stack Height (Feet)": 300},
+            stack | {"Stack or Flue ID": "2", "Stack Height (Feet)": 300},
+            # stack 3 is repeated with a different height
+            stack | {"Stack or Flue ID": "3", "Stack Height (Feet)": 100},
+            stack | {"Stack or Flue ID": "3", "Stack Height (Feet)": 120},
+            # stack without a height
+            stack | {"Stack or Flue ID": "4", "Stack Height (Feet)": " "},
+            {"Utility ID": "NOTE: plants under 100 MW are not reported"},
+        ]
+    )
+    (tmp_path / "eia860/eia8602024").mkdir(parents=True)
+    _write_excel_sheets(
+        tmp_path / "eia860/eia8602024/6_2_EnviroEquip_Y2024.xlsx",
+        {"Stack Flue": (title_rows, sheet)},
+    )
+    monkeypatch.setattr(
+        load_data, "downloads_folder", lambda path: str(tmp_path / path)
+    )
+
+    stacks = load_data.load_raw_eia860_stack_heights(2024).sort_values(
+        "stack_flue_id_eia"
+    )
+
+    assert stacks["stack_flue_id_eia"].tolist() == ["1", "2", "3"]
+    assert stacks["stack_height_ft"].tolist() == [600.0, 300.0, 120.0]
+    assert stacks["operational_status_code"].tolist() == ["OP", "OP", "OP"]
+    assert stacks["plant_id_eia"].tolist() == [3, 3, 3]
+
+
+def test_load_raw_eia860_stack_heights_before_2013():
+    """Years before the Stack Flue layout should load no stacks rather than misread an
+    older file, so stack heights are blank for those years."""
+    stacks = load_data.load_raw_eia860_stack_heights(2012)
+    assert stacks.empty
+    assert list(stacks.columns) == [
+        "plant_id_eia",
+        "stack_flue_id_eia",
+        "operational_status_code",
+        "stack_height_ft",
+    ]

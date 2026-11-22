@@ -36,7 +36,7 @@ Each of these data categories includes data at different temporal resolutions (h
 
 OGE also publishes each year's annual results in the layout of EPA's eGRID data file, for users who already work with eGRID. The `eGRID` folder of each year's results holds an Excel workbook in U.S. units (`oge_egrid{year}_data.xlsx`) and one in metric units (`oge_egrid{year}_data_metric.xlsx`). Each workbook has eGRID's sheets, columns, and column codes:
 
-* **Unit (UNT)**: CEMS-reporting units, from OGE's cleaned CEMS data, with unit attributes from EPA's CAMPD facility files.
+* **Unit (UNT)**: CEMS-reporting units, from OGE's cleaned CEMS data, with unit attributes from EPA's CAMPD facility files and stack heights from EIA-860.
 * **Generator (GEN)**: generators, from OGE's EIA-923 data allocated to generators, with generator attributes from EIA-860.
 * **Plant (PLNT)**: plants, from OGE's plant results and plant attributes.
 * **State (ST), balancing authority (BA), NERC region (NRL), and U.S. (US)**: states and NERC regions are summed from OGE's subplant results, using each plant's `state` and `nerc_region` in the plant static attributes, and balancing authorities and the U.S. come from OGE's power sector results.

@@ -684,6 +684,97 @@ def load_raw_eia860m_puerto_rico_generators(year: int) -> pd.DataFrame:
     return apply_dtypes(generators)
 
 
+def load_raw_eia860_stack_heights(year: int) -> pd.DataFrame:
+    """Loads the height of each stack or flue from the "Stack Flue" sheet of the raw
+    EIA-860 environmental equipment file, which PUDL does not include.
+
+    Rows without a stack height, such as a blank repeat of a stack, are dropped, along
+    with rows that repeat a stack exactly. If a stack is still listed more than once,
+    the tallest is kept.
+
+    Stack heights are only reported in this layout from 2013 onward. Earlier files
+    report stacks in a different layout, so no stacks are loaded for earlier years.
+
+    Args:
+        year (int): a four-digit year.
+
+    Returns:
+        pd.DataFrame: one row per stack or flue, with plant_id_eia, stack_flue_id_eia,
+            operational_status_code and stack_height_ft. Empty before 2013.
+    """
+    columns = [
+        "plant_id_eia",
+        "stack_flue_id_eia",
+        "operational_status_code",
+        "stack_height_ft",
+    ]
+    # first year whose environmental equipment file has a "Stack Flue" sheet with a
+    # "Stack Height (Feet)" column
+    earliest_stack_height_year = 2013
+    if year < earliest_stack_height_year:
+        logger.warning(
+            f"Stack heights are not loaded for {year}, since the raw EIA-860 only "
+            f"reports them in the expected layout from {earliest_stack_height_year} "
+            "onward."
+        )
+        return apply_dtypes(pd.DataFrame(columns=columns))
+    if (year == current_early_release_year) and (
+        current_early_release_year != latest_validated_year
+    ):
+        filepath = find_downloaded_file(
+            f"eia860/eia860{year}ER", f"6_2_EnviroEquip_Y{year}*.xlsx"
+        )
+    else:
+        filepath = downloads_folder(f"eia860/eia860{year}/6_2_EnviroEquip_Y{year}.xlsx")
+    # the number of title rows above the column names differs between final and early
+    # release files
+    header_row = (
+        pd.read_excel(filepath, sheet_name="Stack Flue", header=None, nrows=5)
+        .eq("Plant Code")
+        .any(axis=1)
+        .idxmax()
+    )
+    keys = ["plant_id_eia", "stack_flue_id_eia"]
+    stacks = pd.read_excel(
+        filepath,
+        sheet_name="Stack Flue",
+        header=header_row,
+        usecols=[
+            "Plant Code",
+            "Stack or Flue ID",
+            "Stack Flue Status",
+            "Stack Height (Feet)",
+        ],
+        dtype={"Stack or Flue ID": str},
+        na_values=" ",
+    ).rename(
+        columns={
+            "Plant Code": "plant_id_eia",
+            "Stack or Flue ID": "stack_flue_id_eia",
+            "Stack Flue Status": "operational_status_code",
+            "Stack Height (Feet)": "stack_height_ft",
+        }
+    )
+    # drop the notes below the table and stacks without a height
+    stacks = stacks[
+        pd.to_numeric(stacks["plant_id_eia"], errors="coerce").notna()
+        & stacks["stack_height_ft"].notna()
+    ].drop_duplicates()
+    stacks["stack_height_ft"] = pd.to_numeric(stacks["stack_height_ft"])
+    repeated = stacks.duplicated(subset=keys, keep=False)
+    if repeated.any():
+        logger.warning(
+            "These stacks are listed more than once with different values in the raw "
+            "EIA-860, so the tallest is kept:\n"
+            f"{stacks.loc[repeated, keys].drop_duplicates().to_string(index=False)}"
+        )
+        stacks = stacks.sort_values("stack_height_ft", ascending=False).drop_duplicates(
+            subset=keys
+        )
+
+    return apply_dtypes(stacks.reset_index(drop=True))
+
+
 def load_raw_eia923_puerto_rico_generation_fuel(year: int) -> pd.DataFrame:
     """Loads monthly generation and fuel consumption for Puerto Rico plants from the raw
     EIA-923, which reports them on a separate sheet from the other states. PUDL does not
