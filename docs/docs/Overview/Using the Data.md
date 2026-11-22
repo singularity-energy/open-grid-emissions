@@ -96,7 +96,6 @@ plant_retirement_date | date | Date of the scheduled or effected retirement of t
 distribution_flag | boolean | Indicates whether a plant is connected to the distribution grid (<= 60kV interconnection) | EIA-860
 timezone | string | IANA timezone name for the local timezone where the plant is physically located | EIA-860
 data_availability | string | identifies whether this plant only reports to EIA, only reports to CEMS, or reports to both EIA and CEMS | Derived from EIA and CEMS data
-shaped_plant_id | integer | A synthetic plant id code used when aggregating plants to the ba-fuel level. If blank, this plant is not aggregated | [See fleet shaping method](../Methodology/Assigning%20Hourly%20Profiles%20to%20Monthly%20Data/Shaping%20Using%20Fleet-Specific%20Profiles.md)
 
 ### Plant Metadata Table
 

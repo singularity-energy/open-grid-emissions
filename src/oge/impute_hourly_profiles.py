@@ -2255,9 +2255,9 @@ def aggregate_eia_data_to_fleet(
 
     Given cleaned monthly EIA-923 data and plant attributes, aggregate to BA-fuel
     using artificial plant IDs 9XXXYYY where XXX=BA code (see `ba_reference.csv`)
-    and YY=fuel (see `impute_hourly_profiles.get_shaped_plant_id_from_ba_fuel`)
-
-    Add new artificial plants to plant_attributes frame.
+    and YY=fuel (see `impute_hourly_profiles.get_shaped_plant_id_from_ba_fuel`).
+    These IDs are only used for the aggregated fleets, and are not added to the plant
+    attributes.
 
     Args:
         monthly_eia_data_to_shape (pd.DataFrame): data that will be aggregated and
@@ -2390,7 +2390,7 @@ def shape_monthly_eia_data_as_hourly(
         hourly_profiles (pd.DataFrame): The profiles used to shape the other df
         year (int): the data year, only used in the validation function
         fuel_category_col_for_shaping (str): the name of the fuel column for shaping
-            the data. When shaping the data in step 16 we assign a
+            the data. When shaping the data in step 17 we assign a
             fuel_category_for_shaping column
 
     Returns:
