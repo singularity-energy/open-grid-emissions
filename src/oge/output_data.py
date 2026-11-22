@@ -23,6 +23,7 @@ from oge.logging_util import get_logger
 from oge.constants import (
     ConversionFactors,
     CLEAN_FUELS,
+    ENERGY_STORAGE_PRIME_MOVERS,
     RESIDUAL_MIX_FUEL_CATEGORIES,
     earliest_validated_year,
     earliest_hourly_data_year,
@@ -425,6 +426,7 @@ def write_plant_data_to_results(
 def calculate_plant_factors(
     monthly_subplant_data: pd.DataFrame,
     plant_attributes: pd.DataFrame,
+    primary_fuel_table: pd.DataFrame,
     eia923_allocated: pd.DataFrame,
     year: int,
 ) -> pd.DataFrame:
@@ -433,7 +435,10 @@ def calculate_plant_factors(
     This is the coordinating function for the plant factors of the annual plant data.
     The capacity factor only counts the months when each generator was operating (see
     `calculate_operating_capacity_mwh`), and is zero where net generation is negative,
-    as in eGRID. The nonbaseload factor follows eGRID's method (see
+    as in eGRID. It leaves out energy storage (including pumped storage), whose net
+    generation is mostly charging losses, so that storage capacity doesn't lower the
+    capacity factor of the plant's other generators. Plants with only storage have no
+    capacity factor. The nonbaseload factor follows eGRID's method (see
     `calculate_nonbaseload_factor`).
 
     Args:
@@ -441,6 +446,8 @@ def calculate_plant_factors(
             generation is summed to each plant's annual net generation.
         plant_attributes (pd.DataFrame): the plant static attributes table, with each
             plant's 'capacity_mw' and 'plant_primary_fuel'.
+        primary_fuel_table (pd.DataFrame): primary fuel and prime mover of each
+            subplant, used to identify storage subplants.
         eia923_allocated (pd.DataFrame): monthly EIA-923 data allocated to generators.
         year (int): data year.
 
@@ -448,12 +455,33 @@ def calculate_plant_factors(
         pd.DataFrame: 'plant_id_eia', 'capacity_factor' and 'nonbaseload_factor' of
             each plant in `monthly_subplant_data`.
     """
-    # sum each plant's monthly subplant net generation to its annual net generation,
-    # in the same way as the annual plant data
+    # identify storage subplants, whose primary prime mover is a storage technology,
+    # in the same way as the subplant attributes
+    subplant_fuel_categories = assign_fleet_to_subplant_data(
+        monthly_subplant_data[["plant_id_eia", "subplant_id"]].drop_duplicates(),
+        plant_attributes,
+        primary_fuel_table,
+        year,
+    )
+    subplants = monthly_subplant_data.copy()[
+        ["plant_id_eia", "subplant_id", "net_generation_mwh"]
+    ]
+    subplants = subplants.merge(
+        subplant_fuel_categories[["plant_id_eia", "subplant_id", "fuel_category"]],
+        how="left",
+        on=["plant_id_eia", "subplant_id"],
+        validate="m:1",
+    )
+
+    # leave storage out of the net generation. Storage subplants are kept with a blank
+    # generation, so that plants with only storage have a blank capacity factor
+    subplants["net_generation_mwh"] = subplants["net_generation_mwh"].where(
+        subplants["fuel_category"] != "storage"
+    )
+
+    # sum each plant's monthly subplant net generation to its annual net generation
     plants = (
-        monthly_subplant_data.groupby("plant_id_eia", dropna=False)[
-            "net_generation_mwh"
-        ]
+        subplants.groupby("plant_id_eia", dropna=False)["net_generation_mwh"]
         .sum(min_count=1)
         .reset_index()
     )
@@ -477,8 +505,8 @@ def calculate_plant_factors(
     )
 
     # add the generation at nameplate capacity in the months when each of the plant's
-    # generators was operating or generating, which is the denominator of the
-    # capacity factor
+    # generators other than storage was operating or generating, which is the
+    # denominator of the capacity factor
     operating_capacity = calculate_operating_capacity_mwh(eia923_allocated, year)
     plants = plants.merge(
         operating_capacity, how="left", on="plant_id_eia", validate="1:1"
@@ -548,7 +576,9 @@ def calculate_operating_capacity_mwh(
     """Calculates each plant's generation at nameplate capacity in the months when each
     of its generators was operating, which is the denominator of its capacity factor.
 
-    A generator is counted as operating in a month if either:
+    Energy storage generators (prime movers in `ENERGY_STORAGE_PRIME_MOVERS`, including
+    pumped storage) are left out. A generator is counted as operating in a month if
+    either:
     - its EIA-860 dates cover the month: it is existing or retired, its operating date
       is blank or on or before the end of the month, and its retirement date is blank
       or on or after the start of the month. A generator that starts or retires
@@ -568,7 +598,8 @@ def calculate_operating_capacity_mwh(
     Returns:
         pd.DataFrame: 'plant_id_eia' and 'operating_capacity_mwh', the sum of each
             generator's nameplate capacity times the hours of the months in which it
-            operated. Plants whose generators have no capacity are not included.
+            operated. Plants without generators other than storage that have a
+            capacity are not included.
     """
     generators = load_data.load_pudl_table(
         "out_eia__yearly_generators",
@@ -580,8 +611,13 @@ def calculate_operating_capacity_mwh(
             "operational_status",
             "generator_operating_date",
             "generator_retirement_date",
+            "prime_mover_code",
         ],
     )
+    # storage capacity isn't counted, since its net generation isn't either
+    generators = generators[
+        ~generators["prime_mover_code"].isin(ENERGY_STORAGE_PRIME_MOVERS)
+    ]
     generator_months = generators.merge(
         pd.DataFrame(
             {"report_date": pd.date_range(f"{year}-01-01", periods=12, freq="MS")}

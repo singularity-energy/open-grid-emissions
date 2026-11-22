@@ -504,6 +504,7 @@ def test_annual_plant_data_has_capacity_and_nonbaseload_factors():
             "operational_status": ["existing", "existing"],
             "generator_operating_date": pd.to_datetime(["2000-01-01", "2000-01-01"]),
             "generator_retirement_date": pd.to_datetime([None, None]),
+            "prime_mover_code": ["CT", "CT"],
         }
     )
     eia923_allocated = pd.DataFrame(
@@ -521,11 +522,20 @@ def test_annual_plant_data_has_capacity_and_nonbaseload_factors():
 
     with (
         patch.object(output_data.load_data, "load_pudl_table", return_value=generators),
+        patch.object(
+            output_data,
+            "assign_fleet_to_subplant_data",
+            lambda subplants, *_: subplants.assign(fuel_category="natural_gas"),
+        ),
         patch.object(output_data, "output_to_results", fake_output_to_results),
         patch.object(output_data.validation, "check_for_anomalous_co2_factors"),
     ):
         plant_factors = output_data.calculate_plant_factors(
-            monthly_subplant_data, plant_attributes, eia923_allocated, 2024
+            monthly_subplant_data,
+            plant_attributes,
+            pd.DataFrame(),
+            eia923_allocated,
+            2024,
         )
         output_data.write_plant_data_to_results(
             monthly_subplant_data,
@@ -606,14 +616,17 @@ def test_operating_capacity_counts_operating_and_generating_months():
       generator was in 2024), but generated in June and July, so it counts in those
       months only.
     - Generator E retired before the year and didn't generate, so it doesn't count.
+    - Generators G (a battery) and H (pumped storage) operated all year, but storage
+      doesn't count.
     - Plant 2's only generator has no capacity, so the plant is left out and its
       capacity factor falls back to its plant capacity.
+    - Plant 3 only has a battery, so it is left out.
     """
     generators = pd.DataFrame(
         {
-            "plant_id_eia": [1, 1, 1, 1, 1, 2],
-            "generator_id": ["A", "B", "C", "D", "E", "F"],
-            "capacity_mw": [10.0, 20.0, 30.0, 100.0, 50.0, np.nan],
+            "plant_id_eia": [1, 1, 1, 1, 1, 1, 1, 2, 3],
+            "generator_id": ["A", "B", "C", "D", "E", "G", "H", "F", "I"],
+            "capacity_mw": [10.0, 20.0, 30.0, 100.0, 50.0, 40.0, 60.0, np.nan, 5.0],
             "operational_status": [
                 "existing",
                 "retired",
@@ -621,13 +634,27 @@ def test_operating_capacity_counts_operating_and_generating_months():
                 "proposed",
                 "retired",
                 "existing",
+                "existing",
+                "existing",
+                "existing",
             ],
             "generator_operating_date": pd.to_datetime(
-                ["2000-01-01", "2000-01-01", "2024-11-01", None, "1990-01-01", None]
+                [
+                    "2000-01-01",
+                    "2000-01-01",
+                    "2024-11-01",
+                    None,
+                    "1990-01-01",
+                    "2000-01-01",
+                    "2000-01-01",
+                    None,
+                    "2000-01-01",
+                ]
             ),
             "generator_retirement_date": pd.to_datetime(
-                [None, "2024-03-01", None, None, "2020-01-01", None]
+                [None, "2024-03-01", None, None, "2020-01-01", None, None, None, None]
             ),
+            "prime_mover_code": ["CT", "ST", "CT", "PV", "ST", "BA", "PS", "CT", "BA"],
         }
     )
     eia923_allocated = pd.DataFrame(
@@ -656,3 +683,89 @@ def test_operating_capacity_counts_operating_and_generating_months():
     )
     assert result["plant_id_eia"].tolist() == [1]
     assert result.loc[0, "operating_capacity_mwh"] == pytest.approx(expected)
+
+
+def test_plant_factors_leave_out_storage():
+    """Capacity factors should leave out the net generation and capacity of energy
+    storage, and plants with only storage should have no capacity factor.
+
+    Storage net generation is mostly charging losses, so counting a battery's capacity
+    would lower the capacity factor of the plant's other generators and make them look
+    more like nonbaseload.
+
+    - Plant 1 has a gas subplant that generated half of what its 100 MW could in a leap
+      year, and a 100 MW battery subplant with negative net generation. Its capacity
+      factor should be 0.5, as if it had no battery.
+    - Plant 2 only has a battery, so its capacity factor is blank rather than zero.
+    """
+    records = []
+    for plant_id, subplant_id, generation in [
+        (1, 1, 100 * 8784 / 2),
+        (1, 2, -1000.0),
+        (2, 1, -500.0),
+    ]:
+        records.append(
+            {
+                "plant_id_eia": plant_id,
+                "subplant_id": subplant_id,
+                "report_date": pd.Timestamp("2024-01-01"),
+                "net_generation_mwh": generation,
+            }
+        )
+    monthly_subplant_data = pd.DataFrame(records)
+    plant_attributes = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2],
+            "plant_name_eia": ["Gas and Battery", "Battery"],
+            "fuel_category": ["natural_gas", "storage"],
+            "plant_primary_fuel": ["NG", "MWH"],
+            "capacity_mw": [200.0, 50.0],
+        }
+    )
+    subplant_fuel_categories = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2],
+            "subplant_id": [1, 2, 1],
+            "fuel_category": ["natural_gas", "storage", "storage"],
+        }
+    )
+    generators = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 2],
+            "generator_id": ["GT1", "BAT1", "BAT1"],
+            "capacity_mw": [100.0, 100.0, 50.0],
+            "operational_status": ["existing", "existing", "existing"],
+            "generator_operating_date": pd.to_datetime(["2000-01-01"] * 3),
+            "generator_retirement_date": pd.to_datetime([None] * 3),
+            "prime_mover_code": ["GT", "BA", "BA"],
+        }
+    )
+    # no generator produced electricity outside its operating months
+    eia923_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": pd.Series(dtype="int64"),
+            "generator_id": pd.Series(dtype="str"),
+            "report_date": pd.Series(dtype="str"),
+            "net_generation_mwh": pd.Series(dtype="float64"),
+        }
+    )
+    with (
+        patch.object(output_data.load_data, "load_pudl_table", return_value=generators),
+        patch.object(
+            output_data,
+            "assign_fleet_to_subplant_data",
+            lambda *_: subplant_fuel_categories,
+        ),
+    ):
+        factors = output_data.calculate_plant_factors(
+            monthly_subplant_data,
+            plant_attributes,
+            pd.DataFrame(),
+            eia923_allocated,
+            2024,
+        ).set_index("plant_id_eia")
+    assert factors.loc[1, "capacity_factor"] == pytest.approx(0.5)
+    assert factors.loc[1, "nonbaseload_factor"] == pytest.approx(-5 / 3 * 0.5 + 4 / 3)
+    # plants with only storage have no capacity factor or nonbaseload factor
+    assert pd.isna(factors.loc[2, "capacity_factor"])
+    assert pd.isna(factors.loc[2, "nonbaseload_factor"])

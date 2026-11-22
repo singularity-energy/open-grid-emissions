@@ -517,7 +517,11 @@ def main(args):
     # output plant and subplant data, with each plant's capacity factor and nonbaseload
     # factor in the annual plant data
     plant_factors = output_data.calculate_plant_factors(
-        monthly_subplant_data, plant_attributes, eia923_allocated, year
+        monthly_subplant_data,
+        plant_attributes,
+        primary_fuel_table,
+        eia923_allocated,
+        year,
     )
     for plant_part in ["subplant", "plant"]:
         for resolution in ["monthly", "annual"]:
