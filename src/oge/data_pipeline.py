@@ -516,7 +516,11 @@ def main(args):
         columns_to_check=["net_generation_mwh", "fuel_consumed_for_electricity_mmbtu"],
         year=year,
     )
-    # output plant and subplant data
+    # output plant and subplant data, with each plant's capacity factor and nonbaseload
+    # factor in the annual plant data
+    plant_factors = output_data.calculate_plant_factors(
+        monthly_subplant_data, plant_attributes, eia923_allocated, year
+    )
     for plant_part in ["subplant", "plant"]:
         for resolution in ["monthly", "annual"]:
             output_data.write_plant_data_to_results(
@@ -527,6 +531,7 @@ def main(args):
                 resolution=resolution,
                 skip_outputs=args.skip_outputs,
                 plant_attributes=plant_attributes,
+                plant_factors=plant_factors,
             )
     # 12. Export monthly and annual power sector data
     ####################################################################################

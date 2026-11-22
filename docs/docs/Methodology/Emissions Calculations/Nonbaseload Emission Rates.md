@@ -9,13 +9,19 @@ Nonbaseload emission rates are a type of marginal emission rate which estimate t
 OGE calculates nonbaseload rates using the method used in EPA's eGRID. OGE's results include each plant's nonbaseload factor, and the [eGRID-format workbook](../../Overview/Using%20the%20Data.md#files) includes nonbaseload generation, emission rates, generation by fuel type, and resource mix for each state, balancing authority, NERC region, and the U.S.
 
 ### Capacity factor
-Each plant's annual capacity factor (`capacity_factor` in the annual plant data) is its annual net generation divided by its nameplate capacity times the number of hours in the year:
+Each plant's annual capacity factor (`capacity_factor` in the annual plant data) is its annual net generation divided by what it could have generated at nameplate capacity while its generators were operating:
 
-capacity factor = net generation (MWh) &frasl; (nameplate capacity (MW) &times; hours in the year)
+capacity factor = net generation (MWh) &frasl; &sum; (generator nameplate capacity (MW) &times; hours in the months the generator operated)
 
-The number of hours in the year is 8,784 in a leap year and 8,760 otherwise. As in eGRID, the capacity factor is zero for plants with negative net generation, and it is blank for plants without a nameplate capacity.
+A generator is counted as operating in a month if either:
+- its EIA-860 operating and retirement dates cover the month, i.e. it is existing or retired, it began operating by the end of the month, and it had not retired before the month began. A generator that starts or retires during a month counts for the whole month, since EIA-860 reports these dates by month.
+- it produced electricity in the month (positive net generation in the EIA-923 data allocated to generators), even if it has not reached its commercial operation date. Generators that are still being tested before commercial operation (EIA-860 status `TS`) are reported as proposed, but can generate for months before they are considered operating.
 
-The nameplate capacity is the plant's total capacity in the year (`capacity_mw`), which includes generators that started operating or retired during the year. Plants that operated for only part of the year therefore have a lower capacity factor than their operation while online would suggest.
+The number of hours in a month accounts for leap years, so a full year has 8,784 hours in a leap year and 8,760 otherwise. As in eGRID, the capacity factor is zero for plants with negative net generation. Plants that have no generator data with a capacity are assumed to have operated their whole nameplate capacity (`capacity_mw`) for the whole year. The capacity factor is blank for plants without a nameplate capacity.
+
+eGRID divides by the plant's nameplate capacity times 8,760 hours, so plants that started operating or retired during the year look mostly idle, and plants with generators that are still testing can have capacity factors far above 1. For example, Roseland Solar (65028) generated 950 GWh in 2024 from a 500 MW solar generator that was still testing all year, while its only operating generator was a 51.8 MW battery. Its capacity factor is 2.09 when only the battery counts, and 0.20 when the testing solar generator also counts. In 2024, counting only operating months changes the capacity factor of 592 plants and the nonbaseload factor of 25, reducing U.S. nonbaseload generation by 4.4 TWh (0.4%).
+
+Capacity factors above 1 point to problems in the input data, such as missing capacity or net generation that is too high. They are not corrected, but the pipeline lists them in a warning.
 
 ### Nonbaseload factor
 The capacity factor is used as a surrogate for where a plant falls in the dispatch order: plants that run most of the time are considered baseload, and plants that run rarely are considered to follow load. Each plant's nonbaseload factor (`nonbaseload_factor` in the annual plant data) is the share of its generation and emissions that is considered nonbaseload:
@@ -47,5 +53,4 @@ Regions without any plant with a nonbaseload factor have blank nonbaseload value
 Because the rates and the generation come from the same plant values, a region's nonbaseload generation always equals the sum of its plants' nonbaseload generation, and its nonbaseload emissions divided by its rate. eGRID's 2024 and 2025 data files are not consistent in this way, so their published regional nonbaseload rates are higher than the rates calculated from their own plant data (see [Comparison to eGRID](../../Overview/Comparison%20to%20eGRID.md#2b-egrid2023-bugs)).
 
 ### Future work
-- Plants that started operating or retired during the year are mostly counted as nonbaseload because of their low annual capacity factor. Counting only the hours in which each generator was operating would give these plants a more accurate capacity factor.
 - A single annual factor treats a plant that runs all summer and is offline the rest of the year the same as a plant that runs at part load all year. Monthly or subplant-level factors could better separate baseload from nonbaseload generation.

@@ -391,6 +391,13 @@ def test_plant_data_does_not_sum_subplant_id(plant_part, resolution):
             resolution=resolution,
             skip_outputs=False,
             plant_attributes=plant_attributes,
+            plant_factors=pd.DataFrame(
+                {
+                    "plant_id_eia": [1],
+                    "capacity_factor": [0.0],
+                    "nonbaseload_factor": [1.0],
+                }
+            ),
         )
 
     table = outputs[(f"plant_data/{resolution}/", f"{plant_part}_data")]
@@ -454,14 +461,13 @@ def test_nonbaseload_factor_follows_egrid():
 
 def test_annual_plant_data_has_capacity_and_nonbaseload_factors():
     """The annual plant results should include each plant's capacity factor and
-    nonbaseload factor next to its capacity, without the plant primary fuel used to
-    calculate the nonbaseload factor.
+    nonbaseload factor next to its capacity.
 
     The eGRID-format file reads both factors from these results, so they must be
     calculated from the plant's annual generation and capacity. Plant 1 generates half
-    of what it could at full capacity in a leap year. Plant 2 has negative net
-    generation, so, as in eGRID's plant sheet, its capacity factor is zero rather than
-    negative, and it has no nonbaseload factor.
+    of what its generator could at full capacity in a leap year. Plant 2 has negative
+    net generation, so, as in eGRID's plant sheet, its capacity factor is zero rather
+    than negative, and it has no nonbaseload factor.
     """
     records = []
     for plant_id, generation in [(1, 100 * 8784 / 4), (2, -50.0)]:
@@ -490,15 +496,37 @@ def test_annual_plant_data_has_capacity_and_nonbaseload_factors():
             "state": ["ST", "ST"],
         }
     )
+    generators = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 2],
+            "generator_id": ["A", "B"],
+            "capacity_mw": [100.0, 100.0],
+            "operational_status": ["existing", "existing"],
+            "generator_operating_date": pd.to_datetime(["2000-01-01", "2000-01-01"]),
+            "generator_retirement_date": pd.to_datetime([None, None]),
+        }
+    )
+    eia923_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [1],
+            "generator_id": ["A"],
+            "report_date": ["2024-01-01"],
+            "net_generation_mwh": [100 * 8784 / 4],
+        }
+    )
     outputs = {}
 
     def fake_output_to_results(df, year, file_name, subfolder, **_):
         outputs[(subfolder, file_name)] = df.copy()
 
     with (
+        patch.object(output_data.load_data, "load_pudl_table", return_value=generators),
         patch.object(output_data, "output_to_results", fake_output_to_results),
         patch.object(output_data.validation, "check_for_anomalous_co2_factors"),
     ):
+        plant_factors = output_data.calculate_plant_factors(
+            monthly_subplant_data, plant_attributes, eia923_allocated, 2024
+        )
         output_data.write_plant_data_to_results(
             monthly_subplant_data,
             2024,
@@ -507,8 +535,14 @@ def test_annual_plant_data_has_capacity_and_nonbaseload_factors():
             resolution="annual",
             skip_outputs=False,
             plant_attributes=plant_attributes,
+            plant_factors=plant_factors,
         )
 
+    assert list(plant_factors.columns) == [
+        "plant_id_eia",
+        "capacity_factor",
+        "nonbaseload_factor",
+    ]
     table = outputs[("plant_data/annual/", "plant_data")]
     columns = list(table.columns)
     assert columns[
@@ -539,3 +573,86 @@ def test_plant_factors_are_rounded_to_fixed_decimals():
     rounded = output_data.round_table(table)
     assert rounded["capacity_factor"].tolist() == [0.1235, 0.9]
     assert rounded["nonbaseload_factor"].tolist() == [0.9877, 0.0]
+
+
+def test_capacity_factor_uses_operating_capacity():
+    """Capacity factors should divide net generation by the generation at nameplate
+    capacity in the months the plant's generators operated, where it is known, and
+    fall back to the plant's capacity in every hour of the year otherwise.
+
+    This keeps plants that only operated part of the year from looking mostly idle,
+    which would count them as nonbaseload.
+    """
+    generation = pd.Series([1000.0, 1000.0, 1000.0])
+    capacity = pd.Series([1.0, 1.0, 1.0])
+    operating_capacity_mwh = pd.Series([2000.0, np.nan, 0.0])
+    factor = output_data.calculate_capacity_factor(
+        generation, capacity, 2024, operating_capacity_mwh=operating_capacity_mwh
+    )
+    assert factor[0] == 0.5
+    # missing or zero operating capacity falls back to the whole year
+    assert factor[1] == pytest.approx(1000 / 8784)
+    assert factor[2] == pytest.approx(1000 / 8784)
+
+
+def test_operating_capacity_counts_operating_and_generating_months():
+    """Each generator's capacity should count in the months it was operating according
+    to its EIA-860 dates, or in which it produced electricity.
+
+    - Generator A operated all year.
+    - Generator B retired in March, so it counts in January to March.
+    - Generator C started in November, so it counts in November and December.
+    - Generator D is proposed (e.g. still testing, as Roseland Solar's 500 MW solar
+      generator was in 2024), but generated in June and July, so it counts in those
+      months only.
+    - Generator E retired before the year and didn't generate, so it doesn't count.
+    - Plant 2's only generator has no capacity, so the plant is left out and its
+      capacity factor falls back to its plant capacity.
+    """
+    generators = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1, 1, 2],
+            "generator_id": ["A", "B", "C", "D", "E", "F"],
+            "capacity_mw": [10.0, 20.0, 30.0, 100.0, 50.0, np.nan],
+            "operational_status": [
+                "existing",
+                "retired",
+                "existing",
+                "proposed",
+                "retired",
+                "existing",
+            ],
+            "generator_operating_date": pd.to_datetime(
+                ["2000-01-01", "2000-01-01", "2024-11-01", None, "1990-01-01", None]
+            ),
+            "generator_retirement_date": pd.to_datetime(
+                [None, "2024-03-01", None, None, "2020-01-01", None]
+            ),
+        }
+    )
+    eia923_allocated = pd.DataFrame(
+        {
+            "plant_id_eia": [1, 1, 1, 1],
+            "generator_id": ["D", "D", "D", "B"],
+            "report_date": ["2024-06-01", "2024-07-01", "2024-08-01", "2024-01-01"],
+            # D produced nothing in August, and B's generation is already counted by
+            # its dates
+            "net_generation_mwh": [500.0, 600.0, 0.0, 100.0],
+        }
+    )
+    with patch.object(
+        output_data.load_data, "load_pudl_table", return_value=generators
+    ):
+        result = output_data.calculate_operating_capacity_mwh(eia923_allocated, 2024)
+    hours = {
+        month: pd.Period(f"2024-{month:02d}").days_in_month * 24
+        for month in range(1, 13)
+    }
+    expected = (
+        10 * sum(hours.values())
+        + 20 * (hours[1] + hours[2] + hours[3])
+        + 30 * (hours[11] + hours[12])
+        + 100 * (hours[6] + hours[7])
+    )
+    assert result["plant_id_eia"].tolist() == [1]
+    assert result.loc[0, "operating_capacity_mwh"] == pytest.approx(expected)
